@@ -1,0 +1,37 @@
+[package]
+name = "augur-git"
+version = "0.1.0"
+authors = ["Lionel Fung"]
+edition = "2024"
+description = "Dark-themed Git GUI client (Git 图形客户端) built with GPUI"
+
+[dependencies]
+gpui = { git = "https://github.com/zed-industries/zed" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }
+gpui-component = { git = "https://github.com/longbridge/gpui-component" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
+log = "0.4"
+env_logger = "0.11"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"
+windows = { version = "0.62.2", features = ["Win32_UI_Input_Ime", "Win32_UI_WindowsAndMessaging"] }
+
+# 与 augur-term/augur-com 相同的 fork patch：IME/DirectWrite 修复在 augur-lab 分支
+[patch."https://github.com/zed-industries/zed"]
+gpui = { git = "https://github.com/augur-lab/zed", package = "gpui" }
+gpui_platform = { git = "https://github.com/augur-lab/zed", package = "gpui_platform" }
+gpui_windows = { git = "https://github.com/augur-lab/zed", package = "gpui_windows" }
+http_client = { git = "https://github.com/augur-lab/zed", package = "http_client" }
+
+[patch."https://github.com/longbridge/gpui-component"]
+gpui-component = { git = "https://github.com/augur-lab/gpui-component", package = "gpui-component" }
+gpui-component-assets = { git = "https://github.com/augur-lab/gpui-component", package = "gpui-component-assets" }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "z"
+panic = "abort"
