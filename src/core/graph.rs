@@ -1,0 +1,626 @@
+//! M1：提交树布局算法（从 rgitui 的 `crates/rgitui_git/src/graph.rs` 移植）
+//!
+//! `compute_graph` 为提交列表分配 lane 并生成行间连接边：
+//! - main/master 链始终占 lane 0，功能分支被推到其他 lane
+//! - 分支尖端后来出现时分配新 lane；lane 空闲时向内压缩
+//! - 颜色按 lane 分配并沿分支保持一致
+//! - 祖先可达性用记忆化集合（AncestorCache），避免每次查询重走 parent DAG
+//!
+//! 与 rgitui 的差异：oid 用 String（无 git2 依赖），refs 从 %D 装饰字符串判断。
+//!
+//! 当前渲染用 git log --graph 的 ASCII 布局（core/git.rs），本算法 M2 备用。
+
+#![allow(dead_code)]
+
+/// 一行提交（git log 解析产物，含 parents 供图算法使用）
+#[derive(Clone, Debug)]
+pub struct LogRow {
+    /// lane/连线前缀字符（git log --graph 输出，等宽字体渲染）
+    pub graph: String,
+    /// 完整 oid（40 hex）
+    pub oid: String,
+    /// 短 oid（7 hex）
+    pub short: String,
+    pub author: String,
+    /// 已格式化的提交时间（git --date=format）
+    pub date: String,
+    pub subject: String,
+    /// 引用装饰（"HEAD -> main, origin/main"）
+    pub decorations: String,
+    /// 父提交 oid 列表（git log %P，空格分隔）
+    pub parents: Vec<String>,
+}
+
+/// 提交在图中的位置（一行）
+#[derive(Debug, Clone)]
+pub struct GraphRow {
+    /// 本提交节点所在 lane
+    pub node_lane: usize,
+    /// 本行绘制的连接边
+    pub edges: Vec<GraphEdge>,
+    /// 本行活跃 lane 总数
+    pub lane_count: usize,
+    /// 节点圆点颜色索引（按 lane 颜色）
+    pub node_color: usize,
+    /// 是否从上一行有入边（分支尖端为 false）
+    pub has_incoming: bool,
+    /// 是否 HEAD 提交
+    pub is_head: bool,
+    /// 是否 merge 提交（多于一个 parent）
+    pub is_merge: bool,
+}
+
+/// 连接两行的边
+#[derive(Debug, Clone)]
+pub struct GraphEdge {
+    /// 起点 lane（上一行）
+    pub from_lane: usize,
+    /// 终点 lane（本行）
+    pub to_lane: usize,
+    /// 颜色索引（同分支一致）
+    pub color_index: usize,
+    /// 是否 merge 边（连向非主 parent）
+    pub is_merge: bool,
+}
+
+/// 记忆化的祖先可达性（照抄 rgitui：per-descendant 祖先集合，按需计算并复用）
+struct AncestorCache {
+    sets: std::collections::HashMap<String, std::collections::HashSet<String>>,
+}
+
+impl AncestorCache {
+    fn new() -> Self {
+        Self {
+            sets: std::collections::HashMap::new(),
+        }
+    }
+
+    /// ancestor 是否为 descendant 的祖先（自反：自己算自己祖先）
+    fn is_ancestor_of(
+        &mut self,
+        ancestor: &str,
+        descendant: &str,
+        commits: &[LogRow],
+        oid_to_idx: &std::collections::HashMap<String, usize>,
+    ) -> bool {
+        if ancestor == descendant {
+            return true;
+        }
+        self.proper_ancestors(descendant, commits, oid_to_idx)
+            .contains(ancestor)
+    }
+
+    fn proper_ancestors(
+        &mut self,
+        descendant: &str,
+        commits: &[LogRow],
+        oid_to_idx: &std::collections::HashMap<String, usize>,
+    ) -> &std::collections::HashSet<String> {
+        self.sets.entry(descendant.to_string()).or_insert_with(|| {
+            let mut ancestors = std::collections::HashSet::new();
+            let mut queue = match oid_to_idx.get(descendant) {
+                Some(&idx) => commits[idx].parents.clone(),
+                None => Vec::new(),
+            };
+            while let Some(current) = queue.pop() {
+                if ancestors.insert(current.clone()) {
+                    if let Some(&idx) = oid_to_idx.get(&current) {
+                        queue.extend(commits[idx].parents.iter().cloned());
+                    }
+                }
+            }
+            ancestors
+        })
+    }
+}
+
+/// 装饰字符串 → 引用列表（"HEAD -> main, origin/main" → ["HEAD -> main", "origin/main"]）
+fn refs_of(decorations: &str) -> Vec<&str> {
+    if decorations.is_empty() {
+        Vec::new()
+    } else {
+        decorations.split(", ").collect()
+    }
+}
+
+fn is_head_ref(r: &str) -> bool {
+    r == "HEAD" || r.starts_with("HEAD ->")
+}
+
+fn is_main_ref(r: &str) -> bool {
+    r == "main" || r == "master" || r.ends_with("/main") || r.ends_with("/master")
+}
+
+/// 找 main/master 分支尖端 oid（提交按拓扑序，第一个匹配的 ref 最靠前）
+fn find_main_branch_tip(commits: &[LogRow]) -> Option<String> {
+    let mut main_tip: Option<String> = None;
+    let mut master_tip: Option<String> = None;
+
+    for commit in commits {
+        for r in refs_of(&commit.decorations) {
+            if is_main_ref(r) && main_tip.is_none() {
+                main_tip = Some(commit.oid.clone());
+            }
+            if (r == "master" || r.ends_with("/master")) && master_tip.is_none() {
+                master_tip = Some(commit.oid.clone());
+            }
+        }
+    }
+
+    main_tip.or(master_tip)
+}
+
+/// 计算 main 分支第一父链（merge 时选最可能是主线的 parent）
+fn compute_main_chain(
+    main_tip: &str,
+    commits: &[LogRow],
+    oid_to_idx: &std::collections::HashMap<String, usize>,
+) -> std::collections::HashSet<String> {
+    let mut chain = std::collections::HashSet::new();
+    let mut current = Some(main_tip.to_string());
+    while let Some(oid) = current {
+        chain.insert(oid.clone());
+        current = oid_to_idx.get(&oid).and_then(|&idx| {
+            let commit = &commits[idx];
+            if commit.parents.len() <= 1 {
+                commit.parents.first().cloned()
+            } else {
+                pick_main_parent(&commit.parents, commits, oid_to_idx)
+            }
+        });
+    }
+    chain
+}
+
+/// merge 提交里选主 parent：优先没有功能分支 ref 指向的 parent
+fn pick_main_parent(
+    parents: &[String],
+    commits: &[LogRow],
+    oid_to_idx: &std::collections::HashMap<String, usize>,
+) -> Option<String> {
+    let mut non_feature_parent = None;
+    for parent_oid in parents {
+        let has_feature_ref = oid_to_idx.get(parent_oid).is_some_and(|idx| {
+            commits[*idx]
+                .decorations
+                .split(", ")
+                .any(|r| r != "main" && r != "master" && !r.ends_with("/main") && !r.ends_with("/master"))
+        });
+        if !has_feature_ref && non_feature_parent.is_none() {
+            non_feature_parent = Some(parent_oid.clone());
+        }
+    }
+    non_feature_parent.or_else(|| parents.first().cloned())
+}
+
+/// 计算提交图布局（照抄 rgitui compute_graph，String oid 化）
+pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
+    if commits.is_empty() {
+        return Vec::new();
+    }
+
+    let oid_to_idx: std::collections::HashMap<String, usize> = commits
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (c.oid.clone(), i))
+        .collect();
+
+    let mut ancestry = AncestorCache::new();
+
+    // HEAD oid（扫描全部提交——远端分支领先时 HEAD 可能不是最新）
+    let head_oid = commits
+        .iter()
+        .find(|c| refs_of(&c.decorations).iter().any(|r| is_head_ref(r)))
+        .map(|c| c.oid.clone());
+
+    // main 分支及第一父链（让 main 稳定在 lane 0）
+    let main_tip = find_main_branch_tip(commits);
+    let main_chain: std::collections::HashSet<String> = match &main_tip {
+        Some(tip) => compute_main_chain(tip, commits, &oid_to_idx),
+        None => head_oid
+            .as_ref()
+            .map(|head| compute_main_chain(head, commits, &oid_to_idx))
+            .unwrap_or_default(),
+    };
+
+    // 活跃 lane：(期望到达的 oid, 颜色索引)
+    let mut lanes: Vec<Option<(String, usize)>> = Vec::new();
+    let mut next_color: usize = 0;
+
+    // main_tip 不是列表首位时预占 lane 0（避免主线在 main_tip 处拐弯）
+    let reserve_lane_0 = main_tip
+        .as_ref()
+        .is_some_and(|tip| commits.first().is_some_and(|c| &c.oid != tip));
+    if reserve_lane_0 {
+        if let Some(tip) = &main_tip {
+            let color = next_color;
+            next_color += 1;
+            lanes.push(Some((tip.clone(), color)));
+        }
+    }
+
+    let mut rows = Vec::with_capacity(commits.len());
+
+    for (_idx, commit) in commits.iter().enumerate() {
+        let oid = &commit.oid;
+        let is_merge = commit.parents.len() > 1;
+        let is_head = head_oid.as_ref() == Some(oid);
+        let on_main = main_chain.contains(oid);
+
+        let (node_lane, has_incoming) = if on_main {
+            if matches!(lanes.first(), Some(Some((o, _))) if o == oid) {
+                (0, true)
+            } else if matches!(lanes.first(), Some(Some((expected, _))) if ancestry.is_ancestor_of(oid, expected, commits, &oid_to_idx))
+            {
+                let color = lanes[0].as_ref().map(|(_, c)| *c).unwrap_or(next_color);
+                lanes[0] = Some((oid.clone(), color));
+                (0, true)
+            } else if matches!(lanes.first(), Some(None)) || lanes.is_empty() {
+                let was_empty = lanes.is_empty();
+                let color = if was_empty {
+                    let c = next_color;
+                    next_color += 1;
+                    lanes.push(None);
+                    c
+                } else {
+                    0
+                };
+                lanes[0] = Some((oid.clone(), color));
+                (0, false)
+            } else if matches!(lanes.first(), Some(Some((expected, _))) if main_chain.contains(expected))
+            {
+                let color = lanes[0].as_ref().map(|(_, c)| *c).unwrap_or(next_color);
+                lanes[0] = Some((oid.clone(), color));
+                (0, true)
+            } else {
+                find_lane(oid, &mut lanes, &mut next_color, commits, &oid_to_idx, &mut ancestry, None)
+            }
+        } else {
+            find_lane(oid, &mut lanes, &mut next_color, commits, &oid_to_idx, &mut ancestry, Some(0))
+        };
+
+        let node_color = lanes[node_lane].as_ref().map(|(_, c)| *c).unwrap_or(0);
+
+        // 贯通边（本行其他活跃 lane 继续向下），以及等待本提交的陈旧 lane 的汇入边
+        let mut edges = Vec::new();
+        for (lane, slot) in lanes.iter_mut().enumerate() {
+            if lane == node_lane {
+                continue;
+            }
+            if let Some((expected_oid, color)) = slot {
+                if expected_oid == oid {
+                    edges.push(GraphEdge {
+                        from_lane: lane,
+                        to_lane: node_lane,
+                        color_index: *color,
+                        is_merge: false,
+                    });
+                    *slot = None;
+                } else {
+                    edges.push(GraphEdge {
+                        from_lane: lane,
+                        to_lane: lane,
+                        color_index: *color,
+                        is_merge: false,
+                    });
+                }
+            }
+        }
+
+        // 释放本提交的 lane 再分配 parents
+        lanes[node_lane] = None;
+
+        // 清除其他也在等同一 oid 的 lane（zombie 清理，转成汇入边）
+        for (lane_idx, lane) in lanes.iter_mut().enumerate() {
+            if matches!(lane, Some((o, _)) if o == oid) {
+                let color = lane.as_ref().map(|(_, c)| *c).unwrap_or(0);
+                *lane = None;
+                if let Some(edge) = edges
+                    .iter_mut()
+                    .find(|e| e.from_lane == lane_idx && e.to_lane == lane_idx)
+                {
+                    edge.to_lane = node_lane;
+                }
+                if !edges
+                    .iter()
+                    .any(|e| e.from_lane == lane_idx && e.to_lane == node_lane)
+                {
+                    edges.push(GraphEdge {
+                        from_lane: lane_idx,
+                        to_lane: node_lane,
+                        color_index: color,
+                        is_merge: false,
+                    });
+                }
+            }
+        }
+
+        // parents：主链 merge 提交把主链 parent 当主 parent 路由
+        if !commit.parents.is_empty() {
+            let (primary, secondaries) = if on_main && commit.parents.len() > 1 {
+                if let Some(main_parent_pos) =
+                    commit.parents.iter().position(|p| main_chain.contains(p))
+                {
+                    let primary = commit.parents[main_parent_pos].clone();
+                    let secondaries: Vec<String> = commit
+                        .parents
+                        .iter()
+                        .enumerate()
+                        .filter(|&(i, _)| i != main_parent_pos)
+                        .map(|(_, p)| p.clone())
+                        .collect();
+                    (primary, secondaries)
+                } else {
+                    (commit.parents[0].clone(), commit.parents[1..].to_vec())
+                }
+            } else {
+                (commit.parents[0].clone(), commit.parents[1..].to_vec())
+            };
+
+            let primary_on_main = on_main && main_chain.contains(&primary);
+            let primary_lane = if primary_on_main {
+                if matches!(lanes.first(), Some(Some((o, _))) if *o == primary) {
+                    0
+                } else if matches!(lanes.first(), Some(None)) || lanes.is_empty() {
+                    if lanes.is_empty() {
+                        lanes.push(None);
+                    }
+                    lanes[0] = Some((primary, node_color));
+                    0
+                } else if node_lane == 0 {
+                    lanes[0] = Some((primary, node_color));
+                    0
+                } else {
+                    route_parent(&primary, node_lane, node_color, &mut lanes, &mut next_color, commits, &oid_to_idx, &mut ancestry)
+                }
+            } else {
+                route_parent(&primary, node_lane, node_color, &mut lanes, &mut next_color, commits, &oid_to_idx, &mut ancestry)
+            };
+
+            edges.push(GraphEdge {
+                from_lane: node_lane,
+                to_lane: primary_lane,
+                color_index: node_color,
+                is_merge: false,
+            });
+
+            for parent in &secondaries {
+                let parent_lane = route_parent(parent, node_lane, node_color, &mut lanes, &mut next_color, commits, &oid_to_idx, &mut ancestry);
+                let parent_color = lanes[parent_lane].as_ref().map(|(_, c)| *c).unwrap_or(0);
+                edges.push(GraphEdge {
+                    from_lane: node_lane,
+                    to_lane: parent_lane,
+                    color_index: parent_color,
+                    is_merge: true,
+                });
+            }
+        }
+
+        // 压缩尾部空 lane
+        while lanes.last() == Some(&None) {
+            lanes.pop();
+        }
+
+        let lane_count = lanes.len().max(node_lane + 1);
+
+        rows.push(GraphRow {
+            node_lane,
+            edges,
+            lane_count,
+            node_color,
+            has_incoming,
+            is_head,
+            is_merge,
+        });
+    }
+
+    // 修剪 main_tip 上方纯 lane-0 贯通线（预占 lane 产生的幽灵线）
+    if reserve_lane_0 {
+        if let Some(tip) = &main_tip {
+            if let Some(&tip_idx) = oid_to_idx.get(tip) {
+                if tip_idx > 0 {
+                    let strip_until = rows
+                        .iter()
+                        .take(tip_idx)
+                        .position(|r| r.edges.iter().any(|e| e.to_lane == 0 && e.from_lane != 0))
+                        .map(|i| (i + 1).min(tip_idx))
+                        .unwrap_or(tip_idx);
+
+                    let mut last_stripped = None;
+                    for (idx, row) in rows.iter_mut().enumerate().take(strip_until) {
+                        let before = row.edges.len();
+                        row.edges.retain(|e| !(e.from_lane == 0 && e.to_lane == 0));
+                        if row.edges.len() != before {
+                            last_stripped = Some(idx);
+                        }
+                    }
+                    if last_stripped == Some(tip_idx - 1) {
+                        if let Some(tip_row) = rows.get_mut(tip_idx) {
+                            if tip_row.node_lane == 0 {
+                                tip_row.has_incoming = false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    rows
+}
+
+/// 为提交找 lane：精确 oid 匹配 → 祖先匹配 → 新开 lane
+fn find_lane(
+    oid: &str,
+    lanes: &mut Vec<Option<(String, usize)>>,
+    next_color: &mut usize,
+    commits: &[LogRow],
+    oid_to_idx: &std::collections::HashMap<String, usize>,
+    ancestry: &mut AncestorCache,
+    skip_lane: Option<usize>,
+) -> (usize, bool) {
+    if let Some(pos) = lanes
+        .iter()
+        .enumerate()
+        .position(|(i, s)| Some(i) != skip_lane && matches!(s, Some((o, _)) if o == oid))
+    {
+        return (pos, true);
+    }
+
+    if let Some(pos) = lanes.iter().enumerate().position(|(i, s)| {
+        Some(i) != skip_lane
+            && matches!(s, Some((expected_oid, _)) if ancestry.is_ancestor_of(oid, expected_oid, commits, oid_to_idx))
+    }) {
+        let color = lanes[pos].as_ref().map(|(_, c)| *c).unwrap_or(*next_color);
+        lanes[pos] = Some((oid.to_string(), color));
+        return (pos, true);
+    }
+
+    let color = *next_color;
+    *next_color += 1;
+    let pos = alloc_lane(lanes, skip_lane);
+    lanes[pos] = Some((oid.to_string(), color));
+    (pos, false)
+}
+
+/// 把 parent 路由到已有 lane 或新开 lane
+fn route_parent(
+    parent: &str,
+    node_lane: usize,
+    node_color: usize,
+    lanes: &mut Vec<Option<(String, usize)>>,
+    next_color: &mut usize,
+    commits: &[LogRow],
+    oid_to_idx: &std::collections::HashMap<String, usize>,
+    ancestry: &mut AncestorCache,
+) -> usize {
+    if let Some(target) = lanes
+        .iter()
+        .position(|s| matches!(s, Some((o, _)) if o == parent))
+    {
+        return target;
+    }
+
+    if lanes.get(node_lane) == Some(&None) {
+        lanes[node_lane] = Some((parent.to_string(), node_color));
+        return node_lane;
+    }
+
+    if let Some(target) = lanes.iter().position(|s| {
+        matches!(s, Some((expected_oid, _)) if ancestry.is_ancestor_of(parent, expected_oid, commits, oid_to_idx))
+    }) {
+        return target;
+    }
+
+    let color = *next_color;
+    *next_color += 1;
+    let pos = alloc_lane(lanes, None);
+    lanes[pos] = Some((parent.to_string(), color));
+    pos
+}
+
+/// 找第一个空闲 lane，没有则追加
+fn alloc_lane(lanes: &mut Vec<Option<(String, usize)>>, skip_lane: Option<usize>) -> usize {
+    if let Some(pos) = lanes
+        .iter()
+        .enumerate()
+        .position(|(i, l)| l.is_none() && Some(i) != skip_lane)
+    {
+        pos
+    } else {
+        lanes.push(None);
+        let pos = lanes.len() - 1;
+        if Some(pos) == skip_lane {
+            lanes.push(None);
+            lanes.len() - 1
+        } else {
+            pos
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_commit(oid_byte: u8, parents: &[u8], decorations: &str) -> LogRow {
+        let oid = format!("{:040x}", oid_byte);
+        LogRow {
+            graph: String::new(),
+            oid,
+            short: format!("{:07x}", oid_byte),
+            author: "Test".into(),
+            date: "2026-01-01 00:00".into(),
+            subject: format!("Commit {oid_byte}"),
+            decorations: decorations.into(),
+            parents: parents.iter().map(|b| format!("{:040x}", b)).collect(),
+        }
+    }
+
+    #[test]
+    fn linear_history_all_on_lane_zero() {
+        let commits = vec![
+            make_commit(1, &[2], "HEAD -> main"),
+            make_commit(2, &[3], ""),
+            make_commit(3, &[], ""),
+        ];
+        let rows = compute_graph(&commits);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].node_lane, 0);
+        assert_eq!(rows[1].node_lane, 0);
+        assert_eq!(rows[2].node_lane, 0);
+        assert!(rows[0].is_head);
+        assert!(!rows[0].is_merge);
+    }
+
+    #[test]
+    fn merge_commit_gets_second_lane() {
+        // main: 1 → 2 → 4（merge）；feature: 3 从 2 分出，4 合入
+        let commits = vec![
+            make_commit(4, &[2, 3], "HEAD -> main"),
+            make_commit(3, &[2], ""), // feature tip
+            make_commit(2, &[1], ""),
+            make_commit(1, &[], ""),
+        ];
+        let rows = compute_graph(&commits);
+        // merge 提交在主 lane
+        assert_eq!(rows[0].node_lane, 0);
+        assert!(rows[0].is_merge);
+        // feature 提交不在 lane 0
+        assert_ne!(rows[1].node_lane, 0);
+        // 有 merge 边
+        assert!(rows[0].edges.iter().any(|e| e.is_merge));
+        assert_eq!(rows[0].edges.iter().filter(|e| e.is_merge).count(), 1);
+    }
+
+    #[test]
+    fn feature_branch_ahead_of_main_gets_own_lane() {
+        // main tip 在后：feature 领先
+        let commits = vec![
+            make_commit(3, &[1], "feature"),      // 功能分支尖端
+            make_commit(2, &[1], "HEAD -> main"), // main 落后
+            make_commit(1, &[], ""),
+        ];
+        let rows = compute_graph(&commits);
+        assert_eq!(rows.len(), 3);
+        // main 链在 lane 0
+        assert_eq!(rows[1].node_lane, 0);
+        assert_eq!(rows[2].node_lane, 0);
+        // feature 尖端不在 lane 0
+        assert_ne!(rows[0].node_lane, 0);
+    }
+
+    #[test]
+    fn colors_stay_consistent_per_branch() {
+        // 线性链：所有提交同一颜色
+        let commits = vec![
+            make_commit(1, &[2], "HEAD -> main"),
+            make_commit(2, &[3], ""),
+            make_commit(3, &[4], ""),
+            make_commit(4, &[], ""),
+        ];
+        let rows = compute_graph(&commits);
+        let c0 = rows[0].node_color;
+        assert!(rows.iter().all(|r| r.node_color == c0));
+    }
+}
