@@ -1,9 +1,9 @@
-//! M1：Sidebar 侧栏——仓库路径/打开 + 本地分支分区 + 变更文件分区
+//! M1：Sidebar 侧栏——本地分支分区 + 变更文件分区
 //!
 //! 镜像 rgitui sidebar 的分区结构（本 M1 实现 分支/暂存/未暂存 三区）：
 //! - 分支区：点击选中 → 点击行内 checkout 按钮切换分支
 //! - 暂存/未暂存区：文件行点击 → 详情面板显示；行内 ✎ 按钮 → diff
-//! 顶部保留 M0 的仓库路径输入 + 打开/刷新（多仓库切换入口）
+//! 顶部保留 仓库 标题 + 收起按钮（路径输入/打开/刷新已移除，走 Welcome/工具栏）
 
 use std::time::{Duration, Instant};
 
@@ -11,7 +11,7 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
     ActiveTheme, h_flex,
-    input::{Input, InputState},
+    input::InputState,
     v_flex,
 };
 
@@ -21,10 +21,6 @@ use crate::git::shared;
 
 /// 侧栏事件
 pub enum SidebarEvent {
-    /// 用输入框路径打开仓库
-    OpenRepo,
-    /// 刷新仓库快照
-    Refresh,
     /// 打开最近仓库（输入框已回填）
     OpenRecent(String),
     /// 收起/展开侧栏
@@ -79,11 +75,6 @@ impl Sidebar {
             selected: None,
             flash_branches_until: None,
         }
-    }
-
-    /// 当前输入框仓库路径
-    pub fn repo_path(&self, cx: &App) -> String {
-        self.repo_path_input.read(cx).value().to_string()
     }
 
     /// 刷新最近仓库列表（打开成功后由 workspace 调用）
@@ -142,46 +133,6 @@ impl Sidebar {
 
     fn sidebar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
-        let input_bg = colors.input;
-
-        // 打开按钮（路径非空时高亮）
-        let btn_open = cx.entity();
-        let has_path = !self.repo_path(cx).is_empty();
-        let open_btn = div()
-            .id("btn-open")
-            .px_3()
-            .py_1()
-            .rounded_md()
-            .bg(if has_path {
-                Hsla::from(rgb(0x2F_81_F7))
-            } else {
-                input_bg
-            })
-            .text_color(if has_path {
-                gpui::white()
-            } else {
-                colors.muted_foreground
-            })
-            .text_size(px(12.))
-            .child("打开")
-            .on_click(move |_e, _w, cx| {
-                btn_open.update(cx, |_sidebar, cx| cx.emit(SidebarEvent::OpenRepo));
-            });
-
-        // 刷新按钮
-        let btn_refresh = cx.entity();
-        let refresh_btn = div()
-            .id("btn-refresh")
-            .px_3()
-            .py_1()
-            .rounded_md()
-            .bg(input_bg)
-            .text_color(colors.foreground)
-            .text_size(px(12.))
-            .child("刷新")
-            .on_click(move |_e, _w, cx| {
-                btn_refresh.update(cx, |_sidebar, cx| cx.emit(SidebarEvent::Refresh));
-            });
 
         // 收起按钮
         let btn_collapse = cx.entity();
@@ -221,14 +172,6 @@ impl Sidebar {
                             )
                             .child(div().flex_1())
                             .child(collapse_btn),
-                    )
-                    .child(Input::new(&self.repo_path_input).w_full().h_7())
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(open_btn)
-                            .child(refresh_btn)
-                            .child(div().flex_1()),
                     ),
             )
             .child(

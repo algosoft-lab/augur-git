@@ -177,14 +177,8 @@ impl Workspace {
 
         // ---- 面板交互事件 → Workspace 汇总 → GitView 命令 ----
 
-        // 侧栏：打开/刷新/切换分支/选中文件
+        // 侧栏：最近仓库/收起/切换分支/选中文件
         cx.subscribe(&sidebar, |workspace, _e, event, cx| match event {
-            SidebarEvent::OpenRepo => {
-                workspace.open_repo_from_input(cx);
-            }
-            SidebarEvent::Refresh => {
-                workspace.git_view.update(cx, |view, _| view.refresh());
-            }
             SidebarEvent::OpenRecent(path) => {
                 if workspace.git_view.read(cx).connected() {
                     workspace.git_view.update(cx, |view, _| view.close_repo());
