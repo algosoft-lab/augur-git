@@ -11,7 +11,9 @@
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, InteractiveElementExt, Root, TitleBar, h_flex,
+    ActiveTheme, Disableable, InteractiveElementExt, Root, TitleBar,
+    button::{Button, ButtonCustomVariant, ButtonVariants},
+    h_flex,
     input::{Input, InputEvent, InputState},
     theme::{Theme, ThemeMode},
     v_flex,
@@ -134,6 +136,8 @@ pub struct Workspace {
     sidebar_collapsed: bool,
     /// 底部面板当前 tab
     bottom_mode: BottomPanelMode,
+    /// tab 关闭按钮 hover 状态（× 变红）
+    tab_close_hovered: bool,
 }
 
 impl Workspace {
@@ -157,7 +161,13 @@ impl Workspace {
         // 输入框回车 = 打开仓库（侧栏/Welcome 共用）
         let input = repo_path_input.clone();
         cx.subscribe(&input, |workspace, _e, event, cx| {
-            if matches!(event, InputEvent::PressEnter { secondary: false, .. }) {
+            if matches!(
+                event,
+                InputEvent::PressEnter {
+                    secondary: false,
+                    ..
+                }
+            ) {
                 workspace.open_repo_from_input(cx);
             }
         })
@@ -241,9 +251,7 @@ impl Workspace {
                 workspace.toolbar.update(cx, |tb, cx| tb.set_busy(true, cx));
             }
             ToolbarEvent::Branch => {
-                workspace
-                    .sidebar
-                    .update(cx, |sb, cx| sb.flash_branches(cx));
+                workspace.sidebar.update(cx, |sb, cx| sb.flash_branches(cx));
             }
             ToolbarEvent::Refresh => {
                 workspace.git_view.update(cx, |view, _| view.refresh());
@@ -280,7 +288,15 @@ impl Workspace {
             }
             GraphEvent::ShowDiff(oid) => {
                 workspace.git_view.update(cx, |view, _| {
-                    view.run("show", vec!["show".into(), "--stat".into(), "--oneline".into(), oid.clone()]);
+                    view.run(
+                        "show",
+                        vec![
+                            "show".into(),
+                            "--stat".into(),
+                            "--oneline".into(),
+                            oid.clone(),
+                        ],
+                    );
                 });
             }
         })
@@ -324,14 +340,18 @@ impl Workspace {
                 cx.notify();
             }
             GitUiEvent::LogChanged { rows } => {
-                workspace.graph.update(cx, |g, cx| g.set_rows(rows.clone(), cx));
+                workspace
+                    .graph
+                    .update(cx, |g, cx| g.set_rows(rows.clone(), cx));
             }
             GitUiEvent::CommandDone {
                 label,
                 success,
                 message,
             } => {
-                workspace.toolbar.update(cx, |tb, cx| tb.set_busy(false, cx));
+                workspace
+                    .toolbar
+                    .update(cx, |tb, cx| tb.set_busy(false, cx));
                 // 命令输出 → 底部 Diff 面板
                 workspace.diff.update(cx, |dv, cx| {
                     dv.set_output(label.clone(), message.clone(), *success, cx);
@@ -391,6 +411,7 @@ impl Workspace {
             },
             sidebar_collapsed: false,
             bottom_mode: BottomPanelMode::Diff,
+            tab_close_hovered: false,
         }
     }
 
@@ -399,7 +420,11 @@ impl Workspace {
     fn title_bar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let repo = crate::git::dir_name(&self.config.repo.path).to_string();
-        let repo_label = if repo.is_empty() { "augur-git".to_string() } else { repo };
+        let repo_label = if repo.is_empty() {
+            "augur-git".to_string()
+        } else {
+            repo
+        };
 
         // 分支徽标（点击 → 侧栏分支区闪烁）
         let branch = match &self.status {
@@ -485,8 +510,7 @@ impl Workspace {
                 if ws.git_view.read(cx).connected() {
                     ws.git_view.update(cx, |view, _| view.close_repo());
                 }
-                ws.git_view
-                    .update(cx, |view, cx| view.open_repo(&path, cx));
+                ws.git_view.update(cx, |view, cx| view.open_repo(&path, cx));
             });
         })
         .detach();
@@ -512,31 +536,36 @@ impl Workspace {
         } else {
             SharedString::from(repo)
         };
-        let dot_color = if self.git_connected() {
-            colors.green
-        } else {
-            colors.muted
-        };
-        // 关闭按钮（×）：hover 变红，点击关闭仓库回 Welcome 页
+        // 关闭按钮（×，镜像 algocode：Button ghost + label 渲染，不用裸 div 文本）
+        // hover 变红（on_hover 驱动重渲染），点击停线程 + 清自动打开路径回 Welcome
         let this = cx.entity();
-        let close_btn = div()
-            .id("tab-close")
-            .w(px(16.))
-            .h(px(16.))
-            .rounded_sm()
-            .items_center()
-            .justify_center()
-            .text_size(px(12.))
-            .text_color(colors.muted)
-            .opacity(if has_repo { 1.0 } else { 0.35 })
-            .when(has_repo, |el| {
-                el.cursor(CursorStyle::PointingHand)
-                    .hover(|s| s.bg(colors.list_hover).text_color(colors.red))
-                    .on_click(move |_e, _w, cx| {
-                        this.update(cx, |ws, cx| ws.close_repo_tab(cx));
+        let this_hover = this.clone();
+        let this_click = this.clone();
+        let close_btn = Button::new("tab-close")
+            .label("×")
+            .ghost()
+            .size(px(14.))
+            .custom(
+                ButtonCustomVariant::new(cx)
+                    .foreground(if self.tab_close_hovered {
+                        colors.red
+                    } else {
+                        colors.muted
                     })
+                    .hover(colors.list_hover),
+            )
+            .when(!has_repo, |btn| btn.disabled(true))
+            .on_hover(move |hovered, _w, cx| {
+                this_hover.update(cx, |ws, cx| {
+                    if ws.tab_close_hovered != *hovered {
+                        ws.tab_close_hovered = *hovered;
+                        cx.notify();
+                    }
+                });
             })
-            .child("×");
+            .on_click(move |_e, _w, cx| {
+                this_click.update(cx, |ws, cx| ws.close_repo_tab(cx));
+            });
         h_flex()
             .id("tab-bar")
             .w_full()
@@ -561,13 +590,6 @@ impl Workspace {
                             .text_size(px(12.))
                             .text_color(colors.tab_active_foreground)
                             .child(tab_label),
-                    )
-                    .child(
-                        div()
-                            .w(px(6.))
-                            .h(px(6.))
-                            .rounded_full()
-                            .bg(dot_color),
                     )
                     .child(close_btn),
             )
@@ -671,8 +693,8 @@ impl Workspace {
             // 拖拽调宽（cx.listener：&mut Self + 上下文内 notify）
             .on_drag_move::<SidebarResize>(cx.listener(
                 |this, e: &DragMoveEvent<SidebarResize>, _, cx| {
-                    let new_w = f32::from(e.event.position.x)
-                        .clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
+                    let new_w =
+                        f32::from(e.event.position.x).clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
                     this.layout.sidebar_width = new_w;
                     cx.notify();
                 },
@@ -729,12 +751,7 @@ impl Workspace {
                     .flex_1()
                     .min_w_0()
                     .h_full()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_h_0()
-                            .child(self.graph.clone()),
-                    )
+                    .child(div().flex_1().min_h_0().child(self.graph.clone()))
                     .child(
                         div()
                             .id("diff-resize-handle")
@@ -768,12 +785,7 @@ impl Workspace {
                     .border_color(colors.border)
                     .flex()
                     .flex_col()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_h_0()
-                            .child(self.detail.clone()),
-                    )
+                    .child(div().flex_1().min_h_0().child(self.detail.clone()))
                     .child(
                         div()
                             .id("detail-resize-handle")
@@ -833,9 +845,23 @@ impl Workspace {
         };
 
         let this = cx.entity();
-        let tab_diff = make_tab("bt-diff", "Diff", BottomPanelMode::Diff, true, this.clone(), cx);
+        let tab_diff = make_tab(
+            "bt-diff",
+            "Diff",
+            BottomPanelMode::Diff,
+            true,
+            this.clone(),
+            cx,
+        );
         let this = cx.entity();
-        let tab_history = make_tab("bt-history", "历史", BottomPanelMode::History, false, this.clone(), cx);
+        let tab_history = make_tab(
+            "bt-history",
+            "历史",
+            BottomPanelMode::History,
+            false,
+            this.clone(),
+            cx,
+        );
         let this = cx.entity();
         let tab_blame = make_tab("bt-blame", "Blame", BottomPanelMode::Blame, false, this, cx);
 
@@ -926,8 +952,7 @@ impl Workspace {
                     )
                     .on_click(move |_e, _w, cx| {
                         this.update(cx, |ws, cx| {
-                            ws.git_view
-                                .update(cx, |view, cx| view.open_repo(&path, cx));
+                            ws.git_view.update(cx, |view, cx| view.open_repo(&path, cx));
                         });
                     })
             })
