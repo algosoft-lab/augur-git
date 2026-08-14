@@ -89,7 +89,11 @@ impl DetailPanel {
             .child(
                 div()
                     .text_size(px(12.))
-                    .text_color(if active { colors.foreground } else { colors.muted })
+                    .text_color(if active {
+                        colors.foreground
+                    } else {
+                        colors.muted_foreground
+                    })
                     .child(shared(label)),
             )
     }
@@ -110,7 +114,11 @@ impl Render for DetailPanel {
             });
         });
         let this = cx.entity();
-        let tab_bh = self.detail_tab(&colors, "分支概览", self.mode == RightPanelMode::BranchHealth);
+        let tab_bh = self.detail_tab(
+            &colors,
+            "分支概览",
+            self.mode == RightPanelMode::BranchHealth,
+        );
         let tab_bh = tab_bh.on_click(move |_e, _w, cx| {
             this.update(cx, |panel, cx| {
                 panel.mode = RightPanelMode::BranchHealth;
@@ -167,7 +175,7 @@ impl DetailPanel {
             .child(
                 div()
                     .text_size(px(12.))
-                    .text_color(colors.muted)
+                    .text_color(colors.muted_foreground)
                     .child("选择提交或文件查看详情"),
             )
     }
@@ -205,7 +213,7 @@ impl DetailPanel {
                     .child(
                         div()
                             .text_size(px(10.))
-                            .text_color(colors.muted)
+                            .text_color(colors.muted_foreground)
                             .child(shared(decorations)),
                     ),
             )
@@ -222,13 +230,13 @@ impl DetailPanel {
                     .child(
                         div()
                             .text_size(px(11.))
-                            .text_color(colors.muted)
+                            .text_color(colors.muted_foreground)
                             .child(shared(format!("作者 {author}"))),
                     )
                     .child(
                         div()
                             .text_size(px(11.))
-                            .text_color(colors.muted)
+                            .text_color(colors.muted_foreground)
                             .child(shared(format!("时间 {date}"))),
                     ),
             )
@@ -248,7 +256,7 @@ impl DetailPanel {
             'D' => ("删除", colors.red),
             'R' => ("重命名", colors.warning),
             'U' => ("冲突", colors.red),
-            _ => ("未跟踪", colors.muted),
+            _ => ("未跟踪", colors.muted_foreground),
         };
         v_flex()
             .id("detail-file")
@@ -272,7 +280,7 @@ impl DetailPanel {
                     .child(
                         div()
                             .text_size(px(11.))
-                            .text_color(colors.muted)
+                            .text_color(colors.muted_foreground)
                             .child(if staged { "已暂存" } else { "未暂存" }),
                     ),
             )
@@ -299,15 +307,18 @@ impl EventEmitter<CommitPanelEvent> for CommitPanel {}
 
 impl CommitPanel {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("提交信息（Enter 提交）")
-        });
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("提交信息（Enter 提交）"));
 
         // Ctrl+Enter = 提交
         let input_entity = input.clone();
         cx.subscribe(&input_entity, |panel, _e, event, cx| {
-            if matches!(event, InputEvent::PressEnter { secondary: false, .. }) {
+            if matches!(
+                event,
+                InputEvent::PressEnter {
+                    secondary: false,
+                    ..
+                }
+            ) {
                 let msg = panel.input.read(cx).value().to_string();
                 if !msg.trim().is_empty() {
                     cx.emit(CommitPanelEvent::Submit(msg));
@@ -371,7 +382,7 @@ impl Render for CommitPanel {
                     .rounded_md()
                     .hover(|this| this.bg(colors.list_hover))
                     .text_size(px(12.))
-                    .text_color(colors.muted)
+                    .text_color(colors.muted_foreground)
                     .child(if self.collapsed { "▴" } else { "▾" })
                     .on_click(move |_e, _w, cx| {
                         this.update(cx, |panel, cx| {
@@ -382,7 +393,11 @@ impl Render for CommitPanel {
             );
 
         if self.collapsed {
-            return v_flex().id("commit-panel").w_full().flex_shrink_0().child(header);
+            return v_flex()
+                .id("commit-panel")
+                .w_full()
+                .flex_shrink_0()
+                .child(header);
         }
 
         // 提交按钮（Ctrl+Enter 或点击）
@@ -392,8 +407,16 @@ impl Render for CommitPanel {
             .px_3()
             .py_1()
             .rounded_md()
-            .bg(if self.has_staged { Hsla::from(rgb(0x2F_81_F7)) } else { colors.input })
-            .text_color(if self.has_staged { gpui::white() } else { colors.muted })
+            .bg(if self.has_staged {
+                Hsla::from(rgb(0x2F_81_F7))
+            } else {
+                colors.input
+            })
+            .text_color(if self.has_staged {
+                gpui::white()
+            } else {
+                colors.muted_foreground
+            })
             .text_size(px(12.))
             .child("提交")
             .on_click(move |_e, _w, cx| {
@@ -418,7 +441,7 @@ impl Render for CommitPanel {
                             .child(
                                 div()
                                     .text_size(px(11.))
-                                    .text_color(colors.muted)
+                                    .text_color(colors.muted_foreground)
                                     .child(if self.has_staged {
                                         "将提交暂存的变更"
                                     } else {
@@ -449,12 +472,17 @@ impl DiffViewer {
     }
 
     /// 显示命令输出（workspace 从 CommandDone 转发）
-    pub fn set_output(&mut self, label: String, message: String, success: bool, cx: &mut Context<Self>) {
+    pub fn set_output(
+        &mut self,
+        label: String,
+        message: String,
+        success: bool,
+        cx: &mut Context<Self>,
+    ) {
         self.output = Some((label, message));
         self.failed = !success;
         cx.notify();
     }
-
 }
 
 impl Render for DiffViewer {
@@ -470,7 +498,7 @@ impl Render for DiffViewer {
                 .child(
                     div()
                         .text_size(px(12.))
-                        .text_color(colors.muted)
+                        .text_color(colors.muted_foreground)
                         .child("双击提交或点文件行 ✎ 查看 diff"),
                 )
                 .into_any_element();
@@ -484,7 +512,11 @@ impl Render for DiffViewer {
                 div()
                     .w_full()
                     .text_size(px(12.))
-                    .text_color(if self.failed { colors.red } else { colors.foreground })
+                    .text_color(if self.failed {
+                        colors.red
+                    } else {
+                        colors.foreground
+                    })
                     .child(shared(if l.is_empty() { " " } else { l }))
             })
             .collect::<Vec<_>>();
@@ -505,14 +537,22 @@ impl Render for DiffViewer {
                     .child(
                         div()
                             .text_size(px(11.))
-                            .text_color(if self.failed { colors.red } else { colors.muted })
+                            .text_color(if self.failed {
+                                colors.red
+                            } else {
+                                colors.muted_foreground
+                            })
                             .child(shared(format!("$ git {label}"))),
                     )
                     .child(div().flex_1())
                     .child(
                         div()
                             .text_size(px(11.))
-                            .text_color(if self.failed { colors.red } else { colors.green })
+                            .text_color(if self.failed {
+                                colors.red
+                            } else {
+                                colors.green
+                            })
                             .child(if self.failed { "失败" } else { "成功" }),
                     ),
             )
@@ -526,10 +566,12 @@ impl Render for DiffViewer {
                     .py_2()
                     .font_family(mono)
                     .children(if lines.is_empty() {
-                        vec![div()
-                            .text_size(px(12.))
-                            .text_color(colors.muted)
-                            .child("(无输出)")]
+                        vec![
+                            div()
+                                .text_size(px(12.))
+                                .text_color(colors.muted_foreground)
+                                .child("(无输出)"),
+                        ]
                     } else {
                         lines
                     }),

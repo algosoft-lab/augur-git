@@ -10,7 +10,9 @@ use std::time::{Duration, Instant};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, h_flex, input::{Input, InputState}, v_flex,
+    ActiveTheme, h_flex,
+    input::{Input, InputState},
+    v_flex,
 };
 
 use crate::core::config::AppConfig;
@@ -150,8 +152,16 @@ impl Sidebar {
             .px_3()
             .py_1()
             .rounded_md()
-            .bg(if has_path { Hsla::from(rgb(0x2F_81_F7)) } else { input_bg })
-            .text_color(if has_path { gpui::white() } else { colors.muted })
+            .bg(if has_path {
+                Hsla::from(rgb(0x2F_81_F7))
+            } else {
+                input_bg
+            })
+            .text_color(if has_path {
+                gpui::white()
+            } else {
+                colors.muted_foreground
+            })
             .text_size(px(12.))
             .child("打开")
             .on_click(move |_e, _w, cx| {
@@ -182,7 +192,7 @@ impl Sidebar {
             .rounded_md()
             .hover(|this| this.bg(colors.input))
             .text_size(px(12.))
-            .text_color(colors.muted)
+            .text_color(colors.muted_foreground)
             .child("«")
             .on_click(move |_e, _w, cx| {
                 btn_collapse.update(cx, |_sidebar, cx| cx.emit(SidebarEvent::ToggleCollapse));
@@ -206,7 +216,7 @@ impl Sidebar {
                             .child(
                                 div()
                                     .text_size(px(12.))
-                                    .text_color(colors.muted)
+                                    .text_color(colors.muted_foreground)
                                     .child("仓库"),
                             )
                             .child(div().flex_1())
@@ -267,7 +277,11 @@ impl Sidebar {
                         div()
                             .w(px(14.))
                             .text_size(px(12.))
-                            .text_color(if is_head { colors.green } else { colors.muted })
+                            .text_color(if is_head {
+                                colors.green
+                            } else {
+                                colors.muted_foreground
+                            })
                             .child(if is_head { "●" } else { "○" }),
                     )
                     .child(
@@ -290,7 +304,7 @@ impl Sidebar {
                                 .rounded_sm()
                                 .hover(|this| this.bg(colors.input))
                                 .text_size(px(11.))
-                                .text_color(colors.muted)
+                                .text_color(colors.muted_foreground)
                                 .child("⇥")
                                 .on_click(move |_e, _w, cx| {
                                     this.update(cx, |_sidebar, cx| {
@@ -314,19 +328,23 @@ impl Sidebar {
                     .px_2()
                     .py_0p5()
                     .rounded_md()
-                    .bg(if flash { colors.list_active } else { colors.background })
+                    .bg(if flash {
+                        colors.list_active
+                    } else {
+                        colors.background
+                    })
                     .items_center()
                     .gap_1()
                     .child(
                         div()
                             .text_size(px(11.))
-                            .text_color(colors.muted)
+                            .text_color(colors.muted_foreground)
                             .child("分支"),
                     )
                     .child(
                         div()
                             .text_size(px(10.))
-                            .text_color(colors.muted)
+                            .text_color(colors.muted_foreground)
                             .child(self.branches.len().to_string()),
                     ),
             )
@@ -361,7 +379,11 @@ impl Sidebar {
                     .gap_1()
                     .items_center()
                     .rounded_sm()
-                    .bg(if selected { colors.list_active } else { colors.background })
+                    .bg(if selected {
+                        colors.list_active
+                    } else {
+                        colors.background
+                    })
                     .hover(|this| {
                         if !selected {
                             this.bg(colors.list_hover)
@@ -394,7 +416,7 @@ impl Sidebar {
                             .rounded_sm()
                             .hover(|this| this.bg(colors.input))
                             .text_size(px(11.))
-                            .text_color(colors.muted)
+                            .text_color(colors.muted_foreground)
                             .child("✎")
                             .on_click(move |_e, _w, cx| {
                                 this_diff.update(cx, |_sidebar, cx| {
@@ -470,11 +492,7 @@ impl Render for Sidebar {
 }
 
 /// 分区标题（名字 + 计数）
-fn section_header(
-    cx: &Context<Sidebar>,
-    title: &str,
-    count: usize,
-) -> impl IntoElement {
+fn section_header(cx: &Context<Sidebar>, title: &str, count: usize) -> impl IntoElement {
     let colors = cx.theme().colors.clone();
     h_flex()
         .id(SharedString::from(format!("section-{title}")))
@@ -486,13 +504,13 @@ fn section_header(
         .child(
             div()
                 .text_size(px(11.))
-                .text_color(colors.muted)
+                .text_color(colors.muted_foreground)
                 .child(shared(title)),
         )
         .child(
             div()
                 .text_size(px(10.))
-                .text_color(colors.muted)
+                .text_color(colors.muted_foreground)
                 .child(count.to_string()),
         )
 }
@@ -503,7 +521,7 @@ fn status_style(colors: &gpui_component::theme::ThemeColor, code: char) -> (Hsla
         'M' | 'R' | 'C' => colors.warning,
         'A' => colors.green,
         'D' | 'U' => colors.red,
-        _ => colors.muted,
+        _ => colors.muted_foreground,
     };
     let label = match code {
         'M' => "改",

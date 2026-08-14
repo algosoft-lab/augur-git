@@ -104,7 +104,14 @@ impl Render for Toolbar {
             .bg(colors.tab_bar)
             .border_b_1()
             .border_color(colors.border)
-            .child(self.tool_button("tb-fetch", "Fetch", &colors, enabled, ToolbarEvent::Fetch, cx))
+            .child(self.tool_button(
+                "tb-fetch",
+                "Fetch",
+                &colors,
+                enabled,
+                ToolbarEvent::Fetch,
+                cx,
+            ))
             .child(self.tool_button("tb-pull", "Pull", &colors, enabled, ToolbarEvent::Pull, cx))
             .child(self.tool_button("tb-push", "Push", &colors, enabled, ToolbarEvent::Push, cx))
             .child(self.tool_button("tb-branch", "分支", &colors, true, ToolbarEvent::Branch, cx))
@@ -136,10 +143,24 @@ impl Render for Toolbar {
             .child(
                 div()
                     .text_size(px(11.))
-                    .text_color(colors.muted)
+                    .text_color(colors.muted_foreground)
                     .child(if self.busy { "操作中…" } else { "" }),
             )
-            .child(self.tool_button("tb-refresh", "刷新", &colors, true, ToolbarEvent::Refresh, cx))
-            .child(self.tool_button("tb-settings", "设置", &colors, false, ToolbarEvent::Settings, cx))
+            .child(self.tool_button(
+                "tb-refresh",
+                "刷新",
+                &colors,
+                true,
+                ToolbarEvent::Refresh,
+                cx,
+            ))
+            .child(self.tool_button(
+                "tb-settings",
+                "设置",
+                &colors,
+                false,
+                ToolbarEvent::Settings,
+                cx,
+            ))
     }
 }

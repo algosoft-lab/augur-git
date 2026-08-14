@@ -68,6 +68,10 @@ pub fn run(app: Application) {
 
         // 暗黑主题（VSCode Dark+ 风格）
         Theme::change(ThemeMode::Dark, None, cx);
+        // 灰度文字可读性覆盖：shadcn 暗色默认 muted_foreground(neutral-400 #a3a3a3)
+        // 与表头灰(#525252)在纯黑背景上偏暗，统一提亮（层级仍低于 foreground #fafafa）
+        Theme::global_mut(cx).muted_foreground = Hsla::from(rgb(0xB4B4B4));
+        Theme::global_mut(cx).table_head_foreground = Hsla::from(rgb(0xA3A3A3));
 
         cx.spawn(async move |cx| {
             let window_options = cx.update(initial_window_options);
@@ -464,7 +468,7 @@ impl Workspace {
                 .child(
                     div()
                         .text_size(px(12.))
-                        .text_color(colors.muted)
+                        .text_color(colors.muted_foreground)
                         .child(repo_label),
                 )
                 .when_some(branch_badge, |el, badge| el.child(badge)),
@@ -540,8 +544,7 @@ impl Workspace {
             .ghost()
             .size(px(14.))
             .custom(
-                ButtonCustomVariant::new(cx)
-                    .foreground(colors.tab_active_foreground.opacity(0.6)),
+                ButtonCustomVariant::new(cx).foreground(colors.tab_active_foreground.opacity(0.6)),
             )
             .when(!has_repo, |btn| btn.disabled(true))
             .on_click(move |_e, _w, cx| {
@@ -585,7 +588,7 @@ impl Workspace {
     fn status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let (text, color) = match &self.status {
-            GitStatus::None => ("未打开仓库".to_string(), colors.muted),
+            GitStatus::None => ("未打开仓库".to_string(), colors.muted_foreground),
             GitStatus::Scanning => ("扫描中…".to_string(), colors.warning),
             GitStatus::Ready(label) => (format!("● {label}"), colors.green),
             GitStatus::Error(msg) => (format!("✗ {msg}"), colors.red),
@@ -611,7 +614,7 @@ impl Workspace {
             .child(
                 div()
                     .text_size(px(11.))
-                    .text_color(colors.muted)
+                    .text_color(colors.muted_foreground)
                     .child(SharedString::from(left)),
             )
             .child(
@@ -649,7 +652,7 @@ impl Workspace {
                     .rounded_md()
                     .hover(|this| this.bg(cx.theme().colors.input))
                     .text_size(px(12.))
-                    .text_color(cx.theme().colors.muted)
+                    .text_color(cx.theme().colors.muted_foreground)
                     .child("»")
                     .on_click(move |_e, _w, cx| {
                         this.update(cx, |workspace, cx| {
@@ -812,7 +815,7 @@ impl Workspace {
                 .text_color(if active {
                     colors.tab_active_foreground
                 } else {
-                    colors.muted
+                    colors.muted_foreground
                 })
                 .child(SharedString::from(label))
                 .when(enabled, |el| {
@@ -968,7 +971,7 @@ impl Workspace {
             .child(
                 div()
                     .text_size(px(12.))
-                    .text_color(colors.muted)
+                    .text_color(colors.muted_foreground)
                     .child("桌面 Git 客户端"),
             )
             // 路径输入行：输入框 + 打开 + 浏览…
@@ -990,7 +993,7 @@ impl Workspace {
                             div()
                                 .px_2()
                                 .text_size(px(11.))
-                                .text_color(colors.muted)
+                                .text_color(colors.muted_foreground)
                                 .child("最近仓库"),
                         )
                         .children(recents),
