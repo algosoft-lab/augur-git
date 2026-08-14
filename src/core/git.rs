@@ -298,7 +298,7 @@ fn run_log(repo_path: &str, event_tx: &Sender<GitEvent>) {
             "--graph",
             "--max-count=200",
             "--date=format:%Y-%m-%d %H:%M",
-            "--pretty=format:%H%x00%h%x00%an%x00%ai%x00%s%x00%D%x00%P",
+            "--pretty=format:%H%x00%h%x00%an%x00%ai%x00%at%x00%s%x00%D%x00%P",
         ])
         .output();
     match output {
@@ -317,9 +317,9 @@ fn run_log(repo_path: &str, event_tx: &Sender<GitEvent>) {
     }
 }
 
-/// 解析 `git log --graph --pretty=format:%H%x00%h%x00%an%x00%ai%x00%s%x00%D%x00%P` 输出
+/// 解析 `git log --graph --pretty=format:%H%x00%h%x00%an%x00%ai%x00%at%x00%s%x00%D%x00%P` 输出
 ///
-/// 每行结构：`<graph 区><40-hex oid>\0<short>\0<author>\0<date>\0<subject>\0<decorations>\0<parents>`
+/// 每行结构：`<graph 区><40-hex oid>\0<short>\0<author>\0<date>\0<timestamp>\0<subject>\0<decorations>\0<parents>`
 /// graph 区字符集为 `| * / \ _ . -` + 空格（不含 a-f 等 hex 字符），
 /// 跳过行首 graph 字符后剩下的必以 40-hex 开头。
 fn parse_log(text: &str) -> Vec<LogRow> {
@@ -337,20 +337,26 @@ fn parse_log(text: &str) -> Vec<LogRow> {
             continue;
         }
         let parents = fields
-            .get(6)
+            .get(7)
             .copied()
             .unwrap_or("")
             .split_whitespace()
             .map(|s| s.to_string())
             .collect();
+        // %at = 作者时间戳（unix 秒，相对时间显示用）
+        let timestamp = fields
+            .get(4)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
         rows.push(LogRow {
             graph: line[..graph_end].to_string(),
             oid: fields[0].to_string(),
             short: fields[1].to_string(),
             author: fields[2].to_string(),
             date: fields[3].to_string(),
-            subject: fields[4].to_string(),
-            decorations: fields[5].to_string(),
+            timestamp,
+            subject: fields[5].to_string(),
+            decorations: fields.get(6).copied().unwrap_or("").to_string(),
             parents,
         });
     }
@@ -399,18 +405,19 @@ mod tests {
 
     #[test]
     fn parse_log_plain() {
-        let text = "0123456789abcdef0123456789abcdef01234567\0short\0Lionel Fung\02026-08-13 20:00\0M0 框架\0HEAD -> main\0\n";
+        let text = "0123456789abcdef0123456789abcdef01234567\0short\0Lionel Fung\02026-08-13 20:00\01756123456\0M0 框架\0HEAD -> main\0\n";
         let rows = parse_log(text);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].oid, "0123456789abcdef0123456789abcdef01234567");
         assert_eq!(rows[0].subject, "M0 框架");
         assert_eq!(rows[0].decorations, "HEAD -> main");
+        assert_eq!(rows[0].timestamp, 17_561_234_56);
         assert!(rows[0].parents.is_empty());
     }
 
     #[test]
     fn parse_log_with_parents() {
-        let text = "0123456789abcdef0123456789abcdef01234567\0s\0a\0d\0merge 分支\0HEAD -> main\089abcdef0123456789abcdef0123456789abcdef ffff0123456789abcdef0123456789abcdef01\n";
+        let text = "0123456789abcdef0123456789abcdef01234567\0s\0a\0d\01756123456\0merge 分支\0HEAD -> main\089abcdef0123456789abcdef0123456789abcdef ffff0123456789abcdef0123456789abcdef01\n";
         let rows = parse_log(text);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].oid, "0123456789abcdef0123456789abcdef01234567");

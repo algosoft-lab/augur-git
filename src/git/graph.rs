@@ -2,9 +2,11 @@
 
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::{ActiveTheme, InteractiveElementExt, h_flex, v_flex};
+use gpui_component::{
+    ActiveTheme, InteractiveElementExt, h_flex, theme::ThemeColor, v_flex,
+};
 
-use crate::core::graph::{GraphRow, LogRow, compute_graph};
+use crate::core::graph::{GraphRow, LogRow, compute_graph, format_relative_time};
 use crate::git::shared;
 
 /// 提交树行高（h_9=36px：圆心距 36，节点直径 24，边缘间距 12 = 半径，验证项目同比例）
@@ -13,6 +15,12 @@ pub const ROW_HEIGHT: f32 = 36.0;
 pub const COL_WIDTH: f32 = 24.0;
 /// 节点空心圆半径（stroke 描边细线圆，直径 24）
 const NODE_RADIUS: f32 = 12.0;
+/// Hash 列宽（列头与行共用，保证对齐）
+const HASH_COL_WIDTH: f32 = 60.0;
+/// 提交日期列宽（"2026-08-14 10:17" 16 字符；镜像 rgitui date 列 100px 默认）
+const DATE_COL_WIDTH: f32 = 120.0;
+/// 树列左侧留白（首个节点圆不贴左边界）
+const GRAPH_LEFT_PAD: f32 = 12.0;
 
 #[derive(Clone, Debug)]
 pub enum GraphEvent {
@@ -90,7 +98,12 @@ impl Render for GraphView {
         // 分支布局（镜像 rgitui：main 恒在 lane 0，颜色沿分支延续）
         let layout = compute_graph(&self.rows);
         let max_lanes = layout.iter().map(|r| r.lane_count).max().unwrap_or(1);
-        let tree_w = max_lanes as f32 * COL_WIDTH + 8.0;
+        let tree_w = GRAPH_LEFT_PAD + max_lanes as f32 * COL_WIDTH + 8.0;
+        // 相对时间基准（unix 秒）
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
 
         let rows = self
             .rows
@@ -158,7 +171,7 @@ impl Render for GraphView {
                                 .h_full(),
                             )
                             .when_some(node_col, |el, col| {
-                                let xc = col * COL_WIDTH + COL_WIDTH / 2.0;
+                                let xc = GRAPH_LEFT_PAD + col * COL_WIDTH + COL_WIDTH / 2.0;
                                 let letters = node_letters.clone();
                                 el.child(
                                     div()
@@ -178,6 +191,7 @@ impl Render for GraphView {
                     )
                     .child(
                         div()
+                            .w(px(HASH_COL_WIDTH))
                             .flex_shrink_0()
                             .font_family(mono.clone())
                             .text_size(px(12.))
@@ -192,6 +206,15 @@ impl Render for GraphView {
                             .text_color(colors.foreground)
                             .child(shared(row.author)),
                     )
+                    // Date 列：相对时间（镜像 rgitui format_relative_time）
+                    .child(
+                        div()
+                            .w(px(DATE_COL_WIDTH))
+                            .flex_shrink_0()
+                            .text_size(px(12.))
+                            .text_color(colors.muted_foreground)
+                            .child(shared(format_relative_time(row.timestamp, now))),
+                    )
             })
             .collect::<Vec<_>>();
 
@@ -199,6 +222,7 @@ impl Render for GraphView {
             .id("graph-view")
             .size_full()
             .bg(colors.background)
+            .child(self.column_header(&colors, tree_w))
             .child(
                 v_flex()
                     .id("graph-scroll")
@@ -208,6 +232,78 @@ impl Render for GraphView {
                     .child(v_flex().id("graph-rows").children(rows)),
             )
             .into_any_element()
+    }
+}
+
+impl GraphView {
+    /// 列头（参考 rgitui graph header：26px 条、muted 半粗小标签、下边框；
+    /// 列宽与行内列对齐：Graph 树列 / Hash / Author）
+    fn column_header(&self, colors: &ThemeColor, tree_w: f32) -> impl IntoElement {
+        let label = |text: &str| {
+            div()
+                .text_size(px(11.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(colors.muted_foreground)
+                .child(shared(text))
+        };
+        // 列间分割短线：1px 宽、14px 高，absolute 定位于间隙中点——
+        // 不参与 flex 布局，header 列宽与行内列严格一致（行内容不穿越分割线）
+        let divider = |x: f32| {
+            div()
+                .absolute()
+                .left(px(x))
+                .top(px(6.))
+                .w(px(1.))
+                .h(px(14.))
+                .bg(colors.border)
+        };
+        // 与行内列布局相同：树列 w(tree_w) + gap(8) + Hash w(60) + gap(8) + Author flex_1
+        let gap = 8.0;
+        h_flex()
+            .id("graph-header")
+            .w_full()
+            .h(px(26.))
+            .flex_shrink_0()
+            .pr_2()
+            .gap_2()
+            .items_center()
+            .relative()
+            .bg(colors.tab_bar)
+            .border_b_1()
+            .border_color(colors.border)
+            // Graph 列：与行内树画布同宽
+            .child(div().w(px(tree_w)).flex_shrink_0().pl_1().child(label("Graph")))
+            // Hash 列：与行内短 oid 同宽
+            .child(
+                div()
+                    .w(px(HASH_COL_WIDTH))
+                    .flex_shrink_0()
+                    .child(label("Hash")),
+            )
+            // Author 列：占满剩余
+            .child(div().flex_1().child(label("Author")))
+            // Date 列：与行内日期同宽；分割线 absolute 定位于本列左缘左侧
+            // 4px（= 与 Author 列的 8px 间隙中点），不参与布局
+            .child(
+                div()
+                    .relative()
+                    .w(px(DATE_COL_WIDTH))
+                    .flex_shrink_0()
+                    .child(label("Date"))
+                    .child(
+                        div()
+                            .absolute()
+                            .left(px(-4.))
+                            .top(px(6.))
+                            .w(px(1.))
+                            .h(px(14.))
+                            .bg(colors.border),
+                    ),
+            )
+            // 分割线 1：Graph/Hash 间隙中点
+            .child(divider(tree_w + gap / 2.0))
+            // 分割线 2：Hash/Author 间隙中点
+            .child(divider(tree_w + gap + HASH_COL_WIDTH + gap / 2.0))
     }
 }
 
@@ -251,7 +347,9 @@ fn draw_graph_row(row: &GraphRow, bounds: Bounds<Pixels>, window: &mut Window) {
     let origin_x = bounds.origin.x;
     let origin_y = bounds.origin.y;
     let mid_y = ROW_HEIGHT / 2.0;
-    let lane_x = |lane: usize| origin_x + px(lane as f32 * COL_WIDTH + COL_WIDTH / 2.0);
+    let lane_x = |lane: usize| {
+        origin_x + px(GRAPH_LEFT_PAD + lane as f32 * COL_WIDTH + COL_WIDTH / 2.0)
+    };
     let node_x = lane_x(row.node_lane);
 
     // 1. 入边（到本行节点）+ 跨 lane 贯通边
@@ -317,8 +415,13 @@ fn draw_graph_row(row: &GraphRow, bounds: Bounds<Pixels>, window: &mut Window) {
             window,
         );
     }
-    // 节点下段：有出边才画
-    if row.edges.iter().any(|e| e.from_lane == row.node_lane) {
+    // 节点下段：仅同 lane 出边（主线继续往下）才画；
+    // 跨 lane 出边下方没有连线（由弧线承接），悬空小线段不显示
+    if row
+        .edges
+        .iter()
+        .any(|e| e.from_lane == row.node_lane && e.to_lane == row.node_lane)
+    {
         paint_stroke_line(
             node_x,
             origin_y + px(mid_y + NODE_RADIUS),

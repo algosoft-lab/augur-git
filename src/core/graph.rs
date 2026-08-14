@@ -25,6 +25,8 @@ pub struct LogRow {
     pub author: String,
     /// 已格式化的提交时间（git --date=format）
     pub date: String,
+    /// 作者时间戳（unix 秒，相对时间显示用）
+    pub timestamp: i64,
     pub subject: String,
     /// 引用装饰（"HEAD -> main, origin/main"）
     pub decorations: String,
@@ -595,6 +597,28 @@ fn alloc_lane(lanes: &mut Vec<Option<(String, usize)>>, skip_lane: Option<usize>
     }
 }
 
+/// 相对时间（镜像 rgitui format_relative_time；月份用 m、分钟用 min 避免歧义）：
+/// just now / Xmin ago / Xh ago / Xd ago / Xw ago / Xm ago / Xy ago
+pub fn format_relative_time(timestamp: i64, now: i64) -> String {
+    let minutes = ((now - timestamp).max(0) / 60) as i64;
+
+    if minutes < 1 {
+        "just now".to_string()
+    } else if minutes < 60 {
+        format!("{minutes}min ago")
+    } else if minutes < 60 * 24 {
+        format!("{}h ago", minutes / 60)
+    } else if minutes < 60 * 24 * 7 {
+        format!("{}d ago", minutes / (60 * 24))
+    } else if minutes < 60 * 24 * 30 {
+        format!("{}w ago", minutes / (60 * 24 * 7))
+    } else if minutes < 60 * 24 * 365 {
+        format!("{}m ago", minutes / (60 * 24 * 30))
+    } else {
+        format!("{}y ago", minutes / (60 * 24 * 365))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -607,6 +631,7 @@ mod tests {
             short: format!("{:07x}", oid_byte),
             author: "Test".into(),
             date: "2026-01-01 00:00".into(),
+            timestamp: 0,
             subject: format!("Commit {oid_byte}"),
             decorations: decorations.into(),
             parents: parents.iter().map(|b| format!("{:040x}", b)).collect(),
@@ -664,6 +689,22 @@ mod tests {
         assert_eq!(rows[2].node_lane, 0);
         // feature 尖端不在 lane 0
         assert_ne!(rows[0].node_lane, 0);
+    }
+
+    #[test]
+    fn relative_time_format() {
+        // 基准时间固定，逐档验证（含用户示例：昨天 1d / 7 天 1w / 一个月 1m / 一年 1y）
+        let now = 1_800_000_000i64;
+        assert_eq!(format_relative_time(now, now), "just now");
+        assert_eq!(format_relative_time(now - 30, now), "just now");
+        assert_eq!(format_relative_time(now - 5 * 60, now), "5min ago");
+        assert_eq!(format_relative_time(now - 3 * 3600, now), "3h ago");
+        assert_eq!(format_relative_time(now - 24 * 3600, now), "1d ago");
+        assert_eq!(format_relative_time(now - 7 * 86400, now), "1w ago");
+        assert_eq!(format_relative_time(now - 30 * 86400, now), "1m ago");
+        assert_eq!(format_relative_time(now - 365 * 86400, now), "1y ago");
+        // 未来时间钳制为 just now
+        assert_eq!(format_relative_time(now + 100, now), "just now");
     }
 
     #[test]
