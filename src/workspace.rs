@@ -136,8 +136,6 @@ pub struct Workspace {
     sidebar_collapsed: bool,
     /// 底部面板当前 tab
     bottom_mode: BottomPanelMode,
-    /// tab 关闭按钮 hover 状态（× 变红）
-    tab_close_hovered: bool,
 }
 
 impl Workspace {
@@ -411,7 +409,6 @@ impl Workspace {
             },
             sidebar_collapsed: false,
             bottom_mode: BottomPanelMode::Diff,
-            tab_close_hovered: false,
         }
     }
 
@@ -536,35 +533,19 @@ impl Workspace {
         } else {
             SharedString::from(repo)
         };
-        // 关闭按钮（×，镜像 algocode：Button ghost + label 渲染，不用裸 div 文本）
-        // hover 变红（on_hover 驱动重渲染），点击停线程 + 清自动打开路径回 Welcome
+        // 关闭按钮（×，镜像 algocode：Button ghost + label 渲染；常态可见，点击停线程回 Welcome）
         let this = cx.entity();
-        let this_hover = this.clone();
-        let this_click = this.clone();
         let close_btn = Button::new("tab-close")
             .label("×")
             .ghost()
             .size(px(14.))
             .custom(
                 ButtonCustomVariant::new(cx)
-                    .foreground(if self.tab_close_hovered {
-                        colors.red
-                    } else {
-                        colors.muted
-                    })
-                    .hover(colors.list_hover),
+                    .foreground(colors.tab_active_foreground.opacity(0.6)),
             )
             .when(!has_repo, |btn| btn.disabled(true))
-            .on_hover(move |hovered, _w, cx| {
-                this_hover.update(cx, |ws, cx| {
-                    if ws.tab_close_hovered != *hovered {
-                        ws.tab_close_hovered = *hovered;
-                        cx.notify();
-                    }
-                });
-            })
             .on_click(move |_e, _w, cx| {
-                this_click.update(cx, |ws, cx| ws.close_repo_tab(cx));
+                this.update(cx, |ws, cx| ws.close_repo_tab(cx));
             });
         h_flex()
             .id("tab-bar")
