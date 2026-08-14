@@ -166,7 +166,11 @@ fn refresh_all(repo_path: &str, event_tx: &Sender<GitEvent>) {
 
 /// 执行 git 命令（子进程阻塞，只在工作线程跑）
 fn run_git(repo_path: &str, label: &str, args: &[String], event_tx: &Sender<GitEvent>) {
-    let output = Command::new("git").arg("-C").arg(repo_path).args(args).output();
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(args)
+        .output();
     let event = match output {
         Ok(output) if output.status.success() => GitEvent::CommandDone {
             label: label.to_string(),
@@ -220,7 +224,10 @@ fn parse_status(text: &str) -> (String, Vec<FileStatus>, usize, usize) {
             // 提取 ahead/behind（无上游时整段缺失）
             if let Some(a) = rest.find("[ahead ") {
                 let tail = &rest[a + 7..];
-                let num = tail.split(|c: char| !c.is_ascii_digit()).next().unwrap_or("");
+                let num = tail
+                    .split(|c: char| !c.is_ascii_digit())
+                    .next()
+                    .unwrap_or("");
                 ahead = num.parse().unwrap_or(0);
                 if let Some(b) = tail.find("behind ") {
                     let num2 = tail[b + 7..]
@@ -356,7 +363,8 @@ mod tests {
 
     #[test]
     fn parse_status_normal() {
-        let text = "## main...origin/main [ahead 1, behind 2]\n M src/a.rs\nA  new.rs\n?? untracked.txt\n";
+        let text =
+            "## main...origin/main [ahead 1, behind 2]\n M src/a.rs\nA  new.rs\n?? untracked.txt\n";
         let (branch, files, ahead, behind) = parse_status(text);
         assert_eq!(branch, "main");
         assert_eq!(ahead, 1);
@@ -408,7 +416,10 @@ mod tests {
         assert_eq!(rows[0].oid, "0123456789abcdef0123456789abcdef01234567");
         assert_eq!(rows[0].subject, "merge 分支");
         assert_eq!(rows[0].parents.len(), 2);
-        assert_eq!(rows[0].parents[0], "89abcdef0123456789abcdef0123456789abcdef");
+        assert_eq!(
+            rows[0].parents[0],
+            "89abcdef0123456789abcdef0123456789abcdef"
+        );
     }
 
     #[test]

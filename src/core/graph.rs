@@ -8,7 +8,8 @@
 //!
 //! 与 rgitui 的差异：oid 用 String（无 git2 依赖），refs 从 %D 装饰字符串判断。
 //!
-//! 当前渲染用 git log --graph 的 ASCII 布局（core/git.rs），本算法 M2 备用。
+//! 由 GraphView（git/graph.rs）消费：lane/边/颜色与 rgitui 一致。
+//! LogRow.graph（git log --graph ASCII）保留作调试/兜底。
 
 #![allow(dead_code)]
 
@@ -181,10 +182,9 @@ fn pick_main_parent(
     let mut non_feature_parent = None;
     for parent_oid in parents {
         let has_feature_ref = oid_to_idx.get(parent_oid).is_some_and(|idx| {
-            commits[*idx]
-                .decorations
-                .split(", ")
-                .any(|r| r != "main" && r != "master" && !r.ends_with("/main") && !r.ends_with("/master"))
+            commits[*idx].decorations.split(", ").any(|r| {
+                r != "main" && r != "master" && !r.ends_with("/main") && !r.ends_with("/master")
+            })
         });
         if !has_feature_ref && non_feature_parent.is_none() {
             non_feature_parent = Some(parent_oid.clone());
@@ -273,10 +273,26 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
                 lanes[0] = Some((oid.clone(), color));
                 (0, true)
             } else {
-                find_lane(oid, &mut lanes, &mut next_color, commits, &oid_to_idx, &mut ancestry, None)
+                find_lane(
+                    oid,
+                    &mut lanes,
+                    &mut next_color,
+                    commits,
+                    &oid_to_idx,
+                    &mut ancestry,
+                    None,
+                )
             }
         } else {
-            find_lane(oid, &mut lanes, &mut next_color, commits, &oid_to_idx, &mut ancestry, Some(0))
+            find_lane(
+                oid,
+                &mut lanes,
+                &mut next_color,
+                commits,
+                &oid_to_idx,
+                &mut ancestry,
+                Some(0),
+            )
         };
 
         let node_color = lanes[node_lane].as_ref().map(|(_, c)| *c).unwrap_or(0);
@@ -371,10 +387,28 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
                     lanes[0] = Some((primary, node_color));
                     0
                 } else {
-                    route_parent(&primary, node_lane, node_color, &mut lanes, &mut next_color, commits, &oid_to_idx, &mut ancestry)
+                    route_parent(
+                        &primary,
+                        node_lane,
+                        node_color,
+                        &mut lanes,
+                        &mut next_color,
+                        commits,
+                        &oid_to_idx,
+                        &mut ancestry,
+                    )
                 }
             } else {
-                route_parent(&primary, node_lane, node_color, &mut lanes, &mut next_color, commits, &oid_to_idx, &mut ancestry)
+                route_parent(
+                    &primary,
+                    node_lane,
+                    node_color,
+                    &mut lanes,
+                    &mut next_color,
+                    commits,
+                    &oid_to_idx,
+                    &mut ancestry,
+                )
             };
 
             edges.push(GraphEdge {
@@ -385,7 +419,16 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
             });
 
             for parent in &secondaries {
-                let parent_lane = route_parent(parent, node_lane, node_color, &mut lanes, &mut next_color, commits, &oid_to_idx, &mut ancestry);
+                let parent_lane = route_parent(
+                    parent,
+                    node_lane,
+                    node_color,
+                    &mut lanes,
+                    &mut next_color,
+                    commits,
+                    &oid_to_idx,
+                    &mut ancestry,
+                );
                 let parent_color = lanes[parent_lane].as_ref().map(|(_, c)| *c).unwrap_or(0);
                 edges.push(GraphEdge {
                     from_lane: node_lane,

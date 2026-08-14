@@ -199,7 +199,10 @@ impl GitView {
                     success,
                     message,
                 } => {
-                    log::info!("git: 命令 {label} {}", if success { "成功" } else { "失败" });
+                    log::info!(
+                        "git: 命令 {label} {}",
+                        if success { "成功" } else { "失败" }
+                    );
                     cx.emit(GitUiEvent::CommandDone {
                         label,
                         success,

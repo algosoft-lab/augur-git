@@ -15,7 +15,9 @@ pub struct RepoParams {
 
 impl Default for RepoParams {
     fn default() -> Self {
-        Self { path: String::new() }
+        Self {
+            path: String::new(),
+        }
     }
 }
 
@@ -114,9 +116,6 @@ mod tests {
         assert_eq!(c.recent_repos.len(), 8);
         c.push_recent("repo3");
         assert_eq!(c.recent_repos.first().map(String::as_str), Some("repo3"));
-        assert_eq!(
-            c.recent_repos.iter().filter(|p| *p == "repo3").count(),
-            1
-        );
+        assert_eq!(c.recent_repos.iter().filter(|p| *p == "repo3").count(), 1);
     }
 }
