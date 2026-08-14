@@ -3,7 +3,7 @@
 //! `compute_graph` 为提交列表分配 lane 并生成行间连接边：
 //! - main/master 链始终占 lane 0，功能分支被推到其他 lane
 //! - 分支尖端后来出现时分配新 lane；lane 空闲时向内压缩
-//! - 颜色按 lane 分配并沿分支保持一致
+//! - 颜色按提交者分配：不同提交者不同圈色，连线与所属提交的圈色一致
 //! - 祖先可达性用记忆化集合（AncestorCache），避免每次查询重走 parent DAG
 //!
 //! 与 rgitui 的差异：oid 用 String（无 git2 依赖），refs 从 %D 装饰字符串判断。
@@ -58,7 +58,7 @@ pub struct GraphEdge {
     pub from_lane: usize,
     /// 终点 lane（本行）
     pub to_lane: usize,
-    /// 颜色索引（同分支一致）
+    /// 颜色索引（连线与发出它的提交圈色一致）
     pub color_index: usize,
     /// 是否 merge 边（连向非主 parent）
     pub is_merge: bool,
@@ -223,9 +223,13 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
             .unwrap_or_default(),
     };
 
+    // 提交者 → 颜色索引（首见顺序分配，保证不同提交者不同色）
+    let mut author_colors: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    let mut next_author_color: usize = 0;
+
     // 活跃 lane：(期望到达的 oid, 颜色索引)
     let mut lanes: Vec<Option<(String, usize)>> = Vec::new();
-    let mut next_color: usize = 0;
 
     // main_tip 不是列表首位时预占 lane 0（避免主线在 main_tip 处拐弯）
     let reserve_lane_0 = main_tip
@@ -233,8 +237,11 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
         .is_some_and(|tip| commits.first().is_some_and(|c| &c.oid != tip));
     if reserve_lane_0 {
         if let Some(tip) = &main_tip {
-            let color = next_color;
-            next_color += 1;
+            let color = author_color_index(
+                &commits[oid_to_idx[tip]].author,
+                &mut author_colors,
+                &mut next_author_color,
+            );
             lanes.push(Some((tip.clone(), color)));
         }
     }
@@ -246,22 +253,23 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
         let is_merge = commit.parents.len() > 1;
         let is_head = head_oid.as_ref() == Some(oid);
         let on_main = main_chain.contains(oid);
+        // 圈色 = 提交者颜色；本提交发出的连线（出边/上下段）同色
+        let author_idx =
+            author_color_index(&commit.author, &mut author_colors, &mut next_author_color);
 
         let (node_lane, has_incoming) = if on_main {
             if matches!(lanes.first(), Some(Some((o, _))) if o == oid) {
                 (0, true)
             } else if matches!(lanes.first(), Some(Some((expected, _))) if ancestry.is_ancestor_of(oid, expected, commits, &oid_to_idx))
             {
-                let color = lanes[0].as_ref().map(|(_, c)| *c).unwrap_or(next_color);
+                let color = lanes[0].as_ref().map(|(_, c)| *c).unwrap_or(author_idx);
                 lanes[0] = Some((oid.clone(), color));
                 (0, true)
             } else if matches!(lanes.first(), Some(None)) || lanes.is_empty() {
                 let was_empty = lanes.is_empty();
                 let color = if was_empty {
-                    let c = next_color;
-                    next_color += 1;
                     lanes.push(None);
-                    c
+                    author_idx
                 } else {
                     0
                 };
@@ -269,14 +277,14 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
                 (0, false)
             } else if matches!(lanes.first(), Some(Some((expected, _))) if main_chain.contains(expected))
             {
-                let color = lanes[0].as_ref().map(|(_, c)| *c).unwrap_or(next_color);
+                let color = lanes[0].as_ref().map(|(_, c)| *c).unwrap_or(author_idx);
                 lanes[0] = Some((oid.clone(), color));
                 (0, true)
             } else {
                 find_lane(
                     oid,
                     &mut lanes,
-                    &mut next_color,
+                    author_idx,
                     commits,
                     &oid_to_idx,
                     &mut ancestry,
@@ -287,7 +295,7 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
             find_lane(
                 oid,
                 &mut lanes,
-                &mut next_color,
+                author_idx,
                 commits,
                 &oid_to_idx,
                 &mut ancestry,
@@ -295,7 +303,7 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
             )
         };
 
-        let node_color = lanes[node_lane].as_ref().map(|(_, c)| *c).unwrap_or(0);
+        let node_color = author_idx;
 
         // 贯通边（本行其他活跃 lane 继续向下），以及等待本提交的陈旧 lane 的汇入边
         let mut edges = Vec::new();
@@ -392,7 +400,6 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
                         node_lane,
                         node_color,
                         &mut lanes,
-                        &mut next_color,
                         commits,
                         &oid_to_idx,
                         &mut ancestry,
@@ -404,7 +411,6 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
                     node_lane,
                     node_color,
                     &mut lanes,
-                    &mut next_color,
                     commits,
                     &oid_to_idx,
                     &mut ancestry,
@@ -424,16 +430,15 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
                     node_lane,
                     node_color,
                     &mut lanes,
-                    &mut next_color,
                     commits,
                     &oid_to_idx,
                     &mut ancestry,
                 );
-                let parent_color = lanes[parent_lane].as_ref().map(|(_, c)| *c).unwrap_or(0);
+                // merge 边也是本提交的连线：与圈同色
                 edges.push(GraphEdge {
                     from_lane: node_lane,
                     to_lane: parent_lane,
-                    color_index: parent_color,
+                    color_index: node_color,
                     is_merge: true,
                 });
             }
@@ -492,11 +497,24 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
     rows
 }
 
+/// 提交者 → 颜色索引（首见顺序分配，保证不同提交者不同色、同提交者同色）
+fn author_color_index(
+    author: &str,
+    map: &mut std::collections::HashMap<String, usize>,
+    next: &mut usize,
+) -> usize {
+    *map.entry(author.to_string()).or_insert_with(|| {
+        let c = *next;
+        *next += 1;
+        c
+    })
+}
+
 /// 为提交找 lane：精确 oid 匹配 → 祖先匹配 → 新开 lane
 fn find_lane(
     oid: &str,
     lanes: &mut Vec<Option<(String, usize)>>,
-    next_color: &mut usize,
+    author_idx: usize,
     commits: &[LogRow],
     oid_to_idx: &std::collections::HashMap<String, usize>,
     ancestry: &mut AncestorCache,
@@ -514,25 +532,22 @@ fn find_lane(
         Some(i) != skip_lane
             && matches!(s, Some((expected_oid, _)) if ancestry.is_ancestor_of(oid, expected_oid, commits, oid_to_idx))
     }) {
-        let color = lanes[pos].as_ref().map(|(_, c)| *c).unwrap_or(*next_color);
+        let color = lanes[pos].as_ref().map(|(_, c)| *c).unwrap_or(author_idx);
         lanes[pos] = Some((oid.to_string(), color));
         return (pos, true);
     }
 
-    let color = *next_color;
-    *next_color += 1;
     let pos = alloc_lane(lanes, skip_lane);
-    lanes[pos] = Some((oid.to_string(), color));
+    lanes[pos] = Some((oid.to_string(), author_idx));
     (pos, false)
 }
 
-/// 把 parent 路由到已有 lane 或新开 lane
+/// 把 parent 路由到已有 lane 或新开 lane（新 lane 沿用本提交圈色，连线与圈同色）
 fn route_parent(
     parent: &str,
     node_lane: usize,
     node_color: usize,
     lanes: &mut Vec<Option<(String, usize)>>,
-    next_color: &mut usize,
     commits: &[LogRow],
     oid_to_idx: &std::collections::HashMap<String, usize>,
     ancestry: &mut AncestorCache,
@@ -555,10 +570,8 @@ fn route_parent(
         return target;
     }
 
-    let color = *next_color;
-    *next_color += 1;
     let pos = alloc_lane(lanes, None);
-    lanes[pos] = Some((parent.to_string(), color));
+    lanes[pos] = Some((parent.to_string(), node_color));
     pos
 }
 
@@ -654,8 +667,8 @@ mod tests {
     }
 
     #[test]
-    fn colors_stay_consistent_per_branch() {
-        // 线性链：所有提交同一颜色
+    fn same_author_same_color() {
+        // 线性链：同一提交者 → 全程同色
         let commits = vec![
             make_commit(1, &[2], "HEAD -> main"),
             make_commit(2, &[3], ""),
@@ -665,5 +678,29 @@ mod tests {
         let rows = compute_graph(&commits);
         let c0 = rows[0].node_color;
         assert!(rows.iter().all(|r| r.node_color == c0));
+    }
+
+    #[test]
+    fn circle_color_follows_author() {
+        // 不同提交者不同圈色；同提交者同色；出边（含 merge 边）与圈同色
+        let mut commits = vec![
+            make_commit(1, &[2], "HEAD -> main"),
+            make_commit(2, &[3], ""),
+            make_commit(3, &[], ""),
+        ];
+        commits[0].author = "Alice".into();
+        commits[1].author = "Bob".into();
+        commits[2].author = "Bob".into();
+        let rows = compute_graph(&commits);
+        assert_ne!(rows[0].node_color, rows[1].node_color);
+        assert_eq!(rows[1].node_color, rows[2].node_color);
+        // 每个提交发出的边颜色 = 自己的圈色
+        for row in &rows {
+            assert!(row
+                .edges
+                .iter()
+                .filter(|e| e.from_lane == row.node_lane)
+                .all(|e| e.color_index == row.node_color));
+        }
     }
 }

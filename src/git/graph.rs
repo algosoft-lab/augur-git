@@ -211,6 +211,17 @@ impl Render for GraphView {
     }
 }
 
+/// 本地 hsla 包装（照抄 rgitui colors.rs::hsla）：本 fork 的 gpui hsla() 参数
+/// 是 0..1 归一化，直接用 267/84/75 会被 clamp 成纯白；除以 360/100 换算
+fn hsla(h: f32, s: f32, l: f32, a: f32) -> Hsla {
+    Hsla {
+        h: h / 360.0,
+        s: s / 100.0,
+        l: l / 100.0,
+        a,
+    }
+}
+
 /// lane 配色（照抄 rgitui GRAPH_LANE_COLORS）
 pub fn lane_color(index: usize) -> Hsla {
     const COLORS: [fn() -> Hsla; 10] = [
