@@ -492,15 +492,51 @@ impl Workspace {
         .detach();
     }
 
-    /// TabBar：单仓库 tab + 尾部打开按钮（多仓库 M2）
-    fn tab_bar(&self, cx: &Context<Self>) -> impl IntoElement {
+    /// 关闭仓库 tab（× 按钮）：停工作线程 + 清自动打开路径 + 回 Welcome 页
+    fn close_repo_tab(&mut self, cx: &mut Context<Self>) {
+        self.git_view.update(cx, |view, _| view.close_repo());
+        self.config.repo.path.clear();
+        let _ = config::save(&self.config);
+        self.status = GitStatus::None;
+        self.status_message = None;
+        cx.notify();
+    }
+
+    /// TabBar：单仓库 tab（带关闭 ×）+ 尾部打开按钮（多仓库 M2）
+    fn tab_bar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let repo = crate::git::dir_name(&self.config.repo.path).to_string();
+        let has_repo = self.git_connected() || !repo.is_empty();
         let tab_label = if repo.is_empty() {
             SharedString::from("未打开仓库")
         } else {
             SharedString::from(repo)
         };
+        let dot_color = if self.git_connected() {
+            colors.green
+        } else {
+            colors.muted
+        };
+        // 关闭按钮（×）：hover 变红，点击关闭仓库回 Welcome 页
+        let this = cx.entity();
+        let close_btn = div()
+            .id("tab-close")
+            .w(px(16.))
+            .h(px(16.))
+            .rounded_sm()
+            .items_center()
+            .justify_center()
+            .text_size(px(12.))
+            .text_color(colors.muted)
+            .opacity(if has_repo { 1.0 } else { 0.35 })
+            .when(has_repo, |el| {
+                el.cursor(CursorStyle::PointingHand)
+                    .hover(|s| s.bg(colors.list_hover).text_color(colors.red))
+                    .on_click(move |_e, _w, cx| {
+                        this.update(cx, |ws, cx| ws.close_repo_tab(cx));
+                    })
+            })
+            .child("×");
         h_flex()
             .id("tab-bar")
             .w_full()
@@ -531,12 +567,9 @@ impl Workspace {
                             .w(px(6.))
                             .h(px(6.))
                             .rounded_full()
-                            .bg(if self.git_connected() {
-                                colors.green
-                            } else {
-                                colors.muted
-                            }),
-                    ),
+                            .bg(dot_color),
+                    )
+                    .child(close_btn),
             )
             .child(div().flex_1())
     }

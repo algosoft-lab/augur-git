@@ -6,11 +6,11 @@
 
 augur-git 是暗黑主题 **桌面 Git 图形客户端**（Rust + GPUI，非 TUI）。
 同源项目家族：`../augur-term`（终端）、`../augur-com`（串口调试助手）——本项目的
-主界面布局镜像 `D:\dev\github\rgitui`，工程架构镜像 `../augur-com`。
+主界面布局镜像 `../../github/rgitui`，工程架构镜像 `../augur-com`。
 
 ## 参考项目（重要）
 
-**`D:\dev\github\rgitui`** —— GPU 加速桌面 Git 客户端，与本项目同技术栈（GPUI）。
+**`../../github/rgitui`** —— GPU 加速桌面 Git 客户端，与本项目同技术栈（GPUI）。
 实现界面/交互前先读它的源码，按需借鉴：
 
 ### rgitui 主界面布局（自上而下，`crates/rgitui_workspace/src/workspace/layout.rs`）

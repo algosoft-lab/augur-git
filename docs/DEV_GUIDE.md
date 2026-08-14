@@ -1,6 +1,6 @@
 # augur-git 开发指南
 
-暗黑主题 Git 图形客户端，Rust + GPUI。**主界面镜像 `D:\dev\github\rgitui`**（见 AGENTS.md），
+暗黑主题 Git 图形客户端，Rust + GPUI。**主界面镜像 `../../github/rgitui`**（见 AGENTS.md），
 工程架构镜像 `../augur-com`（双通道线程 + 事件链 + 配置持久化）。
 
 ## 当前状态（2026-08-13）
