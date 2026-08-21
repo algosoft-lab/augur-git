@@ -87,18 +87,29 @@ src/
 ├── workspace.rs       # Workspace 装配 + 三栏布局 + 事件链 + 状态栏
 ├── core/
 │   ├── git.rs         # Git 命令层：工作线程双通道（std mpsc）+ 输出解析（纯函数可单测）
-│   └── config.rs      # AppConfig + config.json（%APPDATA%\augur-git\）+ MRU
+│   ├── config.rs      # AppConfig + LanguagePreference + config.json（%APPDATA%\augur-git\）+ MRU
+│   ├── graph.rs       # 提交图布局算法 + 双语相对时间
+│   └── i18n.rs        # 双语文案：编译期内嵌 i18n/*.ftl + Locale + text/text_args（镜像 augur-pdf）
 └── git/               # 界面面板（镜像 rgitui 的 panel 拆分）
     ├── mod.rs         # GitView：仓库数据流中心（status/log 事件轮询派发）
     ├── graph.rs       # GraphView：提交图
     ├── sidebar.rs     # Sidebar：分支 + 变更文件分区
-    ├── panel.rs       # DetailPanel / CommitPanel / DiffViewer
+    ├── panel.rs       # DetailPanel / CommitPanel / BottomPanel（选中提交文件清单+色块条+单文件染色 diff 分栏）
     └── toolbar.rs     # Toolbar
+└── i18n/              # 翻译目录：en-US.ftl / zh-CN.ftl（key = value，{ $name } 占位符；两文件键必须对齐，有单测）
 ```
 
 **线程模式**（全项目铁律，改代码前先看 `core/git.rs`）：
 - 专用工作线程跑阻塞式 git 子进程 → `std::sync::mpsc` 事件推 UI（20ms 轮询 `try_recv`）
 - UI → 后台指令：std mpsc `send`（无界通道，即发即返）；UI 线程零阻塞
+
+**双语（i18n，镜像 augur-pdf/augur-term）**：
+- UI 文案一律走 `i18n::text(locale, "key")` / `text_args`，**禁止视图层硬编码中英文**
+- 各视图实体持 `locale: Locale` 副本；`Workspace::set_language` 统一切换（同步各子面板 + 刷新输入框
+  placeholder——需 `&mut Window`——+ 存 config + notify，下一次 render 即生效）
+- core 层（工作线程）不做本地化：错误用 `GitError { key, detail }` 传 i18n 键，展示侧（有 locale）拼接
+- 新增 UI 文案：两个 .ftl 各加一行键值对（键对齐有单测兜底）；语言偏好存 config.json `language`
+  （system/en-US/zh-CN，默认跟随系统）
 
 **约定**：
 - 注释用中文，模块头写里程碑（M0 框架 / M1 主界面 / …）
@@ -106,6 +117,12 @@ src/
 - `gpui_component` 尺寸 helper：半档是 `0p5` 后缀（`gap_0p5` 非 `gap_0_5`）
 - `Entity::read` 必须传 `cx`；程序化回填 `InputState` 只能在带 `&mut Window` 的回调里
 - 面板聚焦指示：选中面板画 `border_t_2 + border_focused` 色（rgitui 同款）
+- 应用图标：`assets/algogit.svg` 为源，`assets/algogit.ico`（16–256 七档）由 build.rs 经 winres
+  嵌入 exe。改 SVG 后重生成：
+  ```bash
+  for s in 16 24 32 48 64 128 256; do magick -background none -density $((72*s/200)) assets/algogit.svg -resize ${s}x${s} /tmp/icon_$s.png; done
+  magick /tmp/icon_{16,24,32,48,64,128,256}.png assets/algogit.ico
+  ```
 
 ## 常用命令
 

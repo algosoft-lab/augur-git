@@ -15,8 +15,9 @@ use std::time::Duration;
 
 use gpui::{Context, EventEmitter, SharedString};
 
-use crate::core::git::{self, BranchInfo, FileStatus, GitEvent};
+use crate::core::git::{self, BranchInfo, FileChange, FileStatus, GitError, GitEvent};
 use crate::core::graph::LogRow;
+use crate::core::i18n::{self, Locale};
 
 /// GitView → Workspace 事件（事件即数据快照，面板各自持有副本）
 #[derive(Clone, Debug)]
@@ -31,6 +32,14 @@ pub enum GitUiEvent {
     },
     /// 提交日志快照
     LogChanged { rows: Vec<LogRow> },
+    /// 选中提交的逐文件增删统计快照
+    CommitFilesChanged { oid: String, files: Vec<FileChange> },
+    /// 选中提交内单文件 diff 文本
+    FileDiffChanged {
+        oid: String,
+        path: String,
+        diff: String,
+    },
     /// 通用命令执行结果（fetch/pull/push/commit/show…）
     CommandDone {
         label: String,
@@ -61,12 +70,14 @@ pub struct GitView {
     status: GitStatus,
     /// 仓库绝对路径（显示/后续命令用）
     repo_path: String,
+    /// 界面语言（错误文案本地化用；Workspace 切换语言时同步）
+    locale: Locale,
 }
 
 impl EventEmitter<GitUiEvent> for GitView {}
 
 impl GitView {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(locale: Locale, cx: &mut Context<Self>) -> Self {
         // 工作线程事件轮询（20ms，镜像 augur-com 的 poll_serial）
         cx.spawn(async move |this, cx| {
             loop {
@@ -83,7 +94,13 @@ impl GitView {
             rx: None,
             status: GitStatus::None,
             repo_path: String::new(),
+            locale,
         }
+    }
+
+    /// 切换语言（Workspace::set_language 同步）
+    pub fn set_locale(&mut self, locale: Locale) {
+        self.locale = locale;
     }
 
     /// 打开仓库（workspace 触发；路径校验同步执行，毫秒级）
@@ -101,17 +118,21 @@ impl GitView {
                 self.handle = Some(handle);
                 self.rx = Some(rx);
                 self.set_status(
-                    GitStatus::Ready(format!("扫描中 @ {}", dir_name(repo_path))),
+                    GitStatus::Ready(i18n::text_args(
+                        self.locale,
+                        "status-scanning-at",
+                        &[("repo", dir_name(repo_path))],
+                    )),
                     cx,
                 );
                 cx.emit(GitUiEvent::RepoOpened(repo_path.to_string()));
             }
-            Err(msg) => {
-                log::error!("git: 打开失败: {msg}");
+            Err(err) => {
+                log::error!("git: 打开失败: {}", err.detail);
                 self.handle = None;
                 self.rx = None;
                 self.repo_path.clear();
-                self.set_status(GitStatus::Error(msg), cx);
+                self.set_status(GitStatus::Error(localized_error(self.locale, &err)), cx);
             }
         }
     }
@@ -136,6 +157,20 @@ impl GitView {
     pub fn run(&self, label: impl Into<String>, args: Vec<String>) {
         if let Some(handle) = &self.handle {
             handle.run(label, args);
+        }
+    }
+
+    /// 查询选中提交的逐文件增删统计（底部面板文件清单）
+    pub fn commit_files(&self, oid: String) {
+        if let Some(handle) = &self.handle {
+            handle.commit_numstat(oid);
+        }
+    }
+
+    /// 查询选中提交内单文件 diff（底部面板右栏）
+    pub fn file_diff(&self, oid: String, path: String) {
+        if let Some(handle) = &self.handle {
+            handle.commit_file_diff(oid, path);
         }
     }
 
@@ -194,6 +229,19 @@ impl GitView {
                     log::info!("git: 日志刷新 {} 条", rows.len());
                     cx.emit(GitUiEvent::LogChanged { rows });
                 }
+                GitEvent::CommitFiles { oid, files } => {
+                    log::info!("git: 提交 {} 文件清单 {} 条", oid, files.len());
+                    cx.emit(GitUiEvent::CommitFilesChanged { oid, files });
+                }
+                GitEvent::CommitFileDiff { oid, path, diff } => {
+                    log::info!(
+                        "git: 文件 diff {} {} ({} 行)",
+                        oid,
+                        path,
+                        diff.lines().count()
+                    );
+                    cx.emit(GitUiEvent::FileDiffChanged { oid, path, diff });
+                }
                 GitEvent::CommandDone {
                     label,
                     success,
@@ -209,11 +257,11 @@ impl GitView {
                         message,
                     });
                 }
-                GitEvent::Error(msg) => {
-                    log::error!("git: {msg}");
+                GitEvent::Error(err) => {
+                    log::error!("git: {}", err.detail);
                     self.handle = None;
                     self.rx = None;
-                    self.set_status(GitStatus::Error(msg), cx);
+                    self.set_status(GitStatus::Error(localized_error(self.locale, &err)), cx);
                 }
             }
         }
@@ -223,6 +271,11 @@ impl GitView {
 /// 路径尾段目录名（显示用）
 pub fn dir_name(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or(path)
+}
+
+/// 错误载荷 → 本地化文案（core 传 i18n 键 + 原始串，展示侧拼接；统一 { $detail } 占位）
+fn localized_error(locale: Locale, err: &GitError) -> String {
+    i18n::text_args(locale, err.key, &[("detail", &err.detail)])
 }
 
 /// 共享字符串工具（面板常用）

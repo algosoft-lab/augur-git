@@ -2,11 +2,10 @@
 
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::{
-    ActiveTheme, InteractiveElementExt, h_flex, theme::ThemeColor, v_flex,
-};
+use gpui_component::{ActiveTheme, h_flex, theme::ThemeColor, v_flex};
 
 use crate::core::graph::{GraphRow, LogRow, compute_graph, format_relative_time};
+use crate::core::i18n::{self, Locale};
 use crate::git::shared;
 
 /// 提交树行高（h_9=36px：圆心距 36，节点直径 24，边缘间距 12 = 半径，验证项目同比例）
@@ -25,28 +24,38 @@ const GRAPH_LEFT_PAD: f32 = 12.0;
 #[derive(Clone, Debug)]
 pub enum GraphEvent {
     CommitSelected {
+        /// 完整 oid（底部面板查文件清单/diff 用）
+        oid: String,
         short: String,
         subject: String,
         author: String,
         date: String,
         decorations: String,
     },
-    ShowDiff(String),
 }
 
 pub struct GraphView {
     rows: Vec<LogRow>,
     selected: Option<usize>,
+    /// 界面语言（Workspace 切换语言时同步）
+    locale: Locale,
 }
 
 impl EventEmitter<GraphEvent> for GraphView {}
 
 impl GraphView {
-    pub fn new() -> Self {
+    pub fn new(locale: Locale) -> Self {
         Self {
             rows: Vec::new(),
             selected: None,
+            locale,
         }
+    }
+
+    /// 切换语言（Workspace::set_language 同步）
+    pub fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
+        self.locale = locale;
+        cx.notify();
     }
 
     pub fn set_rows(&mut self, rows: Vec<LogRow>, cx: &mut Context<Self>) {
@@ -64,6 +73,7 @@ impl GraphView {
         };
         self.selected = Some(index);
         cx.emit(GraphEvent::CommitSelected {
+            oid: row.oid.clone(),
             short: row.short.clone(),
             subject: row.subject.clone(),
             author: row.author.clone(),
@@ -90,7 +100,7 @@ impl Render for GraphView {
                     div()
                         .text_size(px(12.))
                         .text_color(colors.muted_foreground)
-                        .child("暂无提交"),
+                        .child(shared(i18n::text(self.locale, "graph-empty"))),
                 )
                 .into_any_element();
         }
@@ -112,7 +122,6 @@ impl Render for GraphView {
             .enumerate()
             .map(|(i, (row, g))| {
                 let this = cx.entity();
-                let this_dbl = this.clone();
                 let row = row.clone();
                 let graph_row = g.clone();
                 let selected = self.selected == Some(i);
@@ -142,13 +151,6 @@ impl Render for GraphView {
                     })
                     .on_click(move |_e, _w, cx| {
                         this.update(cx, |v, cx| v.select(i, cx));
-                    })
-                    .on_double_click(move |_e, _w, cx| {
-                        this_dbl.update(cx, |v, cx| {
-                            if let Some(oid) = v.rows.get(i).map(|r| r.oid.clone()) {
-                                cx.emit(GraphEvent::ShowDiff(oid));
-                            }
-                        });
                     })
                     // 树列：行内 canvas + HEAD 字母（absolute div 叠加）
                     .child(
@@ -213,7 +215,11 @@ impl Render for GraphView {
                             .flex_shrink_0()
                             .text_size(px(12.))
                             .text_color(colors.muted_foreground)
-                            .child(shared(format_relative_time(row.timestamp, now))),
+                            .child(shared(format_relative_time(
+                                row.timestamp,
+                                now,
+                                self.locale,
+                            ))),
                     )
             })
             .collect::<Vec<_>>();
@@ -272,16 +278,26 @@ impl GraphView {
             .border_b_1()
             .border_color(colors.border)
             // Graph 列：与行内树画布同宽
-            .child(div().w(px(tree_w)).flex_shrink_0().pl_1().child(label("Graph")))
+            .child(
+                div()
+                    .w(px(tree_w))
+                    .flex_shrink_0()
+                    .pl_1()
+                    .child(label(&i18n::text(self.locale, "col-graph"))),
+            )
             // Hash 列：与行内短 oid 同宽
             .child(
                 div()
                     .w(px(HASH_COL_WIDTH))
                     .flex_shrink_0()
-                    .child(label("Hash")),
+                    .child(label(&i18n::text(self.locale, "col-hash"))),
             )
             // Author 列：占满剩余
-            .child(div().flex_1().child(label("Author")))
+            .child(
+                div()
+                    .flex_1()
+                    .child(label(&i18n::text(self.locale, "col-author"))),
+            )
             // Date 列：与行内日期同宽；分割线 absolute 定位于本列左缘左侧
             // 4px（= 与 Author 列的 8px 间隙中点），不参与布局
             .child(
@@ -289,7 +305,7 @@ impl GraphView {
                     .relative()
                     .w(px(DATE_COL_WIDTH))
                     .flex_shrink_0()
-                    .child(label("Date"))
+                    .child(label(&i18n::text(self.locale, "col-date")))
                     .child(
                         div()
                             .absolute()
@@ -347,9 +363,8 @@ fn draw_graph_row(row: &GraphRow, bounds: Bounds<Pixels>, window: &mut Window) {
     let origin_x = bounds.origin.x;
     let origin_y = bounds.origin.y;
     let mid_y = ROW_HEIGHT / 2.0;
-    let lane_x = |lane: usize| {
-        origin_x + px(GRAPH_LEFT_PAD + lane as f32 * COL_WIDTH + COL_WIDTH / 2.0)
-    };
+    let lane_x =
+        |lane: usize| origin_x + px(GRAPH_LEFT_PAD + lane as f32 * COL_WIDTH + COL_WIDTH / 2.0);
     let node_x = lane_x(row.node_lane);
 
     // 1. 入边（到本行节点）+ 跨 lane 贯通边

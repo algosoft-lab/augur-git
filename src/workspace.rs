@@ -19,14 +19,15 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::core::config::{self, AppConfig};
+use crate::core::config::{self, AppConfig, LanguagePreference};
+use crate::core::i18n::{self, Locale};
 use crate::git::graph::{GraphEvent, GraphView};
 use crate::git::panel::{
-    BottomPanelMode, CommitPanel, CommitPanelEvent, DetailContent, DetailPanel, DiffViewer,
+    BottomPanel, BottomPanelEvent, CommitPanel, CommitPanelEvent, DetailContent, DetailPanel,
 };
 use crate::git::sidebar::{Sidebar, SidebarEvent};
 use crate::git::toolbar::{Toolbar, ToolbarEvent};
-use crate::git::{GitStatus, GitUiEvent, GitView};
+use crate::git::{GitStatus, GitUiEvent, GitView, shared};
 
 /// 拖拽调宽事件类型（镜像 rgitui：on_drag 起始 + 根元素 on_drag_move 更新尺寸）
 /// 必须实现 Render（on_drag 的 W: Render 约束，rgitui 同款空元素）
@@ -129,7 +130,8 @@ pub struct Workspace {
     toolbar: Entity<Toolbar>,
     detail: Entity<DetailPanel>,
     commit: Entity<CommitPanel>,
-    diff: Entity<DiffViewer>,
+    /// 底部面板（选中提交文件清单 + 单文件 diff 分栏）
+    bottom: Entity<BottomPanel>,
     /// 配置单一事实源（变更即存盘）
     config: AppConfig,
     /// 连接状态（状态栏显示）
@@ -138,27 +140,33 @@ pub struct Workspace {
     status_message: Option<String>,
     layout: LayoutState,
     sidebar_collapsed: bool,
-    /// 底部面板当前 tab
-    bottom_mode: BottomPanelMode,
+    /// 界面语言偏好（设置弹层切换；单一事实源为 config.language）
+    language_preference: LanguagePreference,
+    /// 当前语言环境（渲染取文案用；随偏好解析）
+    locale: Locale,
+    /// 设置弹层开关（当前含语言切换）
+    show_settings: bool,
 }
 
 impl Workspace {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let config = config::load();
-        let git_view = cx.new(|cx| GitView::new(cx));
+        let language_preference = config.language;
+        let locale = i18n::resolve(&language_preference);
+        let git_view = cx.new(|cx| GitView::new(locale, cx));
 
         // 仓库路径输入框（共享：侧栏 + Welcome 页都用它）
         let repo_path_input = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("仓库路径，如 D:\\repo")
+                .placeholder(i18n::text(locale, "repo-path-placeholder"))
                 .default_value(config.repo.path.clone())
         });
-        let sidebar = cx.new(|cx| Sidebar::new(window, cx, &config, &repo_path_input));
-        let graph = cx.new(|_cx| GraphView::new());
-        let toolbar = cx.new(|_cx| Toolbar::new());
-        let detail = cx.new(|_cx| DetailPanel::new());
-        let commit = cx.new(|cx| CommitPanel::new(window, cx));
-        let diff = cx.new(|_cx| DiffViewer::new());
+        let sidebar = cx.new(|cx| Sidebar::new(window, cx, &config, &repo_path_input, locale));
+        let graph = cx.new(|_cx| GraphView::new(locale));
+        let toolbar = cx.new(|_cx| Toolbar::new(locale));
+        let detail = cx.new(|_cx| DetailPanel::new(locale));
+        let commit = cx.new(|cx| CommitPanel::new(window, cx, locale));
+        let bottom = cx.new(|_cx| BottomPanel::new(locale));
 
         // 输入框回车 = 打开仓库（侧栏/Welcome 共用）
         let input = repo_path_input.clone();
@@ -192,7 +200,11 @@ impl Workspace {
                 cx.notify();
             }
             SidebarEvent::BranchSelected(name) => {
-                workspace.status_message = Some(format!("分支 {name}（详情 M2）"));
+                workspace.status_message = Some(i18n::text_args(
+                    workspace.locale,
+                    "branch-selected",
+                    &[("name", name)],
+                ));
                 cx.notify();
             }
             SidebarEvent::CheckoutBranch(name) => {
@@ -211,16 +223,6 @@ impl Workspace {
                         },
                         cx,
                     )
-                });
-            }
-            SidebarEvent::FileDiff { path, staged } => {
-                let args = if *staged {
-                    vec!["diff".into(), "--cached".into(), "--".into(), path.clone()]
-                } else {
-                    vec!["diff".into(), "--".into(), path.clone()]
-                };
-                workspace.git_view.update(cx, |view, _| {
-                    view.run(format!("diff {path}"), args);
                 });
             }
         })
@@ -253,21 +255,21 @@ impl Workspace {
                 workspace.git_view.update(cx, |view, _| view.refresh());
             }
             ToolbarEvent::Settings => {
-                workspace.status_message = Some("设置面板 M2 实现".into());
+                workspace.show_settings = true;
                 cx.notify();
             }
         })
         .detach();
 
-        // 提交图：选中 → 详情；双击 → diff
+        // 提交图：选中 → 右侧详情 + 底部面板文件清单（numstat 查询）
         cx.subscribe(&graph, |workspace, _e, event, cx| match event {
             GraphEvent::CommitSelected {
+                oid,
                 short,
                 subject,
                 author,
                 date,
                 decorations,
-                ..
             } => {
                 workspace.detail.update(cx, |d, cx| {
                     d.set_content(
@@ -281,19 +283,12 @@ impl Workspace {
                         cx,
                     )
                 });
-            }
-            GraphEvent::ShowDiff(oid) => {
-                workspace.git_view.update(cx, |view, _| {
-                    view.run(
-                        "show",
-                        vec![
-                            "show".into(),
-                            "--stat".into(),
-                            "--oneline".into(),
-                            oid.clone(),
-                        ],
-                    );
-                });
+                workspace
+                    .bottom
+                    .update(cx, |b, cx| b.set_commit(oid, short, subject, cx));
+                workspace
+                    .git_view
+                    .update(cx, |view, _| view.commit_files(oid.clone()));
             }
         })
         .detach();
@@ -305,6 +300,16 @@ impl Workspace {
                     view.run("commit", vec!["commit".into(), "-m".into(), msg.clone()]);
                 });
                 workspace.toolbar.update(cx, |tb, cx| tb.set_busy(true, cx));
+            }
+        })
+        .detach();
+
+        // 底部面板：选中文件 → 右栏加载该文件在此提交的 diff
+        cx.subscribe(&bottom, |workspace, _e, event, cx| match event {
+            BottomPanelEvent::ShowFileDiff { oid, path } => {
+                workspace
+                    .git_view
+                    .update(cx, |view, _| view.file_diff(oid.clone(), path.clone()));
             }
         })
         .detach();
@@ -321,8 +326,16 @@ impl Workspace {
                 let has_staged = files.iter().any(|f| f.is_staged());
                 let staged_count = files.iter().filter(|f| f.is_staged()).count();
                 let unstaged_count = files.len() - staged_count;
-                workspace.status = GitStatus::Ready(format!(
-                    "{branch} · ↑{ahead}↓{behind} · 暂存{staged_count} 变更{unstaged_count}"
+                workspace.status = GitStatus::Ready(i18n::text_args(
+                    workspace.locale,
+                    "status-summary",
+                    &[
+                        ("branch", branch),
+                        ("ahead", &ahead.to_string()),
+                        ("behind", &behind.to_string()),
+                        ("staged", &staged_count.to_string()),
+                        ("unstaged", &unstaged_count.to_string()),
+                    ],
                 ));
                 workspace.sidebar.update(cx, |sb, cx| {
                     sb.set_status(branch.clone(), branches.clone(), files.clone(), cx);
@@ -340,6 +353,16 @@ impl Workspace {
                     .graph
                     .update(cx, |g, cx| g.set_rows(rows.clone(), cx));
             }
+            GitUiEvent::CommitFilesChanged { oid, files } => {
+                workspace
+                    .bottom
+                    .update(cx, |b, cx| b.set_files(oid, files.clone(), cx));
+            }
+            GitUiEvent::FileDiffChanged { oid, path, diff } => {
+                workspace
+                    .bottom
+                    .update(cx, |b, cx| b.set_diff(oid, path, diff.clone(), cx));
+            }
             GitUiEvent::CommandDone {
                 label,
                 success,
@@ -348,19 +371,19 @@ impl Workspace {
                 workspace
                     .toolbar
                     .update(cx, |tb, cx| tb.set_busy(false, cx));
-                // 命令输出 → 底部 Diff 面板
-                workspace.diff.update(cx, |dv, cx| {
-                    dv.set_output(label.clone(), message.clone(), *success, cx);
-                });
                 // 状态栏摘要 + 写操作后刷新快照
                 let refresh_after = matches!(
                     label.as_str(),
                     "commit" | "checkout" | "fetch --all" | "pull" | "push"
                 );
                 workspace.status_message = Some(if *success {
-                    format!("{label} 成功")
+                    i18n::text_args(workspace.locale, "command-success", &[("label", label)])
                 } else {
-                    format!("{label} 失败：{}", first_line(&message))
+                    i18n::text_args(
+                        workspace.locale,
+                        "command-failed",
+                        &[("label", label), ("error", first_line(message))],
+                    )
                 });
                 if *success && refresh_after {
                     workspace.git_view.update(cx, |view, _| view.refresh());
@@ -396,7 +419,7 @@ impl Workspace {
             toolbar,
             detail,
             commit,
-            diff,
+            bottom,
             config,
             status: GitStatus::None,
             status_message: None,
@@ -406,8 +429,44 @@ impl Workspace {
                 diff_height: 260.0,
             },
             sidebar_collapsed: false,
-            bottom_mode: BottomPanelMode::Diff,
+            language_preference,
+            locale,
+            show_settings: false,
         }
+    }
+
+    /// 切换界面语言：立即生效（下一次 render 即用新 locale 取文案）并持久化
+    /// （镜像 augur-pdf set_language）。`System` 选项即时按当前系统语言解析。
+    fn set_language(
+        &mut self,
+        preference: LanguagePreference,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.language_preference = preference;
+        self.locale = i18n::resolve(&preference);
+        // 各子面板持有自己的 locale 副本，切换语言时同步（含输入框 placeholder）
+        let locale = self.locale;
+        self.git_view.update(cx, |view, _| view.set_locale(locale));
+        self.sidebar.update(cx, |sb, cx| sb.set_locale(locale, cx));
+        self.toolbar.update(cx, |tb, cx| tb.set_locale(locale, cx));
+        self.graph.update(cx, |g, cx| g.set_locale(locale, cx));
+        self.detail.update(cx, |d, cx| d.set_locale(locale, cx));
+        self.commit
+            .update(cx, |cp, cx| cp.set_locale(locale, window, cx));
+        self.bottom.update(cx, |b, cx| b.set_locale(locale, cx));
+        let placeholder = i18n::text(locale, "repo-path-placeholder");
+        self.repo_path_input.update(cx, |input, cx| {
+            input.set_placeholder(placeholder, window, cx);
+        });
+        log::info!(
+            "[workspace] language preference: {:?}, locale: {}",
+            preference,
+            self.locale.id()
+        );
+        self.config.language = preference;
+        let _ = config::save(&self.config);
+        cx.notify();
     }
 
     /// 自绘标题栏：仓库名 + 分支徽标 + 双击最大化。
@@ -491,7 +550,10 @@ impl Workspace {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some(SharedString::from("选择 Git 仓库文件夹")),
+            prompt: Some(SharedString::from(i18n::text(
+                self.locale,
+                "repo-folder-prompt",
+            ))),
         });
         cx.spawn(async move |this, cx| {
             let path = match rx.await {
@@ -527,7 +589,7 @@ impl Workspace {
         let repo = crate::git::dir_name(&self.config.repo.path).to_string();
         let has_repo = self.git_connected() || !repo.is_empty();
         let tab_label = if repo.is_empty() {
-            SharedString::from("未打开仓库")
+            SharedString::from(i18n::text(self.locale, "no-repo-open"))
         } else {
             SharedString::from(repo)
         };
@@ -582,14 +644,17 @@ impl Workspace {
     fn status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let (text, color) = match &self.status {
-            GitStatus::None => ("未打开仓库".to_string(), colors.muted_foreground),
-            GitStatus::Scanning => ("扫描中…".to_string(), colors.warning),
+            GitStatus::None => (
+                i18n::text(self.locale, "no-repo-open"),
+                colors.muted_foreground,
+            ),
+            GitStatus::Scanning => (i18n::text(self.locale, "status-scanning"), colors.warning),
             GitStatus::Ready(label) => (format!("● {label}"), colors.green),
             GitStatus::Error(msg) => (format!("✗ {msg}"), colors.red),
         };
         let repo = &self.config.repo.path;
         let left = if repo.is_empty() {
-            "未选择仓库".to_string()
+            i18n::text(self.locale, "status-no-repo-selected")
         } else {
             repo.clone()
         };
@@ -783,93 +848,9 @@ impl Workspace {
             )
     }
 
-    /// 底部面板：tab 栏 + 内容（M1 只有 Diff tab 有内容）
-    fn bottom_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let colors = cx.theme().colors.clone();
-        let mode = self.bottom_mode;
-
-        let make_tab = |id: &'static str,
-                        label: &'static str,
-                        m: BottomPanelMode,
-                        enabled: bool,
-                        this: Entity<Self>,
-                        cx: &Context<Self>| {
-            let active = mode == m;
-            let colors = cx.theme().colors.clone();
-            h_flex()
-                .id(id)
-                .h_full()
-                .px_2()
-                .items_center()
-                .cursor(CursorStyle::PointingHand)
-                .opacity(if enabled { 1.0 } else { 0.45 })
-                .when(active, |el| el.bg(colors.tab_active))
-                .hover(|s| s.bg(colors.list_hover))
-                .text_size(px(11.))
-                .text_color(if active {
-                    colors.tab_active_foreground
-                } else {
-                    colors.muted_foreground
-                })
-                .child(SharedString::from(label))
-                .when(enabled, |el| {
-                    el.on_click(move |_e, _w, cx| {
-                        this.update(cx, |ws, cx| {
-                            ws.bottom_mode = m;
-                            cx.notify();
-                        });
-                    })
-                })
-        };
-
-        let this = cx.entity();
-        let tab_diff = make_tab(
-            "bt-diff",
-            "Diff",
-            BottomPanelMode::Diff,
-            true,
-            this.clone(),
-            cx,
-        );
-        let this = cx.entity();
-        let tab_history = make_tab(
-            "bt-history",
-            "历史",
-            BottomPanelMode::History,
-            false,
-            this.clone(),
-            cx,
-        );
-        let this = cx.entity();
-        let tab_blame = make_tab("bt-blame", "Blame", BottomPanelMode::Blame, false, this, cx);
-
-        v_flex()
-            .id("bottom-panel")
-            .size_full()
-            .child(
-                h_flex()
-                    .id("bottom-tab-bar")
-                    .w_full()
-                    .h(px(24.))
-                    .flex_shrink_0()
-                    .bg(colors.tab_bar)
-                    .border_b_1()
-                    .border_color(colors.border)
-                    .items_end()
-                    .gap_1()
-                    .px_2()
-                    .child(tab_diff)
-                    .child(tab_history)
-                    .child(tab_blame)
-                    .child(div().flex_1()),
-            )
-            .child(
-                div()
-                    .id("bottom-content")
-                    .flex_1()
-                    .min_h_0()
-                    .child(self.diff.clone()),
-            )
+    /// 底部面板：选中提交文件清单 + 单文件 diff 分栏（无 tab，面板自带头行）
+    fn bottom_panel(&self, _cx: &mut Context<Self>) -> impl IntoElement {
+        self.bottom.clone()
     }
 
     /// Welcome 页（未打开仓库时）：Logo + 路径输入行（输入/回车/浏览…）+ 最近仓库
@@ -886,7 +867,7 @@ impl Workspace {
             .bg(Hsla::from(rgb(0x2F_81_F7)))
             .text_color(gpui::white())
             .text_size(px(12.))
-            .child("打开")
+            .child(shared(i18n::text(self.locale, "welcome-open")))
             .on_click(move |_e, _w, cx| {
                 btn_open.update(cx, |ws, cx| ws.open_repo_from_input(cx));
             });
@@ -901,7 +882,7 @@ impl Workspace {
             .bg(colors.input)
             .text_color(colors.foreground)
             .text_size(px(12.))
-            .child("浏览…")
+            .child(shared(i18n::text(self.locale, "welcome-browse")))
             .on_click(move |_e, _w, cx| {
                 btn_browse.update(cx, |ws, cx| ws.pick_repo_folder(cx));
             });
@@ -966,7 +947,7 @@ impl Workspace {
                 div()
                     .text_size(px(12.))
                     .text_color(colors.muted_foreground)
-                    .child("桌面 Git 客户端"),
+                    .child(shared(i18n::text(self.locale, "app-tagline"))),
             )
             // 路径输入行：输入框 + 打开 + 浏览…
             .child(
@@ -988,11 +969,129 @@ impl Workspace {
                                 .px_2()
                                 .text_size(px(11.))
                                 .text_color(colors.muted_foreground)
-                                .child("最近仓库"),
+                                .child(shared(i18n::text(self.locale, "recent-repos"))),
                         )
                         .children(recents),
                 )
             })
+    }
+
+    /// 设置弹层（镜像 augur-pdf about 弹层：遮罩点击关闭、卡片阻止冒泡；
+    /// 当前仅界面语言三选一，后续设置项在此扩展）
+    fn settings_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let colors = cx.theme().colors.clone();
+        let locale = self.locale;
+        let current = self.language_preference;
+
+        // 语言按钮：当前项 primary、其余 ghost（augur-pdf 同款单选样式）
+        let lang_btn =
+            |id: &'static str, key: &str, pref: LanguagePreference, cx: &Context<Self>| {
+                let this = cx.entity();
+                Button::new(id)
+                    .label(i18n::text(locale, key))
+                    .flex_1()
+                    .when(pref == current, |b| b.primary())
+                    .when(pref != current, |b| b.ghost())
+                    .on_click(move |_e, window, cx| {
+                        this.update(cx, |ws, cx| ws.set_language(pref, window, cx));
+                    })
+            };
+
+        let this_close = cx.entity();
+        v_flex()
+            .id("settings-overlay")
+            .absolute()
+            .top_0()
+            .left_0()
+            .w_full()
+            .h_full()
+            .bg(colors.background.opacity(0.9))
+            .flex()
+            .items_center()
+            .justify_center()
+            // 点击遮罩关闭
+            .on_mouse_down(MouseButton::Left, move |_e, _w, cx| {
+                this_close.update(cx, |ws, cx| {
+                    ws.show_settings = false;
+                    cx.notify();
+                });
+            })
+            .child(
+                v_flex()
+                    .id("settings-card")
+                    .items_start()
+                    .gap_3()
+                    .p_6()
+                    .bg(colors.background)
+                    .border_1()
+                    .border_color(colors.border)
+                    .rounded_lg()
+                    .min_w(px(380.))
+                    .max_w(px(460.))
+                    .when(cx.theme().shadow, |el| el.shadow_md())
+                    // 阻止冒泡：点卡片内部不触发遮罩的关闭
+                    .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                    })
+                    .child(
+                        div()
+                            .text_size(px(14.))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(colors.foreground)
+                            .child(shared(i18n::text(locale, "settings-title"))),
+                    )
+                    .child(
+                        v_flex()
+                            .w_full()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(colors.foreground)
+                                    .child(shared(i18n::text(locale, "language-title"))),
+                            )
+                            .child(
+                                h_flex()
+                                    .w_full()
+                                    .gap_2()
+                                    .child(lang_btn(
+                                        "lang-system",
+                                        "language-system",
+                                        LanguagePreference::System,
+                                        cx,
+                                    ))
+                                    .child(lang_btn(
+                                        "lang-chinese",
+                                        "language-chinese",
+                                        LanguagePreference::SimplifiedChinese,
+                                        cx,
+                                    ))
+                                    .child(lang_btn(
+                                        "lang-english",
+                                        "language-english",
+                                        LanguagePreference::English,
+                                        cx,
+                                    )),
+                            ),
+                    )
+                    .child(
+                        Button::new("settings-close")
+                            .label(i18n::text(locale, "settings-close"))
+                            .ghost()
+                            .w_full()
+                            .on_click({
+                                let this = cx.entity();
+                                move |_e, _w, cx| {
+                                    this.update(cx, |ws, cx| {
+                                        ws.show_settings = false;
+                                        cx.notify();
+                                    });
+                                }
+                            }),
+                    ),
+            )
     }
 }
 
@@ -1004,6 +1103,7 @@ impl Render for Workspace {
         v_flex()
             .id("workspace")
             .size_full()
+            .relative()
             .bg(colors.background)
             .child(self.title_bar(window, cx))
             .child(self.toolbar.clone())
@@ -1014,6 +1114,7 @@ impl Render for Workspace {
                 self.welcome(window, cx).into_any_element()
             })
             .child(self.status_bar(cx))
+            .when(self.show_settings, |el| el.child(self.settings_overlay(cx)))
     }
 }
 

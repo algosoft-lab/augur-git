@@ -16,6 +16,23 @@ use std::time::Duration;
 
 use crate::core::graph::LogRow;
 
+/// 错误载荷：key 为 core/i18n 的文案键，detail 为原始错误串
+/// （本层不做本地化，展示侧有 locale 时经 text_args 拼接，镜像 augur-pdf）
+#[derive(Clone, Debug)]
+pub struct GitError {
+    pub key: &'static str,
+    pub detail: String,
+}
+
+impl GitError {
+    fn new(key: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            key,
+            detail: detail.into(),
+        }
+    }
+}
+
 /// 后台 → UI 事件
 pub enum GitEvent {
     /// 状态结果（分支 + 变更文件 + 本地分支列表 + ahead/behind）
@@ -31,14 +48,68 @@ pub enum GitEvent {
     },
     /// 提交日志（含 parents，供 compute_graph 布局）
     Log { rows: Vec<LogRow> },
+    /// 提交的逐文件增删统计（git show --numstat，选中提交时查询）
+    CommitFiles { oid: String, files: Vec<FileChange> },
+    /// 提交内单文件 diff 文本（git show --format= <oid> -- <path>）
+    CommitFileDiff {
+        oid: String,
+        path: String,
+        diff: String,
+    },
     /// 通用命令执行结果（fetch/pull/push/commit/show…）
     CommandDone {
         label: String,
         success: bool,
         message: String,
     },
-    /// 命令执行出错（含 stderr）
-    Error(String),
+    /// 命令执行出错（key 为 i18n 键，展示侧本地化）
+    Error(GitError),
+}
+
+/// 单文件的提交增删统计（git show --numstat 解析）
+#[derive(Clone, Debug)]
+pub struct FileChange {
+    /// 文件路径（重命名时为 "old => new" 原样）
+    pub path: String,
+    /// 新增行数（None = 二进制）
+    pub added: Option<usize>,
+    /// 删除行数（None = 二进制）
+    pub deleted: Option<usize>,
+}
+
+impl FileChange {
+    pub fn is_binary(&self) -> bool {
+        self.added.is_none()
+    }
+}
+
+/// 解析 `git show --numstat --format= <oid>` 输出
+///
+/// 每行结构：`<added>\t<deleted>\t<path>`；二进制文件为 `-\t-\t<path>`
+fn parse_numstat(text: &str) -> Vec<FileChange> {
+    text.lines()
+        .filter_map(|line| {
+            let (added, rest) = line.split_once('\t')?;
+            let (deleted, path) = rest.split_once('\t')?;
+            Some(FileChange {
+                path: path.to_string(),
+                added: added.parse().ok(),
+                deleted: deleted.parse().ok(),
+            })
+        })
+        .collect()
+}
+
+/// 文件行右侧色块条的分块数（镜像 rgitui DiffStat：共 5 块，
+/// 绿 = ⌈added×5/total⌉，红 = 其余；total = 0 时全灰 (0,0)）
+pub fn stat_blocks(added: usize, deleted: usize) -> (usize, usize) {
+    const TOTAL_BLOCKS: usize = 5;
+    let total = added + deleted;
+    if total == 0 {
+        return (0, 0);
+    }
+    let green = (added * TOTAL_BLOCKS).div_ceil(total).min(TOTAL_BLOCKS);
+    (green, TOTAL_BLOCKS - green)
 }
 
 /// 单个文件变更（git status --porcelain 解析）
@@ -82,6 +153,10 @@ pub enum GitCommand {
     Refresh,
     /// 执行任意 git 命令（label 供 UI 显示；args 不含 "git" 本身）
     Run { label: String, args: Vec<String> },
+    /// 查询提交的逐文件增删统计（git show --numstat）
+    CommitNumstat { oid: String },
+    /// 查询提交内单文件 diff（git show --format= -- <path>）
+    CommitFileDiff { oid: String, path: String },
     /// 关闭工作线程
     Close,
 }
@@ -105,6 +180,16 @@ impl GitHandle {
         });
     }
 
+    /// 查询提交的逐文件增删统计
+    pub fn commit_numstat(&self, oid: String) {
+        let _ = self.cmd_tx.send(GitCommand::CommitNumstat { oid });
+    }
+
+    /// 查询提交内单文件 diff
+    pub fn commit_file_diff(&self, oid: String, path: String) {
+        let _ = self.cmd_tx.send(GitCommand::CommitFileDiff { oid, path });
+    }
+
     /// 请求关闭工作线程
     pub fn close(&self) {
         let _ = self.cmd_tx.send(GitCommand::Close);
@@ -115,14 +200,14 @@ impl GitHandle {
 ///
 /// 注意：路径校验在 UI 线程同步执行（毫秒级，可接受），失败即时返回错误；
 /// 之后所有 git 命令都在后台线程跑，UI 线程只经通道通信。
-pub fn spawn_open(repo_path: String, event_tx: Sender<GitEvent>) -> Result<GitHandle, String> {
+pub fn spawn_open(repo_path: String, event_tx: Sender<GitEvent>) -> Result<GitHandle, GitError> {
     let path = Path::new(&repo_path);
     if !path.is_dir() {
-        return Err(format!("路径不存在: {repo_path}"));
+        return Err(GitError::new("err-path-not-exist", repo_path));
     }
     // TODO: 子模块/worktree 的 .git 可能是文件而非目录，后续里程碑补判
     if !path.join(".git").exists() {
-        return Err(format!("不是 Git 仓库: {repo_path}"));
+        return Err(GitError::new("err-not-a-repo", repo_path));
     }
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<GitCommand>();
@@ -141,6 +226,12 @@ fn worker_loop(repo_path: String, cmd_rx: Receiver<GitCommand>, event_tx: Sender
             Ok(GitCommand::Refresh) => refresh_all(&repo_path, &event_tx),
             Ok(GitCommand::Run { label, args }) => {
                 run_git(&repo_path, &label, &args, &event_tx);
+            }
+            Ok(GitCommand::CommitNumstat { oid }) => {
+                run_numstat(&repo_path, &oid, &event_tx);
+            }
+            Ok(GitCommand::CommitFileDiff { oid, path }) => {
+                run_file_diff(&repo_path, &oid, &path, &event_tx);
             }
             Ok(GitCommand::Close) | Err(RecvTimeoutError::Disconnected) => break,
             Err(RecvTimeoutError::Timeout) => {}
@@ -182,9 +273,55 @@ fn run_git(repo_path: &str, label: &str, args: &[String], event_tx: &Sender<GitE
             success: false,
             message: String::from_utf8_lossy(&output.stderr).into_owned(),
         },
-        Err(e) => GitEvent::Error(format!("git 执行失败: {e}")),
+        Err(e) => GitEvent::Error(GitError::new("err-git-run", e.to_string())),
     };
     let _ = event_tx.send(event);
+}
+
+/// 查询提交的逐文件增删统计（真合并提交输出为空，展示侧按空清单处理）
+fn run_numstat(repo_path: &str, oid: &str, event_tx: &Sender<GitEvent>) {
+    let output = Command::new("git")
+        .args(["-C", repo_path, "show", "--numstat", "--format=", oid])
+        .output();
+    match output {
+        Ok(output) if output.status.success() => {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let _ = event_tx.send(GitEvent::CommitFiles {
+                oid: oid.to_string(),
+                files: parse_numstat(&text),
+            });
+        }
+        Ok(output) => {
+            let msg = String::from_utf8_lossy(&output.stderr);
+            let _ = event_tx.send(GitEvent::Error(GitError::new("err-numstat", msg)));
+        }
+        Err(e) => {
+            let _ = event_tx.send(GitEvent::Error(GitError::new("err-git-run", e.to_string())));
+        }
+    }
+}
+
+/// 查询提交内单文件 diff（--format= 去掉提交头，只留 diff 体；根提交同样可用）
+fn run_file_diff(repo_path: &str, oid: &str, path: &str, event_tx: &Sender<GitEvent>) {
+    let output = Command::new("git")
+        .args(["-C", repo_path, "show", "--format=", oid, "--", path])
+        .output();
+    match output {
+        Ok(output) if output.status.success() => {
+            let _ = event_tx.send(GitEvent::CommitFileDiff {
+                oid: oid.to_string(),
+                path: path.to_string(),
+                diff: String::from_utf8_lossy(&output.stdout).into_owned(),
+            });
+        }
+        Ok(output) => {
+            let msg = String::from_utf8_lossy(&output.stderr);
+            let _ = event_tx.send(GitEvent::Error(GitError::new("err-file-diff", msg)));
+        }
+        Err(e) => {
+            let _ = event_tx.send(GitEvent::Error(GitError::new("err-git-run", e.to_string())));
+        }
+    }
 }
 
 /// 执行 git status，返回 (分支, 变更文件, ahead, behind)
@@ -309,10 +446,10 @@ fn run_log(repo_path: &str, event_tx: &Sender<GitEvent>) {
         }
         Ok(output) => {
             let msg = String::from_utf8_lossy(&output.stderr);
-            let _ = event_tx.send(GitEvent::Error(format!("git log 失败: {msg}")));
+            let _ = event_tx.send(GitEvent::Error(GitError::new("err-git-log", msg)));
         }
         Err(e) => {
-            let _ = event_tx.send(GitEvent::Error(format!("git 执行失败: {e}")));
+            let _ = event_tx.send(GitEvent::Error(GitError::new("err-git-run", e.to_string())));
         }
     }
 }
@@ -344,10 +481,7 @@ fn parse_log(text: &str) -> Vec<LogRow> {
             .map(|s| s.to_string())
             .collect();
         // %at = 作者时间戳（unix 秒，相对时间显示用）
-        let timestamp = fields
-            .get(4)
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
+        let timestamp = fields.get(4).and_then(|s| s.parse().ok()).unwrap_or(0);
         rows.push(LogRow {
             graph: line[..graph_end].to_string(),
             oid: fields[0].to_string(),
@@ -366,6 +500,35 @@ fn parse_log(text: &str) -> Vec<LogRow> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_numstat_normal_binary_rename() {
+        let text = "12\t3\tsrc/main.rs\n-\t-\tassets/logo.png\n5\t0\told.rs => new.rs\n";
+        let files = parse_numstat(text);
+        assert_eq!(files.len(), 3);
+        assert_eq!(files[0].path, "src/main.rs");
+        assert_eq!(files[0].added, Some(12));
+        assert_eq!(files[0].deleted, Some(3));
+        // 二进制：增删均为 None
+        assert!(files[1].is_binary());
+        // 重命名：路径原样保留 "old => new"
+        assert_eq!(files[2].path, "old.rs => new.rs");
+        assert_eq!(files[2].added, Some(5));
+        // 空/畸形行跳过
+        assert!(parse_numstat("").is_empty());
+        assert!(parse_numstat("garbage\n12\t3\n").is_empty());
+    }
+
+    #[test]
+    fn stat_blocks_ratios() {
+        assert_eq!(stat_blocks(0, 0), (0, 0));
+        assert_eq!(stat_blocks(10, 0), (5, 0));
+        assert_eq!(stat_blocks(0, 10), (0, 5));
+        // ⌈1×5/2⌉=3 绿 2 红
+        assert_eq!(stat_blocks(1, 1), (3, 2));
+        assert_eq!(stat_blocks(3, 1), (4, 1));
+        assert_eq!(stat_blocks(6, 4), (3, 2));
+    }
 
     #[test]
     fn parse_status_normal() {

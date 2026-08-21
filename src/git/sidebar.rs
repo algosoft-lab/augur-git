@@ -2,21 +2,18 @@
 //!
 //! 镜像 rgitui sidebar 的分区结构（本 M1 实现 分支/暂存/未暂存 三区）：
 //! - 分支区：点击选中 → 点击行内 checkout 按钮切换分支
-//! - 暂存/未暂存区：文件行点击 → 详情面板显示；行内 ✎ 按钮 → diff
+//! - 暂存/未暂存区：文件行点击 → 详情面板显示（工作区 diff 留待暂存里程碑）
 //! 顶部保留 仓库 标题 + 收起按钮（路径输入/打开/刷新已移除，走 Welcome/工具栏）
 
 use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::{
-    ActiveTheme, h_flex,
-    input::InputState,
-    v_flex,
-};
+use gpui_component::{ActiveTheme, h_flex, input::InputState, v_flex};
 
 use crate::core::config::AppConfig;
 use crate::core::git::{BranchInfo, FileStatus};
+use crate::core::i18n::{self, Locale};
 use crate::git::shared;
 
 /// 侧栏事件
@@ -35,8 +32,6 @@ pub enum SidebarEvent {
         staged: bool,
         code: char,
     },
-    /// 查看文件 diff（git show/HEAD diff）
-    FileDiff { path: String, staged: bool },
 }
 
 pub struct Sidebar {
@@ -53,6 +48,8 @@ pub struct Sidebar {
     selected: Option<(bool, usize)>,
     /// 分支区高亮截止时刻（标题栏徽标点击，时间戳过期自动消失）
     flash_branches_until: Option<Instant>,
+    /// 界面语言（Workspace 切换语言时同步）
+    locale: Locale,
 }
 
 impl EventEmitter<SidebarEvent> for Sidebar {}
@@ -64,6 +61,7 @@ impl Sidebar {
         _cx: &mut Context<Self>,
         config: &AppConfig,
         repo_path_input: &Entity<InputState>,
+        locale: Locale,
     ) -> Self {
         Self {
             repo_path_input: repo_path_input.clone(),
@@ -74,7 +72,14 @@ impl Sidebar {
             unstaged: Vec::new(),
             selected: None,
             flash_branches_until: None,
+            locale,
         }
+    }
+
+    /// 切换语言（Workspace::set_language 同步）
+    pub fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
+        self.locale = locale;
+        cx.notify();
     }
 
     /// 刷新最近仓库列表（打开成功后由 workspace 调用）
@@ -155,24 +160,19 @@ impl Sidebar {
             .h_full()
             .bg(colors.background)
             .child(
-                v_flex()
-                    .id("sidebar-repo")
-                    .w_full()
-                    .gap_2()
-                    .p_3()
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .items_center()
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .text_color(colors.muted_foreground)
-                                    .child("仓库"),
-                            )
-                            .child(div().flex_1())
-                            .child(collapse_btn),
-                    ),
+                v_flex().id("sidebar-repo").w_full().gap_2().p_3().child(
+                    h_flex()
+                        .w_full()
+                        .items_center()
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(colors.muted_foreground)
+                                .child(shared(i18n::text(self.locale, "sidebar-repo"))),
+                        )
+                        .child(div().flex_1())
+                        .child(collapse_btn),
+                ),
             )
             .child(
                 v_flex()
@@ -282,7 +282,7 @@ impl Sidebar {
                         div()
                             .text_size(px(11.))
                             .text_color(colors.muted_foreground)
-                            .child("分支"),
+                            .child(shared(i18n::text(self.locale, "section-branches"))),
                     )
                     .child(
                         div()
@@ -302,16 +302,17 @@ impl Sidebar {
         files: &[FileStatus],
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
-        let title = if staged { "暂存" } else { "变更" };
+        let title_key = if staged {
+            "section-staged"
+        } else {
+            "section-changes"
+        };
         let rows = files
             .iter()
             .enumerate()
             .map(|(i, f)| {
                 let this = cx.entity();
-                // 第二个 on_click 也用 this —— Entity 需 clone
-                let this_diff = this.clone();
-                let path = f.path.clone();
-                let (code_color, label) = status_style(&colors, f.code());
+                let (code_color, label) = status_style(&colors, f.code(), self.locale);
                 let selected = self.selected == Some((staged, i));
                 h_flex()
                     .id(SharedString::from(format!("file-{staged}-{i}")))
@@ -350,25 +351,7 @@ impl Sidebar {
                             .min_w_0()
                             .text_size(px(12.))
                             .text_color(colors.foreground)
-                            .child(shared(path.clone())),
-                    )
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("file-diff-{staged}-{i}")))
-                            .px_1()
-                            .rounded_sm()
-                            .hover(|this| this.bg(colors.input))
-                            .text_size(px(11.))
-                            .text_color(colors.muted_foreground)
-                            .child("✎")
-                            .on_click(move |_e, _w, cx| {
-                                this_diff.update(cx, |_sidebar, cx| {
-                                    cx.emit(SidebarEvent::FileDiff {
-                                        path: path.clone(),
-                                        staged,
-                                    });
-                                });
-                            }),
+                            .child(shared(f.path.clone())),
                     )
             })
             .collect::<Vec<_>>();
@@ -378,7 +361,12 @@ impl Sidebar {
             .w_full()
             .gap_0p5()
             .p_2()
-            .child(section_header(cx, title, files.len()))
+            .child(section_header(
+                cx,
+                title_key,
+                i18n::text(self.locale, title_key),
+                files.len(),
+            ))
             .children(rows)
     }
 
@@ -423,7 +411,12 @@ impl Sidebar {
             .w_full()
             .gap_0p5()
             .p_2()
-            .child(section_header(cx, "最近仓库", self.recent_repos.len()))
+            .child(section_header(
+                cx,
+                "recent-repos",
+                i18n::text(self.locale, "recent-repos"),
+                self.recent_repos.len(),
+            ))
             .children(recents)
     }
 }
@@ -434,11 +427,16 @@ impl Render for Sidebar {
     }
 }
 
-/// 分区标题（名字 + 计数）
-fn section_header(cx: &Context<Sidebar>, title: &str, count: usize) -> impl IntoElement {
+/// 分区标题（名字 + 计数）；id 用稳定的 i18n 键（标题文本随语言变，不能当 id）
+fn section_header(
+    cx: &Context<Sidebar>,
+    key: &str,
+    title: String,
+    count: usize,
+) -> impl IntoElement {
     let colors = cx.theme().colors.clone();
     h_flex()
-        .id(SharedString::from(format!("section-{title}")))
+        .id(SharedString::from(format!("section-{key}")))
         .w_full()
         .px_2()
         .py_0p5()
@@ -458,22 +456,26 @@ fn section_header(cx: &Context<Sidebar>, title: &str, count: usize) -> impl Into
         )
 }
 
-/// 状态码 → 颜色/标签
-fn status_style(colors: &gpui_component::theme::ThemeColor, code: char) -> (Hsla, &'static str) {
+/// 状态码 → 颜色/标签（标签双语：zh 单字 改/增/删/移/拷/冲，en 字母 M/A/D/R/C/U）
+fn status_style(
+    colors: &gpui_component::theme::ThemeColor,
+    code: char,
+    locale: Locale,
+) -> (Hsla, String) {
     let color = match code {
         'M' | 'R' | 'C' => colors.warning,
         'A' => colors.green,
         'D' | 'U' => colors.red,
         _ => colors.muted_foreground,
     };
-    let label = match code {
-        'M' => "改",
-        'A' => "增",
-        'D' => "删",
-        'R' => "移",
-        'C' => "拷",
-        'U' => "冲",
-        _ => "?",
+    let key = match code {
+        'M' => "status-mod",
+        'A' => "status-add",
+        'D' => "status-del",
+        'R' => "status-ren",
+        'C' => "status-cpy",
+        'U' => "status-conflict",
+        _ => "status-unknown",
     };
-    (color, label)
+    (color, i18n::text(locale, key))
 }

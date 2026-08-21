@@ -8,6 +8,7 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{ActiveTheme, h_flex};
 
+use crate::core::i18n::{self, Locale};
 use crate::git::shared;
 
 /// Toolbar → Workspace 事件
@@ -28,18 +29,27 @@ pub struct Toolbar {
     has_remote: bool,
     /// 操作进行中（按钮禁用/转圈占位）
     busy: bool,
+    /// 界面语言（Workspace 切换语言时同步）
+    locale: Locale,
 }
 
 impl EventEmitter<ToolbarEvent> for Toolbar {}
 
 impl Toolbar {
-    pub fn new() -> Self {
+    pub fn new(locale: Locale) -> Self {
         Self {
             ahead: 0,
             behind: 0,
             has_remote: true,
             busy: false,
+            locale,
         }
+    }
+
+    /// 切换语言（Workspace::set_language 同步）
+    pub fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
+        self.locale = locale;
+        cx.notify();
     }
 
     pub fn set_ahead_behind(&mut self, ahead: usize, behind: usize, cx: &mut Context<Self>) {
@@ -58,11 +68,11 @@ impl Toolbar {
         }
     }
 
-    /// 工具按钮（文本按钮，带 hover）
+    /// 工具按钮（文本按钮，带 hover）；label_key 为 i18n 键
     fn tool_button(
         &self,
         id: &'static str,
-        label: &'static str,
+        label_key: &str,
         colors: &gpui_component::theme::ThemeColor,
         enabled: bool,
         event: ToolbarEvent,
@@ -79,7 +89,7 @@ impl Toolbar {
             .hover(|this| this.bg(colors.list_hover))
             .text_size(px(12.))
             .text_color(colors.foreground)
-            .child(shared(label))
+            .child(shared(i18n::text(self.locale, label_key)))
             .when(enabled, |el| {
                 el.on_click(move |_e, _w, cx| {
                     this.update(cx, |_toolbar, cx| cx.emit(event.clone()));
@@ -106,15 +116,36 @@ impl Render for Toolbar {
             .border_color(colors.border)
             .child(self.tool_button(
                 "tb-fetch",
-                "Fetch",
+                "toolbar-fetch",
                 &colors,
                 enabled,
                 ToolbarEvent::Fetch,
                 cx,
             ))
-            .child(self.tool_button("tb-pull", "Pull", &colors, enabled, ToolbarEvent::Pull, cx))
-            .child(self.tool_button("tb-push", "Push", &colors, enabled, ToolbarEvent::Push, cx))
-            .child(self.tool_button("tb-branch", "分支", &colors, true, ToolbarEvent::Branch, cx))
+            .child(self.tool_button(
+                "tb-pull",
+                "toolbar-pull",
+                &colors,
+                enabled,
+                ToolbarEvent::Pull,
+                cx,
+            ))
+            .child(self.tool_button(
+                "tb-push",
+                "toolbar-push",
+                &colors,
+                enabled,
+                ToolbarEvent::Push,
+                cx,
+            ))
+            .child(self.tool_button(
+                "tb-branch",
+                "toolbar-branch",
+                &colors,
+                true,
+                ToolbarEvent::Branch,
+                cx,
+            ))
             // ahead/behind 徽标
             .child(
                 h_flex()
@@ -144,11 +175,15 @@ impl Render for Toolbar {
                 div()
                     .text_size(px(11.))
                     .text_color(colors.muted_foreground)
-                    .child(if self.busy { "操作中…" } else { "" }),
+                    .child(if self.busy {
+                        shared(i18n::text(self.locale, "toolbar-busy"))
+                    } else {
+                        shared("")
+                    }),
             )
             .child(self.tool_button(
                 "tb-refresh",
-                "刷新",
+                "toolbar-refresh",
                 &colors,
                 true,
                 ToolbarEvent::Refresh,
@@ -156,9 +191,9 @@ impl Render for Toolbar {
             ))
             .child(self.tool_button(
                 "tb-settings",
-                "设置",
+                "toolbar-settings",
                 &colors,
-                false,
+                true,
                 ToolbarEvent::Settings,
                 cx,
             ))

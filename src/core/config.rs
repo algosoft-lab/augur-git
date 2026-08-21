@@ -6,6 +6,24 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+/// 用户选择的语言偏好（镜像 augur-pdf/augur-term config.rs）。
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub enum LanguagePreference {
+    /// 跟随操作系统语言。
+    #[serde(rename = "system")]
+    System,
+    #[serde(rename = "en-US", alias = "en")]
+    English,
+    #[serde(rename = "zh-CN", alias = "zh")]
+    SimplifiedChinese,
+}
+
+impl Default for LanguagePreference {
+    fn default() -> Self {
+        Self::System
+    }
+}
+
 /// 仓库参数（侧栏配置面板，单一来源）
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct RepoParams {
@@ -42,7 +60,12 @@ impl Default for ViewSettings {
 /// 应用配置（单一事实源，Workspace 持有；任一变更即存盘）
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct AppConfig {
+    /// 界面语言；`system` 跟随操作系统。字段缺失时回落「跟随系统」。
+    #[serde(default)]
+    pub language: LanguagePreference,
+    #[serde(default)]
     pub repo: RepoParams,
+    #[serde(default)]
     pub view: ViewSettings,
     /// 最近打开的仓库（MRU，最多 8 个，侧栏快速切换）
     #[serde(default)]
@@ -117,5 +140,29 @@ mod tests {
         c.push_recent("repo3");
         assert_eq!(c.recent_repos.first().map(String::as_str), Some("repo3"));
         assert_eq!(c.recent_repos.iter().filter(|p| *p == "repo3").count(), 1);
+    }
+
+    #[test]
+    fn language_preference_round_trips() {
+        let json = r#"{"language":"zh-CN"}"#;
+        let config: AppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.language, LanguagePreference::SimplifiedChinese);
+
+        let serialized = serde_json::to_string(&AppConfig::default()).unwrap();
+        assert!(serialized.contains(r#""system""#));
+    }
+
+    #[test]
+    fn accepts_language_alias() {
+        let json = r#"{"language":"zh"}"#;
+        let config: AppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.language, LanguagePreference::SimplifiedChinese);
+    }
+
+    #[test]
+    fn missing_language_field_defaults_to_system() {
+        let json = r#"{"repo":{"path":""}}"#;
+        let config: AppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.language, LanguagePreference::System);
     }
 }

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="gitg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#EF4444"/>
+      <stop offset="100%" stop-color="#B91C1C"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角方形红色渐变背景 -->
+  <rect width="200" height="200" rx="44" fill="url(#gitg)"/>
+
+  <!-- 提交图：主干 + 分支岔出再合并 -->
+  <!-- 主干 -->
+  <path d="M80 50 L80 164"
+        stroke="white" stroke-width="8"
+        stroke-linecap="round" fill="none"/>
+  <!-- 分支（含拐角）-->
+  <path d="M80 50 L126 50 L126 104 L80 104"
+        stroke="white" stroke-width="8"
+        stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+
+  <!-- 节点（commit）-->
+  <circle cx="80" cy="50" r="12" fill="white"/>
+  <circle cx="126" cy="77" r="8" fill="white"/>
+  <circle cx="80" cy="104" r="11" fill="white"/>
+  <circle cx="80" cy="158" r="10" fill="white"/>
+</svg>

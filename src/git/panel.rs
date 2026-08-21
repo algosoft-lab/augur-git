@@ -1,10 +1,11 @@
 //! M1：右面板三件套——DetailPanel（提交/文件详情）、CommitPanel（提交输入）、
-//! DiffViewer（底部面板 Diff tab，显示 git show 输出）
+//! BottomPanel（底部面板：选中提交文件清单 + 单文件 diff 分栏）
 //!
 //! 镜像 rgitui 的 detail_panel.rs / commit_panel.rs 职责，M1 渲染从简：
 //! - DetailPanel：选中提交 → oid/作者/时间/消息/装饰；选中文件 → 路径/状态
 //! - CommitPanel：多行输入 + 提交按钮（经事件链跑 git commit -m）
-//! - DiffViewer：等宽文本展示 git show --stat 输出（高亮 diff 后续里程碑）
+//! - BottomPanel：左 40% 文件清单（每文件 `+n −m` 绿/红色块条，镜像 rgitui
+//!   DiffStat）+ 右 60% 染色 diff（+绿/−红/@@蓝），无 tab
 
 use gpui::prelude::*;
 use gpui::*;
@@ -15,6 +16,8 @@ use gpui_component::{
     v_flex,
 };
 
+use crate::core::git::{FileChange, stat_blocks};
+use crate::core::i18n::{self, Locale};
 use crate::git::shared;
 
 /// CommitPanel → Workspace 事件
@@ -50,26 +53,27 @@ pub enum RightPanelMode {
     BranchHealth,
 }
 
-/// 底部面板 tab（镜像 rgitui 的 BottomPanelMode）
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BottomPanelMode {
-    Diff,
-    History,
-    Blame,
-}
-
 /// 右面板：tab 栏 + 详情
 pub struct DetailPanel {
     content: DetailContent,
     pub mode: RightPanelMode,
+    /// 界面语言（Workspace 切换语言时同步）
+    locale: Locale,
 }
 
 impl DetailPanel {
-    pub fn new() -> Self {
+    pub fn new(locale: Locale) -> Self {
         Self {
             content: DetailContent::Empty,
             mode: RightPanelMode::Details,
+            locale,
         }
+    }
+
+    /// 切换语言（Workspace::set_language 同步）
+    pub fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
+        self.locale = locale;
+        cx.notify();
     }
 
     pub fn set_content(&mut self, content: DetailContent, cx: &mut Context<Self>) {
@@ -77,9 +81,16 @@ impl DetailPanel {
         cx.notify();
     }
 
-    fn detail_tab(&self, colors: &ThemeColor, label: &str, active: bool) -> Stateful<Div> {
+    /// tab（key 为稳定 i18n 键作 id；title 为本地化文本）
+    fn detail_tab(
+        &self,
+        colors: &ThemeColor,
+        key: &str,
+        title: String,
+        active: bool,
+    ) -> Stateful<Div> {
         h_flex()
-            .id(SharedString::from(format!("right-tab-{label}")))
+            .id(SharedString::from(format!("right-tab-{key}")))
             .h_full()
             .px_3()
             .items_center()
@@ -94,7 +105,7 @@ impl DetailPanel {
                     } else {
                         colors.muted_foreground
                     })
-                    .child(shared(label)),
+                    .child(shared(title)),
             )
     }
 }
@@ -106,7 +117,12 @@ impl Render for DetailPanel {
 
         // tab 切换（M1：BranchHealth 为占位）
         let this = cx.entity();
-        let tab_details = self.detail_tab(&colors, "详情", self.mode == RightPanelMode::Details);
+        let tab_details = self.detail_tab(
+            &colors,
+            "tab-details",
+            i18n::text(self.locale, "tab-details"),
+            self.mode == RightPanelMode::Details,
+        );
         let tab_details = tab_details.on_click(move |_e, _w, cx| {
             this.update(cx, |panel, cx| {
                 panel.mode = RightPanelMode::Details;
@@ -116,7 +132,8 @@ impl Render for DetailPanel {
         let this = cx.entity();
         let tab_bh = self.detail_tab(
             &colors,
-            "分支概览",
+            "tab-branch-health",
+            i18n::text(self.locale, "tab-branch-health"),
             self.mode == RightPanelMode::BranchHealth,
         );
         let tab_bh = tab_bh.on_click(move |_e, _w, cx| {
@@ -176,7 +193,7 @@ impl DetailPanel {
                 div()
                     .text_size(px(12.))
                     .text_color(colors.muted_foreground)
-                    .child("选择提交或文件查看详情"),
+                    .child(shared(i18n::text(self.locale, "detail-empty"))),
             )
     }
 
@@ -231,13 +248,21 @@ impl DetailPanel {
                         div()
                             .text_size(px(11.))
                             .text_color(colors.muted_foreground)
-                            .child(shared(format!("作者 {author}"))),
+                            .child(shared(i18n::text_args(
+                                self.locale,
+                                "detail-author",
+                                &[("author", author)],
+                            ))),
                     )
                     .child(
                         div()
                             .text_size(px(11.))
                             .text_color(colors.muted_foreground)
-                            .child(shared(format!("时间 {date}"))),
+                            .child(shared(i18n::text_args(
+                                self.locale,
+                                "detail-date",
+                                &[("date", date)],
+                            ))),
                     ),
             )
     }
@@ -250,14 +275,15 @@ impl DetailPanel {
         staged: bool,
         code: char,
     ) -> impl IntoElement {
-        let (label, color) = match code {
-            'M' => ("修改", colors.warning),
-            'A' => ("新增", colors.green),
-            'D' => ("删除", colors.red),
-            'R' => ("重命名", colors.warning),
-            'U' => ("冲突", colors.red),
-            _ => ("未跟踪", colors.muted_foreground),
+        let (key, color) = match code {
+            'M' => ("file-modified", colors.warning),
+            'A' => ("file-added", colors.green),
+            'D' => ("file-deleted", colors.red),
+            'R' => ("file-renamed", colors.warning),
+            'U' => ("file-conflict", colors.red),
+            _ => ("file-untracked", colors.muted_foreground),
         };
+        let label = i18n::text(self.locale, key);
         v_flex()
             .id("detail-file")
             .w_full()
@@ -281,7 +307,11 @@ impl DetailPanel {
                         div()
                             .text_size(px(11.))
                             .text_color(colors.muted_foreground)
-                            .child(if staged { "已暂存" } else { "未暂存" }),
+                            .child(shared(if staged {
+                                i18n::text(self.locale, "file-staged")
+                            } else {
+                                i18n::text(self.locale, "file-unstaged")
+                            })),
                     ),
             )
             .child(
@@ -301,13 +331,17 @@ pub struct CommitPanel {
     collapsed: bool,
     /// 是否有暂存变更（无暂存时提交按钮禁用）
     has_staged: bool,
+    /// 界面语言（Workspace 切换语言时同步）
+    locale: Locale,
 }
 
 impl EventEmitter<CommitPanelEvent> for CommitPanel {}
 
 impl CommitPanel {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("提交信息（Enter 提交）"));
+    pub fn new(window: &mut Window, cx: &mut Context<Self>, locale: Locale) -> Self {
+        let input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(i18n::text(locale, "commit-placeholder"))
+        });
 
         // Ctrl+Enter = 提交
         let input_entity = input.clone();
@@ -331,7 +365,18 @@ impl CommitPanel {
             input,
             collapsed: false,
             has_staged: false,
+            locale,
         }
+    }
+
+    /// 切换语言（Workspace::set_language 同步）；placeholder 回填需 &mut Window
+    pub fn set_locale(&mut self, locale: Locale, window: &mut Window, cx: &mut Context<Self>) {
+        self.locale = locale;
+        let placeholder = i18n::text(locale, "commit-placeholder");
+        self.input.update(cx, |input, cx| {
+            input.set_placeholder(placeholder, window, cx);
+        });
+        cx.notify();
     }
 
     pub fn set_has_staged(&mut self, has_staged: bool, cx: &mut Context<Self>) {
@@ -372,7 +417,7 @@ impl Render for CommitPanel {
                 div()
                     .text_size(px(12.))
                     .text_color(colors.foreground)
-                    .child("提交"),
+                    .child(shared(i18n::text(self.locale, "commit-title"))),
             )
             .child(div().flex_1())
             .child(
@@ -418,7 +463,7 @@ impl Render for CommitPanel {
                 colors.muted_foreground
             })
             .text_size(px(12.))
-            .child("提交")
+            .child(shared(i18n::text(self.locale, "commit-btn")))
             .on_click(move |_e, _w, cx| {
                 btn_commit.update(cx, |panel, cx| panel.submit(cx));
             });
@@ -442,11 +487,11 @@ impl Render for CommitPanel {
                                 div()
                                     .text_size(px(11.))
                                     .text_color(colors.muted_foreground)
-                                    .child(if self.has_staged {
-                                        "将提交暂存的变更"
+                                    .child(shared(if self.has_staged {
+                                        i18n::text(self.locale, "commit-hint-staged")
                                     } else {
-                                        "无暂存变更（暂存功能 M2）"
-                                    }),
+                                        i18n::text(self.locale, "commit-hint-none")
+                                    })),
                             )
                             .child(div().flex_1())
                             .child(commit_btn),
@@ -455,127 +500,392 @@ impl Render for CommitPanel {
     }
 }
 
-/// 底部面板：Diff tab（git show 输出，等宽文本）
-pub struct DiffViewer {
-    /// (标题, 输出文本)
-    output: Option<(String, String)>,
-    /// 输出是否来自失败命令（错误红字）
-    failed: bool,
+/// BottomPanel → Workspace 事件
+#[derive(Clone, Debug)]
+pub enum BottomPanelEvent {
+    /// 选中文件 → 右侧加载该文件在此提交的 diff（workspace 转发 GitView）
+    ShowFileDiff { oid: String, path: String },
 }
 
-impl DiffViewer {
-    pub fn new() -> Self {
+/// 底部面板：选中提交的文件清单 + 单文件 diff 分栏（无 tab）
+///
+/// 布局：头行（short oid 徽标 + 说明截断 + 总增删色块条）+ 左右分栏
+/// （左 40% 文件清单：路径 + 每文件 `+n −m` 绿/红色块条；右 60% 染色 diff）。
+/// 快速切换提交/文件时，过期结果按 oid/path 校验丢弃。
+pub struct BottomPanel {
+    locale: Locale,
+    /// 当前选中提交 (oid, short, subject)；切换时重置清单与 diff
+    commit: Option<(String, String, String)>,
+    /// 提交的逐文件增删统计（git show --numstat）
+    files: Vec<FileChange>,
+    /// 选中文件索引
+    selected: Option<usize>,
+    /// 右侧 diff 文本（与 selected 对应；None = 未选/未加载）
+    diff: Option<String>,
+}
+
+impl EventEmitter<BottomPanelEvent> for BottomPanel {}
+
+impl BottomPanel {
+    pub fn new(locale: Locale) -> Self {
         Self {
-            output: None,
-            failed: false,
+            locale,
+            commit: None,
+            files: Vec::new(),
+            selected: None,
+            diff: None,
         }
     }
 
-    /// 显示命令输出（workspace 从 CommandDone 转发）
-    pub fn set_output(
-        &mut self,
-        label: String,
-        message: String,
-        success: bool,
-        cx: &mut Context<Self>,
-    ) {
-        self.output = Some((label, message));
-        self.failed = !success;
+    /// 切换语言（Workspace::set_language 同步）
+    pub fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
+        self.locale = locale;
+        cx.notify();
+    }
+
+    /// 选中提交变化（GraphEvent::CommitSelected 转发）：重置清单/diff；
+    /// workspace 随后触发 numstat 查询
+    pub fn set_commit(&mut self, oid: &str, short: &str, subject: &str, cx: &mut Context<Self>) {
+        self.commit = Some((oid.to_string(), short.to_string(), subject.to_string()));
+        self.files.clear();
+        self.selected = None;
+        self.diff = None;
+        cx.notify();
+    }
+
+    /// 文件清单到达（oid 与当前提交不符 = 过期结果，丢弃）
+    pub fn set_files(&mut self, oid: &str, files: Vec<FileChange>, cx: &mut Context<Self>) {
+        if self
+            .commit
+            .as_ref()
+            .map_or(true, |(current, _, _)| current != oid)
+        {
+            return;
+        }
+        self.files = files;
+        self.selected = None;
+        self.diff = None;
+        cx.notify();
+    }
+
+    /// 文件 diff 到达（oid/path 与当前选中不符 = 过期结果，丢弃）
+    pub fn set_diff(&mut self, oid: &str, path: &str, diff: String, cx: &mut Context<Self>) {
+        let selected_path = self
+            .selected
+            .and_then(|i| self.files.get(i))
+            .map(|f| f.path.as_str());
+        let stale = self
+            .commit
+            .as_ref()
+            .map_or(true, |(current, _, _)| current != oid)
+            || selected_path != Some(path);
+        if stale {
+            return;
+        }
+        self.diff = Some(diff);
+        cx.notify();
+    }
+
+    /// 点击文件行：选中并请求该文件 diff（重复点击同文件不重复请求）
+    fn select_file(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.selected == Some(index) {
+            return;
+        }
+        let Some((oid, _, _)) = self.commit.clone() else {
+            return;
+        };
+        let Some(file) = self.files.get(index) else {
+            return;
+        };
+        self.selected = Some(index);
+        self.diff = None;
+        cx.emit(BottomPanelEvent::ShowFileDiff {
+            oid,
+            path: file.path.clone(),
+        });
         cx.notify();
     }
 }
 
-impl Render for DiffViewer {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let colors = cx.theme().colors.clone();
-        let Some((label, text)) = &self.output else {
-            return v_flex()
-                .id("diff-empty")
-                .size_full()
+impl BottomPanel {
+    /// 左栏：文件清单（40% 宽；每行 路径 + 色块条，点击选中）
+    fn file_list(&self, colors: &ThemeColor, cx: &Context<Self>) -> impl IntoElement {
+        let mono = cx.theme().mono_font_family.clone();
+
+        // 清单为空：合并提交（numstat 无输出）或空提交
+        if self.files.is_empty() {
+            return div()
+                .id("bottom-files-empty")
+                .w(relative(0.4))
+                .flex_shrink_0()
+                .h_full()
+                .flex()
                 .items_center()
                 .justify_center()
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text(self.locale, "bottom-merge-empty"))),
+                )
+                .into_any_element();
+        }
+
+        let rows = self
+            .files
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                let this = cx.entity();
+                let selected = self.selected == Some(i);
+                // 二进制文件无行数：灰 BIN 字样代替色块条
+                let stat = if f.is_binary() {
+                    div()
+                        .text_size(px(10.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text(self.locale, "bottom-bin")))
+                        .into_any_element()
+                } else {
+                    stat_bar(colors, f.added.unwrap_or(0), f.deleted.unwrap_or(0))
+                        .into_any_element()
+                };
+                h_flex()
+                    .id(SharedString::from(format!("bottom-file-{i}")))
+                    .w_full()
+                    .h_6()
+                    .flex_shrink_0()
+                    .px_2()
+                    .gap_2()
+                    .items_center()
+                    .rounded_sm()
+                    .bg(if selected {
+                        colors.list_active
+                    } else {
+                        colors.background
+                    })
+                    .hover(|this| {
+                        if !selected {
+                            this.bg(colors.list_hover)
+                        } else {
+                            this
+                        }
+                    })
+                    .on_click(move |_e, _w, cx| {
+                        this.update(cx, |panel, cx| panel.select_file(i, cx));
+                    })
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .font_family(mono.clone())
+                            .text_size(px(11.))
+                            .text_color(colors.foreground)
+                            .truncate()
+                            .child(shared(f.path.clone())),
+                    )
+                    .child(stat)
+            })
+            .collect::<Vec<_>>();
+
+        div()
+            .id("bottom-files")
+            .w(relative(0.4))
+            .flex_shrink_0()
+            .h_full()
+            .overflow_y_scroll()
+            .py_1()
+            .children(rows)
+            .into_any_element()
+    }
+
+    /// 右栏：选中文件的染色 diff（+绿底 / −红底 / @@hunk 蓝 / 头部灰）
+    fn diff_view(&self, colors: &ThemeColor, cx: &Context<Self>) -> impl IntoElement {
+        let mono = cx.theme().mono_font_family.clone();
+
+        let body: Vec<AnyElement> = match self.selected {
+            None => vec![
+                div()
+                    .text_size(px(11.))
+                    .text_color(colors.muted_foreground)
+                    .child(shared(i18n::text(self.locale, "bottom-no-file")))
+                    .into_any_element(),
+            ],
+            Some(_) => match &self.diff {
+                // 加载中（本地 git 毫秒级，短暂省略号）
+                None => vec![
+                    div()
+                        .text_size(px(11.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared("…"))
+                        .into_any_element(),
+                ],
+                Some(text) if text.trim().is_empty() => vec![
+                    div()
+                        .text_size(px(11.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text(self.locale, "diff-no-output")))
+                        .into_any_element(),
+                ],
+                // 逐行 child 渲染（本 fork 无 whitespace_pre_wrap，此法最稳）
+                Some(text) => text
+                    .lines()
+                    .map(|l| {
+                        let (fg, bg) = diff_line_style(colors, l);
+                        div()
+                            .w_full()
+                            .px_2()
+                            .text_size(px(11.))
+                            .font_family(mono.clone())
+                            .text_color(fg)
+                            .when_some(bg, |el, b| el.bg(b))
+                            .child(shared(if l.is_empty() { " " } else { l }))
+                            .into_any_element()
+                    })
+                    .collect(),
+            },
+        };
+
+        div()
+            .id("bottom-diff")
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .overflow_y_scroll()
+            .py_1()
+            .children(body)
+            .into_any_element()
+    }
+}
+
+impl Render for BottomPanel {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let colors = cx.theme().colors.clone();
+
+        // 未选提交：整面板占位
+        let Some((_, short, subject)) = &self.commit else {
+            return v_flex()
+                .id("bottom-panel")
+                .size_full()
                 .bg(colors.background)
+                .items_center()
+                .justify_center()
                 .child(
                     div()
                         .text_size(px(12.))
                         .text_color(colors.muted_foreground)
-                        .child("双击提交或点文件行 ✎ 查看 diff"),
+                        .child(shared(i18n::text(self.locale, "bottom-no-commit"))),
                 )
                 .into_any_element();
         };
 
-        // 按行拆分渲染（等宽字体；本 fork 无 whitespace_pre_wrap，逐行 child 最稳）
-        let mono = cx.theme().mono_font_family.clone();
-        let lines = text
-            .lines()
-            .map(|l| {
+        // 头行：short oid 徽标 + 说明 + 总增删色块条（二进制不计入）
+        let (total_add, total_del) = self.files.iter().fold((0, 0), |(a, d), f| {
+            (a + f.added.unwrap_or(0), d + f.deleted.unwrap_or(0))
+        });
+        let header = h_flex()
+            .id("bottom-header")
+            .w_full()
+            .h(px(24.))
+            .flex_shrink_0()
+            .px_2()
+            .gap_2()
+            .items_center()
+            .bg(colors.tab_bar)
+            .border_b_1()
+            .border_color(colors.border)
+            .child(
                 div()
-                    .w_full()
-                    .text_size(px(12.))
-                    .text_color(if self.failed {
-                        colors.red
-                    } else {
-                        colors.foreground
-                    })
-                    .child(shared(if l.is_empty() { " " } else { l }))
-            })
-            .collect::<Vec<_>>();
+                    .px_2()
+                    .rounded_sm()
+                    .bg(colors.input)
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .text_size(px(11.))
+                    .text_color(colors.accent)
+                    .child(shared(short.clone())),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(px(11.))
+                    .text_color(colors.muted_foreground)
+                    .truncate()
+                    .child(shared(subject.clone())),
+            )
+            .child(stat_bar(&colors, total_add, total_del));
 
         v_flex()
-            .id("diff-viewer")
+            .id("bottom-panel")
             .size_full()
             .bg(colors.background)
+            .child(header)
             .child(
-                h_flex()
-                    .id("diff-header")
-                    .w_full()
-                    .h(px(24.))
-                    .flex_shrink_0()
-                    .px_3()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(if self.failed {
-                                colors.red
-                            } else {
-                                colors.muted_foreground
-                            })
-                            .child(shared(format!("$ git {label}"))),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(if self.failed {
-                                colors.red
-                            } else {
-                                colors.green
-                            })
-                            .child(if self.failed { "失败" } else { "成功" }),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .id("diff-body")
+                // 左右分栏（h_flex 强制 items_center，容器改用显式 flex_row）
+                div()
+                    .id("bottom-body")
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
-                    .px_3()
-                    .py_2()
-                    .font_family(mono)
-                    .children(if lines.is_empty() {
-                        vec![
-                            div()
-                                .text_size(px(12.))
-                                .text_color(colors.muted_foreground)
-                                .child("(无输出)"),
-                        ]
-                    } else {
-                        lines
-                    }),
+                    .flex()
+                    .flex_row()
+                    .child(self.file_list(&colors, cx))
+                    // 分隔线（1px，不参与弹性布局）
+                    .child(div().w(px(1.)).flex_shrink_0().h_full().bg(colors.border))
+                    .child(self.diff_view(&colors, cx)),
             )
             .into_any_element()
+    }
+}
+
+/// 增删色块条（镜像 rgitui DiffStat）：`+n`/`−m` 数字 + 5 块 4×10px 圆角小矩形，
+/// 绿块数按 stat_blocks 比例分配，零变更全灰
+fn stat_bar(colors: &ThemeColor, added: usize, deleted: usize) -> Div {
+    let (green, red) = stat_blocks(added, deleted);
+    let mut bar = h_flex().gap(px(1.)).items_center();
+    for i in 0..5 {
+        let color = if i < green {
+            colors.green
+        } else if i < green + red {
+            colors.red
+        } else {
+            colors.muted_foreground.opacity(0.5)
+        };
+        bar = bar.child(div().w(px(4.)).h(px(10.)).rounded(px(1.)).bg(color));
+    }
+    h_flex()
+        .gap_1()
+        .items_center()
+        .flex_shrink_0()
+        .child(
+            div()
+                .text_size(px(10.))
+                .text_color(colors.green)
+                .child(shared(format!("+{added}"))),
+        )
+        .child(
+            div()
+                .text_size(px(10.))
+                .text_color(colors.red)
+                .child(shared(format!("-{deleted}"))),
+        )
+        .child(bar)
+}
+
+/// diff 行配色：`+` 绿字淡绿底 / `−` 红字淡红底 / `@@` hunk 蓝 /
+/// 文件头（diff --git / index / +++ / ---）灰 / 其余前景色
+fn diff_line_style(colors: &ThemeColor, line: &str) -> (Hsla, Option<Hsla>) {
+    if line.starts_with("+++")
+        || line.starts_with("---")
+        || line.starts_with("diff --git")
+        || line.starts_with("index ")
+    {
+        (colors.muted_foreground, None)
+    } else if line.starts_with('+') {
+        (colors.green, Some(colors.green.opacity(0.12)))
+    } else if line.starts_with('-') {
+        (colors.red, Some(colors.red.opacity(0.12)))
+    } else if line.starts_with('@') {
+        (colors.blue, None)
+    } else {
+        (colors.foreground, None)
     }
 }

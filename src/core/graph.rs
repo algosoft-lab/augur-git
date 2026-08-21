@@ -598,24 +598,28 @@ fn alloc_lane(lanes: &mut Vec<Option<(String, usize)>>, skip_lane: Option<usize>
 }
 
 /// 相对时间（镜像 rgitui format_relative_time；月份用 m、分钟用 min 避免歧义）：
-/// just now / Xmin ago / Xh ago / Xd ago / Xw ago / Xm ago / Xy ago
-pub fn format_relative_time(timestamp: i64, now: i64) -> String {
+/// en: just now / Xmin ago / Xh ago / Xd ago / Xw ago / Xm ago / Xy ago
+/// zh: 刚刚 / X 分钟前 / X 小时前 / X 天前 / X 周前 / X 个月前 / X 年前
+pub fn format_relative_time(timestamp: i64, now: i64, locale: crate::core::i18n::Locale) -> String {
+    use crate::core::i18n::{text, text_args};
+
     let minutes = ((now - timestamp).max(0) / 60) as i64;
+    let n = |v: i64| v.to_string();
 
     if minutes < 1 {
-        "just now".to_string()
+        text(locale, "rel-now")
     } else if minutes < 60 {
-        format!("{minutes}min ago")
+        text_args(locale, "rel-min", &[("n", &n(minutes))])
     } else if minutes < 60 * 24 {
-        format!("{}h ago", minutes / 60)
+        text_args(locale, "rel-hour", &[("n", &n(minutes / 60))])
     } else if minutes < 60 * 24 * 7 {
-        format!("{}d ago", minutes / (60 * 24))
+        text_args(locale, "rel-day", &[("n", &n(minutes / (60 * 24)))])
     } else if minutes < 60 * 24 * 30 {
-        format!("{}w ago", minutes / (60 * 24 * 7))
+        text_args(locale, "rel-week", &[("n", &n(minutes / (60 * 24 * 7)))])
     } else if minutes < 60 * 24 * 365 {
-        format!("{}m ago", minutes / (60 * 24 * 30))
+        text_args(locale, "rel-month", &[("n", &n(minutes / (60 * 24 * 30)))])
     } else {
-        format!("{}y ago", minutes / (60 * 24 * 365))
+        text_args(locale, "rel-year", &[("n", &n(minutes / (60 * 24 * 365)))])
     }
 }
 
@@ -694,17 +698,28 @@ mod tests {
     #[test]
     fn relative_time_format() {
         // 基准时间固定，逐档验证（含用户示例：昨天 1d / 7 天 1w / 一个月 1m / 一年 1y）
+        use crate::core::i18n::Locale;
         let now = 1_800_000_000i64;
-        assert_eq!(format_relative_time(now, now), "just now");
-        assert_eq!(format_relative_time(now - 30, now), "just now");
-        assert_eq!(format_relative_time(now - 5 * 60, now), "5min ago");
-        assert_eq!(format_relative_time(now - 3 * 3600, now), "3h ago");
-        assert_eq!(format_relative_time(now - 24 * 3600, now), "1d ago");
-        assert_eq!(format_relative_time(now - 7 * 86400, now), "1w ago");
-        assert_eq!(format_relative_time(now - 30 * 86400, now), "1m ago");
-        assert_eq!(format_relative_time(now - 365 * 86400, now), "1y ago");
+        let en = Locale::English;
+        let zh = Locale::SimplifiedChinese;
+        assert_eq!(format_relative_time(now, now, en), "just now");
+        assert_eq!(format_relative_time(now - 30, now, en), "just now");
+        assert_eq!(format_relative_time(now - 5 * 60, now, en), "5min ago");
+        assert_eq!(format_relative_time(now - 3 * 3600, now, en), "3h ago");
+        assert_eq!(format_relative_time(now - 24 * 3600, now, en), "1d ago");
+        assert_eq!(format_relative_time(now - 7 * 86400, now, en), "1w ago");
+        assert_eq!(format_relative_time(now - 30 * 86400, now, en), "1m ago");
+        assert_eq!(format_relative_time(now - 365 * 86400, now, en), "1y ago");
         // 未来时间钳制为 just now
-        assert_eq!(format_relative_time(now + 100, now), "just now");
+        assert_eq!(format_relative_time(now + 100, now, en), "just now");
+        // 中文逐档
+        assert_eq!(format_relative_time(now, now, zh), "刚刚");
+        assert_eq!(format_relative_time(now - 5 * 60, now, zh), "5 分钟前");
+        assert_eq!(format_relative_time(now - 3 * 3600, now, zh), "3 小时前");
+        assert_eq!(format_relative_time(now - 24 * 3600, now, zh), "1 天前");
+        assert_eq!(format_relative_time(now - 7 * 86400, now, zh), "1 周前");
+        assert_eq!(format_relative_time(now - 30 * 86400, now, zh), "1 个月前");
+        assert_eq!(format_relative_time(now - 365 * 86400, now, zh), "1 年前");
     }
 
     #[test]
@@ -737,11 +752,12 @@ mod tests {
         assert_eq!(rows[1].node_color, rows[2].node_color);
         // 每个提交发出的边颜色 = 自己的圈色
         for row in &rows {
-            assert!(row
-                .edges
-                .iter()
-                .filter(|e| e.from_lane == row.node_lane)
-                .all(|e| e.color_index == row.node_color));
+            assert!(
+                row.edges
+                    .iter()
+                    .filter(|e| e.from_lane == row.node_lane)
+                    .all(|e| e.color_index == row.node_color)
+            );
         }
     }
 }
