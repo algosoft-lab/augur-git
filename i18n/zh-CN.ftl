@@ -34,6 +34,7 @@ toolbar-busy = 操作中…
 graph-empty = 暂无提交
 col-graph = 图形
 col-hash = 哈希
+col-message = 信息
 col-author = 作者
 col-date = 日期
 rel-now = 刚刚

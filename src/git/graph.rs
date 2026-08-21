@@ -4,7 +4,10 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{ActiveTheme, h_flex, theme::ThemeColor, v_flex};
 
-use crate::core::graph::{GraphRow, LogRow, compute_graph, format_relative_time};
+use crate::core::graph::{
+    AUTHOR_COL_WIDTH, DATE_COL_WIDTH, GraphRow, HASH_COL_WIDTH, LogRow, column_visibility,
+    compute_graph, format_relative_time,
+};
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
 
@@ -14,10 +17,6 @@ pub const ROW_HEIGHT: f32 = 36.0;
 pub const COL_WIDTH: f32 = 24.0;
 /// 节点空心圆半径（stroke 描边细线圆，直径 24）
 const NODE_RADIUS: f32 = 12.0;
-/// Hash 列宽（列头与行共用，保证对齐）
-const HASH_COL_WIDTH: f32 = 60.0;
-/// 提交日期列宽（"2026-08-14 10:17" 16 字符；镜像 rgitui date 列 100px 默认）
-const DATE_COL_WIDTH: f32 = 120.0;
 /// 树列左侧留白（首个节点圆不贴左边界）
 const GRAPH_LEFT_PAD: f32 = 12.0;
 
@@ -39,6 +38,9 @@ pub struct GraphView {
     selected: Option<usize>,
     /// 界面语言（Workspace 切换语言时同步）
     locale: Locale,
+    /// 自身实测渲染宽（测量 canvas 回写；初始视为宽屏，首帧后校正）。
+    /// 响应式列显隐以它为准——拖侧栏挤压中央列时窗口宽并未变
+    content_width: f32,
 }
 
 impl EventEmitter<GraphEvent> for GraphView {}
@@ -49,6 +51,7 @@ impl GraphView {
             rows: Vec::new(),
             selected: None,
             locale,
+            content_width: f32::INFINITY,
         }
     }
 
@@ -96,6 +99,8 @@ impl Render for GraphView {
                 .items_center()
                 .justify_center()
                 .bg(colors.background)
+                // 空态也持续测量宽度：首批行到达时列显隐即正确
+                .child(measure_width_canvas(cx.entity()))
                 .child(
                     div()
                         .text_size(px(12.))
@@ -109,6 +114,8 @@ impl Render for GraphView {
         let layout = compute_graph(&self.rows);
         let max_lanes = layout.iter().map(|r| r.lane_count).max().unwrap_or(1);
         let tree_w = GRAPH_LEFT_PAD + max_lanes as f32 * COL_WIDTH + 8.0;
+        // 响应式列显隐：以自身实测宽为准（窄则先藏 Author 再藏 Message，见 column_visibility）
+        let (show_author, show_message) = column_visibility(self.content_width, tree_w);
         // 相对时间基准（unix 秒）
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -200,14 +207,30 @@ impl Render for GraphView {
                             .text_color(colors.blue)
                             .child(shared(row.short)),
                     )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_size(px(12.))
-                            .text_color(colors.foreground)
-                            .child(shared(row.author)),
-                    )
+                    // Message 列：唯一 flex 列吃剩余空间，超宽省略号（镜像 rgitui subject 列）
+                    .when(show_message, |el| {
+                        el.child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_size(px(12.))
+                                .text_color(colors.foreground)
+                                .child(shared(row.subject.clone())),
+                        )
+                    })
+                    // Author 列：定宽 140，超长省略号
+                    .when(show_author, |el| {
+                        el.child(
+                            div()
+                                .w(px(AUTHOR_COL_WIDTH))
+                                .flex_shrink_0()
+                                .truncate()
+                                .text_size(px(12.))
+                                .text_color(colors.foreground)
+                                .child(shared(row.author)),
+                        )
+                    })
                     // Date 列：相对时间（镜像 rgitui format_relative_time）
                     .child(
                         div()
@@ -228,7 +251,9 @@ impl Render for GraphView {
             .id("graph-view")
             .size_full()
             .bg(colors.background)
-            .child(self.column_header(&colors, tree_w))
+            // 宽度测量：0 高 canvas 每帧回写自身宽（变化才 notify，收敛不循环）
+            .child(measure_width_canvas(cx.entity()))
+            .child(self.column_header(&colors, tree_w, show_author, show_message))
             .child(
                 v_flex()
                     .id("graph-scroll")
@@ -243,8 +268,15 @@ impl Render for GraphView {
 
 impl GraphView {
     /// 列头（参考 rgitui graph header：26px 条、muted 半粗小标签、下边框；
-    /// 列宽与行内列对齐：Graph 树列 / Hash / Author）
-    fn column_header(&self, colors: &ThemeColor, tree_w: f32) -> impl IntoElement {
+    /// 列宽与行内列对齐：Graph 树列 / Hash / Message(flex) / Author / Date，
+    /// 后三列随窗口变窄按 column_visibility 收缩至隐藏，与行同步）
+    fn column_header(
+        &self,
+        colors: &ThemeColor,
+        tree_w: f32,
+        show_author: bool,
+        show_message: bool,
+    ) -> impl IntoElement {
         let label = |text: &str| {
             div()
                 .text_size(px(11.))
@@ -252,19 +284,26 @@ impl GraphView {
                 .text_color(colors.muted_foreground)
                 .child(shared(text))
         };
-        // 列间分割短线：1px 宽、14px 高，absolute 定位于间隙中点——
-        // 不参与 flex 布局，header 列宽与行内列严格一致（行内容不穿越分割线）
-        let divider = |x: f32| {
+        // 列间分割短线：1px 宽、14px 高，absolute 定位在本列左缘左侧 4px
+        // （= 与左邻列的 8px 间隙中点），不参与布局；随本列隐藏自动消失
+        let col = |text: &str, w: f32, with_divider: bool| {
             div()
-                .absolute()
-                .left(px(x))
-                .top(px(6.))
-                .w(px(1.))
-                .h(px(14.))
-                .bg(colors.border)
+                .relative()
+                .w(px(w))
+                .flex_shrink_0()
+                .when(with_divider, |el| {
+                    el.child(
+                        div()
+                            .absolute()
+                            .left(px(-4.))
+                            .top(px(6.))
+                            .w(px(1.))
+                            .h(px(14.))
+                            .bg(colors.border),
+                    )
+                })
+                .child(label(text))
         };
-        // 与行内列布局相同：树列 w(tree_w) + gap(8) + Hash w(60) + gap(8) + Author flex_1
-        let gap = 8.0;
         h_flex()
             .id("graph-header")
             .w_full()
@@ -285,42 +324,70 @@ impl GraphView {
                     .pl_1()
                     .child(label(&i18n::text(self.locale, "col-graph"))),
             )
-            // Hash 列：与行内短 oid 同宽
-            .child(
-                div()
-                    .w(px(HASH_COL_WIDTH))
-                    .flex_shrink_0()
-                    .child(label(&i18n::text(self.locale, "col-hash"))),
-            )
-            // Author 列：占满剩余
-            .child(
-                div()
-                    .flex_1()
-                    .child(label(&i18n::text(self.locale, "col-author"))),
-            )
-            // Date 列：与行内日期同宽；分割线 absolute 定位于本列左缘左侧
-            // 4px（= 与 Author 列的 8px 间隙中点），不参与布局
-            .child(
-                div()
-                    .relative()
-                    .w(px(DATE_COL_WIDTH))
-                    .flex_shrink_0()
-                    .child(label(&i18n::text(self.locale, "col-date")))
-                    .child(
-                        div()
-                            .absolute()
-                            .left(px(-4.))
-                            .top(px(6.))
-                            .w(px(1.))
-                            .h(px(14.))
-                            .bg(colors.border),
-                    ),
-            )
-            // 分割线 1：Graph/Hash 间隙中点
-            .child(divider(tree_w + gap / 2.0))
-            // 分割线 2：Hash/Author 间隙中点
-            .child(divider(tree_w + gap + HASH_COL_WIDTH + gap / 2.0))
+            // Hash 列：与行内短 oid 同宽（左缘分割线隔开树列）
+            .child(col(
+                &i18n::text(self.locale, "col-hash"),
+                HASH_COL_WIDTH,
+                true,
+            ))
+            // Message 列：占满剩余（与行内 flex_1 对齐）
+            .when(show_message, |el| {
+                el.child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .relative()
+                        .child(
+                            div()
+                                .absolute()
+                                .left(px(-4.))
+                                .top(px(6.))
+                                .w(px(1.))
+                                .h(px(14.))
+                                .bg(colors.border),
+                        )
+                        .child(label(&i18n::text(self.locale, "col-message"))),
+                )
+            })
+            // Author 列：定宽（与行内 140 对齐）
+            .when(show_author, |el| {
+                el.child(col(
+                    &i18n::text(self.locale, "col-author"),
+                    AUTHOR_COL_WIDTH,
+                    true,
+                ))
+            })
+            // Date 列：与行内日期同宽
+            .child(col(
+                &i18n::text(self.locale, "col-date"),
+                DATE_COL_WIDTH,
+                true,
+            ))
     }
+}
+
+/// 宽度测量 canvas（w_full、0 高，不占布局）：prepaint 取自身 bounds 宽回写
+/// GraphView。回写 defer 出布局阶段（prepaint 内直接 update 实体会重入布局），
+/// 且仅宽度变化时 notify——收敛后不再触发重绘，拖拽连续变化也只是逐帧跟随
+fn measure_width_canvas(entity: Entity<GraphView>) -> impl IntoElement {
+    canvas(
+        move |bounds: Bounds<Pixels>, _window: &mut Window, cx: &mut App| {
+            let w = f32::from(bounds.size.width);
+            if w > 0.0 && w.is_finite() {
+                cx.defer(move |cx: &mut App| {
+                    entity.update(cx, |view, cx| {
+                        if view.content_width != w {
+                            view.content_width = w;
+                            cx.notify();
+                        }
+                    });
+                });
+            }
+        },
+        |_bounds: Bounds<Pixels>, _state: (), _window: &mut Window, _cx: &mut App| {},
+    )
+    .w_full()
+    .h(px(0.))
 }
 
 /// 本地 hsla 包装（照抄 rgitui colors.rs::hsla）：本 fork 的 gpui hsla() 参数

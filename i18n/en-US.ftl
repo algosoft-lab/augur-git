@@ -35,6 +35,7 @@ toolbar-busy = Working…
 graph-empty = No commits
 col-graph = Graph
 col-hash = Hash
+col-message = Message
 col-author = Author
 col-date = Date
 rel-now = just now

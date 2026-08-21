@@ -66,6 +66,46 @@ pub struct GraphEdge {
     pub is_merge: bool,
 }
 
+// ===== 提交图列宽常量（行与列头共用，column_visibility 阈值推导同源） =====
+
+/// Hash 列宽（短 oid 7 字符等宽）
+pub const HASH_COL_WIDTH: f32 = 60.0;
+/// Author 列宽（镜像 rgitui 默认 140；定宽，超长省略号）
+pub const AUTHOR_COL_WIDTH: f32 = 140.0;
+/// Date 列宽（相对时间）
+pub const DATE_COL_WIDTH: f32 = 120.0;
+/// Message 列最低可用宽：低于此值宁可整列隐藏也不硬塞
+pub const MESSAGE_MIN_WIDTH: f32 = 120.0;
+/// 行/列头子元素间隙（gap_2 = 8px）与右侧留白（pr_2）
+const COL_GAP: f32 = 8.0;
+const ROW_PAD_RIGHT: f32 = 8.0;
+
+/// 响应式列显隐：按 GraphView 可用总宽返回 (显示 Author, 显示 Message)
+///
+/// 单调两档阶梯（无迟滞，不会在阈值附近抖动）：
+/// - 宽 ≥ T1：五列全显（Message 剩余空间 ≥ MESSAGE_MIN_WIDTH）
+/// - T2 ≤ 宽 < T1：藏 Author（140px 让给 Message）
+/// - 宽 < T2：连 Message 一起藏，剩 Graph | Hash | Date（Date 永不藏）
+///
+/// 阈值 = 树列宽 + Hash/Date 定宽 +（Author 定宽）+ 间隙×(列数-1) + 右留白
+/// + MESSAGE_MIN_WIDTH；间隙数随藏列减少，公式与行内 flex 布局严格对应。
+pub fn column_visibility(total_w: f32, tree_w: f32) -> (bool, bool) {
+    let t_author = tree_w
+        + HASH_COL_WIDTH
+        + AUTHOR_COL_WIDTH
+        + DATE_COL_WIDTH
+        + 4.0 * COL_GAP
+        + ROW_PAD_RIGHT
+        + MESSAGE_MIN_WIDTH;
+    let t_message = tree_w
+        + HASH_COL_WIDTH
+        + DATE_COL_WIDTH
+        + 3.0 * COL_GAP
+        + ROW_PAD_RIGHT
+        + MESSAGE_MIN_WIDTH;
+    (total_w >= t_author, total_w >= t_message)
+}
+
 /// 记忆化的祖先可达性（照抄 rgitui：per-descendant 祖先集合，按需计算并复用）
 struct AncestorCache {
     sets: std::collections::HashMap<String, std::collections::HashSet<String>>,
@@ -720,6 +760,32 @@ mod tests {
         assert_eq!(format_relative_time(now - 7 * 86400, now, zh), "1 周前");
         assert_eq!(format_relative_time(now - 30 * 86400, now, zh), "1 个月前");
         assert_eq!(format_relative_time(now - 365 * 86400, now, zh), "1 年前");
+    }
+
+    #[test]
+    fn column_visibility_staircase() {
+        // 阈值随树列宽推导：T1 = tree+60+140+120+4*8+8+120 = tree+480
+        //               T2 = tree+60+120+3*8+8+120  = tree+332
+        let tree_w = 44.0;
+        let (t1, t2) = (tree_w + 480.0, tree_w + 332.0);
+        // 宽：五列全显
+        assert_eq!(column_visibility(t1, tree_w), (true, true));
+        assert_eq!(column_visibility(t1 + 0.1, tree_w), (true, true));
+        // 中：恰在 T1 之下 → 藏 Author，Message 保住
+        assert_eq!(column_visibility(t1 - 0.1, tree_w), (false, true));
+        assert_eq!(column_visibility(t2, tree_w), (false, true));
+        // 窄：T2 之下 → 连 Message 也藏
+        assert_eq!(column_visibility(t2 - 0.1, tree_w), (false, false));
+        assert_eq!(column_visibility(0.0, tree_w), (false, false));
+        // 阶梯单调：宽度增加不会让列更少
+        for w in [t2 - 1.0, t2, t1 - 1.0, t1, t1 + 1.0] {
+            let (a2, m2) = column_visibility(w, tree_w);
+            let (a1, m1) = column_visibility(w - 1.0, tree_w);
+            assert!(a2 >= a1 && m2 >= m1, "monotonic at {w}");
+        }
+        // 树列越宽（lane 多）阈值越高
+        let wide_tree = 200.0;
+        assert_eq!(column_visibility(t1, wide_tree), (false, false));
     }
 
     #[test]
