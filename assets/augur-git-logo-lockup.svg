@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 240" width="640" height="240">
+  <defs>
+    <linearGradient id="gitg2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#EF4444"/>
+      <stop offset="100%" stop-color="#B91C1C"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角方形红色渐变图标 200x200 (y 偏移 20 居中) -->
+  <rect width="200" height="200" x="0" y="20" rx="44" fill="url(#gitg2)"/>
+
+  <!-- 提交图 -->
+  <g transform="translate(0,20)">
+    <path d="M80 50 L80 164"
+          stroke="white" stroke-width="8"
+          stroke-linecap="round" fill="none"/>
+    <path d="M80 50 L126 50 L126 104 L80 104"
+          stroke="white" stroke-width="8"
+          stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <circle cx="80" cy="50" r="12" fill="white"/>
+    <circle cx="126" cy="77" r="8" fill="white"/>
+    <circle cx="80" cy="104" r="11" fill="white"/>
+    <circle cx="80" cy="158" r="10" fill="white"/>
+  </g>
+
+  <!-- 文字部分 -->
+  <g transform="translate(232, 36)">
+    <text x="0" y="108"
+          font-family="'Inter','SF Pro Display','Helvetica Neue',sans-serif"
+          font-weight="900"
+          font-size="96"
+          fill="#1A1A2E"
+          letter-spacing="2">AugurGit</text>
+    <text x="3" y="164"
+          font-family="'Courier New','SF Mono',Consolas,monospace"
+          font-weight="700"
+          font-size="38"
+          fill="url(#gitg2)"
+          letter-spacing="3">Git GUI client</text>
+  </g>
+</svg>
