@@ -10,21 +10,53 @@
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, h_flex,
+    ActiveTheme, Icon, IconName, h_flex,
     input::{Input, InputEvent, InputState},
     theme::ThemeColor,
     v_flex,
 };
 
-use crate::core::git::{FileChange, stat_blocks};
+use crate::core::git::{DiffLine, DiffLineKind, FileChange, parse_diff, stat_blocks};
 use crate::core::i18n::{self, Locale};
-use crate::git::shared;
+use crate::git::{lucide, shared};
 
 /// CommitPanel → Workspace 事件
 #[derive(Clone, Debug)]
 pub enum CommitPanelEvent {
     /// 提交（git commit -m）
     Submit(String),
+}
+
+/// hunk 头紫色（GitHub Dark diff 主题色，主题 token 无 purple 字段）
+fn diff_purple() -> Hsla {
+    Hsla::from(rgb(0xBC8CFF))
+}
+
+/// 统一空态：24px muted 图标 + 一行 11px 提示（居中；图标可为内置 IconName 或本地 lucide）
+fn empty_state(
+    id: &'static str,
+    colors: &ThemeColor,
+    icon: AnyElement,
+    hint: String,
+) -> Stateful<Div> {
+    v_flex()
+        .id(id)
+        .size_full()
+        .items_center()
+        .justify_center()
+        .gap_1()
+        .child(
+            div()
+                .size(px(24.))
+                .text_color(colors.muted_foreground)
+                .child(icon),
+        )
+        .child(
+            div()
+                .text_size(px(11.))
+                .text_color(colors.muted_foreground)
+                .child(shared(hint)),
+        )
 }
 
 /// 详情面板内容（Workspace 设置）
@@ -183,18 +215,12 @@ impl Render for DetailPanel {
 
 impl DetailPanel {
     fn empty_view(&self, colors: &ThemeColor) -> impl IntoElement {
-        v_flex()
-            .id("detail-empty")
-            .size_full()
-            .items_center()
-            .justify_center()
-            .gap_1()
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(colors.muted_foreground)
-                    .child(shared(i18n::text(self.locale, "detail-empty"))),
-            )
+        empty_state(
+            "detail-empty",
+            colors,
+            Icon::new(IconName::Inbox).into_any_element(),
+            i18n::text(self.locale, "detail-empty"),
+        )
     }
 
     fn commit_view(
@@ -423,12 +449,16 @@ impl Render for CommitPanel {
             .child(
                 div()
                     .id("commit-collapse")
-                    .px_1()
+                    .p_1()
                     .rounded_md()
                     .hover(|this| this.bg(colors.list_hover))
                     .text_size(px(12.))
                     .text_color(colors.muted_foreground)
-                    .child(if self.collapsed { "▴" } else { "▾" })
+                    .child(if self.collapsed {
+                        Icon::new(IconName::ChevronDown)
+                    } else {
+                        Icon::new(IconName::ChevronUp)
+                    })
                     .on_click(move |_e, _w, cx| {
                         this.update(cx, |panel, cx| {
                             panel.collapsed = !panel.collapsed;
@@ -445,7 +475,7 @@ impl Render for CommitPanel {
                 .child(header);
         }
 
-        // 提交按钮（Ctrl+Enter 或点击）
+        // 提交按钮：无 staged 时不挂 on_click（灰态即禁用，杜绝空提交误触）
         let btn_commit = cx.entity();
         let commit_btn = div()
             .id("btn-commit")
@@ -453,7 +483,7 @@ impl Render for CommitPanel {
             .py_1()
             .rounded_md()
             .bg(if self.has_staged {
-                Hsla::from(rgb(0x2F_81_F7))
+                colors.blue
             } else {
                 colors.input
             })
@@ -464,8 +494,10 @@ impl Render for CommitPanel {
             })
             .text_size(px(12.))
             .child(shared(i18n::text(self.locale, "commit-btn")))
-            .on_click(move |_e, _w, cx| {
-                btn_commit.update(cx, |panel, cx| panel.submit(cx));
+            .when(self.has_staged, |btn| {
+                btn.on_click(move |_e, _w, cx| {
+                    btn_commit.update(cx, |panel, cx| panel.submit(cx));
+                })
             });
 
         v_flex()
@@ -614,21 +646,15 @@ impl BottomPanel {
 
         // 清单为空：合并提交（numstat 无输出）或空提交
         if self.files.is_empty() {
-            return div()
-                .id("bottom-files-empty")
-                .w(relative(0.4))
-                .flex_shrink_0()
-                .h_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(colors.muted_foreground)
-                        .child(shared(i18n::text(self.locale, "bottom-merge-empty"))),
-                )
-                .into_any_element();
+            return empty_state(
+                "bottom-files-empty",
+                colors,
+                Icon::new(IconName::Info).into_any_element(),
+                i18n::text(self.locale, "bottom-merge-empty"),
+            )
+            .w(relative(0.4))
+            .flex_shrink_0()
+            .into_any_element();
         }
 
         let rows = self
@@ -652,7 +678,7 @@ impl BottomPanel {
                 h_flex()
                     .id(SharedString::from(format!("bottom-file-{i}")))
                     .w_full()
-                    .h_6()
+                    .h(px(22.))
                     .flex_shrink_0()
                     .px_2()
                     .gap_2()
@@ -698,17 +724,20 @@ impl BottomPanel {
             .into_any_element()
     }
 
-    /// 右栏：选中文件的染色 diff（+绿底 / −红底 / @@hunk 蓝 / 头部灰）
+    /// 右栏：选中文件的染色 diff（parse_diff 驱动：双列行号 gutter + 类别染色，
+    /// hunk 头紫字淡紫底通栏；+绿/−红 淡底；元信息灰）
     fn diff_view(&self, colors: &ThemeColor, cx: &Context<Self>) -> impl IntoElement {
         let mono = cx.theme().mono_font_family.clone();
 
         let body: Vec<AnyElement> = match self.selected {
             None => vec![
-                div()
-                    .text_size(px(11.))
-                    .text_color(colors.muted_foreground)
-                    .child(shared(i18n::text(self.locale, "bottom-no-file")))
-                    .into_any_element(),
+                empty_state(
+                    "bottom-diff-none",
+                    colors,
+                    Icon::new(IconName::File).into_any_element(),
+                    i18n::text(self.locale, "bottom-no-file"),
+                )
+                .into_any_element(),
             ],
             Some(_) => match &self.diff {
                 // 加载中（本地 git 毫秒级，短暂省略号）
@@ -720,27 +749,18 @@ impl BottomPanel {
                         .into_any_element(),
                 ],
                 Some(text) if text.trim().is_empty() => vec![
-                    div()
-                        .text_size(px(11.))
-                        .text_color(colors.muted_foreground)
-                        .child(shared(i18n::text(self.locale, "diff-no-output")))
-                        .into_any_element(),
+                    empty_state(
+                        "bottom-diff-empty",
+                        colors,
+                        Icon::new(IconName::File).into_any_element(),
+                        i18n::text(self.locale, "diff-no-output"),
+                    )
+                    .into_any_element(),
                 ],
-                // 逐行 child 渲染（本 fork 无 whitespace_pre_wrap，此法最稳）
-                Some(text) => text
-                    .lines()
-                    .map(|l| {
-                        let (fg, bg) = diff_line_style(colors, l);
-                        div()
-                            .w_full()
-                            .px_2()
-                            .text_size(px(11.))
-                            .font_family(mono.clone())
-                            .text_color(fg)
-                            .when_some(bg, |el, b| el.bg(b))
-                            .child(shared(if l.is_empty() { " " } else { l }))
-                            .into_any_element()
-                    })
+                // 逐行渲染（本 fork 无 whitespace_pre_wrap，此法最稳）
+                Some(text) => parse_diff(text)
+                    .iter()
+                    .map(|l| diff_row(colors, &mono.clone(), l))
                     .collect(),
             },
         };
@@ -757,25 +777,64 @@ impl BottomPanel {
     }
 }
 
+/// diff 单行：[旧行号 32px][新行号 32px][内容 flex_1]；染色铺满整行含 gutter
+fn diff_row(colors: &ThemeColor, mono: &SharedString, line: &DiffLine) -> AnyElement {
+    let (fg, bg) = match line.kind {
+        DiffLineKind::Add => (colors.green, Some(colors.green.opacity(0.12))),
+        DiffLineKind::Del => (colors.red, Some(colors.red.opacity(0.12))),
+        DiffLineKind::Hunk => (diff_purple(), Some(diff_purple().opacity(0.1))),
+        DiffLineKind::Meta => (colors.muted_foreground, None),
+        DiffLineKind::Context => (colors.foreground, None),
+    };
+    let gutter = |n: Option<u32>| -> Div {
+        div()
+            .w(px(32.))
+            .flex_shrink_0()
+            .px_1()
+            .font_family(mono.clone())
+            .text_size(px(11.))
+            .text_color(colors.muted_foreground.opacity(0.7))
+            .child(shared(match n {
+                Some(n) => n.to_string(),
+                None => String::new(),
+            }))
+    };
+    h_flex()
+        .w_full()
+        .items_stretch()
+        .when_some(bg, |el, b| el.bg(b))
+        .text_color(fg)
+        .child(gutter(line.old_no))
+        .child(gutter(line.new_no))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .px_2()
+                .font_family(mono.clone())
+                .text_size(px(12.))
+                .child(shared(if line.text.is_empty() {
+                    " ".to_string()
+                } else {
+                    line.text.clone()
+                })),
+        )
+        .into_any_element()
+}
+
 impl Render for BottomPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
 
-        // 未选提交：整面板占位
+        // 未选提交：整面板空态
         let Some((_, short, subject)) = &self.commit else {
-            return v_flex()
-                .id("bottom-panel")
-                .size_full()
-                .bg(colors.background)
-                .items_center()
-                .justify_center()
-                .child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(colors.muted_foreground)
-                        .child(shared(i18n::text(self.locale, "bottom-no-commit"))),
-                )
-                .into_any_element();
+            return empty_state(
+                "bottom-no-commit",
+                &colors,
+                lucide("git-commit-horizontal").into_any_element(),
+                i18n::text(self.locale, "bottom-no-commit"),
+            )
+            .into_any_element();
         };
 
         // 头行：short oid 徽标 + 说明 + 总增删色块条（二进制不计入）
@@ -868,24 +927,4 @@ fn stat_bar(colors: &ThemeColor, added: usize, deleted: usize) -> Div {
                 .child(shared(format!("-{deleted}"))),
         )
         .child(bar)
-}
-
-/// diff 行配色：`+` 绿字淡绿底 / `−` 红字淡红底 / `@@` hunk 蓝 /
-/// 文件头（diff --git / index / +++ / ---）灰 / 其余前景色
-fn diff_line_style(colors: &ThemeColor, line: &str) -> (Hsla, Option<Hsla>) {
-    if line.starts_with("+++")
-        || line.starts_with("---")
-        || line.starts_with("diff --git")
-        || line.starts_with("index ")
-    {
-        (colors.muted_foreground, None)
-    } else if line.starts_with('+') {
-        (colors.green, Some(colors.green.opacity(0.12)))
-    } else if line.starts_with('-') {
-        (colors.red, Some(colors.red.opacity(0.12)))
-    } else if line.starts_with('@') {
-        (colors.blue, None)
-    } else {
-        (colors.foreground, None)
-    }
 }

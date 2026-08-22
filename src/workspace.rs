@@ -11,8 +11,8 @@
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Disableable, InteractiveElementExt, Root, TitleBar,
-    button::{Button, ButtonCustomVariant, ButtonVariants},
+    ActiveTheme, Icon, IconName, InteractiveElementExt, Root, TitleBar,
+    button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputEvent, InputState},
     theme::{Theme, ThemeMode},
@@ -67,12 +67,25 @@ pub fn run(app: Application) {
     app.run(|cx| {
         gpui_component::init(cx);
 
-        // 暗黑主题（VSCode Dark+ 风格）
+        // 暗黑主题：GitHub Dark 色板全量覆写（docs/ui-design.md）
         Theme::change(ThemeMode::Dark, None, cx);
-        // 灰度文字可读性覆盖：shadcn 暗色默认 muted_foreground(neutral-400 #a3a3a3)
-        // 与表头灰(#525252)在纯黑背景上偏暗，统一提亮（层级仍低于 foreground #fafafa）
-        Theme::global_mut(cx).muted_foreground = Hsla::from(rgb(0xB4B4B4));
-        Theme::global_mut(cx).table_head_foreground = Hsla::from(rgb(0xA3A3A3));
+        let t = Theme::global_mut(cx);
+        t.background = Hsla::from(rgb(0x0D1117));
+        t.tab_bar = Hsla::from(rgb(0x161B22));
+        t.title_bar = Hsla::from(rgb(0x161B22));
+        t.input = Hsla::from(rgb(0x21262D));
+        t.list_hover = Hsla::from(rgb(0x21262D));
+        t.list_active = Hsla::from(rgb(0x264F78));
+        t.border = Hsla::from(rgb(0x30363D));
+        t.foreground = Hsla::from(rgb(0xE6EDF3));
+        t.muted_foreground = Hsla::from(rgb(0x8B949E));
+        t.table_head_foreground = Hsla::from(rgb(0x8B949E));
+        t.blue = Hsla::from(rgb(0x2F81F7));
+        t.accent = Hsla::from(rgb(0x2F81F7));
+        t.green = Hsla::from(rgb(0x3FB950));
+        t.red = Hsla::from(rgb(0xF85149));
+        t.warning = Hsla::from(rgb(0xD29922));
+        t.drag_border = Hsla::from(rgb(0x388BFD));
 
         cx.spawn(async move |cx| {
             let window_options = cx.update(initial_window_options);
@@ -138,6 +151,8 @@ pub struct Workspace {
     status: GitStatus,
     /// 状态栏操作消息（命令结果/提示）
     status_message: Option<String>,
+    /// 消息语义色（true=成功绿 / false=失败红；中性提示保持 muted）
+    status_message_ok: Option<bool>,
     layout: LayoutState,
     sidebar_collapsed: bool,
     /// 界面语言偏好（设置弹层切换；单一事实源为 config.language）
@@ -368,7 +383,7 @@ impl Workspace {
                 workspace
                     .toolbar
                     .update(cx, |tb, cx| tb.set_busy(false, cx));
-                // 状态栏摘要 + 写操作后刷新快照
+                // 状态栏摘要（语义着色）+ 写操作后刷新快照
                 let refresh_after = matches!(
                     label.as_str(),
                     "commit" | "checkout" | "fetch --all" | "pull" | "push"
@@ -382,6 +397,7 @@ impl Workspace {
                         &[("label", label), ("error", first_line(message))],
                     )
                 });
+                workspace.status_message_ok = Some(*success);
                 if *success && refresh_after {
                     workspace.git_view.update(cx, |view, _| view.refresh());
                 }
@@ -418,6 +434,7 @@ impl Workspace {
             config,
             status: GitStatus::None,
             status_message: None,
+            status_message_ok: None,
             layout: LayoutState {
                 sidebar_width: 250.0,
                 detail_width: 320.0,
@@ -464,16 +481,66 @@ impl Workspace {
         cx.notify();
     }
 
-    /// 自绘标题栏：仓库名 + 分支徽标 + 双击最大化。
-    /// 最小化/最大化/关闭按钮由系统绘制（DWM），不要自绘以免重叠。
+    /// 自绘标题栏（M1.5 合并行）：logo + 应用名 + 仓库 tab（pill，× 关闭）+ 分支徽标。
+    /// 原 TabBar 整行并入此处省 28px；最小化/最大化/关闭由系统绘制（DWM）。
     fn title_bar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let repo = crate::git::dir_name(&self.config.repo.path).to_string();
-        let repo_label = if repo.is_empty() {
-            "augur-git".to_string()
+        let has_repo = self.git_connected() || !repo.is_empty();
+        let tab_label = if repo.is_empty() {
+            SharedString::from(i18n::text(self.locale, "no-repo-open"))
         } else {
-            repo
+            SharedString::from(repo)
         };
+
+        // 仓库 tab 关闭 ×（常态可见；无仓库时禁用态灰）
+        let this = cx.entity();
+        let close_tab = div()
+            .id("repo-tab-close")
+            .size(px(14.))
+            .rounded_sm()
+            .flex()
+            .items_center()
+            .justify_center()
+            .when(has_repo, |el| {
+                el.cursor(CursorStyle::PointingHand)
+                    .hover(|el| el.bg(colors.list_hover))
+            })
+            .text_color(if has_repo {
+                colors.muted_foreground
+            } else {
+                colors.muted_foreground.opacity(0.4)
+            })
+            .child(Icon::new(IconName::Close))
+            .when(has_repo, |el| {
+                el.on_click(move |_e, _w, cx| {
+                    this.update(cx, |ws, cx| ws.close_repo_tab(cx));
+                })
+            });
+
+        // 仓库 tab pill（bg 仅在有仓库时着色）
+        let repo_tab = h_flex()
+            .id("repo-tab")
+            .h(px(22.))
+            .px_2()
+            .items_center()
+            .gap_1()
+            .rounded_md()
+            .max_w(px(240.))
+            .when(has_repo, |el| el.bg(colors.input))
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(12.))
+                    .text_color(if has_repo {
+                        colors.foreground
+                    } else {
+                        colors.muted_foreground
+                    })
+                    .child(tab_label),
+            )
+            .child(close_tab);
 
         // 分支徽标（点击 → 侧栏分支区闪烁）
         let branch = match &self.status {
@@ -490,12 +557,19 @@ impl Workspace {
                     .px_2()
                     .py_0p5()
                     .rounded_md()
+                    .gap_1()
                     .bg(colors.input)
                     .hover(|this| this.bg(colors.list_hover))
                     .cursor(CursorStyle::PointingHand)
-                    .text_size(px(12.))
+                    .text_size(px(11.))
                     .text_color(colors.blue)
-                    .child(SharedString::from(format!("⎇ {branch}")))
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(colors.blue)
+                            .child(crate::git::lucide("git-branch")),
+                    )
+                    .child(branch)
                     .on_click(move |_e, _w, cx| {
                         this.update(cx, |ws, cx| ws.emit_sidebar_focus(cx));
                     }),
@@ -509,16 +583,31 @@ impl Workspace {
                 .h_full()
                 .items_center()
                 .px_2()
-                .gap_2()
+                .gap_3()
                 .on_double_click(|_event, window, _cx| {
                     window.zoom_window();
                 })
+                // 应用标识：logo 图标 + 名称（点击不响应，仅展示）
                 .child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(colors.muted_foreground)
-                        .child(repo_label),
+                    h_flex()
+                        .items_center()
+                        .gap_1p5()
+                        .text_color(colors.blue)
+                        .child(
+                            div()
+                                .text_size(px(16.))
+                                .child(crate::git::lucide("git-branch")),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(colors.foreground)
+                                .child("augur-git"),
+                        ),
                 )
+                .child(repo_tab)
+                .child(div().flex_1())
                 .when_some(branch_badge, |el, badge| el.child(badge)),
         )
     }
@@ -575,60 +664,8 @@ impl Workspace {
         let _ = config::save(&self.config);
         self.status = GitStatus::None;
         self.status_message = None;
+        self.status_message_ok = None;
         cx.notify();
-    }
-
-    /// TabBar：单仓库 tab（带关闭 ×）+ 尾部打开按钮（多仓库 M2）
-    fn tab_bar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let colors = cx.theme().colors.clone();
-        let repo = crate::git::dir_name(&self.config.repo.path).to_string();
-        let has_repo = self.git_connected() || !repo.is_empty();
-        let tab_label = if repo.is_empty() {
-            SharedString::from(i18n::text(self.locale, "no-repo-open"))
-        } else {
-            SharedString::from(repo)
-        };
-        // 关闭按钮（×，镜像 algocode：Button ghost + label 渲染；常态可见，点击停线程回 Welcome）
-        let this = cx.entity();
-        let close_btn = Button::new("tab-close")
-            .label("×")
-            .ghost()
-            .size(px(14.))
-            .custom(
-                ButtonCustomVariant::new(cx).foreground(colors.tab_active_foreground.opacity(0.6)),
-            )
-            .when(!has_repo, |btn| btn.disabled(true))
-            .on_click(move |_e, _w, cx| {
-                this.update(cx, |ws, cx| ws.close_repo_tab(cx));
-            });
-        h_flex()
-            .id("tab-bar")
-            .w_full()
-            .h(px(28.))
-            .flex_shrink_0()
-            .px_2()
-            .gap_1()
-            .items_center()
-            .bg(colors.tab_bar)
-            .border_b_1()
-            .border_color(colors.border)
-            .child(
-                h_flex()
-                    .id("tab-repo")
-                    .h_full()
-                    .px_3()
-                    .items_center()
-                    .gap_2()
-                    .bg(colors.tab_active)
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .text_color(colors.tab_active_foreground)
-                            .child(tab_label),
-                    )
-                    .child(close_btn),
-            )
-            .child(div().flex_1())
     }
 
     fn git_connected(&self) -> bool {
@@ -654,6 +691,12 @@ impl Workspace {
             repo.clone()
         };
         let msg = self.status_message.clone();
+        // 消息语义色：成功绿 / 失败红 / 中性提示 muted（无横幅区，反馈全在状态栏）
+        let msg_color = match self.status_message_ok {
+            Some(true) => colors.green,
+            Some(false) => colors.red,
+            None => colors.muted_foreground,
+        };
         h_flex()
             .id("status-bar")
             .w_full()
@@ -678,7 +721,7 @@ impl Workspace {
                         row.child(
                             div()
                                 .text_size(px(11.))
-                                .text_color(colors.muted_foreground)
+                                .text_color(msg_color)
                                 .child(SharedString::from(msg)),
                         )
                     })
@@ -702,12 +745,12 @@ impl Workspace {
             .child(
                 div()
                     .id("btn-expand")
-                    .px_1()
+                    .p_1()
                     .rounded_md()
                     .hover(|this| this.bg(cx.theme().colors.input))
                     .text_size(px(12.))
                     .text_color(cx.theme().colors.muted_foreground)
-                    .child("»")
+                    .child(Icon::new(IconName::PanelLeftOpen))
                     .on_click(move |_e, _w, cx| {
                         this.update(cx, |workspace, cx| {
                             workspace.sidebar_collapsed = false;
@@ -859,7 +902,7 @@ impl Workspace {
             .px_3()
             .py_1()
             .rounded_md()
-            .bg(Hsla::from(rgb(0x2F_81_F7)))
+            .bg(colors.blue)
             .text_color(gpui::white())
             .text_size(px(12.))
             .child(shared(i18n::text(self.locale, "welcome-open")))
@@ -895,11 +938,20 @@ impl Workspace {
                     .px_2()
                     .py_1()
                     .rounded_md()
+                    .gap_2()
                     .hover(|this| this.bg(colors.list_hover))
                     .items_center()
                     .child(
                         div()
+                            .text_size(px(14.))
+                            .text_color(colors.muted_foreground)
+                            .child(Icon::new(IconName::Folder)),
+                    )
+                    .child(
+                        div()
                             .flex_1()
+                            .min_w_0()
+                            .truncate()
                             .text_size(px(12.))
                             .text_color(colors.muted_foreground)
                             .child(SharedString::from(path.clone())),
@@ -926,10 +978,12 @@ impl Workspace {
                     .w(px(48.))
                     .h(px(48.))
                     .rounded(px(12.))
-                    .bg(colors.input)
+                    .bg(colors.tab_bar)
+                    .border_1()
+                    .border_color(colors.border)
                     .text_size(px(24.))
-                    .text_color(colors.accent)
-                    .child("⎇"),
+                    .text_color(colors.blue)
+                    .child(crate::git::lucide("git-branch")),
             )
             .child(
                 div()
@@ -1102,7 +1156,6 @@ impl Render for Workspace {
             .bg(colors.background)
             .child(self.title_bar(window, cx))
             .child(self.toolbar.clone())
-            .child(self.tab_bar(cx))
             .child(if has_repo {
                 self.main_content(window, cx).into_any_element()
             } else {

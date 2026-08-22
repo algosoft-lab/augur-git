@@ -98,12 +98,19 @@ impl Render for GraphView {
                 .size_full()
                 .items_center()
                 .justify_center()
+                .gap_1()
                 .bg(colors.background)
                 // 空态也持续测量宽度：首批行到达时列显隐即正确
                 .child(measure_width_canvas(cx.entity()))
                 .child(
                     div()
-                        .text_size(px(12.))
+                        .size(px(24.))
+                        .text_color(colors.muted_foreground)
+                        .child(crate::git::lucide("git-commit-horizontal")),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.))
                         .text_color(colors.muted_foreground)
                         .child(shared(i18n::text(self.locale, "graph-empty"))),
                 )

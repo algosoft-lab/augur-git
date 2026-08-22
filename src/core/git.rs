@@ -127,6 +127,116 @@ pub fn stat_blocks(added: usize, deleted: usize) -> (usize, usize) {
     (green, TOTAL_BLOCKS - green)
 }
 
+/// unified diff 单行的渲染类别（diff_view 染色用）
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiffLineKind {
+    /// 元信息行（diff --git / index / +++ --- / rename 等）
+    Meta,
+    /// hunk 头（@@ -a,b +c,d @@）
+    Hunk,
+    Add,
+    Del,
+    Context,
+}
+
+/// unified diff 解析后的单行：类别 + 双列行号（None = 该列空）
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiffLine {
+    pub kind: DiffLineKind,
+    pub old_no: Option<u32>,
+    pub new_no: Option<u32>,
+    pub text: String,
+}
+
+/// 解析 `git diff` 输出为带行号的行序列（纯函数，供 diff 分栏渲染）。
+/// 跟踪 @@ 头中的起始行号递增计数；无法识别的行一律归为 Meta。
+pub fn parse_diff(text: &str) -> Vec<DiffLine> {
+    let mut out = Vec::new();
+    // 当前 hunk 内的旧行号/新行号游标
+    let (mut old, mut new): (u32, u32) = (0, 0);
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("@@ ") {
+            // 形如 "@@ -12,3 +12,4 @@ ctx"；兼容省略计数的 "@@ -1 +1 @@"
+            let old_start = rest
+                .split_whitespace()
+                .next()
+                .and_then(|tok| tok.strip_prefix('-'))
+                .and_then(|s| s.split(',').next())
+                .and_then(|s| s.parse().ok());
+            let new_start = rest
+                .split_whitespace()
+                .nth(1)
+                .and_then(|tok| tok.strip_prefix('+'))
+                .and_then(|s| s.split(',').next())
+                .and_then(|s| s.parse().ok());
+            match (old_start, new_start) {
+                (Some(o), Some(n)) => {
+                    old = o;
+                    new = n;
+                    out.push(DiffLine {
+                        kind: DiffLineKind::Hunk,
+                        old_no: None,
+                        new_no: None,
+                        text: line.to_string(),
+                    });
+                    continue;
+                }
+                // 头格式异常则按普通行处理（落入下方 Meta）
+                _ => {}
+            }
+        }
+        let mut chars = line.chars();
+        // ---/+++ 文件头出现在首个 hunk 之前，优先于增删行判断（否则会被计成 -0/+0）
+        if line.starts_with("--- ") || line.starts_with("+++ ") {
+            out.push(DiffLine {
+                kind: DiffLineKind::Meta,
+                old_no: None,
+                new_no: None,
+                text: line.to_string(),
+            });
+            continue;
+        }
+        match chars.next() {
+            Some('+') => {
+                out.push(DiffLine {
+                    kind: DiffLineKind::Add,
+                    old_no: None,
+                    new_no: Some(new),
+                    text: line.to_string(),
+                });
+                new += 1;
+            }
+            Some('-') => {
+                out.push(DiffLine {
+                    kind: DiffLineKind::Del,
+                    old_no: Some(old),
+                    new_no: None,
+                    text: line.to_string(),
+                });
+                old += 1;
+            }
+            // 空行按上下文处理（部分工具会剥掉空上下文行的前导空格）
+            Some(' ') | None => {
+                out.push(DiffLine {
+                    kind: DiffLineKind::Context,
+                    old_no: Some(old),
+                    new_no: Some(new),
+                    text: line.to_string(),
+                });
+                old += 1;
+                new += 1;
+            }
+            _ => out.push(DiffLine {
+                kind: DiffLineKind::Meta,
+                old_no: None,
+                new_no: None,
+                text: line.to_string(),
+            }),
+        }
+    }
+    out
+}
+
 /// 单个文件变更（git status --porcelain 解析）
 #[derive(Clone, Debug)]
 pub struct FileStatus {
@@ -673,5 +783,76 @@ mod tests {
             vec!["origin", "upstream"]
         );
         assert!(non_empty_lines("\n \n").is_empty());
+    }
+
+    #[test]
+    fn parse_diff_numbering() {
+        let text = "diff --git a/f.rs b/f.rs\nindex 111..222 100644\n--- a/f.rs\n+++ b/f.rs\n@@ -2,4 +2,5 @@ fn main()\n ctx\n-del old\n+add new\n more\n";
+        let lines = parse_diff(text);
+        // 头 4 行 Meta + hunk + 4 行体
+        assert_eq!(lines.len(), 9);
+        assert_eq!(lines[0].kind, DiffLineKind::Meta);
+        assert!(lines[1].kind == DiffLineKind::Meta);
+        // ---/+++ 不计入删除/新增（无行号）
+        assert_eq!(lines[2].kind, DiffLineKind::Meta);
+        assert_eq!(lines[3].kind, DiffLineKind::Meta);
+        assert_eq!(lines[4].kind, DiffLineKind::Hunk);
+        assert_eq!(lines[4].old_no, None);
+        assert_eq!(
+            lines[5],
+            DiffLine {
+                kind: DiffLineKind::Context,
+                old_no: Some(2),
+                new_no: Some(2),
+                text: " ctx".into()
+            }
+        );
+        assert_eq!(
+            lines[6],
+            DiffLine {
+                kind: DiffLineKind::Del,
+                old_no: Some(3),
+                new_no: None,
+                text: "-del old".into()
+            }
+        );
+        assert_eq!(
+            lines[7],
+            DiffLine {
+                kind: DiffLineKind::Add,
+                old_no: None,
+                new_no: Some(3),
+                text: "+add new".into()
+            }
+        );
+        // 删一行加一行后上下文行号对齐：旧 4 新 4
+        assert_eq!(lines[8].kind, DiffLineKind::Context);
+        assert_eq!(lines[8].old_no, Some(4));
+        assert_eq!(lines[8].new_no, Some(4));
+    }
+
+    #[test]
+    fn parse_diff_missing_counts_and_empty_context() {
+        // 省略计数形式 "@@ -1 +1 @@"；空上下文行（前导空格被剥成空串）
+        let text = "@@ -1 +1 @@\n-a\n+\n\n";
+        let lines = parse_diff(text);
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[0].kind, DiffLineKind::Hunk);
+        assert_eq!(lines[1].old_no, Some(1));
+        assert_eq!(lines[1].new_no, None);
+        assert_eq!(lines[2].old_no, None);
+        assert_eq!(lines[2].new_no, Some(1));
+        assert_eq!(lines[3].kind, DiffLineKind::Context);
+        assert_eq!(lines[3].old_no, Some(2));
+        assert_eq!(lines[3].new_no, Some(2));
+    }
+
+    #[test]
+    fn parse_diff_bad_hunk_header_is_meta() {
+        let lines = parse_diff("@@ garbage @@\nplain\n");
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].kind, DiffLineKind::Meta);
+        assert_eq!(lines[1].kind, DiffLineKind::Meta);
+        assert_eq!(lines[1].old_no, None);
     }
 }

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::{ActiveTheme, h_flex, v_flex};
+use gpui_component::{ActiveTheme, Icon, IconName, h_flex, v_flex};
 
 use crate::core::git::{BranchInfo, FileStatus, RefsInfo};
 use crate::core::i18n::{self, Locale};
@@ -151,17 +151,16 @@ impl Sidebar {
     fn sidebar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
 
-        // 收起按钮
+        // 收起按钮（PanelLeftClose 图标）
         let btn_collapse = cx.entity();
         let collapse_btn = div()
             .id("btn-collapse")
-            .px_1()
-            .py_0p5()
+            .p_1()
             .rounded_md()
             .hover(|this| this.bg(colors.input))
             .text_size(px(12.))
             .text_color(colors.muted_foreground)
-            .child("«")
+            .child(Icon::new(IconName::PanelLeftClose))
             .on_click(move |_e, _w, cx| {
                 btn_collapse.update(cx, |_sidebar, cx| cx.emit(SidebarEvent::ToggleCollapse));
             });
@@ -171,17 +170,12 @@ impl Sidebar {
             .w_full()
             .h_full()
             .bg(colors.background)
+            // 细顶行：仅右侧收起按钮（标题文案已并入全局标题栏）
             .child(
-                v_flex().id("sidebar-repo").w_full().gap_2().p_3().child(
+                v_flex().w_full().p_1().child(
                     h_flex()
                         .w_full()
                         .items_center()
-                        .child(
-                            div()
-                                .text_size(px(12.))
-                                .text_color(colors.muted_foreground)
-                                .child(shared(i18n::text(self.locale, "sidebar-repo"))),
-                        )
                         .child(div().flex_1())
                         .child(collapse_btn),
                 ),
@@ -225,7 +219,7 @@ impl Sidebar {
                 h_flex()
                     .id(SharedString::from(format!("branch-{name}")))
                     .w_full()
-                    .h_6()
+                    .h(px(22.))
                     .flex_shrink_0()
                     .px_2()
                     .gap_1()
@@ -308,7 +302,7 @@ impl Sidebar {
                 h_flex()
                     .id(SharedString::from(format!("{key}-{item}")))
                     .w_full()
-                    .h_6()
+                    .h(px(22.))
                     .flex_shrink_0()
                     .px_2()
                     .rounded_sm()
@@ -366,7 +360,7 @@ impl Sidebar {
                 h_flex()
                     .id(SharedString::from(format!("file-{staged}-{i}")))
                     .w_full()
-                    .h_6()
+                    .h(px(22.))
                     .flex_shrink_0()
                     .px_2()
                     .gap_1()
@@ -428,8 +422,8 @@ impl Render for Sidebar {
     }
 }
 
-/// 分区标题：左侧焦点竖条 + 折叠箭头 + 蓝色名字 + 计数；整行点击开合
-/// （标题用 blue 亮色与内容区分——dark 主题的 accent 是 neutral-800 hover 底色，不能当文字色）
+/// 分区标题：折叠 chevron + 13px semibold 前景色标题 + 计数；整行点击开合
+/// （GitHub Dark 风格：弃蓝色文字与焦点竖条）
 /// （flash 为分支区高亮态背景；id 用稳定的 i18n 键——标题文本随语言变，不能当 id）
 fn section_header(
     cx: &Context<Sidebar>,
@@ -459,28 +453,22 @@ fn section_header(
         .on_click(move |_e, _w, cx| {
             this.update(cx, |sidebar, cx| sidebar.toggle_section(key, cx));
         })
-        // 焦点竖条（瘦长矩形）
         .child(
             div()
-                .w(px(2.))
-                .h(px(11.))
-                .flex_shrink_0()
-                .rounded_sm()
-                .bg(colors.blue),
-        )
-        .child(
-            div()
-                .w(px(10.))
-                .flex_shrink_0()
-                .text_size(px(9.))
-                .text_color(colors.blue)
-                .child(if collapsed { "▸" } else { "▾" }),
+                .text_size(px(12.))
+                .text_color(colors.muted_foreground)
+                .child(if collapsed {
+                    Icon::new(IconName::ChevronRight)
+                } else {
+                    Icon::new(IconName::ChevronDown)
+                }),
         )
         .child(
             div()
                 .flex_1()
-                .text_size(px(11.))
-                .text_color(colors.blue)
+                .text_size(px(13.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(colors.foreground)
                 .child(shared(title)),
         )
         .child(

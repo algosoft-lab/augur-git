@@ -294,3 +294,9 @@ fn localized_error(locale: Locale, err: &GitError) -> String {
 pub fn shared(s: impl Into<String>) -> SharedString {
     SharedString::from(s.into())
 }
+
+/// 本地 lucide 图标（assets/icons/*.svg，经 main.rs AppAssets 提供；
+/// 内置 IconName 枚举不含这些 git 类图标，只能按路径引用）
+pub fn lucide(name: &'static str) -> gpui_component::Icon {
+    gpui_component::Icon::empty().path(SharedString::from(format!("icons/{name}.svg")))
+}
