@@ -33,6 +33,19 @@ impl GitError {
     }
 }
 
+/// 引用快照（remote / 远程分支 / 标签 / stash 清单，侧栏分区显示）
+#[derive(Clone, Debug, Default)]
+pub struct RefsInfo {
+    /// 远程名清单（git remote）
+    pub remotes: Vec<String>,
+    /// 远程分支短名（origin/main 等，git branch -r）
+    pub remote_branches: Vec<String>,
+    /// 标签名（按创建时间倒序）
+    pub tags: Vec<String>,
+    /// stash 描述（"stash@{n}: " 前缀已剥除）
+    pub stashes: Vec<String>,
+}
+
 /// 后台 → UI 事件
 pub enum GitEvent {
     /// 状态结果（分支 + 变更文件 + 本地分支列表 + ahead/behind）
@@ -48,6 +61,8 @@ pub enum GitEvent {
     },
     /// 提交日志（含 parents，供 compute_graph 布局）
     Log { rows: Vec<LogRow> },
+    /// 引用快照（侧栏 remotes/远程分支/标签/stash 分区）
+    Refs(RefsInfo),
     /// 提交的逐文件增删统计（git show --numstat，选中提交时查询）
     CommitFiles { oid: String, files: Vec<FileChange> },
     /// 提交内单文件 diff 文本（git show --format= <oid> -- <path>）
@@ -253,6 +268,7 @@ fn refresh_all(repo_path: &str, event_tx: &Sender<GitEvent>) {
         });
     }
     run_log(repo_path, event_tx);
+    run_refs(repo_path, event_tx);
 }
 
 /// 执行 git 命令（子进程阻塞，只在工作线程跑）
@@ -422,6 +438,45 @@ fn run_branches(repo_path: &str) -> Vec<BranchInfo> {
         });
     }
     branches
+}
+
+/// 收集侧栏引用清单（四个只读快命令，任一失败按空处理不影响其余分区）
+fn run_refs(repo_path: &str, event_tx: &Sender<GitEvent>) {
+    let out = |args: &[&str]| -> String {
+        let mut cmd = Command::new("git");
+        cmd.arg("-C").arg(repo_path);
+        for arg in args {
+            cmd.arg(arg);
+        }
+        match cmd.output() {
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
+            _ => String::new(),
+        }
+    };
+    let refs = RefsInfo {
+        remotes: non_empty_lines(&out(&["remote"])),
+        remote_branches: non_empty_lines(&out(&["branch", "-r", "--format=%(refname:short)"])),
+        tags: non_empty_lines(&out(&["tag", "--sort=-creatordate"])),
+        stashes: parse_stashes(&out(&["stash", "list"])),
+    };
+    let _ = event_tx.send(GitEvent::Refs(refs));
+}
+
+/// 非空行列表（trim + 去空行）
+fn non_empty_lines(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// 解析 `git stash list`："stash@{0}: WIP on main: abc x" → "WIP on main: abc x"
+/// （无 ": " 的畸形行跳过）
+fn parse_stashes(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|l| l.split_once(": ").map(|(_, desc)| desc.trim().to_string()))
+        .collect()
 }
 
 /// 执行 git log（提交图数据：oid/short/author/date/subject/装饰/parents）
@@ -597,5 +652,26 @@ mod tests {
         let text = "garbage\n0123456789abcdef0123456789abcdef01234567\0s\0a\0d\0提交\0\n";
         let rows = parse_log(text);
         assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn parse_stashes_strips_prefix() {
+        let text = "stash@{0}: WIP on main: ab1234 x\nstash@{1}: On dev: fix\n";
+        assert_eq!(
+            parse_stashes(text),
+            vec!["WIP on main: ab1234 x", "On dev: fix"]
+        );
+        // 畸形行跳过
+        assert!(parse_stashes("").is_empty());
+        assert!(parse_stashes("no-colon-line\n").is_empty());
+    }
+
+    #[test]
+    fn non_empty_lines_trims_and_skips_blank() {
+        assert_eq!(
+            non_empty_lines("origin\n\n upstream \n"),
+            vec!["origin", "upstream"]
+        );
+        assert!(non_empty_lines("\n \n").is_empty());
     }
 }

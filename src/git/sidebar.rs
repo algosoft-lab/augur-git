@@ -1,8 +1,11 @@
-//! M1：Sidebar 侧栏——本地分支分区 + 变更文件分区
+//! M1：Sidebar 侧栏——rgitui 分区结构
 //!
-//! 镜像 rgitui sidebar 的分区结构（本 M1 实现 分支/暂存/未暂存 三区）：
+//! 自上而下：分支 → 远程 → 远程分支 → 标签 → 贮藏(stash) → 暂存 → 变更(未暂存)
+//! - 分区标题带焦点竖条 + 折叠箭头，整行点击开合（内存态，重启恢复全展开）；
+//!   flash 分支区时自动展开
 //! - 分支区：点击选中 → 点击行内 checkout 按钮切换分支
 //! - 暂存/未暂存区：文件行点击 → 详情面板显示（工作区 diff 留待暂存里程碑）
+//! - 远程/远程分支/标签/stash 区：只读清单展示（交互后续里程碑）
 //! 顶部保留 仓库 标题 + 收起按钮（路径输入/打开/刷新已移除，走 Welcome/工具栏）
 
 use std::time::{Duration, Instant};
@@ -12,7 +15,7 @@ use gpui::*;
 use gpui_component::{ActiveTheme, h_flex, input::InputState, v_flex};
 
 use crate::core::config::AppConfig;
-use crate::core::git::{BranchInfo, FileStatus};
+use crate::core::git::{BranchInfo, FileStatus, RefsInfo};
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
 
@@ -44,10 +47,14 @@ pub struct Sidebar {
     /// 变更文件（staged/unstaged 已分类）
     staged: Vec<FileStatus>,
     unstaged: Vec<FileStatus>,
+    /// 引用清单（远程/远程分支/标签/stash，只读展示）
+    refs: RefsInfo,
     /// 选中行（(是否暂存, 索引)）
     selected: Option<(bool, usize)>,
     /// 分支区高亮截止时刻（标题栏徽标点击，时间戳过期自动消失）
     flash_branches_until: Option<Instant>,
+    /// 已折叠分区（i18n 键列表；内存态，重启恢复全展开）
+    collapsed: Vec<&'static str>,
     /// 界面语言（Workspace 切换语言时同步）
     locale: Locale,
 }
@@ -70,8 +77,10 @@ impl Sidebar {
             branch: String::new(),
             staged: Vec::new(),
             unstaged: Vec::new(),
+            refs: RefsInfo::default(),
             selected: None,
             flash_branches_until: None,
+            collapsed: Vec::new(),
             locale,
         }
     }
@@ -109,9 +118,31 @@ impl Sidebar {
         cx.notify();
     }
 
-    /// 标题栏分支徽标点击：高亮分支区 800ms
+    /// 接收引用快照（workspace 从 GitUiEvent::RefsChanged 转发）
+    pub fn set_refs(&mut self, refs: RefsInfo, cx: &mut Context<Self>) {
+        self.refs = refs;
+        cx.notify();
+    }
+
+    /// 标题栏分支徽标点击：自动展开分支区并高亮 800ms
     pub fn flash_branches(&mut self, cx: &mut Context<Self>) {
         self.flash_branches_until = Some(Instant::now() + Duration::from_millis(800));
+        self.collapsed.retain(|k| *k != "section-branches");
+        cx.notify();
+    }
+
+    fn is_collapsed(&self, key: &str) -> bool {
+        self.collapsed.iter().any(|k| *k == key)
+    }
+
+    /// 点击分区标题：开合该分区
+    fn toggle_section(&mut self, key: &'static str, cx: &mut Context<Self>) {
+        match self.collapsed.iter().position(|k| *k == key) {
+            Some(i) => {
+                self.collapsed.remove(i);
+            }
+            None => self.collapsed.push(key),
+        }
         cx.notify();
     }
 
@@ -181,6 +212,14 @@ impl Sidebar {
                     .min_h_0()
                     .overflow_y_scroll()
                     .child(self.branch_section(cx))
+                    .child(self.list_section(cx, "section-remotes", &self.refs.remotes))
+                    .child(self.list_section(
+                        cx,
+                        "section-remote-branches",
+                        &self.refs.remote_branches,
+                    ))
+                    .child(self.list_section(cx, "section-tags", &self.refs.tags))
+                    .child(self.list_section(cx, "section-stashes", &self.refs.stashes))
                     .child(self.change_section(cx, true, &self.staged))
                     .child(self.change_section(cx, false, &self.unstaged))
                     .child(self.recent_section(cx)),
@@ -264,34 +303,63 @@ impl Sidebar {
             .w_full()
             .gap_0p5()
             .p_2()
-            .child(
+            .child(section_header(
+                cx,
+                "section-branches",
+                i18n::text(self.locale, "section-branches"),
+                self.branches.len(),
+                self.is_collapsed("section-branches"),
+                flash,
+            ))
+            .when(!self.is_collapsed("section-branches"), |s| s.children(rows))
+    }
+
+    /// 简单清单分区（远程/远程分支/标签/stash：只读展示，交互后续里程碑）
+    fn list_section(
+        &self,
+        cx: &Context<Self>,
+        key: &'static str,
+        items: &[String],
+    ) -> impl IntoElement {
+        let colors = cx.theme().colors.clone();
+        let rows = items
+            .iter()
+            .map(|item| {
                 h_flex()
-                    .id("branch-section-header")
+                    .id(SharedString::from(format!("{key}-{item}")))
                     .w_full()
+                    .h_6()
+                    .flex_shrink_0()
                     .px_2()
-                    .py_0p5()
-                    .rounded_md()
-                    .bg(if flash {
-                        colors.list_active
-                    } else {
-                        colors.background
-                    })
-                    .items_center()
-                    .gap_1()
+                    .rounded_sm()
+                    .hover(|this| this.bg(colors.list_hover))
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(px(12.))
                             .text_color(colors.muted_foreground)
-                            .child(shared(i18n::text(self.locale, "section-branches"))),
+                            .truncate()
+                            .child(shared(item.clone())),
                     )
-                    .child(
-                        div()
-                            .text_size(px(10.))
-                            .text_color(colors.muted_foreground)
-                            .child(self.branches.len().to_string()),
-                    ),
-            )
-            .children(rows)
+            })
+            .collect::<Vec<_>>();
+
+        let collapsed = self.is_collapsed(key);
+        v_flex()
+            .id(SharedString::from(format!("list-{key}")))
+            .w_full()
+            .gap_0p5()
+            .p_2()
+            .child(section_header(
+                cx,
+                key,
+                i18n::text(self.locale, key),
+                items.len(),
+                collapsed,
+                false,
+            ))
+            .when(!collapsed, |s| s.children(rows))
     }
 
     /// 变更文件分区（暂存/未暂存）
@@ -302,11 +370,12 @@ impl Sidebar {
         files: &[FileStatus],
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
-        let title_key = if staged {
+        let title_key: &'static str = if staged {
             "section-staged"
         } else {
             "section-changes"
         };
+        let collapsed = self.is_collapsed(title_key);
         let rows = files
             .iter()
             .enumerate()
@@ -366,8 +435,10 @@ impl Sidebar {
                 title_key,
                 i18n::text(self.locale, title_key),
                 files.len(),
+                collapsed,
+                false,
             ))
-            .children(rows)
+            .when(!collapsed, |s| s.children(rows))
     }
 
     /// 最近仓库
@@ -406,6 +477,7 @@ impl Sidebar {
             })
             .collect::<Vec<_>>();
 
+        let collapsed = self.is_collapsed("recent-repos");
         v_flex()
             .id("recent-section")
             .w_full()
@@ -416,8 +488,10 @@ impl Sidebar {
                 "recent-repos",
                 i18n::text(self.locale, "recent-repos"),
                 self.recent_repos.len(),
+                collapsed,
+                false,
             ))
-            .children(recents)
+            .when(!collapsed, |s| s.children(recents))
     }
 }
 
@@ -427,25 +501,59 @@ impl Render for Sidebar {
     }
 }
 
-/// 分区标题（名字 + 计数）；id 用稳定的 i18n 键（标题文本随语言变，不能当 id）
+/// 分区标题：左侧焦点竖条 + 折叠箭头 + 蓝色名字 + 计数；整行点击开合
+/// （标题用 blue 亮色与内容区分——dark 主题的 accent 是 neutral-800 hover 底色，不能当文字色）
+/// （flash 为分支区高亮态背景；id 用稳定的 i18n 键——标题文本随语言变，不能当 id）
 fn section_header(
     cx: &Context<Sidebar>,
-    key: &str,
+    key: &'static str,
     title: String,
     count: usize,
+    collapsed: bool,
+    flash: bool,
 ) -> impl IntoElement {
     let colors = cx.theme().colors.clone();
+    let this = cx.entity();
     h_flex()
         .id(SharedString::from(format!("section-{key}")))
         .w_full()
         .px_2()
         .py_0p5()
+        .rounded_md()
+        .bg(if flash {
+            colors.list_active
+        } else {
+            colors.background
+        })
         .items_center()
         .gap_1()
+        .cursor(CursorStyle::PointingHand)
+        .hover(|this| this.bg(colors.list_hover))
+        .on_click(move |_e, _w, cx| {
+            this.update(cx, |sidebar, cx| sidebar.toggle_section(key, cx));
+        })
+        // 焦点竖条（瘦长矩形）
         .child(
             div()
+                .w(px(2.))
+                .h(px(11.))
+                .flex_shrink_0()
+                .rounded_sm()
+                .bg(colors.blue),
+        )
+        .child(
+            div()
+                .w(px(10.))
+                .flex_shrink_0()
+                .text_size(px(9.))
+                .text_color(colors.blue)
+                .child(if collapsed { "▸" } else { "▾" }),
+        )
+        .child(
+            div()
+                .flex_1()
                 .text_size(px(11.))
-                .text_color(colors.muted_foreground)
+                .text_color(colors.blue)
                 .child(shared(title)),
         )
         .child(

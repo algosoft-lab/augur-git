@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use gpui::{Context, EventEmitter, SharedString};
 
-use crate::core::git::{self, BranchInfo, FileChange, FileStatus, GitError, GitEvent};
+use crate::core::git::{self, BranchInfo, FileChange, FileStatus, GitError, GitEvent, RefsInfo};
 use crate::core::graph::LogRow;
 use crate::core::i18n::{self, Locale};
 
@@ -32,6 +32,8 @@ pub enum GitUiEvent {
     },
     /// 提交日志快照
     LogChanged { rows: Vec<LogRow> },
+    /// 引用快照（侧栏 remotes/远程分支/标签/stash 分区）
+    RefsChanged(RefsInfo),
     /// 选中提交的逐文件增删统计快照
     CommitFilesChanged { oid: String, files: Vec<FileChange> },
     /// 选中提交内单文件 diff 文本
@@ -228,6 +230,16 @@ impl GitView {
                 GitEvent::Log { rows } => {
                     log::info!("git: 日志刷新 {} 条", rows.len());
                     cx.emit(GitUiEvent::LogChanged { rows });
+                }
+                GitEvent::Refs(refs) => {
+                    log::info!(
+                        "git: refs 刷新 远程{} 远程分支{} 标签{} stash{}",
+                        refs.remotes.len(),
+                        refs.remote_branches.len(),
+                        refs.tags.len(),
+                        refs.stashes.len()
+                    );
+                    cx.emit(GitUiEvent::RefsChanged(refs));
                 }
                 GitEvent::CommitFiles { oid, files } => {
                     log::info!("git: 提交 {} 文件清单 {} 条", oid, files.len());

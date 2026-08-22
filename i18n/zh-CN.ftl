@@ -48,6 +48,10 @@ rel-year = { $n } 年前
 # ===== 侧栏 =====
 sidebar-repo = 仓库
 section-branches = 分支
+section-remotes = 远程
+section-remote-branches = 远程分支
+section-tags = 标签
+section-stashes = 贮藏
 section-staged = 暂存
 section-changes = 变更
 status-mod = 改

@@ -353,6 +353,11 @@ impl Workspace {
                     .graph
                     .update(cx, |g, cx| g.set_rows(rows.clone(), cx));
             }
+            GitUiEvent::RefsChanged(refs) => {
+                workspace
+                    .sidebar
+                    .update(cx, |sb, cx| sb.set_refs(refs.clone(), cx));
+            }
             GitUiEvent::CommitFilesChanged { oid, files } => {
                 workspace
                     .bottom
