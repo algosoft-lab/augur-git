@@ -161,7 +161,7 @@ impl Workspace {
                 .placeholder(i18n::text(locale, "repo-path-placeholder"))
                 .default_value(config.repo.path.clone())
         });
-        let sidebar = cx.new(|cx| Sidebar::new(window, cx, &config, &repo_path_input, locale));
+        let sidebar = cx.new(|cx| Sidebar::new(window, cx, locale));
         let graph = cx.new(|_cx| GraphView::new(locale));
         let toolbar = cx.new(|_cx| Toolbar::new(locale));
         let detail = cx.new(|_cx| DetailPanel::new(locale));
@@ -185,16 +185,8 @@ impl Workspace {
 
         // ---- 面板交互事件 → Workspace 汇总 → GitView 命令 ----
 
-        // 侧栏：最近仓库/收起/切换分支/选中文件
+        // 侧栏：收起/切换分支/选中文件
         cx.subscribe(&sidebar, |workspace, _e, event, cx| match event {
-            SidebarEvent::OpenRecent(path) => {
-                if workspace.git_view.read(cx).connected() {
-                    workspace.git_view.update(cx, |view, _| view.close_repo());
-                }
-                workspace
-                    .git_view
-                    .update(cx, |view, cx| view.open_repo(&path, cx));
-            }
             SidebarEvent::ToggleCollapse => {
                 workspace.sidebar_collapsed = !workspace.sidebar_collapsed;
                 cx.notify();
@@ -399,8 +391,6 @@ impl Workspace {
                 workspace.config.repo.path = path.clone();
                 workspace.config.push_recent(&path);
                 let _ = config::save(&workspace.config);
-                let recent = workspace.config.recent_repos.clone();
-                workspace.sidebar.update(cx, |sb, _| sb.set_recent(recent));
                 cx.notify();
             }
             GitUiEvent::Error(msg) => {

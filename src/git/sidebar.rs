@@ -12,17 +12,14 @@ use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::{ActiveTheme, h_flex, input::InputState, v_flex};
+use gpui_component::{ActiveTheme, h_flex, v_flex};
 
-use crate::core::config::AppConfig;
 use crate::core::git::{BranchInfo, FileStatus, RefsInfo};
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
 
 /// 侧栏事件
 pub enum SidebarEvent {
-    /// 打开最近仓库（输入框已回填）
-    OpenRecent(String),
     /// 收起/展开侧栏
     ToggleCollapse,
     /// 选中分支（详情面板显示）
@@ -38,8 +35,6 @@ pub enum SidebarEvent {
 }
 
 pub struct Sidebar {
-    repo_path_input: Entity<InputState>,
-    recent_repos: Vec<String>,
     /// 本地分支列表
     branches: Vec<BranchInfo>,
     /// 当前分支
@@ -62,17 +57,8 @@ pub struct Sidebar {
 impl EventEmitter<SidebarEvent> for Sidebar {}
 
 impl Sidebar {
-    /// 输入框由 Workspace 创建（Welcome 页共用），此处只接收引用
-    pub fn new(
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-        config: &AppConfig,
-        repo_path_input: &Entity<InputState>,
-        locale: Locale,
-    ) -> Self {
+    pub fn new(_window: &mut Window, _cx: &mut Context<Self>, locale: Locale) -> Self {
         Self {
-            repo_path_input: repo_path_input.clone(),
-            recent_repos: config.recent_repos.clone(),
             branches: Vec::new(),
             branch: String::new(),
             staged: Vec::new(),
@@ -89,11 +75,6 @@ impl Sidebar {
     pub fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
         self.locale = locale;
         cx.notify();
-    }
-
-    /// 刷新最近仓库列表（打开成功后由 workspace 调用）
-    pub fn set_recent(&mut self, recent: Vec<String>) {
-        self.recent_repos = recent;
     }
 
     /// 接收仓库状态快照（workspace 从 GitUiEvent 转发）
@@ -221,8 +202,7 @@ impl Sidebar {
                     .child(self.list_section(cx, "section-tags", &self.refs.tags))
                     .child(self.list_section(cx, "section-stashes", &self.refs.stashes))
                     .child(self.change_section(cx, true, &self.staged))
-                    .child(self.change_section(cx, false, &self.unstaged))
-                    .child(self.recent_section(cx)),
+                    .child(self.change_section(cx, false, &self.unstaged)),
             )
     }
 
@@ -439,59 +419,6 @@ impl Sidebar {
                 false,
             ))
             .when(!collapsed, |s| s.children(rows))
-    }
-
-    /// 最近仓库
-    fn recent_section(&self, cx: &Context<Self>) -> impl IntoElement {
-        let colors = cx.theme().colors.clone();
-        let recents = self
-            .recent_repos
-            .iter()
-            .map(|path| {
-                let this = cx.entity();
-                let path = path.clone();
-                h_flex()
-                    .id(SharedString::from(format!("recent-{path}")))
-                    .w_full()
-                    .px_2()
-                    .py_0p5()
-                    .rounded_md()
-                    .hover(|this| this.bg(colors.list_hover))
-                    .items_center()
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_size(px(12.))
-                            .text_color(colors.muted_foreground)
-                            .child(shared(path.clone())),
-                    )
-                    .on_click(move |_e, window, cx| {
-                        this.update(cx, |sidebar, cx| {
-                            // 回填输入框（on_click 回调里才有 &mut Window）
-                            sidebar.repo_path_input.update(cx, |input, cx| {
-                                input.set_value(path.clone(), window, cx);
-                            });
-                            cx.emit(SidebarEvent::OpenRecent(path.clone()));
-                        });
-                    })
-            })
-            .collect::<Vec<_>>();
-
-        let collapsed = self.is_collapsed("recent-repos");
-        v_flex()
-            .id("recent-section")
-            .w_full()
-            .gap_0p5()
-            .p_2()
-            .child(section_header(
-                cx,
-                "recent-repos",
-                i18n::text(self.locale, "recent-repos"),
-                self.recent_repos.len(),
-                collapsed,
-                false,
-            ))
-            .when(!collapsed, |s| s.children(recents))
     }
 }
 
