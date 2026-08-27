@@ -94,7 +94,7 @@ pub fn load() -> AppConfig {
     let path = store_path();
     match std::fs::read_to_string(&path) {
         Ok(text) => serde_json::from_str(&text).unwrap_or_else(|e| {
-            log::warn!("config: 解析失败，使用默认配置: {e}");
+            log::warn!("[config] failed to parse config; using defaults: {e}");
             AppConfig::default()
         }),
         Err(_) => AppConfig::default(),

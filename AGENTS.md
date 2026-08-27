@@ -124,8 +124,11 @@ services, never in the opposite direction.
 
 ## 5. Logging and debugging
 
-- Application logs MUST be written to `debug.log` by default. Running the
-  application MUST NOT require stdout or stderr redirection to capture logs.
+- Debug builds MUST write application logs to `debug.log` by default. Running
+  the application MUST NOT require stdout or stderr redirection to capture
+  logs.
+- Release builds MUST NOT create or write `debug.log`. Release logging must be
+  disabled or sent to an explicitly approved non-terminal destination.
 - Normal application logging MUST NOT write to the terminal. Startup must remain
   resilient if the log file cannot be created.
 - `RUST_LOG` may be used as an optional log-level override, but the application

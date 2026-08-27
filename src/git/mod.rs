@@ -117,7 +117,7 @@ impl GitView {
         let (tx, rx) = mpsc::channel::<GitEvent>();
         match git::spawn_open(repo_path.to_string(), tx) {
             Ok(handle) => {
-                log::info!("git: 已打开仓库 {repo_path}");
+                log::info!("[git_view] repository opened");
                 self.repo_path = repo_path.to_string();
                 self.handle = Some(handle);
                 self.rx = Some(rx);
@@ -132,7 +132,7 @@ impl GitView {
                 cx.emit(GitUiEvent::RepoOpened(repo_path.to_string()));
             }
             Err(err) => {
-                log::error!("git: 打开失败: {}", err.detail);
+                log::error!("[git_view] repository open failed: {}", err.key);
                 self.handle = None;
                 self.rx = None;
                 self.repo_path.clear();
@@ -218,7 +218,7 @@ impl GitView {
                     behind,
                 } => {
                     log::info!(
-                        "git: 状态刷新 分支={branch} 变更={} 分支数={} ahead={ahead} behind={behind}",
+                        "[git_view] status refreshed: branch={branch}, files={}, branches={}, ahead={ahead}, behind={behind}",
                         files.len(),
                         branches.len()
                     );
@@ -236,12 +236,12 @@ impl GitView {
                     });
                 }
                 GitEvent::Log { rows } => {
-                    log::info!("git: 日志刷新 {} 条", rows.len());
+                    log::info!("[git_view] log refreshed: {} rows", rows.len());
                     cx.emit(GitUiEvent::LogChanged { rows });
                 }
                 GitEvent::Refs(refs) => {
                     log::info!(
-                        "git: refs 刷新 远程{} 远程分支{} 标签{} stash{}",
+                        "[git_view] refs refreshed: remotes={}, remote_branches={}, tags={}, stashes={}",
                         refs.remotes.len(),
                         refs.remote_branches.len(),
                         refs.tags.len(),
@@ -250,14 +250,15 @@ impl GitView {
                     cx.emit(GitUiEvent::RefsChanged(refs));
                 }
                 GitEvent::CommitFiles { oid, files } => {
-                    log::info!("git: 提交 {} 文件清单 {} 条", oid, files.len());
+                    log::info!(
+                        "[git_view] commit file list received: oid={oid}, files={}",
+                        files.len()
+                    );
                     cx.emit(GitUiEvent::CommitFilesChanged { oid, files });
                 }
                 GitEvent::CommitFileDiff { oid, path, diff } => {
                     log::info!(
-                        "git: 文件 diff {} {} ({} 行)",
-                        oid,
-                        path,
+                        "[git_view] commit file diff received: oid={oid}, lines={}",
                         diff.lines().count()
                     );
                     cx.emit(GitUiEvent::FileDiffChanged { oid, path, diff });
@@ -268,8 +269,8 @@ impl GitView {
                     message,
                 } => {
                     log::info!(
-                        "git: 命令 {label} {}",
-                        if success { "成功" } else { "失败" }
+                        "[git_view] command {label}: {}",
+                        if success { "succeeded" } else { "failed" }
                     );
                     cx.emit(GitUiEvent::CommandDone {
                         label,
@@ -278,7 +279,7 @@ impl GitView {
                     });
                 }
                 GitEvent::Error(err) => {
-                    log::error!("git: {}", err.detail);
+                    log::error!("[git_view] Git operation failed: {}", err.key);
                     self.handle = None;
                     self.rx = None;
                     self.set_status(

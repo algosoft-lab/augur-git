@@ -1,4 +1,10 @@
-# UTF8 编码的截图脚本（验证提交树渲染）
+# Optional Windows-only screenshot helper for manual GUI verification.
+# This script is not part of the cross-platform build or test workflow.
+$scriptRoot = Split-Path -Parent $PSCommandPath
+$outputDirectory = Join-Path $scriptRoot "out"
+$outputPath = Join-Path $outputDirectory "screenshot.png"
+New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 Add-Type @'
@@ -24,5 +30,7 @@ Write-Host "Window: ${w}x${h}"
 $bmp = New-Object System.Drawing.Bitmap($w, $h)
 $g = [System.Drawing.Graphics]::FromImage($bmp)
 $g.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)
-$bmp.Save("D:\dev\gitee\augur-git\packaging\out\screenshot.png")
+$bmp.Save($outputPath)
+$g.Dispose()
+$bmp.Dispose()
 Write-Host "saved"

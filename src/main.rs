@@ -5,6 +5,10 @@ mod core;
 mod git;
 mod workspace;
 
+#[cfg(debug_assertions)]
+use std::fs::OpenOptions;
+use std::io::{self, Write};
+
 use gpui::{AssetSource, SharedString};
 
 /// 本地资产（assets/icons/*.svg，lucide MIT）：优先于 gpui-component 内置集
@@ -56,8 +60,37 @@ impl AssetSource for AppAssets {
 }
 
 fn main() {
-    env_logger::init();
+    init_logging();
+    log::info!("[app] starting augur-git");
 
     let app = gpui_platform::application().with_assets(AppAssets);
     workspace::run(app);
+}
+
+/// Initialize file-only logging without making startup depend on log-file creation.
+fn init_logging() {
+    let mut builder = env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info"),
+    );
+    builder
+        .target(env_logger::Target::Pipe(logging_writer()))
+        .write_style(env_logger::WriteStyle::Never);
+    let _ = builder.try_init();
+}
+
+#[cfg(debug_assertions)]
+fn logging_writer() -> Box<dyn Write + Send> {
+    match OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("debug.log")
+    {
+        Ok(file) => Box::new(file),
+        Err(_) => Box::new(io::sink()),
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn logging_writer() -> Box<dyn Write + Send> {
+    Box::new(io::sink())
 }

@@ -107,7 +107,7 @@ pub fn run(app: Application) {
                 cx.new(|cx| Root::new(workspace, window, cx))
             })
             .unwrap_or_else(|e| {
-                log::error!("Failed to open window: {e}");
+                log::error!("[workspace] failed to open window: {e}");
                 std::process::exit(1);
             })
         })
