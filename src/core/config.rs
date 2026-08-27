@@ -1,6 +1,6 @@
-//! M2：配置数据层——仓库/视图设置，config.json 持久化
+//! M2: Application configuration and persistence for repository and view settings.
 //!
-//! 存储位置：%APPDATA%\augur-git\config.json（Store 沙箱兼容）
+//! The configuration is stored under the platform's standard user config directory.
 
 use std::path::PathBuf;
 
@@ -81,11 +81,14 @@ impl AppConfig {
     }
 }
 
-/// 存储文件路径
+/// Return the configuration file path in the platform-specific config directory.
 pub fn store_path() -> PathBuf {
-    let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
-    let dir = PathBuf::from(base).join("augur-git");
-    let _ = std::fs::create_dir_all(&dir);
+    let dir = dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("augur-git");
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        log::warn!("[config] failed to create config directory: {error}");
+    }
     dir.join("config.json")
 }
 

@@ -17,6 +17,8 @@ commit graphs, and diffs, and runs user-requested Git operations.
 src/
 ├── main.rs          # Process startup, assets, window setup, and application entry
 ├── workspace.rs     # Top-level GPUI state, layout, routing, and event coordination
+├── workspace/
+│   └── welcome.rs    # Welcome page and settings overlay rendering
 ├── core/
 │   ├── config.rs    # Persisted application and repository settings
 │   ├── git.rs       # Git worker, command execution, events, and output parsers

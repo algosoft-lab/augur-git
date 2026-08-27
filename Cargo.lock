@@ -555,6 +555,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "dirs",
  "env_logger",
  "gpui",
  "gpui-component",
@@ -564,7 +565,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sys-locale",
- "windows 0.62.2",
  "winres",
 ]
 
