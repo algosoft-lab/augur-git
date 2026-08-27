@@ -67,7 +67,7 @@ pub fn run(app: Application) {
     app.run(|cx| {
         gpui_component::init(cx);
 
-        // 暗黑主题：GitHub Dark 色板全量覆写（docs/ui-design.md）
+        // Use the GitHub Dark palette for the application theme.
         Theme::change(ThemeMode::Dark, None, cx);
         let t = Theme::global_mut(cx);
         t.background = Hsla::from(rgb(0x0D1117));

@@ -1,134 +1,250 @@
-# AGENTS.md
+# Repository Engineering Policy
 
-本文件为在此仓库工作的 AI 编码代理（ZCode / Claude 等）提供指引。
+These rules are mandatory for every change in this repository. Keep this file
+focused on durable engineering policy. Feature plans, release notes, historical
+investigations, and manual test cases belong in dedicated documents under
+`docs/`.
 
-## 项目是什么
+## Project
 
-augur-git 是暗黑主题 **桌面 Git 图形客户端**（Rust + GPUI，非 TUI）。
-同源项目家族：`../augur-term`（终端）、`../augur-com`（串口调试助手）——本项目的
-主界面布局镜像 `../../github/rgitui`，工程架构镜像 `../augur-com`。
+`augur-git` is a cross-platform desktop Git GUI built with Rust and GPUI. It
+opens local Git repositories, presents repository status, branches, history,
+commit graphs, and diffs, and runs user-requested Git operations.
 
-## 参考项目（重要）
+## Project structure
 
-**`../../github/rgitui`** —— GPU 加速桌面 Git 客户端，与本项目同技术栈（GPUI）。
-实现界面/交互前先读它的源码，按需借鉴：
-
-### rgitui 主界面布局（自上而下，`crates/rgitui_workspace/src/workspace/layout.rs`）
-
-```
-TitleBar   仓库名 + 分支徽标（点击跳侧栏分支区）、has_changes/detached/合并状态指示
-Toolbar    左：Fetch/Pull/Push/Branch/Stash/CreatePR + ahead/behind 徽标
-           右：文件管理器/终端/编辑器/搜索/刷新/设置
-[横幅区]   操作进行中/失败横幅、冲突状态横幅（Continue/Abort）
-TabBar     每打开一个仓库一个 tab + 尾部 Home/Add 按钮
-Main content (h_flex, flex_1)：
-├─ 左 Sidebar（固定宽可拖拽 180..720 级）  分区：本地分支/远程/标签/暂存/工作区变更
-├─ 中央列 (flex_1)：
-│  ├─ GraphView（提交图，uniform_list + canvas 画 lane 连线，顶部 loading 条）
-│  ├─ 拖拽条（3px，纵向）
-│  └─ 底部面板（固定高可拖拽）  tab：Diff/History/Blame/Reflog/Submodules/…
-└─ 右面板（固定宽可拖拽 180..720）：
-   ├─ 右 tab 栏（Details/Issues/PRs/Branch Health）
-   ├─ DetailPanel（选中提交详情：消息/作者/时间/文件树）
-   ├─ 拖拽条
-   └─ CommitPanel（提交信息输入区，可收起）
-StatusBar  分支 · ahead/behind · staged/unstaged 数 · stash 数 · 仓库路径 · 操作消息
-```
-
-无仓库时显示 **Welcome 页**：Logo + 应用名 + Open Repository / New Workspace + 最近仓库
-（`layout.rs::render_welcome_interactive`）。
-
-### rgitui 提交树渲染规范（GraphView，照抄）
-
-参考：`crates/rgitui_graph/src/lib.rs` + `crates/rgitui_git/src/graph.rs`
-
-**数据**：`compute_graph(commits) -> Vec<GraphRow>` 算 lane 布局（本项目 `src/core/graph.rs` 已移植）
-- `GraphRow { node_lane, edges: Vec<GraphEdge>, lane_count, node_color, has_incoming, is_head, is_merge }`
-- `GraphEdge { from_lane, to_lane, color_index, is_merge }`
-
-**渲染**（每行 h_flex 内嵌 canvas）：
-```
-div().relative().w(px(tree_w)).flex_shrink_0().h_full().child(
-    canvas(
-        |_bounds, _w, _cx| {},
-        |bounds, (), window, _cx| { /* 用 window.paint_path 画 */ },
-    ).w_full().h_full()
-)
-```
-- canvas paint 的 `bounds.origin` 是**窗口坐标**（滚动后自动正确），行 y = `origin.y`，节点 x = `origin.x + lane_x`
-- **节点圆**：`build_filled_circle`（`PathBuilder::fill` + 36 点多边形）+ `paint_path`
-  - 背景环（遮穿线）：fill 大圆 + `paint_path(row_bg)`
-  - 空心圆：fill 节点色大圆 + fill 背景色小圆挖空
-- **连线**：`PathBuilder::fill` 4 点矩形（细线）/ 点阵小圆（斜线）+ `paint_path`
-- **配色**：`lane_color(index)` 配色表（照抄 `GRAPH_LANE_COLORS`）
-
-**关键 API**：`gpui::canvas(prepaint, paint)`、`PathBuilder::fill()/stroke()`、`window.paint_path(path, color)`、`build_filled_circle`
-
-**坑（已踩）**：
-- `PathBuilder::stroke` 在本 fork 渲染异常 → 全用 `fill`（圆 = fill 多边形，线 = fill 矩形）
-- `h_flex()` 强制 `items_center` → 子元素 `h_full` 失效；树列容器用 `div().flex().flex_row()`
-- 多个 `on_click(move)` 捕获同一 `Entity` → 第二个报 moved，用 `entity.clone()`
-
-### rgitui 可借鉴的架构决策
-
-- **多 tab 工作区**：`Workspace` 持有 `Vec<ProjectTab>`（每仓库一个），tab 内装各 panel 的 `Entity`
-- **事件链**：子实体 `EventEmitter<XxxEvent>`，Workspace 在 `events.rs` 统一 `subscribe_xxx`
-- **线程规则**：git2/FS 工作绝不进 UI 线程；`background_executor().spawn` + 世代号丢弃过期结果
-- **布局状态**：`LayoutState` 记录 sidebar/detail/diff/commit 面板尺寸，拖拽条 `on_drag` + `on_drag_move`
-- **状态栏/工具提示**：命令的快捷键绑定动态显示在 tooltip 里
-- **h_flex() 坑**：`h_flex()` = `flex_row().items_center()`（强制垂直居中），滚动容器/自绘对齐
-  出问题时改用 `div().flex().flex_row()`
-
-## 本项目工程架构（镜像 augur-com）
-
-```
+```text
 src/
-├── main.rs            # 入口（12 行）
-├── workspace.rs       # Workspace 装配 + 三栏布局 + 事件链 + 状态栏
+├── main.rs          # Process startup, assets, window setup, and application entry
+├── workspace.rs     # Top-level GPUI state, layout, routing, and event coordination
 ├── core/
-│   ├── git.rs         # Git 命令层：工作线程双通道（std mpsc）+ 输出解析（纯函数可单测）
-│   ├── config.rs      # AppConfig + LanguagePreference + config.json（%APPDATA%\augur-git\）+ MRU
-│   ├── graph.rs       # 提交图布局算法 + 双语相对时间
-│   └── i18n.rs        # 双语文案：编译期内嵌 i18n/*.ftl + Locale + text/text_args（镜像 augur-pdf）
-└── git/               # 界面面板（镜像 rgitui 的 panel 拆分）
-    ├── mod.rs         # GitView：仓库数据流中心（status/log 事件轮询派发）
-    ├── graph.rs       # GraphView：提交图
-    ├── sidebar.rs     # Sidebar：分支 + 变更文件分区
-    ├── panel.rs       # DetailPanel / CommitPanel / BottomPanel（选中提交文件清单+色块条+单文件染色 diff 分栏）
-    └── toolbar.rs     # Toolbar
-└── i18n/              # 翻译目录：en-US.ftl / zh-CN.ftl（key = value，{ $name } 占位符；两文件键必须对齐，有单测）
+│   ├── config.rs    # Persisted application and repository settings
+│   ├── git.rs       # Git worker, command execution, events, and output parsers
+│   ├── graph.rs     # Pure commit-graph layout and time-formatting logic
+│   └── i18n.rs      # Locale selection and translation lookup
+└── git/
+    ├── mod.rs       # GitView bridge between the worker and UI panels
+    ├── graph.rs     # Commit-graph presentation
+    ├── panel.rs     # Commit details, commit input, file list, and diff panels
+    ├── sidebar.rs   # Repository, branch, staging, and working-tree sections
+    └── toolbar.rs   # Git operation controls and status indicators
+i18n/               # User-facing English and Simplified Chinese translations
+assets/              # Logos and local interface icons
+packaging/           # Packaging-specific assets and scripts
+build.rs             # Platform-specific build metadata, including the Windows icon
 ```
 
-**线程模式**（全项目铁律，改代码前先看 `core/git.rs`）：
-- 专用工作线程跑阻塞式 git 子进程 → `std::sync::mpsc` 事件推 UI（20ms 轮询 `try_recv`）
-- UI → 后台指令：std mpsc `send`（无界通道，即发即返）；UI 线程零阻塞
+## 1. Language
 
-**双语（i18n，镜像 augur-pdf/augur-term）**：
-- UI 文案一律走 `i18n::text(locale, "key")` / `text_args`，**禁止视图层硬编码中英文**
-- 各视图实体持 `locale: Locale` 副本；`Workspace::set_language` 统一切换（同步各子面板 + 刷新输入框
-  placeholder——需 `&mut Window`——+ 存 config + notify，下一次 render 即生效）
-- core 层（工作线程）不做本地化：错误用 `GitError { key, detail }` 传 i18n 键，展示侧（有 locale）拼接
-- 新增 UI 文案：两个 .ftl 各加一行键值对（键对齐有单测兜底）；语言偏好存 config.json `language`
-  （system/en-US/zh-CN，默认跟随系统）
+- All source-code comments, doc comments, commit messages, and newly created
+  or updated documentation MUST be written in English.
+- Chinese text MUST NOT be added to comments or engineering documentation. When
+  touching an existing non-English comment or documentation section, translate
+  the affected text to English as part of the same change.
+- Localized user-facing strings are exempt from this rule. Keep localization
+  content in `i18n/` and separate from engineering documentation whenever
+  practical.
+- Names and prose MUST be clear enough to explain intent. Do not add comments
+  that merely restate the code.
 
-**约定**：
-- 注释用中文，模块头写里程碑（M0 框架 / M1 主界面 / …）
-- 视图层可测逻辑（解析/算法）抽成纯函数放 `core/` 并写 `#[test]`
-- `gpui_component` 尺寸 helper：半档是 `0p5` 后缀（`gap_0p5` 非 `gap_0_5`）
-- `Entity::read` 必须传 `cx`；程序化回填 `InputState` 只能在带 `&mut Window` 的回调里
-- 面板聚焦指示：选中面板画 `border_t_2 + border_focused` 色（rgitui 同款）
-- 应用图标：`assets/algogit.svg` 为源，`assets/algogit.ico`（16–256 七档）由 build.rs 经 winres
-  嵌入 exe。改 SVG 后重生成：
+## 2. Product scope and repository boundaries
+
+- This repository is a desktop client for local Git repositories. Keep Git as
+  the supported version-control system unless the product scope is explicitly
+  changed.
+- The system `git` executable is an external runtime dependency. Do not add
+  silent fallback behavior that changes repository semantics or invokes another
+  VCS tool without an explicit scope decision.
+- Repository operations that can change user data, including commit, checkout,
+  fetch, pull, push, staging, and reset, MUST be initiated by an explicit user
+  action and MUST surface their result or error.
+- Pass Git arguments as structured arguments to `std::process::Command`. Do not
+  build shell command strings, invoke a shell for routine operations, or allow
+  repository paths and user input to become command syntax.
+- Treat repository contents, paths, refs, and Git output as untrusted input.
+  Operations that cannot be validated safely MUST fail with a useful error
+  instead of silently changing or corrupting repository state.
+- Preserve user-visible paths and command output accurately where possible.
+  Do not silently discard statuses, refs, diff data, or parser fields merely
+  because they are unfamiliar; handle unsupported cases explicitly.
+
+## 3. Architecture and dependency direction
+
+Dependencies flow from UI and rendering toward application state and domain
+services, never in the opposite direction.
+
+- `src/main.rs` owns process startup, asset registration, window creation, and
+  the application entry point. Keep it thin.
+- `src/workspace.rs` owns top-level state, layout, page routing, configuration
+  coordination, and event wiring between panels and `GitView`.
+- Modules under `src/git/` own GPUI presentation and user intent. UI code MUST
+  NOT invoke Git processes, parse raw Git output, or block on filesystem work.
+- `src/core/git.rs` owns the Git worker boundary, command execution, event
+  payloads, and pure parsers for status, log, and diff output.
+- `src/core/graph.rs` owns pure commit-graph layout and related calculations;
+  keep rendering details out of it.
+- `src/core/config.rs` owns persisted settings and recent-repository state.
+  `src/core/i18n.rs` owns locale resolution and translation lookup.
+- `GitView` is the bridge between background Git events and UI panels. Keep
+  panel state local to the owning panel and route cross-panel coordination
+  through `Workspace` events.
+- Background workers MUST receive owned or immutable job inputs and communicate
+  with the UI through `std::sync::mpsc` or an equivalent explicit boundary.
+  Blocking Git and filesystem work MUST NOT run on the UI thread.
+- Keep public APIs small and predictable. Avoid global mutable state, circular
+  module dependencies, and convenience modules that become dumping grounds.
+
+## 4. Cross-platform requirements
+
+- New functionality MUST support every maintained platform unless the task
+  explicitly narrows its scope.
+- A Windows-only toolchain, PowerShell script, batch file, registry operation,
+  or Win32 command MUST NOT be the sole implementation of a build, test,
+  development, or maintenance workflow.
+- Prefer portable Rust code and established cross-platform crates. Isolate
+  unavoidable platform-specific behavior behind explicit `cfg` boundaries and
+  provide equivalent behavior for other maintained platforms.
+- For repository automation that cannot reasonably be implemented in Rust,
+  prefer a Python script using the standard library. Invoke Python tooling with
+  `uv run`. Do not create parallel shell, PowerShell, and batch implementations
+  when one portable script can serve all platforms.
+- Platform-specific packaging scripts are allowed inside the relevant packaging
+  workflow. They MUST NOT become prerequisites for normal development on other
+  platforms.
+- Do not introduce environment variables for routine configuration when a
+  command-line option, configuration file, or stable application default is
+  sufficient. Any required environment variable MUST be documented and kept to
+  the narrowest possible scope.
+- Use `std::path::Path` and `PathBuf` for filesystem paths. Do not hardcode path
+  separators, drive letters, home directories, or platform-specific executable
+  suffixes in shared code.
+- Use cross-platform file dialogs, window APIs, image loading, and atomic file
+  replacement. Do not make a GUI acceptance path depend on one operating
+  system.
+
+## 5. Logging and debugging
+
+- Application logs MUST be written to `debug.log` by default. Running the
+  application MUST NOT require stdout or stderr redirection to capture logs.
+- Normal application logging MUST NOT write to the terminal. Startup must remain
+  resilient if the log file cannot be created.
+- `RUST_LOG` may be used as an optional log-level override, but the application
+  MUST provide a useful default without it.
+- Never log passwords, tokens, private keys, credentials, local secrets, or
+  complete user-provided paths when they may contain sensitive information.
+- Logs added for a feature or investigation MUST use a stable prefix such as
+  `[git_view]`, `[workspace]`, or `[git_command]` so they can be filtered
+  reliably.
+- When handing off a debugging workflow, provide a ready-to-run command that
+  exercises the relevant flow and filters `debug.log` into a focused log file.
+  For example:
+
   ```bash
-  for s in 16 24 32 48 64 128 256; do magick -background none -density $((72*s/200)) assets/algogit.svg -resize ${s}x${s} /tmp/icon_$s.png; done
-  magick /tmp/icon_{16,24,32,48,64,128,256}.png assets/algogit.ico
+  cargo run
+  rg "\[(git_view|workspace|git_command)\]" debug.log > git-debug.log
   ```
 
-## 常用命令
+- Generated `*.log` files MUST remain untracked and MUST NOT be included in
+  commits or release archives.
 
-```bash
-cargo check        # 快速验证（本项目标准做法）
-cargo test         # 单测（config / status / log 解析）
-cargo run          # 运行
-cargo fmt --all
-```
+## 6. Git data safety and parsing
+
+- Validate repository paths before opening them and report repository-specific
+  failures with useful context.
+- Parse Git status, branch, log, ref, numstat, and diff output defensively.
+  Account for empty output, merge commits, renamed paths, non-ASCII names,
+  binary files, detached HEAD, missing upstreams, and unexpected fields.
+- Do not use `panic!`, `unwrap`, or `expect` for malformed user input,
+  repository content, or Git command output. Propagate or present structured
+  errors instead.
+- Do not infer destructive repository actions from filenames, display labels,
+  or ambiguous parser results. Require explicit command arguments and clear
+  user intent.
+- Keep parser and transformation logic pure where possible so it can be tested
+  without a GUI or a live repository.
+- After changing a write operation or output parser, verify the resulting state
+  or round-trip through the relevant reader before reporting success.
+- Do not silently discard unknown Git metadata, refs, file states, or diff
+  sections outside the requested presentation. Mark unsupported cases and
+  preserve data whenever the operation permits.
+
+## 7. Code organization and file size
+
+- Preserve the existing structure and formatting unless a refactor is part of
+  the requested change.
+- Every source file over 1,000 lines MUST trigger an explicit design review
+  before more responsibilities are added. Evaluate cohesion, dependency
+  direction, state ownership, and whether behavior can move to focused modules.
+- Do not allow a file to cross the 1,000-line threshold without recording the
+  assessment in the change summary or commit body.
+- When modifying an existing file that already exceeds 1,000 lines, avoid
+  increasing its scope. If the affected behavior has a clear boundary, split it
+  during the change. If an immediate split would make the change riskier, state
+  the reason and identify the intended module boundary.
+- New modules MUST have one clear responsibility. Keep entry points, `mod.rs`
+  files, and application coordinators thin.
+- Prefer `cargo fmt`-standard Rust, explicit imports in submodules, and
+  `Result`-based error propagation with `thiserror`/`anyhow` when appropriate.
+- Do not add emojis or unnecessary comments to source, documentation, or
+  commit messages.
+
+## 8. Required validation
+
+- Before every commit, run `cargo fmt --all`. This is mandatory even when the
+  change appears not to affect formatting.
+- After formatting, run the most relevant automated checks. `cargo test` is the
+  minimum default for Rust behavior changes; use `cargo check --all-targets`
+  when a full test run is not applicable.
+- For Git command, parser, graph, or state changes, add or update focused unit
+  tests and run the relevant fixtures or round-trip checks.
+- Do not report a check as successful unless it was actually run. Clearly state
+  any check that could not be completed and why.
+- GUI behavior that cannot be validated reliably in the agent environment MUST
+  be handed off with concise, platform-neutral manual verification steps.
+- Do not make Windows-only manual verification the canonical acceptance path for
+  cross-platform behavior.
+- Before declaring work complete, check `git diff --check`, inspect the final
+  diff, and confirm generated artifacts are not included.
+
+## 9. Documentation and task tracking
+
+- `README.md` contains the product overview, supported scope, and developer
+  entry points. Keep detailed design decisions in focused English documents
+  under `docs/` when such documentation is needed.
+- Feature plans, migration notes, release notes, historical investigations,
+  and manual test procedures belong in dedicated English documents under
+  `docs/`.
+- Keep `AGENTS.md` free of feature plans, milestone checklists, copied design
+  specifications, and historical implementation notes.
+- Do not recreate removed legacy documents or maintain a stale checklist of
+  completed tasks. When a task is complete, remove its pending entry from the
+  relevant planning document.
+- Documentation MUST describe actual behavior. Clearly label planned behavior,
+  unsupported input, experimental features, and platform-specific limitations.
+
+## 10. Commits
+
+- Every commit MUST use a complete Conventional Commits message:
+  `<type>(optional-scope): imperative summary`.
+- Use the narrowest accurate type, such as `feat`, `fix`, `refactor`, `docs`,
+  `test`, `build`, `ci`, or `chore`. Vague subjects such as `update files` or
+  `misc fixes` are forbidden.
+- Non-trivial commits MUST include a body explaining the motivation, behavior
+  change, and important compatibility or validation details.
+- Breaking changes MUST use `!` in the header or a `BREAKING CHANGE:` footer.
+- Do not commit, amend, push, or create a pull request unless the user
+  explicitly requests it.
+
+## 11. Safety and repository hygiene
+
+- Inspect `git status` before editing. Preserve unrelated user changes and do
+  not rewrite them.
+- Never commit generated logs, credentials, private keys, build artifacts,
+  local profile databases, or user repository outputs.
+- Destructive or irreversible commands require explicit user approval. Confirm
+  exact targets before deleting or overwriting files.
+- Use `rg` for text search, `fd` for file discovery, and `uv run` for Python
+  commands. Prefer `apply_patch` for source and documentation edits.
+- Do not create or switch Git branches unless the user explicitly requests it.
+- Keep changes focused. Do not mix unrelated cleanup, refactoring, and feature
+  work in one commit.
