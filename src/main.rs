@@ -13,18 +13,28 @@ struct AppAssets;
 /// 编译期内嵌本地图标（新增图标在此登记一行）
 fn local_asset(path: &str) -> Option<&'static [u8]> {
     match path {
-        "icons/download.svg" => Some(include_bytes!("../assets/icons/download.svg").as_slice()),
-        "icons/git-branch.svg" => Some(include_bytes!("../assets/icons/git-branch.svg").as_slice()),
-        "icons/refresh-cw.svg" => Some(include_bytes!("../assets/icons/refresh-cw.svg").as_slice()),
-        "icons/git-commit-horizontal.svg" => {
-            Some(include_bytes!("../assets/icons/git-commit-horizontal.svg").as_slice())
+        "icons/download.svg" => {
+            Some(include_bytes!("../assets/icons/download.svg").as_slice())
         }
+        "icons/git-branch.svg" => {
+            Some(include_bytes!("../assets/icons/git-branch.svg").as_slice())
+        }
+        "icons/refresh-cw.svg" => {
+            Some(include_bytes!("../assets/icons/refresh-cw.svg").as_slice())
+        }
+        "icons/git-commit-horizontal.svg" => Some(
+            include_bytes!("../assets/icons/git-commit-horizontal.svg")
+                .as_slice(),
+        ),
         _ => None,
     }
 }
 
 impl AssetSource for AppAssets {
-    fn load(&self, path: &str) -> anyhow::Result<Option<std::borrow::Cow<'static, [u8]>>> {
+    fn load(
+        &self,
+        path: &str,
+    ) -> anyhow::Result<Option<std::borrow::Cow<'static, [u8]>>> {
         if let Some(bytes) = local_asset(path) {
             return Ok(Some(std::borrow::Cow::Borrowed(bytes)));
         }

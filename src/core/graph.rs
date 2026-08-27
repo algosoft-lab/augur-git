@@ -171,7 +171,10 @@ fn is_head_ref(r: &str) -> bool {
 }
 
 fn is_main_ref(r: &str) -> bool {
-    r == "main" || r == "master" || r.ends_with("/main") || r.ends_with("/master")
+    r == "main"
+        || r == "master"
+        || r.ends_with("/main")
+        || r.ends_with("/master")
 }
 
 /// 找 main/master 分支尖端 oid（提交按拓扑序，第一个匹配的 ref 最靠前）
@@ -184,7 +187,8 @@ fn find_main_branch_tip(commits: &[LogRow]) -> Option<String> {
             if is_main_ref(r) && main_tip.is_none() {
                 main_tip = Some(commit.oid.clone());
             }
-            if (r == "master" || r.ends_with("/master")) && master_tip.is_none() {
+            if (r == "master" || r.ends_with("/master")) && master_tip.is_none()
+            {
                 master_tip = Some(commit.oid.clone());
             }
         }
@@ -225,7 +229,10 @@ fn pick_main_parent(
     for parent_oid in parents {
         let has_feature_ref = oid_to_idx.get(parent_oid).is_some_and(|idx| {
             commits[*idx].decorations.split(", ").any(|r| {
-                r != "main" && r != "master" && !r.ends_with("/main") && !r.ends_with("/master")
+                r != "main"
+                    && r != "master"
+                    && !r.ends_with("/main")
+                    && !r.ends_with("/master")
             })
         });
         if !has_feature_ref && non_feature_parent.is_none() {
@@ -296,15 +303,19 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
         let is_head = head_oid.as_ref() == Some(oid);
         let on_main = main_chain.contains(oid);
         // 圈色 = 提交者颜色；本提交发出的连线（出边/上下段）同色
-        let author_idx =
-            author_color_index(&commit.author, &mut author_colors, &mut next_author_color);
+        let author_idx = author_color_index(
+            &commit.author,
+            &mut author_colors,
+            &mut next_author_color,
+        );
 
         let (node_lane, has_incoming) = if on_main {
             if matches!(lanes.first(), Some(Some((o, _))) if o == oid) {
                 (0, true)
             } else if matches!(lanes.first(), Some(Some((expected, _))) if ancestry.is_ancestor_of(oid, expected, commits, &oid_to_idx))
             {
-                let color = lanes[0].as_ref().map(|(_, c)| *c).unwrap_or(author_idx);
+                let color =
+                    lanes[0].as_ref().map(|(_, c)| *c).unwrap_or(author_idx);
                 lanes[0] = Some((oid.clone(), color));
                 (0, true)
             } else if matches!(lanes.first(), Some(None)) || lanes.is_empty() {
@@ -319,7 +330,8 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
                 (0, false)
             } else if matches!(lanes.first(), Some(Some((expected, _))) if main_chain.contains(expected))
             {
-                let color = lanes[0].as_ref().map(|(_, c)| *c).unwrap_or(author_idx);
+                let color =
+                    lanes[0].as_ref().map(|(_, c)| *c).unwrap_or(author_idx);
                 lanes[0] = Some((oid.clone(), color));
                 (0, true)
             } else {
@@ -403,7 +415,8 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
 
         // parents：主链 merge 提交把主链 parent 当主 parent 路由
         if !commit.parents.is_empty() {
-            let (primary, secondaries) = if on_main && commit.parents.len() > 1 {
+            let (primary, secondaries) = if on_main && commit.parents.len() > 1
+            {
                 if let Some(main_parent_pos) =
                     commit.parents.iter().position(|p| main_chain.contains(p))
                 {
@@ -425,9 +438,12 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
 
             let primary_on_main = on_main && main_chain.contains(&primary);
             let primary_lane = if primary_on_main {
-                if matches!(lanes.first(), Some(Some((o, _))) if *o == primary) {
+                if matches!(lanes.first(), Some(Some((o, _))) if *o == primary)
+                {
                     0
-                } else if matches!(lanes.first(), Some(None)) || lanes.is_empty() {
+                } else if matches!(lanes.first(), Some(None))
+                    || lanes.is_empty()
+                {
                     if lanes.is_empty() {
                         lanes.push(None);
                     }
@@ -512,14 +528,21 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
                     let strip_until = rows
                         .iter()
                         .take(tip_idx)
-                        .position(|r| r.edges.iter().any(|e| e.to_lane == 0 && e.from_lane != 0))
+                        .position(|r| {
+                            r.edges
+                                .iter()
+                                .any(|e| e.to_lane == 0 && e.from_lane != 0)
+                        })
                         .map(|i| (i + 1).min(tip_idx))
                         .unwrap_or(tip_idx);
 
                     let mut last_stripped = None;
-                    for (idx, row) in rows.iter_mut().enumerate().take(strip_until) {
+                    for (idx, row) in
+                        rows.iter_mut().enumerate().take(strip_until)
+                    {
                         let before = row.edges.len();
-                        row.edges.retain(|e| !(e.from_lane == 0 && e.to_lane == 0));
+                        row.edges
+                            .retain(|e| !(e.from_lane == 0 && e.to_lane == 0));
                         if row.edges.len() != before {
                             last_stripped = Some(idx);
                         }
@@ -562,11 +585,9 @@ fn find_lane(
     ancestry: &mut AncestorCache,
     skip_lane: Option<usize>,
 ) -> (usize, bool) {
-    if let Some(pos) = lanes
-        .iter()
-        .enumerate()
-        .position(|(i, s)| Some(i) != skip_lane && matches!(s, Some((o, _)) if o == oid))
-    {
+    if let Some(pos) = lanes.iter().enumerate().position(|(i, s)| {
+        Some(i) != skip_lane && matches!(s, Some((o, _)) if o == oid)
+    }) {
         return (pos, true);
     }
 
@@ -618,7 +639,10 @@ fn route_parent(
 }
 
 /// 找第一个空闲 lane，没有则追加
-fn alloc_lane(lanes: &mut Vec<Option<(String, usize)>>, skip_lane: Option<usize>) -> usize {
+fn alloc_lane(
+    lanes: &mut Vec<Option<(String, usize)>>,
+    skip_lane: Option<usize>,
+) -> usize {
     if let Some(pos) = lanes
         .iter()
         .enumerate()
@@ -640,7 +664,11 @@ fn alloc_lane(lanes: &mut Vec<Option<(String, usize)>>, skip_lane: Option<usize>
 /// 相对时间（镜像 rgitui format_relative_time；月份用 m、分钟用 min 避免歧义）：
 /// en: just now / Xmin ago / Xh ago / Xd ago / Xw ago / Xm ago / Xy ago
 /// zh: 刚刚 / X 分钟前 / X 小时前 / X 天前 / X 周前 / X 个月前 / X 年前
-pub fn format_relative_time(timestamp: i64, now: i64, locale: crate::core::i18n::Locale) -> String {
+pub fn format_relative_time(
+    timestamp: i64,
+    now: i64,
+    locale: crate::core::i18n::Locale,
+) -> String {
     use crate::core::i18n::{text, text_args};
 
     let minutes = ((now - timestamp).max(0) / 60) as i64;
@@ -722,7 +750,7 @@ mod tests {
     fn feature_branch_ahead_of_main_gets_own_lane() {
         // main tip 在后：feature 领先
         let commits = vec![
-            make_commit(3, &[1], "feature"),      // 功能分支尖端
+            make_commit(3, &[1], "feature"), // 功能分支尖端
             make_commit(2, &[1], "HEAD -> main"), // main 落后
             make_commit(1, &[], ""),
         ];

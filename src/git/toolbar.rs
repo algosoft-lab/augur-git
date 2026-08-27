@@ -53,7 +53,12 @@ impl Toolbar {
         cx.notify();
     }
 
-    pub fn set_ahead_behind(&mut self, ahead: usize, behind: usize, cx: &mut Context<Self>) {
+    pub fn set_ahead_behind(
+        &mut self,
+        ahead: usize,
+        behind: usize,
+        cx: &mut Context<Self>,
+    ) {
         if self.ahead == ahead && self.behind == behind {
             return;
         }
@@ -137,7 +142,11 @@ impl Toolbar {
 }
 
 impl Render for Toolbar {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let enabled = self.has_remote && !self.busy;
 

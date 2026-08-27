@@ -57,7 +57,11 @@ pub struct Sidebar {
 impl EventEmitter<SidebarEvent> for Sidebar {}
 
 impl Sidebar {
-    pub fn new(_window: &mut Window, _cx: &mut Context<Self>, locale: Locale) -> Self {
+    pub fn new(
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+        locale: Locale,
+    ) -> Self {
         Self {
             branches: Vec::new(),
             branch: String::new(),
@@ -88,7 +92,8 @@ impl Sidebar {
         self.branch = branch;
         self.branches = branches;
         self.staged = files.iter().filter(|f| f.is_staged()).cloned().collect();
-        self.unstaged = files.iter().filter(|f| !f.is_staged()).cloned().collect();
+        self.unstaged =
+            files.iter().filter(|f| !f.is_staged()).cloned().collect();
         // 选中行可能已消失
         if let Some((staged, i)) = self.selected {
             let list = if staged { &self.staged } else { &self.unstaged };
@@ -107,7 +112,8 @@ impl Sidebar {
 
     /// 标题栏分支徽标点击：自动展开分支区并高亮 800ms
     pub fn flash_branches(&mut self, cx: &mut Context<Self>) {
-        self.flash_branches_until = Some(Instant::now() + Duration::from_millis(800));
+        self.flash_branches_until =
+            Some(Instant::now() + Duration::from_millis(800));
         self.collapsed.retain(|k| *k != "section-branches");
         cx.notify();
     }
@@ -127,7 +133,12 @@ impl Sidebar {
         cx.notify();
     }
 
-    fn select_file(&mut self, staged: bool, index: usize, cx: &mut Context<Self>) {
+    fn select_file(
+        &mut self,
+        staged: bool,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) {
         let list = if staged { &self.staged } else { &self.unstaged };
         let Some(file) = list.get(index) else {
             return;
@@ -148,7 +159,11 @@ impl Sidebar {
         cx.emit(SidebarEvent::BranchSelected(branch.name.clone()));
     }
 
-    fn sidebar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn sidebar(
+        &self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
 
         // 收起按钮（PanelLeftClose 图标）
@@ -162,7 +177,9 @@ impl Sidebar {
             .text_color(colors.muted_foreground)
             .child(Icon::new(IconName::PanelLeftClose))
             .on_click(move |_e, _w, cx| {
-                btn_collapse.update(cx, |_sidebar, cx| cx.emit(SidebarEvent::ToggleCollapse));
+                btn_collapse.update(cx, |_sidebar, cx| {
+                    cx.emit(SidebarEvent::ToggleCollapse)
+                });
             });
 
         v_flex()
@@ -187,14 +204,26 @@ impl Sidebar {
                     .min_h_0()
                     .overflow_y_scroll()
                     .child(self.branch_section(cx))
-                    .child(self.list_section(cx, "section-remotes", &self.refs.remotes))
+                    .child(self.list_section(
+                        cx,
+                        "section-remotes",
+                        &self.refs.remotes,
+                    ))
                     .child(self.list_section(
                         cx,
                         "section-remote-branches",
                         &self.refs.remote_branches,
                     ))
-                    .child(self.list_section(cx, "section-tags", &self.refs.tags))
-                    .child(self.list_section(cx, "section-stashes", &self.refs.stashes))
+                    .child(self.list_section(
+                        cx,
+                        "section-tags",
+                        &self.refs.tags,
+                    ))
+                    .child(self.list_section(
+                        cx,
+                        "section-stashes",
+                        &self.refs.stashes,
+                    ))
                     .child(self.change_section(cx, true, &self.staged))
                     .child(self.change_section(cx, false, &self.unstaged)),
             )
@@ -227,7 +256,9 @@ impl Sidebar {
                     .rounded_sm()
                     .hover(|this| this.bg(colors.list_hover))
                     .on_click(move |_e, _w, cx| {
-                        this.update(cx, |sidebar, cx| sidebar.select_branch(i, cx));
+                        this.update(cx, |sidebar, cx| {
+                            sidebar.select_branch(i, cx)
+                        });
                     })
                     .child(
                         div()
@@ -255,7 +286,9 @@ impl Sidebar {
                         let this = cx.entity();
                         row.child(
                             div()
-                                .id(SharedString::from(format!("checkout-{name}")))
+                                .id(SharedString::from(format!(
+                                    "checkout-{name}"
+                                )))
                                 .px_1()
                                 .rounded_sm()
                                 .hover(|this| this.bg(colors.input))
@@ -264,7 +297,9 @@ impl Sidebar {
                                 .child("⇥")
                                 .on_click(move |_e, _w, cx| {
                                     this.update(cx, |_sidebar, cx| {
-                                        cx.emit(SidebarEvent::CheckoutBranch(name.clone()));
+                                        cx.emit(SidebarEvent::CheckoutBranch(
+                                            name.clone(),
+                                        ));
                                     });
                                 }),
                         )
@@ -355,7 +390,8 @@ impl Sidebar {
             .enumerate()
             .map(|(i, f)| {
                 let this = cx.entity();
-                let (code_color, label) = status_style(&colors, f.code(), self.locale);
+                let (code_color, label) =
+                    status_style(&colors, f.code(), self.locale);
                 let selected = self.selected == Some((staged, i));
                 h_flex()
                     .id(SharedString::from(format!("file-{staged}-{i}")))
@@ -379,7 +415,9 @@ impl Sidebar {
                         }
                     })
                     .on_click(move |_e, _w, cx| {
-                        this.update(cx, |sidebar, cx| sidebar.select_file(staged, i, cx));
+                        this.update(cx, |sidebar, cx| {
+                            sidebar.select_file(staged, i, cx)
+                        });
                     })
                     .child(
                         div()
@@ -417,7 +455,11 @@ impl Sidebar {
 }
 
 impl Render for Sidebar {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         self.sidebar(window, cx)
     }
 }

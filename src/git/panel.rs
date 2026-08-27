@@ -16,7 +16,9 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::core::git::{DiffLine, DiffLineKind, FileChange, parse_diff, stat_blocks};
+use crate::core::git::{
+    DiffLine, DiffLineKind, FileChange, parse_diff, stat_blocks,
+};
 use crate::core::i18n::{self, Locale};
 use crate::git::{lucide, shared};
 
@@ -108,7 +110,11 @@ impl DetailPanel {
         cx.notify();
     }
 
-    pub fn set_content(&mut self, content: DetailContent, cx: &mut Context<Self>) {
+    pub fn set_content(
+        &mut self,
+        content: DetailContent,
+        cx: &mut Context<Self>,
+    ) {
         self.content = content;
         cx.notify();
     }
@@ -143,7 +149,11 @@ impl DetailPanel {
 }
 
 impl Render for DetailPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let mono = cx.theme().mono_font_family.clone();
 
@@ -196,7 +206,9 @@ impl Render for DetailPanel {
                     .child(div().flex_1()),
             )
             .child(match &self.content {
-                DetailContent::Empty => self.empty_view(&colors).into_any_element(),
+                DetailContent::Empty => {
+                    self.empty_view(&colors).into_any_element()
+                }
                 DetailContent::Commit {
                     short,
                     subject,
@@ -204,7 +216,15 @@ impl Render for DetailPanel {
                     date,
                     decorations,
                 } => self
-                    .commit_view(&colors, &mono, short, subject, author, date, decorations)
+                    .commit_view(
+                        &colors,
+                        &mono,
+                        short,
+                        subject,
+                        author,
+                        date,
+                        decorations,
+                    )
                     .into_any_element(),
                 DetailContent::File { path, staged, code } => self
                     .file_view(&colors, &mono, path, *staged, *code)
@@ -364,9 +384,14 @@ pub struct CommitPanel {
 impl EventEmitter<CommitPanelEvent> for CommitPanel {}
 
 impl CommitPanel {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>, locale: Locale) -> Self {
+    pub fn new(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        locale: Locale,
+    ) -> Self {
         let input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(i18n::text(locale, "commit-placeholder"))
+            InputState::new(window, cx)
+                .placeholder(i18n::text(locale, "commit-placeholder"))
         });
 
         // Ctrl+Enter = 提交
@@ -396,7 +421,12 @@ impl CommitPanel {
     }
 
     /// 切换语言（Workspace::set_language 同步）；placeholder 回填需 &mut Window
-    pub fn set_locale(&mut self, locale: Locale, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn set_locale(
+        &mut self,
+        locale: Locale,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.locale = locale;
         let placeholder = i18n::text(locale, "commit-placeholder");
         self.input.update(cx, |input, cx| {
@@ -423,7 +453,11 @@ impl CommitPanel {
 }
 
 impl Render for CommitPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
 
         // 标题行：提交 + 收起
@@ -520,9 +554,15 @@ impl Render for CommitPanel {
                                     .text_size(px(11.))
                                     .text_color(colors.muted_foreground)
                                     .child(shared(if self.has_staged {
-                                        i18n::text(self.locale, "commit-hint-staged")
+                                        i18n::text(
+                                            self.locale,
+                                            "commit-hint-staged",
+                                        )
                                     } else {
-                                        i18n::text(self.locale, "commit-hint-none")
+                                        i18n::text(
+                                            self.locale,
+                                            "commit-hint-none",
+                                        )
                                     })),
                             )
                             .child(div().flex_1())
@@ -577,8 +617,15 @@ impl BottomPanel {
 
     /// 选中提交变化（GraphEvent::CommitSelected 转发）：重置清单/diff；
     /// workspace 随后触发 numstat 查询
-    pub fn set_commit(&mut self, oid: &str, short: &str, subject: &str, cx: &mut Context<Self>) {
-        self.commit = Some((oid.to_string(), short.to_string(), subject.to_string()));
+    pub fn set_commit(
+        &mut self,
+        oid: &str,
+        short: &str,
+        subject: &str,
+        cx: &mut Context<Self>,
+    ) {
+        self.commit =
+            Some((oid.to_string(), short.to_string(), subject.to_string()));
         self.files.clear();
         self.selected = None;
         self.diff = None;
@@ -586,7 +633,12 @@ impl BottomPanel {
     }
 
     /// 文件清单到达（oid 与当前提交不符 = 过期结果，丢弃）
-    pub fn set_files(&mut self, oid: &str, files: Vec<FileChange>, cx: &mut Context<Self>) {
+    pub fn set_files(
+        &mut self,
+        oid: &str,
+        files: Vec<FileChange>,
+        cx: &mut Context<Self>,
+    ) {
         if self
             .commit
             .as_ref()
@@ -601,7 +653,13 @@ impl BottomPanel {
     }
 
     /// 文件 diff 到达（oid/path 与当前选中不符 = 过期结果，丢弃）
-    pub fn set_diff(&mut self, oid: &str, path: &str, diff: String, cx: &mut Context<Self>) {
+    pub fn set_diff(
+        &mut self,
+        oid: &str,
+        path: &str,
+        diff: String,
+        cx: &mut Context<Self>,
+    ) {
         let selected_path = self
             .selected
             .and_then(|i| self.files.get(i))
@@ -641,7 +699,11 @@ impl BottomPanel {
 
 impl BottomPanel {
     /// 左栏：文件清单（40% 宽；每行 路径 + 色块条，点击选中）
-    fn file_list(&self, colors: &ThemeColor, cx: &Context<Self>) -> impl IntoElement {
+    fn file_list(
+        &self,
+        colors: &ThemeColor,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
         let mono = cx.theme().mono_font_family.clone();
 
         // 清单为空：合并提交（numstat 无输出）或空提交
@@ -672,8 +734,12 @@ impl BottomPanel {
                         .child(shared(i18n::text(self.locale, "bottom-bin")))
                         .into_any_element()
                 } else {
-                    stat_bar(colors, f.added.unwrap_or(0), f.deleted.unwrap_or(0))
-                        .into_any_element()
+                    stat_bar(
+                        colors,
+                        f.added.unwrap_or(0),
+                        f.deleted.unwrap_or(0),
+                    )
+                    .into_any_element()
                 };
                 h_flex()
                     .id(SharedString::from(format!("bottom-file-{i}")))
@@ -726,7 +792,11 @@ impl BottomPanel {
 
     /// 右栏：选中文件的染色 diff（parse_diff 驱动：双列行号 gutter + 类别染色，
     /// hunk 头紫字淡紫底通栏；+绿/−红 淡底；元信息灰）
-    fn diff_view(&self, colors: &ThemeColor, cx: &Context<Self>) -> impl IntoElement {
+    fn diff_view(
+        &self,
+        colors: &ThemeColor,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
         let mono = cx.theme().mono_font_family.clone();
 
         let body: Vec<AnyElement> = match self.selected {
@@ -778,7 +848,11 @@ impl BottomPanel {
 }
 
 /// diff 单行：[旧行号 32px][新行号 32px][内容 flex_1]；染色铺满整行含 gutter
-fn diff_row(colors: &ThemeColor, mono: &SharedString, line: &DiffLine) -> AnyElement {
+fn diff_row(
+    colors: &ThemeColor,
+    mono: &SharedString,
+    line: &DiffLine,
+) -> AnyElement {
     let (fg, bg) = match line.kind {
         DiffLineKind::Add => (colors.green, Some(colors.green.opacity(0.12))),
         DiffLineKind::Del => (colors.red, Some(colors.red.opacity(0.12))),
@@ -823,7 +897,11 @@ fn diff_row(colors: &ThemeColor, mono: &SharedString, line: &DiffLine) -> AnyEle
 }
 
 impl Render for BottomPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
 
         // 未选提交：整面板空态
@@ -838,9 +916,10 @@ impl Render for BottomPanel {
         };
 
         // 头行：short oid 徽标 + 说明 + 总增删色块条（二进制不计入）
-        let (total_add, total_del) = self.files.iter().fold((0, 0), |(a, d), f| {
-            (a + f.added.unwrap_or(0), d + f.deleted.unwrap_or(0))
-        });
+        let (total_add, total_del) =
+            self.files.iter().fold((0, 0), |(a, d), f| {
+                (a + f.added.unwrap_or(0), d + f.deleted.unwrap_or(0))
+            });
         let header = h_flex()
             .id("bottom-header")
             .w_full()
@@ -888,7 +967,13 @@ impl Render for BottomPanel {
                     .flex_row()
                     .child(self.file_list(&colors, cx))
                     // 分隔线（1px，不参与弹性布局）
-                    .child(div().w(px(1.)).flex_shrink_0().h_full().bg(colors.border))
+                    .child(
+                        div()
+                            .w(px(1.))
+                            .flex_shrink_0()
+                            .h_full()
+                            .bg(colors.border),
+                    )
                     .child(self.diff_view(&colors, cx)),
             )
             .into_any_element()

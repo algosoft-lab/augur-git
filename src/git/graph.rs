@@ -5,8 +5,8 @@ use gpui::*;
 use gpui_component::{ActiveTheme, h_flex, theme::ThemeColor, v_flex};
 
 use crate::core::graph::{
-    AUTHOR_COL_WIDTH, DATE_COL_WIDTH, GraphRow, HASH_COL_WIDTH, LogRow, column_visibility,
-    compute_graph, format_relative_time,
+    AUTHOR_COL_WIDTH, DATE_COL_WIDTH, GraphRow, HASH_COL_WIDTH, LogRow,
+    column_visibility, compute_graph, format_relative_time,
 };
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
@@ -88,7 +88,11 @@ impl GraphView {
 }
 
 impl Render for GraphView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let mono = cx.theme().mono_font_family.clone();
 
@@ -122,7 +126,8 @@ impl Render for GraphView {
         let max_lanes = layout.iter().map(|r| r.lane_count).max().unwrap_or(1);
         let tree_w = GRAPH_LEFT_PAD + max_lanes as f32 * COL_WIDTH + 8.0;
         // 响应式列显隐：以自身实测宽为准（窄则先藏 Author 再藏 Message，见 column_visibility）
-        let (show_author, show_message) = column_visibility(self.content_width, tree_w);
+        let (show_author, show_message) =
+            column_visibility(self.content_width, tree_w);
         // 相对时间基准（unix 秒）
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -260,7 +265,12 @@ impl Render for GraphView {
             .bg(colors.background)
             // 宽度测量：0 高 canvas 每帧回写自身宽（变化才 notify，收敛不循环）
             .child(measure_width_canvas(cx.entity()))
-            .child(self.column_header(&colors, tree_w, show_author, show_message))
+            .child(self.column_header(
+                &colors,
+                tree_w,
+                show_author,
+                show_message,
+            ))
             .child(
                 v_flex()
                     .id("graph-scroll")
@@ -391,7 +401,10 @@ fn measure_width_canvas(entity: Entity<GraphView>) -> impl IntoElement {
                 });
             }
         },
-        |_bounds: Bounds<Pixels>, _state: (), _window: &mut Window, _cx: &mut App| {},
+        |_bounds: Bounds<Pixels>,
+         _state: (),
+         _window: &mut Window,
+         _cx: &mut App| {},
     )
     .w_full()
     .h(px(0.))
@@ -437,8 +450,10 @@ fn draw_graph_row(row: &GraphRow, bounds: Bounds<Pixels>, window: &mut Window) {
     let origin_x = bounds.origin.x;
     let origin_y = bounds.origin.y;
     let mid_y = ROW_HEIGHT / 2.0;
-    let lane_x =
-        |lane: usize| origin_x + px(GRAPH_LEFT_PAD + lane as f32 * COL_WIDTH + COL_WIDTH / 2.0);
+    let lane_x = |lane: usize| {
+        origin_x
+            + px(GRAPH_LEFT_PAD + lane as f32 * COL_WIDTH + COL_WIDTH / 2.0)
+    };
     let node_x = lane_x(row.node_lane);
 
     // 1. 入边（到本行节点）+ 跨 lane 贯通边
@@ -462,7 +477,14 @@ fn draw_graph_row(row: &GraphRow, bounds: Bounds<Pixels>, window: &mut Window) {
             // 旧版只画上/下两段留中间空档，圆与圆之间的直线会断）
             let x = lane_x(e.from_lane);
             let color = lane_color(e.color_index);
-            paint_stroke_line(x, origin_y, x, origin_y + px(ROW_HEIGHT), color, window);
+            paint_stroke_line(
+                x,
+                origin_y,
+                x,
+                origin_y + px(ROW_HEIGHT),
+                color,
+                window,
+            );
         } else if e.from_lane != row.node_lane && e.to_lane != row.node_lane {
             // 跨 lane 贯通（lane 迁移，不碰本行节点）：贯穿斜线
             paint_stroke_line(
@@ -523,17 +545,24 @@ fn draw_graph_row(row: &GraphRow, bounds: Bounds<Pixels>, window: &mut Window) {
 
     if row.is_head {
         // HEAD 提交：实心圆
-        if let Some(p) = build_filled_circle(node_x, origin_y + px(mid_y), NODE_RADIUS) {
+        if let Some(p) =
+            build_filled_circle(node_x, origin_y + px(mid_y), NODE_RADIUS)
+        {
             window.paint_path(p, node_color);
         }
-    } else if let Some(p) = build_stroked_circle(node_x, origin_y + px(mid_y), NODE_RADIUS, px(1.5))
+    } else if let Some(p) =
+        build_stroked_circle(node_x, origin_y + px(mid_y), NODE_RADIUS, px(1.5))
     {
         window.paint_path(p, node_color);
     }
 }
 
 /// 实心圆（HEAD 提交节点）
-fn build_filled_circle(cx: Pixels, cy: Pixels, radius: f32) -> Option<gpui::Path<Pixels>> {
+fn build_filled_circle(
+    cx: Pixels,
+    cy: Pixels,
+    radius: f32,
+) -> Option<gpui::Path<Pixels>> {
     let mut builder = PathBuilder::fill();
     builder.move_to(point(cx + px(radius), cy));
     builder.arc_to(

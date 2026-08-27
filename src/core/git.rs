@@ -325,7 +325,10 @@ impl GitHandle {
 ///
 /// 注意：路径校验在 UI 线程同步执行（毫秒级，可接受），失败即时返回错误；
 /// 之后所有 git 命令都在后台线程跑，UI 线程只经通道通信。
-pub fn spawn_open(repo_path: String, event_tx: Sender<GitEvent>) -> Result<GitHandle, GitError> {
+pub fn spawn_open(
+    repo_path: String,
+    event_tx: Sender<GitEvent>,
+) -> Result<GitHandle, GitError> {
     let path = Path::new(&repo_path);
     if !path.is_dir() {
         return Err(GitError::new("err-path-not-exist", repo_path));
@@ -342,7 +345,11 @@ pub fn spawn_open(repo_path: String, event_tx: Sender<GitEvent>) -> Result<GitHa
 }
 
 /// 工作线程：命令处理（git 子进程阻塞执行）
-fn worker_loop(repo_path: String, cmd_rx: Receiver<GitCommand>, event_tx: Sender<GitEvent>) {
+fn worker_loop(
+    repo_path: String,
+    cmd_rx: Receiver<GitCommand>,
+    event_tx: Sender<GitEvent>,
+) {
     // 打开即刷新一次
     refresh_all(&repo_path, &event_tx);
 
@@ -358,7 +365,9 @@ fn worker_loop(repo_path: String, cmd_rx: Receiver<GitCommand>, event_tx: Sender
             Ok(GitCommand::CommitFileDiff { oid, path }) => {
                 run_file_diff(&repo_path, &oid, &path, &event_tx);
             }
-            Ok(GitCommand::Close) | Err(RecvTimeoutError::Disconnected) => break,
+            Ok(GitCommand::Close) | Err(RecvTimeoutError::Disconnected) => {
+                break;
+            }
             Err(RecvTimeoutError::Timeout) => {}
         }
     }
@@ -382,7 +391,12 @@ fn refresh_all(repo_path: &str, event_tx: &Sender<GitEvent>) {
 }
 
 /// 执行 git 命令（子进程阻塞，只在工作线程跑）
-fn run_git(repo_path: &str, label: &str, args: &[String], event_tx: &Sender<GitEvent>) {
+fn run_git(
+    repo_path: &str,
+    label: &str,
+    args: &[String],
+    event_tx: &Sender<GitEvent>,
+) {
     let output = Command::new("git")
         .arg("-C")
         .arg(repo_path)
@@ -419,16 +433,25 @@ fn run_numstat(repo_path: &str, oid: &str, event_tx: &Sender<GitEvent>) {
         }
         Ok(output) => {
             let msg = String::from_utf8_lossy(&output.stderr);
-            let _ = event_tx.send(GitEvent::Error(GitError::new("err-numstat", msg)));
+            let _ = event_tx
+                .send(GitEvent::Error(GitError::new("err-numstat", msg)));
         }
         Err(e) => {
-            let _ = event_tx.send(GitEvent::Error(GitError::new("err-git-run", e.to_string())));
+            let _ = event_tx.send(GitEvent::Error(GitError::new(
+                "err-git-run",
+                e.to_string(),
+            )));
         }
     }
 }
 
 /// 查询提交内单文件 diff（--format= 去掉提交头，只留 diff 体；根提交同样可用）
-fn run_file_diff(repo_path: &str, oid: &str, path: &str, event_tx: &Sender<GitEvent>) {
+fn run_file_diff(
+    repo_path: &str,
+    oid: &str,
+    path: &str,
+    event_tx: &Sender<GitEvent>,
+) {
     let output = Command::new("git")
         .args(["-C", repo_path, "show", "--format=", oid, "--", path])
         .output();
@@ -442,16 +465,22 @@ fn run_file_diff(repo_path: &str, oid: &str, path: &str, event_tx: &Sender<GitEv
         }
         Ok(output) => {
             let msg = String::from_utf8_lossy(&output.stderr);
-            let _ = event_tx.send(GitEvent::Error(GitError::new("err-file-diff", msg)));
+            let _ = event_tx
+                .send(GitEvent::Error(GitError::new("err-file-diff", msg)));
         }
         Err(e) => {
-            let _ = event_tx.send(GitEvent::Error(GitError::new("err-git-run", e.to_string())));
+            let _ = event_tx.send(GitEvent::Error(GitError::new(
+                "err-git-run",
+                e.to_string(),
+            )));
         }
     }
 }
 
 /// 执行 git status，返回 (分支, 变更文件, ahead, behind)
-fn run_status(repo_path: &str) -> Option<(String, Vec<FileStatus>, usize, usize)> {
+fn run_status(
+    repo_path: &str,
+) -> Option<(String, Vec<FileStatus>, usize, usize)> {
     let output = Command::new("git")
         .args(["-C", repo_path, "status", "--porcelain", "-b"])
         .output()
@@ -559,13 +588,19 @@ fn run_refs(repo_path: &str, event_tx: &Sender<GitEvent>) {
             cmd.arg(arg);
         }
         match cmd.output() {
-            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
+            Ok(o) if o.status.success() => {
+                String::from_utf8_lossy(&o.stdout).into_owned()
+            }
             _ => String::new(),
         }
     };
     let refs = RefsInfo {
         remotes: non_empty_lines(&out(&["remote"])),
-        remote_branches: non_empty_lines(&out(&["branch", "-r", "--format=%(refname:short)"])),
+        remote_branches: non_empty_lines(&out(&[
+            "branch",
+            "-r",
+            "--format=%(refname:short)",
+        ])),
         tags: non_empty_lines(&out(&["tag", "--sort=-creatordate"])),
         stashes: parse_stashes(&out(&["stash", "list"])),
     };
@@ -585,7 +620,9 @@ fn non_empty_lines(text: &str) -> Vec<String> {
 /// （无 ": " 的畸形行跳过）
 fn parse_stashes(text: &str) -> Vec<String> {
     text.lines()
-        .filter_map(|l| l.split_once(": ").map(|(_, desc)| desc.trim().to_string()))
+        .filter_map(|l| {
+            l.split_once(": ").map(|(_, desc)| desc.trim().to_string())
+        })
         .collect()
 }
 
@@ -611,10 +648,14 @@ fn run_log(repo_path: &str, event_tx: &Sender<GitEvent>) {
         }
         Ok(output) => {
             let msg = String::from_utf8_lossy(&output.stderr);
-            let _ = event_tx.send(GitEvent::Error(GitError::new("err-git-log", msg)));
+            let _ = event_tx
+                .send(GitEvent::Error(GitError::new("err-git-log", msg)));
         }
         Err(e) => {
-            let _ = event_tx.send(GitEvent::Error(GitError::new("err-git-run", e.to_string())));
+            let _ = event_tx.send(GitEvent::Error(GitError::new(
+                "err-git-run",
+                e.to_string(),
+            )));
         }
     }
 }
@@ -628,10 +669,13 @@ fn parse_log(text: &str) -> Vec<LogRow> {
     let mut rows = Vec::new();
     for line in text.lines() {
         let graph_end = line
-            .find(|c: char| !matches!(c, '|' | '*' | '/' | '\\' | '_' | '.' | '-' | ' '))
+            .find(|c: char| {
+                !matches!(c, '|' | '*' | '/' | '\\' | '_' | '.' | '-' | ' ')
+            })
             .unwrap_or(line.len());
         let rest = &line[graph_end..];
-        if rest.len() < 40 || !rest[..40].bytes().all(|b| b.is_ascii_hexdigit()) {
+        if rest.len() < 40 || !rest[..40].bytes().all(|b| b.is_ascii_hexdigit())
+        {
             continue;
         }
         let fields: Vec<&str> = rest.split('\0').collect();
@@ -697,8 +741,7 @@ mod tests {
 
     #[test]
     fn parse_status_normal() {
-        let text =
-            "## main...origin/main [ahead 1, behind 2]\n M src/a.rs\nA  new.rs\n?? untracked.txt\n";
+        let text = "## main...origin/main [ahead 1, behind 2]\n M src/a.rs\nA  new.rs\n?? untracked.txt\n";
         let (branch, files, ahead, behind) = parse_status(text);
         assert_eq!(branch, "main");
         assert_eq!(ahead, 1);

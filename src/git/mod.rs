@@ -15,7 +15,9 @@ use std::time::Duration;
 
 use gpui::{Context, EventEmitter, SharedString};
 
-use crate::core::git::{self, BranchInfo, FileChange, FileStatus, GitError, GitEvent, RefsInfo};
+use crate::core::git::{
+    self, BranchInfo, FileChange, FileStatus, GitError, GitEvent, RefsInfo,
+};
 use crate::core::graph::LogRow;
 use crate::core::i18n::{self, Locale};
 
@@ -134,7 +136,10 @@ impl GitView {
                 self.handle = None;
                 self.rx = None;
                 self.repo_path.clear();
-                self.set_status(GitStatus::Error(localized_error(self.locale, &err)), cx);
+                self.set_status(
+                    GitStatus::Error(localized_error(self.locale, &err)),
+                    cx,
+                );
             }
         }
     }
@@ -218,7 +223,10 @@ impl GitView {
                         branches.len()
                     );
                     let repo = dir_name(&self.repo_path);
-                    self.set_status(GitStatus::Ready(format!("{branch} @ {repo}")), cx);
+                    self.set_status(
+                        GitStatus::Ready(format!("{branch} @ {repo}")),
+                        cx,
+                    );
                     cx.emit(GitUiEvent::StatusChanged {
                         branch,
                         ahead,
@@ -273,7 +281,10 @@ impl GitView {
                     log::error!("git: {}", err.detail);
                     self.handle = None;
                     self.rx = None;
-                    self.set_status(GitStatus::Error(localized_error(self.locale, &err)), cx);
+                    self.set_status(
+                        GitStatus::Error(localized_error(self.locale, &err)),
+                        cx,
+                    );
                 }
             }
         }
@@ -298,5 +309,6 @@ pub fn shared(s: impl Into<String>) -> SharedString {
 /// 本地 lucide 图标（assets/icons/*.svg，经 main.rs AppAssets 提供；
 /// 内置 IconName 枚举不含这些 git 类图标，只能按路径引用）
 pub fn lucide(name: &'static str) -> gpui_component::Icon {
-    gpui_component::Icon::empty().path(SharedString::from(format!("icons/{name}.svg")))
+    gpui_component::Icon::empty()
+        .path(SharedString::from(format!("icons/{name}.svg")))
 }

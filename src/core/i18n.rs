@@ -12,7 +12,8 @@ const ENGLISH: &str = "en-US";
 const SIMPLIFIED_CHINESE: &str = "zh-CN";
 
 const ENGLISH_TRANSLATIONS: &str = include_str!("../../i18n/en-US.ftl");
-const SIMPLIFIED_CHINESE_TRANSLATIONS: &str = include_str!("../../i18n/zh-CN.ftl");
+const SIMPLIFIED_CHINESE_TRANSLATIONS: &str =
+    include_str!("../../i18n/zh-CN.ftl");
 
 /// 已编译进二进制的语言环境。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,9 +43,9 @@ pub fn resolve(preference: &LanguagePreference) -> Locale {
 
 /// 检测系统语言，不支持的语言回落到英文。
 pub fn detect_system_language() -> Locale {
-    let Some(language) = sys_locale::get_locale()
-        .and_then(|locale| locale.split(['-', '_']).next().map(str::to_lowercase))
-    else {
+    let Some(language) = sys_locale::get_locale().and_then(|locale| {
+        locale.split(['-', '_']).next().map(str::to_lowercase)
+    }) else {
         return Locale::English;
     };
 
@@ -75,15 +76,20 @@ pub fn text_args(locale: Locale, key: &str, args: &[(&str, &str)]) -> String {
         })
 }
 
-fn translations(locale: Locale) -> &'static HashMap<&'static str, &'static str> {
-    static ENGLISH_CATALOG: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
-    static CHINESE_CATALOG: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
+fn translations(
+    locale: Locale,
+) -> &'static HashMap<&'static str, &'static str> {
+    static ENGLISH_CATALOG: OnceLock<HashMap<&'static str, &'static str>> =
+        OnceLock::new();
+    static CHINESE_CATALOG: OnceLock<HashMap<&'static str, &'static str>> =
+        OnceLock::new();
 
     match locale {
-        Locale::English => ENGLISH_CATALOG.get_or_init(|| parse_catalog(ENGLISH_TRANSLATIONS)),
-        Locale::SimplifiedChinese => {
-            CHINESE_CATALOG.get_or_init(|| parse_catalog(SIMPLIFIED_CHINESE_TRANSLATIONS))
+        Locale::English => {
+            ENGLISH_CATALOG.get_or_init(|| parse_catalog(ENGLISH_TRANSLATIONS))
         }
+        Locale::SimplifiedChinese => CHINESE_CATALOG
+            .get_or_init(|| parse_catalog(SIMPLIFIED_CHINESE_TRANSLATIONS)),
     }
 }
 
@@ -103,7 +109,9 @@ fn parse_catalog(source: &'static str) -> HashMap<&'static str, &'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Locale, detect_system_language, text, text_args, translations};
+    use super::{
+        Locale, detect_system_language, text, text_args, translations,
+    };
 
     #[test]
     fn translates_and_falls_back_to_english() {

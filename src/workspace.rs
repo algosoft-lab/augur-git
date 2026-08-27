@@ -23,7 +23,8 @@ use crate::core::config::{self, AppConfig, LanguagePreference};
 use crate::core::i18n::{self, Locale};
 use crate::git::graph::{GraphEvent, GraphView};
 use crate::git::panel::{
-    BottomPanel, BottomPanelEvent, CommitPanel, CommitPanelEvent, DetailContent, DetailPanel,
+    BottomPanel, BottomPanelEvent, CommitPanel, CommitPanelEvent,
+    DetailContent, DetailPanel,
 };
 use crate::git::sidebar::{Sidebar, SidebarEvent};
 use crate::git::toolbar::{Toolbar, ToolbarEvent};
@@ -39,17 +40,29 @@ pub struct DetailPanelResize;
 pub struct DiffViewerResize;
 
 impl Render for SidebarResize {
-    fn render(&mut self, _w: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        _w: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         div()
     }
 }
 impl Render for DetailPanelResize {
-    fn render(&mut self, _w: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        _w: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         div()
     }
 }
 impl Render for DiffViewerResize {
-    fn render(&mut self, _w: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        _w: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         div()
     }
 }
@@ -110,7 +123,10 @@ fn initial_window_options(cx: &mut App) -> WindowOptions {
     let window_bounds = if let Some(display) = primary_display.clone() {
         let visible_bounds = display.visible_bounds();
         let clamped_size = desired_size.min(&visible_bounds.size);
-        WindowBounds::Windowed(Bounds::centered_at(visible_bounds.center(), clamped_size))
+        WindowBounds::Windowed(Bounds::centered_at(
+            visible_bounds.center(),
+            clamped_size,
+        ))
     } else {
         WindowBounds::centered(desired_size, cx)
     };
@@ -239,7 +255,10 @@ impl Workspace {
         cx.subscribe(&toolbar, |workspace, _e, event, cx| match event {
             ToolbarEvent::Fetch => {
                 workspace.git_view.update(cx, |view, _| {
-                    view.run("fetch --all", vec!["fetch".into(), "--all".into()]);
+                    view.run(
+                        "fetch --all",
+                        vec!["fetch".into(), "--all".into()],
+                    );
                 });
                 workspace.toolbar.update(cx, |tb, cx| tb.set_busy(true, cx));
             }
@@ -304,7 +323,10 @@ impl Workspace {
         cx.subscribe(&commit, |workspace, _e, event, cx| match event {
             CommitPanelEvent::Submit(msg) => {
                 workspace.git_view.update(cx, |view, _| {
-                    view.run("commit", vec!["commit".into(), "-m".into(), msg.clone()]);
+                    view.run(
+                        "commit",
+                        vec!["commit".into(), "-m".into(), msg.clone()],
+                    );
                 });
                 workspace.toolbar.update(cx, |tb, cx| tb.set_busy(true, cx));
             }
@@ -314,9 +336,9 @@ impl Workspace {
         // 底部面板：选中文件 → 右栏加载该文件在此提交的 diff
         cx.subscribe(&bottom, |workspace, _e, event, cx| match event {
             BottomPanelEvent::ShowFileDiff { oid, path } => {
-                workspace
-                    .git_view
-                    .update(cx, |view, _| view.file_diff(oid.clone(), path.clone()));
+                workspace.git_view.update(cx, |view, _| {
+                    view.file_diff(oid.clone(), path.clone())
+                });
             }
         })
         .detach();
@@ -331,7 +353,8 @@ impl Workspace {
                 branches,
             } => {
                 let has_staged = files.iter().any(|f| f.is_staged());
-                let staged_count = files.iter().filter(|f| f.is_staged()).count();
+                let staged_count =
+                    files.iter().filter(|f| f.is_staged()).count();
                 let unstaged_count = files.len() - staged_count;
                 workspace.status = GitStatus::Ready(i18n::text_args(
                     workspace.locale,
@@ -345,7 +368,12 @@ impl Workspace {
                     ],
                 ));
                 workspace.sidebar.update(cx, |sb, cx| {
-                    sb.set_status(branch.clone(), branches.clone(), files.clone(), cx);
+                    sb.set_status(
+                        branch.clone(),
+                        branches.clone(),
+                        files.clone(),
+                        cx,
+                    );
                 });
                 workspace.toolbar.update(cx, |tb, cx| {
                     tb.set_ahead_behind(*ahead, *behind, cx);
@@ -371,9 +399,9 @@ impl Workspace {
                     .update(cx, |b, cx| b.set_files(oid, files.clone(), cx));
             }
             GitUiEvent::FileDiffChanged { oid, path, diff } => {
-                workspace
-                    .bottom
-                    .update(cx, |b, cx| b.set_diff(oid, path, diff.clone(), cx));
+                workspace.bottom.update(cx, |b, cx| {
+                    b.set_diff(oid, path, diff.clone(), cx)
+                });
             }
             GitUiEvent::CommandDone {
                 label,
@@ -389,7 +417,11 @@ impl Workspace {
                     "commit" | "checkout" | "fetch --all" | "pull" | "push"
                 );
                 workspace.status_message = Some(if *success {
-                    i18n::text_args(workspace.locale, "command-success", &[("label", label)])
+                    i18n::text_args(
+                        workspace.locale,
+                        "command-success",
+                        &[("label", label)],
+                    )
                 } else {
                     i18n::text_args(
                         workspace.locale,
@@ -483,7 +515,11 @@ impl Workspace {
 
     /// 自绘标题栏（M1.5 合并行）：logo + 应用名 + 仓库 tab（pill，× 关闭）+ 分支徽标。
     /// 原 TabBar 整行并入此处省 28px；最小化/最大化/关闭由系统绘制（DWM）。
-    fn title_bar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn title_bar(
+        &self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let repo = crate::git::dir_name(&self.config.repo.path).to_string();
         let has_repo = self.git_connected() || !repo.is_empty();
@@ -544,7 +580,9 @@ impl Workspace {
 
         // 分支徽标（点击 → 侧栏分支区闪烁）
         let branch = match &self.status {
-            GitStatus::Ready(label) => label.split(" · ").next().unwrap_or("").to_string(),
+            GitStatus::Ready(label) => {
+                label.split(" · ").next().unwrap_or("").to_string()
+            }
             _ => String::new(),
         };
         let this = cx.entity();
@@ -641,7 +679,9 @@ impl Workspace {
         });
         cx.spawn(async move |this, cx| {
             let path = match rx.await {
-                Ok(Ok(Some(paths))) => paths.first().map(|p| p.to_string_lossy().into_owned()),
+                Ok(Ok(Some(paths))) => {
+                    paths.first().map(|p| p.to_string_lossy().into_owned())
+                }
                 _ => None,
             };
             let Some(path) = path else {
@@ -680,7 +720,9 @@ impl Workspace {
                 i18n::text(self.locale, "no-repo-open"),
                 colors.muted_foreground,
             ),
-            GitStatus::Scanning => (i18n::text(self.locale, "status-scanning"), colors.warning),
+            GitStatus::Scanning => {
+                (i18n::text(self.locale, "status-scanning"), colors.warning)
+            }
             GitStatus::Ready(label) => (format!("● {label}"), colors.green),
             GitStatus::Error(msg) => (format!("✗ {msg}"), colors.red),
         };
@@ -725,7 +767,9 @@ impl Workspace {
                                 .child(SharedString::from(msg)),
                         )
                     })
-                    .child(div().text_size(px(11.)).text_color(color).child(text)),
+                    .child(
+                        div().text_size(px(11.)).text_color(color).child(text),
+                    ),
             )
     }
 
@@ -761,7 +805,11 @@ impl Workspace {
     }
 
     /// 主内容区：侧栏 | 中列 | 右栏（拖拽调宽监听挂根元素）
-    fn main_content(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn main_content(
+        &self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let sidebar_width = px(self.layout.sidebar_width);
         let detail_width = px(self.layout.detail_width);
@@ -774,8 +822,8 @@ impl Workspace {
             // 拖拽调宽（cx.listener：&mut Self + 上下文内 notify）
             .on_drag_move::<SidebarResize>(cx.listener(
                 |this, e: &DragMoveEvent<SidebarResize>, _, cx| {
-                    let new_w =
-                        f32::from(e.event.position.x).clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
+                    let new_w = f32::from(e.event.position.x)
+                        .clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
                     this.layout.sidebar_width = new_w;
                     cx.notify();
                 },
@@ -792,8 +840,10 @@ impl Workspace {
             .on_drag_move::<DiffViewerResize>(cx.listener(
                 |this, e: &DragMoveEvent<DiffViewerResize>, window, cx| {
                     let h = window.bounds().size.height;
-                    let new_h = (f32::from(h) - STATUS_BAR_HEIGHT - f32::from(e.event.position.y))
-                        .clamp(MIN_DIFF_HEIGHT, MAX_DIFF_HEIGHT);
+                    let new_h = (f32::from(h)
+                        - STATUS_BAR_HEIGHT
+                        - f32::from(e.event.position.y))
+                    .clamp(MIN_DIFF_HEIGHT, MAX_DIFF_HEIGHT);
                     this.layout.diff_height = new_h;
                     cx.notify();
                 },
@@ -892,7 +942,11 @@ impl Workspace {
     }
 
     /// Welcome 页（未打开仓库时）：Logo + 路径输入行（输入/回车/浏览…）+ 最近仓库
-    fn welcome(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn welcome(
+        &self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
 
         // 打开按钮（读共享输入框）
@@ -958,7 +1012,9 @@ impl Workspace {
                     )
                     .on_click(move |_e, _w, cx| {
                         this.update(cx, |ws, cx| {
-                            ws.git_view.update(cx, |view, cx| view.open_repo(&path, cx));
+                            ws.git_view.update(cx, |view, cx| {
+                                view.open_repo(&path, cx)
+                            });
                         });
                     })
             })
@@ -1018,7 +1074,10 @@ impl Workspace {
                                 .px_2()
                                 .text_size(px(11.))
                                 .text_color(colors.muted_foreground)
-                                .child(shared(i18n::text(self.locale, "recent-repos"))),
+                                .child(shared(i18n::text(
+                                    self.locale,
+                                    "recent-repos",
+                                ))),
                         )
                         .children(recents),
                 )
@@ -1033,18 +1092,20 @@ impl Workspace {
         let current = self.language_preference;
 
         // 语言按钮：当前项 primary、其余 ghost（augur-pdf 同款单选样式）
-        let lang_btn =
-            |id: &'static str, key: &str, pref: LanguagePreference, cx: &Context<Self>| {
-                let this = cx.entity();
-                Button::new(id)
-                    .label(i18n::text(locale, key))
-                    .flex_1()
-                    .when(pref == current, |b| b.primary())
-                    .when(pref != current, |b| b.ghost())
-                    .on_click(move |_e, window, cx| {
-                        this.update(cx, |ws, cx| ws.set_language(pref, window, cx));
-                    })
-            };
+        let lang_btn = |id: &'static str,
+                        key: &str,
+                        pref: LanguagePreference,
+                        cx: &Context<Self>| {
+            let this = cx.entity();
+            Button::new(id)
+                .label(i18n::text(locale, key))
+                .flex_1()
+                .when(pref == current, |b| b.primary())
+                .when(pref != current, |b| b.ghost())
+                .on_click(move |_e, window, cx| {
+                    this.update(cx, |ws, cx| ws.set_language(pref, window, cx));
+                })
+        };
 
         let this_close = cx.entity();
         v_flex()
@@ -1088,7 +1149,10 @@ impl Workspace {
                             .text_size(px(14.))
                             .font_weight(FontWeight::BOLD)
                             .text_color(colors.foreground)
-                            .child(shared(i18n::text(locale, "settings-title"))),
+                            .child(shared(i18n::text(
+                                locale,
+                                "settings-title",
+                            ))),
                     )
                     .child(
                         v_flex()
@@ -1099,7 +1163,10 @@ impl Workspace {
                                     .text_size(px(12.))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(colors.foreground)
-                                    .child(shared(i18n::text(locale, "language-title"))),
+                                    .child(shared(i18n::text(
+                                        locale,
+                                        "language-title",
+                                    ))),
                             )
                             .child(
                                 h_flex()
@@ -1145,9 +1212,14 @@ impl Workspace {
 }
 
 impl Render for Workspace {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
-        let has_repo = !self.config.repo.path.is_empty() || self.git_connected();
+        let has_repo =
+            !self.config.repo.path.is_empty() || self.git_connected();
 
         v_flex()
             .id("workspace")
