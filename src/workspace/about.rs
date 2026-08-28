@@ -49,6 +49,10 @@ pub(super) fn open_about_window(
         is_resizable: false,
         is_minimizable: false,
         kind: WindowKind::Floating,
+        // Keep the About window on client-side decorations on Linux so the
+        // custom title bar is the only decoration. Ignored on macOS and
+        // Windows, where the field has no platform implementation.
+        window_decorations: Some(WindowDecorations::Client),
         window_min_size: Some(window_size),
         ..TitleBar::window_options()
     };

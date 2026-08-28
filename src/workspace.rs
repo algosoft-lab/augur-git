@@ -81,6 +81,10 @@ fn initial_window_options(cx: &mut App) -> WindowOptions {
         window_bounds: Some(window_bounds),
         display_id: primary_display.map(|display| display.id()),
         titlebar: Some(TitleBar::title_bar_options()),
+        // Draw the custom title bar's own window controls on Linux instead of
+        // showing them next to server-side decorations. Ignored on macOS and
+        // Windows, where the field has no platform implementation.
+        window_decorations: Some(WindowDecorations::Client),
         window_min_size: Some(gpui::Size {
             width: px(860.),
             height: px(480.),
