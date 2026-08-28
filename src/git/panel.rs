@@ -29,11 +29,6 @@ pub enum CommitPanelEvent {
     Submit(String),
 }
 
-/// hunk 头紫色（GitHub Dark diff 主题色，主题 token 无 purple 字段）
-fn diff_purple() -> Hsla {
-    Hsla::from(rgb(0xBC8CFF))
-}
-
 /// 统一空态：24px muted 图标 + 一行 11px 提示（居中；图标可为内置 IconName 或本地 lucide）
 fn empty_state(
     id: &'static str,
@@ -522,7 +517,7 @@ impl Render for CommitPanel {
                 colors.input
             })
             .text_color(if self.has_staged {
-                gpui::white()
+                colors.primary_foreground
             } else {
                 colors.muted_foreground
             })
@@ -798,6 +793,8 @@ impl BottomPanel {
         cx: &Context<Self>,
     ) -> impl IntoElement {
         let mono = cx.theme().mono_font_family.clone();
+        // Hunk-header purple follows the active theme (no token exists for it).
+        let purple = crate::theme::diff_purple(cx);
 
         let body: Vec<AnyElement> = match self.selected {
             None => vec![
@@ -830,7 +827,7 @@ impl BottomPanel {
                 // 逐行渲染（本 fork 无 whitespace_pre_wrap，此法最稳）
                 Some(text) => parse_diff(text)
                     .iter()
-                    .map(|l| diff_row(colors, &mono.clone(), l))
+                    .map(|l| diff_row(colors, purple, &mono.clone(), l))
                     .collect(),
             },
         };
@@ -850,13 +847,14 @@ impl BottomPanel {
 /// diff 单行：[旧行号 32px][新行号 32px][内容 flex_1]；染色铺满整行含 gutter
 fn diff_row(
     colors: &ThemeColor,
+    purple: Hsla,
     mono: &SharedString,
     line: &DiffLine,
 ) -> AnyElement {
     let (fg, bg) = match line.kind {
         DiffLineKind::Add => (colors.green, Some(colors.green.opacity(0.12))),
         DiffLineKind::Del => (colors.red, Some(colors.red.opacity(0.12))),
-        DiffLineKind::Hunk => (diff_purple(), Some(diff_purple().opacity(0.1))),
+        DiffLineKind::Hunk => (purple, Some(purple.opacity(0.1))),
         DiffLineKind::Meta => (colors.muted_foreground, None),
         DiffLineKind::Context => (colors.foreground, None),
     };

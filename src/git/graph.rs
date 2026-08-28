@@ -184,8 +184,13 @@ impl Render for GraphView {
                                     move |bounds: Bounds<Pixels>,
                                           (): (),
                                           window: &mut Window,
-                                          _c: &mut App| {
-                                        draw_graph_row(&graph_row, bounds, window);
+                                          cx: &mut App| {
+                                        draw_graph_row(
+                                            &graph_row,
+                                            bounds,
+                                            window,
+                                            cx,
+                                        );
                                     },
                                 )
                                 .w_full()
@@ -410,34 +415,6 @@ fn measure_width_canvas(entity: Entity<GraphView>) -> impl IntoElement {
     .h(px(0.))
 }
 
-/// 本地 hsla 包装（照抄 rgitui colors.rs::hsla）：本 fork 的 gpui hsla() 参数
-/// 是 0..1 归一化，直接用 267/84/75 会被 clamp 成纯白；除以 360/100 换算
-fn hsla(h: f32, s: f32, l: f32, a: f32) -> Hsla {
-    Hsla {
-        h: h / 360.0,
-        s: s / 100.0,
-        l: l / 100.0,
-        a,
-    }
-}
-
-/// lane 配色（照抄 rgitui GRAPH_LANE_COLORS）
-pub fn lane_color(index: usize) -> Hsla {
-    const COLORS: [fn() -> Hsla; 10] = [
-        || hsla(267.0, 84.0, 75.0, 1.0),
-        || hsla(217.0, 92.0, 65.0, 1.0),
-        || hsla(115.0, 60.0, 65.0, 1.0),
-        || hsla(23.0, 92.0, 65.0, 1.0),
-        || hsla(343.0, 81.0, 65.0, 1.0),
-        || hsla(170.0, 65.0, 60.0, 1.0),
-        || hsla(41.0, 86.0, 70.0, 1.0),
-        || hsla(189.0, 75.0, 60.0, 1.0),
-        || hsla(316.0, 72.0, 72.0, 1.0),
-        || hsla(10.0, 70.0, 75.0, 1.0),
-    ];
-    COLORS[index % COLORS.len()]()
-}
-
 /// 绘制一行提交图（镜像 rgitui：lane 布局 + 边止于圆周）
 ///
 /// - 竖线（同 lane 贯通/出入边）：上段到圆顶、下段从圆底，不进入圆内
@@ -446,7 +423,16 @@ pub fn lane_color(index: usize) -> Hsla {
 ///   配合节点上段竖线（= exp 的竖直直线段），两圆连接即 exp 的「直线 + 弧线」造型
 /// - 跨 lane 贯通（不碰本行节点的 lane 迁移）：贯穿斜线
 /// - 节点：空心描边圆（stroke）；HEAD 提交实心圆（fill）
-fn draw_graph_row(row: &GraphRow, bounds: Bounds<Pixels>, window: &mut Window) {
+fn draw_graph_row(
+    row: &GraphRow,
+    bounds: Bounds<Pixels>,
+    window: &mut Window,
+    cx: &App,
+) {
+    // Lane colors follow the active theme (moved from the fixed rgitui
+    // palette that used to live here).
+    let lane_colors = crate::theme::lane_colors(cx);
+    let lane_color = |index: usize| lane_colors[index % lane_colors.len()];
     let origin_x = bounds.origin.x;
     let origin_y = bounds.origin.y;
     let mid_y = ROW_HEIGHT / 2.0;
