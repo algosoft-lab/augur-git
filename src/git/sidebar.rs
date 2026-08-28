@@ -1,20 +1,21 @@
-//! M1：Sidebar 侧栏——rgitui 分区结构
+//! Sidebar sections for branches, refs, and working-tree changes.
 //!
-//! 自上而下：分支 → 远程 → 远程分支 → 标签 → 贮藏(stash) → 暂存 → 变更(未暂存)
-//! - 分区标题带焦点竖条 + 折叠箭头，整行点击开合（内存态，重启恢复全展开）；
-//!   flash 分支区时自动展开
-//! - 分支区：点击选中 → 点击行内 checkout 按钮切换分支
-//! - 暂存/未暂存区：文件行点击 → 详情面板显示（工作区 diff 留待暂存里程碑）
-//! - 远程/远程分支/标签/stash 区：只读清单展示（交互后续里程碑）
-//! 顶部保留 仓库 标题 + 收起按钮（路径输入/打开/刷新已移除，走 Welcome/工具栏）
+//! The sections are ordered as local branches, remotes, remote branches, tags,
+//! stashes, staged changes, and unstaged changes. Section headers toggle their
+//! contents, while checkoutable refs expose actions through a full-row context
+//! menu.
 
 use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::{ActiveTheme, Icon, IconName, h_flex, v_flex};
+use gpui_component::{
+    ActiveTheme, Icon, IconName, h_flex,
+    menu::{ContextMenuExt, PopupMenuItem},
+    v_flex,
+};
 
-use crate::core::git::{BranchInfo, FileStatus, RefsInfo};
+use crate::core::git::{BranchInfo, CheckoutTarget, FileStatus, RefsInfo};
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
 
@@ -22,11 +23,13 @@ use crate::git::shared;
 pub enum SidebarEvent {
     /// 收起/展开侧栏
     ToggleCollapse,
-    /// 选中分支（详情面板显示）
+    /// Select a branch for the detail panel.
     BranchSelected(String),
-    /// 切换分支（git checkout）
-    CheckoutBranch(String),
-    /// 选中变更文件（详情面板显示）
+    /// Check out a branch, tag, or commit target.
+    CheckoutRef(CheckoutTarget),
+    /// Copy a displayed ref name to the system clipboard.
+    CopyRef(String),
+    /// Select a changed file for the detail panel.
     FileSelected {
         path: String,
         staged: bool,
@@ -52,6 +55,28 @@ pub struct Sidebar {
     collapsed: Vec<&'static str>,
     /// 界面语言（Workspace 切换语言时同步）
     locale: Locale,
+}
+
+#[derive(Clone, Copy)]
+enum CheckoutableRefKind {
+    RemoteBranch,
+    Tag,
+}
+
+impl CheckoutableRefKind {
+    fn target(self, name: String) -> CheckoutTarget {
+        match self {
+            Self::RemoteBranch => CheckoutTarget::RemoteBranch(name),
+            Self::Tag => CheckoutTarget::Tag(name),
+        }
+    }
+
+    fn copy_label_key(self) -> &'static str {
+        match self {
+            Self::RemoteBranch => "context-copy-branch",
+            Self::Tag => "context-copy-tag",
+        }
+    }
 }
 
 impl EventEmitter<SidebarEvent> for Sidebar {}
@@ -209,15 +234,17 @@ impl Sidebar {
                         "section-remotes",
                         &self.refs.remotes,
                     ))
-                    .child(self.list_section(
+                    .child(self.checkoutable_list_section(
                         cx,
                         "section-remote-branches",
                         &self.refs.remote_branches,
+                        CheckoutableRefKind::RemoteBranch,
                     ))
-                    .child(self.list_section(
+                    .child(self.checkoutable_list_section(
                         cx,
                         "section-tags",
                         &self.refs.tags,
+                        CheckoutableRefKind::Tag,
                     ))
                     .child(self.list_section(
                         cx,
@@ -229,23 +256,24 @@ impl Sidebar {
             )
     }
 
-    /// 本地分支分区
+    /// Local branch section.
     fn branch_section(&self, cx: &Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
-        // 时间戳过期即不高亮（不在此处改状态，避免 render 中 notify）
+        // Expired timestamps are treated as inactive without notifying during render.
         let flash = self
             .flash_branches_until
             .map(|until| Instant::now() < until)
             .unwrap_or(false);
+        let sidebar = cx.entity();
         let rows = self
             .branches
             .iter()
             .enumerate()
             .map(|(i, b)| {
-                let this = cx.entity();
                 let name = b.name.clone();
                 let is_head = b.is_head;
-                h_flex()
+                let sidebar_for_click = sidebar.clone();
+                let row = h_flex()
                     .id(SharedString::from(format!("branch-{name}")))
                     .w_full()
                     .h(px(22.))
@@ -256,7 +284,7 @@ impl Sidebar {
                     .rounded_sm()
                     .hover(|this| this.bg(colors.list_hover))
                     .on_click(move |_e, _w, cx| {
-                        this.update(cx, |sidebar, cx| {
+                        sidebar_for_click.update(cx, |sidebar, cx| {
                             sidebar.select_branch(i, cx)
                         });
                     })
@@ -281,29 +309,17 @@ impl Sidebar {
                                 colors.muted_foreground
                             })
                             .child(shared(name.clone())),
-                    )
-                    .when(!is_head, |row| {
-                        let this = cx.entity();
-                        row.child(
-                            div()
-                                .id(SharedString::from(format!(
-                                    "checkout-{name}"
-                                )))
-                                .px_1()
-                                .rounded_sm()
-                                .hover(|this| this.bg(colors.input))
-                                .text_size(px(11.))
-                                .text_color(colors.muted_foreground)
-                                .child("⇥")
-                                .on_click(move |_e, _w, cx| {
-                                    this.update(cx, |_sidebar, cx| {
-                                        cx.emit(SidebarEvent::CheckoutBranch(
-                                            name.clone(),
-                                        ));
-                                    });
-                                }),
-                        )
-                    })
+                    );
+
+                ref_context_menu(
+                    row,
+                    self.locale,
+                    sidebar.clone(),
+                    CheckoutTarget::LocalBranch(name.clone()),
+                    name,
+                    "context-copy-branch",
+                    is_head,
+                )
             })
             .collect::<Vec<_>>();
 
@@ -323,7 +339,7 @@ impl Sidebar {
             .when(!self.is_collapsed("section-branches"), |s| s.children(rows))
     }
 
-    /// 简单清单分区（远程/远程分支/标签/stash：只读展示，交互后续里程碑）
+    /// Read-only list section for remotes and stashes.
     fn list_section(
         &self,
         cx: &Context<Self>,
@@ -371,7 +387,68 @@ impl Sidebar {
             .when(!collapsed, |s| s.children(rows))
     }
 
-    /// 变更文件分区（暂存/未暂存）
+    /// List section for refs that support checkout and copy actions.
+    fn checkoutable_list_section(
+        &self,
+        cx: &Context<Self>,
+        key: &'static str,
+        items: &[String],
+        kind: CheckoutableRefKind,
+    ) -> impl IntoElement {
+        let colors = cx.theme().colors.clone();
+        let sidebar = cx.entity();
+        let rows = items
+            .iter()
+            .map(|item| {
+                let name = item.clone();
+                let row = h_flex()
+                    .id(SharedString::from(format!("{key}-{name}")))
+                    .w_full()
+                    .h(px(22.))
+                    .flex_shrink_0()
+                    .px_2()
+                    .rounded_sm()
+                    .hover(|this| this.bg(colors.list_hover))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(px(12.))
+                            .text_color(colors.muted_foreground)
+                            .truncate()
+                            .child(shared(name.clone())),
+                    );
+
+                ref_context_menu(
+                    row,
+                    self.locale,
+                    sidebar.clone(),
+                    kind.target(name.clone()),
+                    name,
+                    kind.copy_label_key(),
+                    false,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let collapsed = self.is_collapsed(key);
+        v_flex()
+            .id(SharedString::from(format!("list-{key}")))
+            .w_full()
+            .gap_0p5()
+            .p_2()
+            .child(section_header(
+                cx,
+                key,
+                i18n::text(self.locale, key),
+                items.len(),
+                collapsed,
+                false,
+            ))
+            .when(!collapsed, |s| s.children(rows))
+    }
+
+    /// Staged and unstaged change sections.
     fn change_section(
         &self,
         cx: &Context<Self>,
@@ -452,6 +529,49 @@ impl Sidebar {
             ))
             .when(!collapsed, |s| s.children(rows))
     }
+}
+
+fn ref_context_menu<E>(
+    element: E,
+    locale: Locale,
+    sidebar: Entity<Sidebar>,
+    target: CheckoutTarget,
+    copy_value: String,
+    copy_label_key: &'static str,
+    checkout_disabled: bool,
+) -> impl IntoElement
+where
+    E: InteractiveElement + ParentElement + Styled + IntoElement + 'static,
+{
+    let checkout_label = i18n::text(locale, "context-checkout");
+    let copy_label = i18n::text(locale, copy_label_key);
+
+    element.context_menu(move |menu, _window, _cx| {
+        let sidebar_for_checkout = sidebar.clone();
+        let sidebar_for_copy = sidebar.clone();
+        let target = target.clone();
+        let copy_value = copy_value.clone();
+
+        menu.item(
+            PopupMenuItem::new(checkout_label.clone())
+                .icon(crate::git::lucide("git-branch"))
+                .disabled(checkout_disabled)
+                .on_click(move |_event, _window, cx| {
+                    sidebar_for_checkout.update(cx, |_sidebar, cx| {
+                        cx.emit(SidebarEvent::CheckoutRef(target.clone()));
+                    });
+                }),
+        )
+        .item(
+            PopupMenuItem::new(copy_label.clone())
+                .icon(IconName::Copy)
+                .on_click(move |_event, _window, cx| {
+                    sidebar_for_copy.update(cx, |_sidebar, cx| {
+                        cx.emit(SidebarEvent::CopyRef(copy_value.clone()));
+                    });
+                }),
+        )
+    })
 }
 
 impl Render for Sidebar {

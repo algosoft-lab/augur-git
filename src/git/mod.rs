@@ -19,7 +19,7 @@ use gpui::{Context, EventEmitter, SharedString, Task};
 
 use crate::core::diff::FileChange;
 use crate::core::git::{
-    self, BranchInfo, FileStatus, GitError, GitEvent, RefsInfo,
+    self, BranchInfo, CheckoutTarget, FileStatus, GitError, GitEvent, RefsInfo,
 };
 use crate::core::graph::LogRow;
 use crate::core::i18n::{self, Locale};
@@ -207,6 +207,14 @@ impl GitView {
         }
     }
 
+    /// Request a structured checkout operation on the Git worker.
+    pub fn checkout(&self, target: CheckoutTarget) {
+        log::info!("[git_checkout] requested target={target:?}");
+        if let Some(handle) = &self.handle {
+            handle.checkout(target);
+        }
+    }
+
     /// 查询选中提交的逐文件增删统计（底部面板文件清单）
     pub fn commit_files(&self, oid: String) {
         if let Some(handle) = &self.handle {
@@ -324,6 +332,11 @@ impl GitView {
                     success,
                     message,
                 } => {
+                    if label == "checkout" {
+                        log::info!(
+                            "[git_checkout] command completed: success={success}"
+                        );
+                    }
                     log::info!(
                         "[git_view] command {label}: {}",
                         if success { "succeeded" } else { "failed" }

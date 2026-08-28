@@ -139,6 +139,15 @@ pub struct BranchInfo {
     pub is_head: bool,
 }
 
+/// A ref that can be checked out from the user interface.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CheckoutTarget {
+    LocalBranch(String),
+    RemoteBranch(String),
+    Tag(String),
+    Commit(String),
+}
+
 /// UI → 后台指令
 pub enum GitCommand {
     /// 刷新仓库快照（status → branch → log 顺序执行，各发事件）
@@ -170,6 +179,11 @@ impl GitHandle {
             label: label.into(),
             args,
         });
+    }
+
+    /// Check out a branch, tag, or commit using structured Git arguments.
+    pub fn checkout(&self, target: CheckoutTarget) {
+        self.run("checkout", checkout_args(target));
     }
 
     /// 查询提交的逐文件增删统计
@@ -279,6 +293,20 @@ fn run_git(
         Err(e) => GitEvent::Error(GitError::new("err-git-run", e.to_string())),
     };
     let _ = event_tx.send(event);
+}
+
+fn checkout_args(target: CheckoutTarget) -> Vec<String> {
+    let mut args = vec!["checkout".to_string()];
+    match target {
+        CheckoutTarget::RemoteBranch(name) => {
+            args.push("--track".to_string());
+            args.push(name);
+        }
+        CheckoutTarget::LocalBranch(name)
+        | CheckoutTarget::Tag(name)
+        | CheckoutTarget::Commit(name) => args.push(name),
+    }
+    args
 }
 
 /// Query structured file metadata for a commit.
@@ -707,6 +735,32 @@ fn parse_log(text: &str) -> Vec<LogRow> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checkout_args_preserve_target_as_one_argument() {
+        assert_eq!(
+            checkout_args(CheckoutTarget::LocalBranch(
+                "feature/ui polish".into()
+            )),
+            vec!["checkout", "feature/ui polish"]
+        );
+        assert_eq!(
+            checkout_args(CheckoutTarget::RemoteBranch(
+                "origin/功能/导航".into()
+            )),
+            vec!["checkout", "--track", "origin/功能/导航"]
+        );
+        assert_eq!(
+            checkout_args(CheckoutTarget::Tag("release/v1.2.3".into())),
+            vec!["checkout", "release/v1.2.3"]
+        );
+        assert_eq!(
+            checkout_args(CheckoutTarget::Commit(
+                "0123456789abcdef0123456789abcdef01234567".into()
+            )),
+            vec!["checkout", "0123456789abcdef0123456789abcdef01234567"]
+        );
+    }
 
     #[test]
     fn parse_numstat_normal_binary_rename() {

@@ -1,8 +1,14 @@
 //! M1：GraphView 提交树（镜像 rgitui：compute_graph 布局 + canvas 画 lane/节点/连线）
 
+use crate::core::git::CheckoutTarget;
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::{ActiveTheme, h_flex, theme::ThemeColor, v_flex};
+use gpui_component::{
+    ActiveTheme, IconName, h_flex,
+    menu::{ContextMenuExt, PopupMenuItem},
+    theme::ThemeColor,
+    v_flex,
+};
 use std::ops::Range;
 
 use crate::core::graph::{
@@ -32,6 +38,10 @@ pub enum GraphEvent {
         date: String,
         decorations: String,
     },
+    /// Check out the selected commit.
+    CheckoutRef(CheckoutTarget),
+    /// Copy the selected commit OID to the system clipboard.
+    CopyRef(String),
 }
 
 pub struct GraphView {
@@ -213,7 +223,7 @@ impl GraphView {
         let Some(graph_row) = self.layout.get(index).cloned() else {
             return div().into_any_element();
         };
-        let this = cx.entity();
+        let graph = cx.entity();
         let selected = self.selected == Some(index);
         let colors = options.colors;
         let tree_w = options.tree_w;
@@ -226,8 +236,13 @@ impl GraphView {
         // The author initials sit on top of the graph node canvas.
         let node_col = Some(graph_row.node_lane as f32);
         let node_letters: String = row.author.chars().take(2).collect();
+        let checkout_label = i18n::text(self.locale, "context-checkout");
+        let copy_label = i18n::text(self.locale, "context-copy-commit");
+        let commit_target = CheckoutTarget::Commit(row.oid.clone());
+        let copy_value = row.oid.clone();
+        let graph_for_click = graph.clone();
 
-        h_flex()
+        let row_element = h_flex()
             .id(SharedString::from(format!("graph-row-{}", row.oid)))
             .w_full()
             .h_9()
@@ -244,7 +259,7 @@ impl GraphView {
                 }
             })
             .on_click(move |_e, _w, cx| {
-                this.update(cx, |v, cx| v.select(index, cx));
+                graph_for_click.update(cx, |v, cx| v.select(index, cx));
             })
             // Graph column: row canvas plus HEAD initials overlay.
             .child(
@@ -338,7 +353,38 @@ impl GraphView {
                         options.now,
                         self.locale,
                     ))),
-            )
+            );
+
+        row_element
+            .context_menu(move |menu, _window, _cx| {
+                let graph_for_checkout = graph.clone();
+                let graph_for_copy = graph.clone();
+                let commit_target = commit_target.clone();
+                let copy_value = copy_value.clone();
+
+                menu.item(
+                    PopupMenuItem::new(checkout_label.clone())
+                        .icon(crate::git::lucide("git-commit-horizontal"))
+                        .on_click(move |_event, _window, cx| {
+                            graph_for_checkout.update(cx, |_graph, cx| {
+                                cx.emit(GraphEvent::CheckoutRef(
+                                    commit_target.clone(),
+                                ));
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(copy_label.clone())
+                        .icon(IconName::Copy)
+                        .on_click(move |_event, _window, cx| {
+                            graph_for_copy.update(cx, |_graph, cx| {
+                                cx.emit(GraphEvent::CopyRef(
+                                    copy_value.clone(),
+                                ));
+                            });
+                        }),
+                )
+            })
             .into_any_element()
     }
 

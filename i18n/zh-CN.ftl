@@ -39,6 +39,11 @@ status-summary = { $branch } · ↑{ $ahead }↓{ $behind } · 暂存{ $staged }
 command-success = { $label } 成功
 command-failed = { $label } 失败：{ $error }
 branch-selected = 分支 { $name }（详情 M2）
+context-checkout = 切换
+context-copy-branch = 复制分支名称
+context-copy-tag = 复制标签名称
+context-copy-commit = 复制提交哈希
+context-copied = 已复制 { $name }
 
 # ===== 工具栏 =====
 toolbar-fetch = 获取

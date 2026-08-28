@@ -40,6 +40,11 @@ status-summary = { $branch } · ↑{ $ahead }↓{ $behind } · staged { $staged 
 command-success = { $label } succeeded
 command-failed = { $label } failed: { $error }
 branch-selected = Branch { $name } (details in M2)
+context-checkout = Checkout
+context-copy-branch = Copy branch name
+context-copy-tag = Copy tag name
+context-copy-commit = Copy commit hash
+context-copied = Copied { $name }
 
 # ===== Toolbar =====
 toolbar-fetch = Fetch

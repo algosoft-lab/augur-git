@@ -2,6 +2,7 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{ActiveTheme, Icon, IconName, h_flex, v_flex};
 
+use crate::core::git::CheckoutTarget;
 use crate::core::i18n::{self, Locale};
 use crate::git::graph::{GraphEvent, GraphView};
 use crate::git::panel::{
@@ -124,13 +125,11 @@ impl RepoTab {
                 ));
                 cx.notify();
             }
-            SidebarEvent::CheckoutBranch(name) => {
-                tab.git_view.update(cx, |view, _| {
-                    view.run("checkout", vec!["checkout".into(), name.clone()]);
-                });
-                tab.toolbar.update(cx, |toolbar, cx| {
-                    toolbar.set_busy(true, cx);
-                });
+            SidebarEvent::CheckoutRef(target) => {
+                tab.start_checkout(target.clone(), cx);
+            }
+            SidebarEvent::CopyRef(value) => {
+                tab.copy_ref(value, cx);
             }
             SidebarEvent::FileSelected { path, staged, code } => {
                 tab.detail.update(cx, |detail, cx| {
@@ -216,6 +215,12 @@ impl RepoTab {
                 tab.git_view.update(cx, |view, _| {
                     view.commit_files(oid.clone());
                 });
+            }
+            GraphEvent::CheckoutRef(target) => {
+                tab.start_checkout(target.clone(), cx);
+            }
+            GraphEvent::CopyRef(value) => {
+                tab.copy_ref(value, cx);
             }
         })
         .detach();
@@ -334,6 +339,11 @@ impl RepoTab {
                 success,
                 message,
             } => {
+                if label == "checkout" {
+                    log::info!(
+                        "[git_checkout] result received: success={success}"
+                    );
+                }
                 tab.toolbar.update(cx, |toolbar, cx| {
                     toolbar.set_busy(false, cx);
                 });
@@ -398,6 +408,28 @@ impl RepoTab {
             sidebar_collapsed: false,
             locale,
         }
+    }
+
+    fn start_checkout(
+        &mut self,
+        target: CheckoutTarget,
+        cx: &mut Context<Self>,
+    ) {
+        self.git_view.update(cx, |view, _| view.checkout(target));
+        self.toolbar.update(cx, |toolbar, cx| {
+            toolbar.set_busy(true, cx);
+        });
+    }
+
+    fn copy_ref(&mut self, value: &str, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(value.to_string()));
+        self.status_message = Some(i18n::text_args(
+            self.locale,
+            "context-copied",
+            &[("name", value)],
+        ));
+        self.status_message_ok = Some(true);
+        cx.notify();
     }
 
     pub fn open(&mut self, cx: &mut Context<Self>) {
