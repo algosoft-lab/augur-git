@@ -95,7 +95,6 @@ status-unknown = ?
 
 # ===== 详情面板 =====
 tab-details = 详情
-tab-branch-health = 分支概览
 detail-empty = 选择提交或文件查看详情
 detail-author = 作者 { $author }
 detail-date = 时间 { $date }

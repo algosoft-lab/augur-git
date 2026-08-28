@@ -78,18 +78,10 @@ pub enum DetailContent {
     },
 }
 
-/// 右面板 tab（镜像 rgitui 的 RightPanelMode）
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RightPanelMode {
-    Details,
-    BranchHealth,
-}
-
-/// 右面板：tab 栏 + 详情
+/// Right panel with a details tab and commit/file content.
 pub struct DetailPanel {
     content: DetailContent,
-    pub mode: RightPanelMode,
-    /// 界面语言（Workspace 切换语言时同步）
+    /// UI locale, synchronized when Workspace changes language.
     locale: Locale,
 }
 
@@ -97,7 +89,6 @@ impl DetailPanel {
     pub fn new(locale: Locale) -> Self {
         Self {
             content: DetailContent::Empty,
-            mode: RightPanelMode::Details,
             locale,
         }
     }
@@ -150,7 +141,6 @@ impl DetailPanel {
             .h_full()
             .px_3()
             .items_center()
-            .cursor(CursorStyle::PointingHand)
             .when(active, |el| el.border_b_2().border_color(colors.accent))
             .hover(|s| s.bg(colors.list_hover))
             .child(
@@ -175,33 +165,13 @@ impl Render for DetailPanel {
         let colors = cx.theme().colors.clone();
         let mono = cx.theme().mono_font_family.clone();
 
-        // tab 切换（M1：BranchHealth 为占位）
-        let this = cx.entity();
+        // Details tab.
         let tab_details = self.detail_tab(
             &colors,
             "tab-details",
             i18n::text(self.locale, "tab-details"),
-            self.mode == RightPanelMode::Details,
+            true,
         );
-        let tab_details = tab_details.on_click(move |_e, _w, cx| {
-            this.update(cx, |panel, cx| {
-                panel.mode = RightPanelMode::Details;
-                cx.notify();
-            });
-        });
-        let this = cx.entity();
-        let tab_bh = self.detail_tab(
-            &colors,
-            "tab-branch-health",
-            i18n::text(self.locale, "tab-branch-health"),
-            self.mode == RightPanelMode::BranchHealth,
-        );
-        let tab_bh = tab_bh.on_click(move |_e, _w, cx| {
-            this.update(cx, |panel, cx| {
-                panel.mode = RightPanelMode::BranchHealth;
-                cx.notify();
-            });
-        });
 
         v_flex()
             .id("detail-panel")
@@ -220,7 +190,6 @@ impl Render for DetailPanel {
                     .gap_1()
                     .px_2()
                     .child(tab_details)
-                    .child(tab_bh)
                     .child(div().flex_1()),
             )
             .child(match &self.content {

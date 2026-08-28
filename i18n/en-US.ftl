@@ -96,7 +96,6 @@ status-unknown = ?
 
 # ===== Detail panel =====
 tab-details = Details
-tab-branch-health = Branch Health
 detail-empty = Select a commit or file to see details
 detail-author = Author { $author }
 detail-date = Date { $date }
