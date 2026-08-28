@@ -802,6 +802,7 @@ fn status_style(
     code: char,
     locale: Locale,
 ) -> (Hsla, String) {
+    let code = status_display_code(code);
     let color = match code {
         'M' | 'R' | 'C' => colors.warning,
         'A' => colors.green,
@@ -820,6 +821,14 @@ fn status_style(
     (color, i18n::text(locale, key))
 }
 
+fn status_display_code(code: char) -> char {
+    match code {
+        // Git uses `?` for an untracked file; display it as an addition.
+        '?' => 'A',
+        code => code,
+    }
+}
+
 fn split_files(files: Vec<FileStatus>) -> (Vec<FileStatus>, Vec<FileStatus>) {
     let mut staged = Vec::new();
     let mut unstaged = Vec::new();
@@ -836,7 +845,7 @@ fn split_files(files: Vec<FileStatus>) -> (Vec<FileStatus>, Vec<FileStatus>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{can_operate, split_files};
+    use super::{can_operate, split_files, status_display_code};
     use crate::core::git::{FileStatus, WorkingTreeAction};
 
     fn file(index: char, worktree: char, path: &str) -> FileStatus {
@@ -890,5 +899,39 @@ mod tests {
         assert!(!can_operate(WorkingTreeAction::Stage, true, &staged));
         assert!(can_operate(WorkingTreeAction::Stage, false, &changed));
         assert!(can_operate(WorkingTreeAction::Discard, false, &changed));
+    }
+
+    #[test]
+    fn status_display_codes_cover_added_and_deleted_files() {
+        assert_eq!(status_display_code('M'), 'M');
+        assert_eq!(status_display_code('A'), 'A');
+        assert_eq!(status_display_code('?'), 'A');
+        assert_eq!(status_display_code('D'), 'D');
+        assert_eq!(status_display_code('R'), 'R');
+        assert_eq!(status_display_code('C'), 'C');
+        assert_eq!(status_display_code('U'), 'U');
+    }
+
+    #[test]
+    fn deleted_files_are_kept_in_the_changes_group() {
+        let (staged, unstaged) = split_files(vec![
+            file('D', ' ', "staged-deleted.rs"),
+            file(' ', 'D', "deleted.rs"),
+        ]);
+
+        assert_eq!(
+            staged
+                .iter()
+                .map(|entry| entry.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["staged-deleted.rs"]
+        );
+        assert_eq!(
+            unstaged
+                .iter()
+                .map(|entry| entry.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["deleted.rs"]
+        );
     }
 }
