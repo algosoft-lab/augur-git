@@ -4,9 +4,7 @@
 # ===== 应用 / Welcome =====
 app-tagline = 桌面 Git 客户端
 welcome-open = 打开
-welcome-browse = 浏览…
 recent-repos = 最近仓库
-repo-path-placeholder = 仓库路径，如 D:\repo
 repo-folder-prompt = 选择 Git 仓库文件夹
 
 # ===== Application menu / About =====
