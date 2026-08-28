@@ -8,7 +8,8 @@
 //!
 //! 输出解析全部为纯函数（可单测），解析规则见各函数注释。
 
-use std::path::Path;
+use std::fs;
+use std::path::{Component, Path};
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
@@ -26,7 +27,9 @@ pub use crate::core::diff::{
     DiffLine, DiffLineKind, FileChange, FileChangeStatus, parse_diff,
     stat_blocks,
 };
-use crate::core::diff::{merge_numstat, parse_numstat, parse_raw_records};
+use crate::core::diff::{
+    is_binary_patch, merge_numstat, parse_numstat, parse_raw_records,
+};
 use crate::core::graph::LogRow;
 
 #[cfg(windows)]
@@ -133,6 +136,22 @@ pub enum GitEvent {
         old_source: Option<String>,
         new_source: Option<String>,
     },
+    /// Structured single-file working-tree diff payload.
+    WorkingTreeFileDiff {
+        request_id: u64,
+        kind: WorkingTreeDiffKind,
+        file: FileStatus,
+        patch: String,
+        old_source: Option<String>,
+        new_source: Option<String>,
+    },
+    /// A working-tree diff failed without stopping the Git worker.
+    WorkingTreeFileDiffError {
+        request_id: u64,
+        kind: WorkingTreeDiffKind,
+        file: FileStatus,
+        detail: String,
+    },
     /// 通用命令执行结果（fetch/pull/push/commit/show…）
     CommandDone {
         label: String,
@@ -144,7 +163,7 @@ pub enum GitEvent {
 }
 
 /// 单个文件变更（git status --porcelain 解析）
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileStatus {
     /// 索引状态字符（M/A/D/R/C/U，空格 = 无）
     pub index: char,
@@ -152,6 +171,8 @@ pub struct FileStatus {
     pub worktree: char,
     /// 文件路径
     pub path: String,
+    /// Original path for a rename, when Git reports one.
+    pub old_path: Option<String>,
 }
 
 impl FileStatus {
@@ -164,10 +185,48 @@ impl FileStatus {
         }
     }
 
-    /// 是否已暂存（索引区有变更）
-    pub fn is_staged(&self) -> bool {
-        self.index != ' '
+    /// Whether the index contains a staged change.
+    pub fn has_staged_changes(&self) -> bool {
+        self.is_staged()
     }
+
+    /// Whether the working tree contains a change relative to the index.
+    pub fn has_worktree_changes(&self) -> bool {
+        self.worktree != ' '
+    }
+
+    /// Whether this entry represents an untracked file.
+    pub fn is_untracked(&self) -> bool {
+        self.index == '?' && self.worktree == '?'
+    }
+
+    /// Whether the file has a staged change, retaining the legacy API name.
+    pub fn is_staged(&self) -> bool {
+        self.index != ' ' && self.index != '?'
+    }
+
+    /// Return the status character relevant to a particular working-tree group.
+    pub fn code_for(&self, staged: bool) -> char {
+        let code = if staged {
+            if self.index != ' ' {
+                self.index
+            } else {
+                self.worktree
+            }
+        } else if self.worktree != ' ' {
+            self.worktree
+        } else {
+            self.index
+        };
+        if code == ' ' { self.code() } else { code }
+    }
+}
+
+/// Which side of the working tree is being compared by a diff request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkingTreeDiffKind {
+    Staged,
+    Unstaged,
 }
 
 /// 本地分支信息
@@ -202,6 +261,12 @@ pub enum GitCommand {
         oid: String,
         merge_parent: Option<String>,
         file: FileChange,
+    },
+    /// Query a single file from the index or working tree.
+    WorkingTreeFileDiff {
+        request_id: u64,
+        kind: WorkingTreeDiffKind,
+        file: FileStatus,
     },
     /// 关闭工作线程
     Close,
@@ -261,6 +326,20 @@ impl GitHandle {
         let _ = self.cmd_tx.send(GitCommand::CommitFileDiff {
             oid,
             merge_parent,
+            file,
+        });
+    }
+
+    /// Query a single staged or unstaged working-tree file diff.
+    pub fn working_tree_file_diff(
+        &self,
+        request_id: u64,
+        kind: WorkingTreeDiffKind,
+        file: FileStatus,
+    ) {
+        let _ = self.cmd_tx.send(GitCommand::WorkingTreeFileDiff {
+            request_id,
+            kind,
             file,
         });
     }
@@ -326,6 +405,15 @@ fn worker_loop(
                     merge_parent.as_deref(),
                     &file,
                     &event_tx,
+                );
+            }
+            Ok(GitCommand::WorkingTreeFileDiff {
+                request_id,
+                kind,
+                file,
+            }) => {
+                run_working_tree_file_diff(
+                    &repo_path, request_id, kind, &file, &event_tx,
                 );
             }
             Ok(GitCommand::Close) | Err(RecvTimeoutError::Disconnected) => {
@@ -620,6 +708,48 @@ fn parse_co_author_line(line: &str) -> Option<CoAuthor> {
 
 const MAX_BLOB_SIZE: usize = 10 * 1024 * 1024;
 
+/// Build the regular working-tree diff command for one status entry.
+fn working_tree_diff_args(
+    repo_path: &str,
+    kind: WorkingTreeDiffKind,
+    file: &FileStatus,
+) -> Vec<String> {
+    let mut args = vec![
+        "--no-pager".to_string(),
+        "-C".to_string(),
+        repo_path.to_string(),
+        "diff".to_string(),
+        "--no-color".to_string(),
+        "--no-ext-diff".to_string(),
+        "--find-renames".to_string(),
+    ];
+    if matches!(kind, WorkingTreeDiffKind::Staged) {
+        args.push("--cached".to_string());
+    }
+    args.push("--".to_string());
+    if let Some(old_path) = file.old_path.as_deref() {
+        args.push(old_path.to_string());
+    }
+    args.push(file.path.clone());
+    args
+}
+
+/// Build the synthetic diff command used to render an untracked file.
+fn untracked_diff_args(repo_path: &str, path: &str) -> Vec<String> {
+    vec![
+        "--no-pager".to_string(),
+        "-C".to_string(),
+        repo_path.to_string(),
+        "diff".to_string(),
+        "--no-index".to_string(),
+        "--no-color".to_string(),
+        "--no-ext-diff".to_string(),
+        "--".to_string(),
+        "/dev/null".to_string(),
+        path.to_string(),
+    ]
+}
+
 /// Query a single file patch and, when possible, its complete old/new blobs.
 fn run_file_diff(
     repo_path: &str,
@@ -696,16 +826,149 @@ fn run_file_diff(
     }
 }
 
+/// Query a staged or unstaged working-tree file without blocking the UI.
+fn run_working_tree_file_diff(
+    repo_path: &str,
+    request_id: u64,
+    kind: WorkingTreeDiffKind,
+    file: &FileStatus,
+    event_tx: &Sender<GitEvent>,
+) {
+    let untracked =
+        matches!(kind, WorkingTreeDiffKind::Unstaged) && file.is_untracked();
+    let args = if untracked {
+        untracked_diff_args(repo_path, &file.path)
+    } else {
+        working_tree_diff_args(repo_path, kind, file)
+    };
+    let output = git_command().args(&args).output();
+    match output {
+        Ok(output)
+            if output.status.success()
+                || (untracked && output.status.code() == Some(1)) =>
+        {
+            let patch = String::from_utf8_lossy(&output.stdout).into_owned();
+            let (old_source, new_source) = match kind {
+                WorkingTreeDiffKind::Staged => {
+                    let old_path =
+                        file.old_path.as_deref().unwrap_or(&file.path);
+                    let old_source = if file.index == 'A' {
+                        None
+                    } else {
+                        read_blob_spec(repo_path, &format!("HEAD:{old_path}"))
+                    };
+                    let new_source = if file.index == 'D' {
+                        None
+                    } else {
+                        read_blob_spec(repo_path, &format!(":{}", file.path))
+                    };
+                    (old_source, new_source)
+                }
+                WorkingTreeDiffKind::Unstaged => {
+                    let old_path = if file.index == ' ' {
+                        file.old_path.as_deref().unwrap_or(&file.path)
+                    } else {
+                        &file.path
+                    };
+                    let old_source = if untracked || file.worktree == 'A' {
+                        None
+                    } else {
+                        read_blob_spec(repo_path, &format!(":{old_path}"))
+                    };
+                    let new_source = if file.worktree == 'D' {
+                        None
+                    } else {
+                        read_worktree_source(repo_path, &file.path)
+                    };
+                    (old_source, new_source)
+                }
+            };
+            log::debug!(
+                "[git_diff] loaded working-tree file diff: request_id={}, kind={kind:?}, binary={}, patch_bytes={}",
+                request_id,
+                is_binary_patch(&patch),
+                patch.len()
+            );
+            let _ = event_tx.send(GitEvent::WorkingTreeFileDiff {
+                request_id,
+                kind,
+                file: file.clone(),
+                patch,
+                old_source,
+                new_source,
+            });
+        }
+        Ok(output) => {
+            let detail = diff_error_detail(&output);
+            log::warn!(
+                "[git_diff] working-tree file diff failed: request_id={}, kind={kind:?}, status={:?}",
+                request_id,
+                output.status.code()
+            );
+            let _ = event_tx.send(GitEvent::WorkingTreeFileDiffError {
+                request_id,
+                kind,
+                file: file.clone(),
+                detail,
+            });
+        }
+        Err(error) => {
+            log::warn!(
+                "[git_diff] working-tree file diff failed to run: request_id={}, kind={kind:?}",
+                request_id
+            );
+            let _ = event_tx.send(GitEvent::WorkingTreeFileDiffError {
+                request_id,
+                kind,
+                file: file.clone(),
+                detail: error.to_string(),
+            });
+        }
+    }
+}
+
+fn diff_error_detail(output: &std::process::Output) -> String {
+    let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if detail.is_empty() {
+        output
+            .status
+            .code()
+            .map(|code| format!("git diff exited with status {code}"))
+            .unwrap_or_else(|| "git diff terminated unexpectedly".to_string())
+    } else {
+        detail
+    }
+}
+
 fn read_blob(repo_path: &str, oid: Option<&str>) -> Option<String> {
-    let oid = oid?;
+    read_blob_spec(repo_path, oid?)
+}
+
+fn read_blob_spec(repo_path: &str, spec: &str) -> Option<String> {
     let output = git_command()
-        .args(["--no-pager", "-C", repo_path, "cat-file", "blob", oid])
+        .args(["--no-pager", "-C", repo_path, "cat-file", "blob", spec])
         .output()
         .ok()?;
     if !output.status.success() || output.stdout.len() > MAX_BLOB_SIZE {
         return None;
     }
     String::from_utf8(output.stdout).ok()
+}
+
+fn read_worktree_source(repo_path: &str, path: &str) -> Option<String> {
+    let relative_path = Path::new(path);
+    if relative_path.is_absolute()
+        || relative_path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return None;
+    }
+    let bytes = fs::read(Path::new(repo_path).join(relative_path)).ok()?;
+    if bytes.len() > MAX_BLOB_SIZE {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
 }
 
 /// 执行 git status，返回 (分支, 变更文件, ahead, behind)
@@ -764,16 +1027,16 @@ fn parse_status(text: &str) -> (String, Vec<FileStatus>, usize, usize) {
             let bytes = line.as_bytes();
             let index = bytes[0] as char;
             let worktree = bytes[1] as char;
-            // 重命名格式 "R  old -> new"：取箭头后的新路径
-            let path = if let Some(idx) = line.find(" -> ") {
-                line[idx + 4..].to_string()
+            let (old_path, path) = if let Some(idx) = line.find(" -> ") {
+                (Some(line[3..idx].to_string()), line[idx + 4..].to_string())
             } else {
-                line[3..].to_string()
+                (None, line[3..].to_string())
             };
             files.push(FileStatus {
                 index,
                 worktree,
                 path,
+                old_path,
             });
         }
     }
@@ -1003,6 +1266,51 @@ mod tests {
     }
 
     #[test]
+    fn working_tree_diff_args_separate_staged_and_unstaged_comparisons() {
+        let file = FileStatus {
+            index: 'R',
+            worktree: 'M',
+            path: "new.rs".into(),
+            old_path: Some("old.rs".into()),
+        };
+        let staged =
+            working_tree_diff_args("repo", WorkingTreeDiffKind::Staged, &file);
+        let unstaged = working_tree_diff_args(
+            "repo",
+            WorkingTreeDiffKind::Unstaged,
+            &file,
+        );
+        let separator = staged
+            .iter()
+            .position(|argument| argument == "--")
+            .unwrap_or_default();
+        assert_eq!(
+            &staged[separator + 1..],
+            ["old.rs".to_string(), "new.rs".to_string()]
+        );
+        assert!(staged.iter().any(|argument| argument == "--cached"));
+        assert!(!unstaged.iter().any(|argument| argument == "--cached"));
+        let unstaged_separator = unstaged
+            .iter()
+            .position(|argument| argument == "--")
+            .unwrap_or_default();
+        assert_eq!(
+            &unstaged[unstaged_separator + 1..],
+            ["old.rs".to_string(), "new.rs".to_string()]
+        );
+    }
+
+    #[test]
+    fn untracked_diff_args_compare_against_a_portable_null_path() {
+        let args = untracked_diff_args("repo", "new file.txt");
+        assert!(
+            args.windows(2)
+                .any(|pair| { pair[0] == "--" && pair[1] == "/dev/null" })
+        );
+        assert_eq!(args.last().map(String::as_str), Some("new file.txt"));
+    }
+
+    #[test]
     fn parse_numstat_normal_binary_rename() {
         let text = "12\t3\tsrc/main.rs\n-\t-\tassets/logo.png\n5\t0\told.rs => new.rs\n";
         let files = parse_numstat(text);
@@ -1044,7 +1352,26 @@ mod tests {
         assert_eq!(files[0].path, "src/a.rs");
         assert!(files[0].is_staged() == false);
         assert!(files[1].is_staged());
+        assert!(!files[2].is_staged());
+        assert!(files[2].is_untracked());
         assert_eq!(files[2].code(), '?');
+    }
+
+    #[test]
+    fn file_status_separates_staged_worktree_and_mixed_changes() {
+        let text =
+            "## main\nM  staged.rs\n M changed.rs\nMM mixed.rs\n?? new.txt\n";
+        let (_, files, _, _) = parse_status(text);
+        assert!(files[0].has_staged_changes());
+        assert!(!files[0].has_worktree_changes());
+        assert!(!files[1].has_staged_changes());
+        assert!(files[1].has_worktree_changes());
+        assert!(files[2].has_staged_changes());
+        assert!(files[2].has_worktree_changes());
+        assert!(!files[3].has_staged_changes());
+        assert!(files[3].has_worktree_changes());
+        assert_eq!(files[2].code_for(true), 'M');
+        assert_eq!(files[2].code_for(false), 'M');
     }
 
     #[test]
@@ -1064,6 +1391,7 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].index, 'R');
         assert_eq!(files[0].path, "new.txt");
+        assert_eq!(files[0].old_path.as_deref(), Some("old.txt"));
     }
 
     #[test]

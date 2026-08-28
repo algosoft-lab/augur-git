@@ -9,6 +9,12 @@ use crate::core::i18n::{self, Locale};
 use crate::git::shared;
 
 /// VS Code-style staged and unstaged file groups for the right panel.
+#[derive(Clone, Debug)]
+pub enum ChangesPanelEvent {
+    /// Request a diff for a file in either the index or working tree.
+    FileSelected { staged: bool, file: FileStatus },
+}
+
 pub struct ChangesPanel {
     staged: Vec<FileStatus>,
     unstaged: Vec<FileStatus>,
@@ -16,6 +22,8 @@ pub struct ChangesPanel {
     collapsed: Vec<&'static str>,
     locale: Locale,
 }
+
+impl EventEmitter<ChangesPanelEvent> for ChangesPanel {}
 
 impl ChangesPanel {
     pub fn new(locale: Locale) -> Self {
@@ -38,32 +46,27 @@ impl ChangesPanel {
         files: Vec<FileStatus>,
         cx: &mut Context<Self>,
     ) {
-        let selected_path = self.selected.and_then(|(staged, index)| {
+        let selected_file = self.selected.and_then(|(staged, index)| {
             let list = if staged { &self.staged } else { &self.unstaged };
-            list.get(index).map(|file| file.path.clone())
+            list.get(index).map(|file| (staged, file.path.clone()))
         });
 
-        self.staged = files
-            .iter()
-            .filter(|file| file.is_staged())
-            .cloned()
-            .collect();
-        self.unstaged = files
-            .iter()
-            .filter(|file| !file.is_staged())
-            .cloned()
-            .collect();
+        let (staged, unstaged) = split_files(files);
+        self.staged = staged;
+        self.unstaged = unstaged;
 
-        self.selected = selected_path.and_then(|path| {
-            self.staged
-                .iter()
+        self.selected = selected_file.and_then(|(staged, path)| {
+            let list = if staged { &self.staged } else { &self.unstaged };
+            list.iter()
                 .position(|file| file.path == path)
-                .map(|index| (true, index))
+                .map(|index| (staged, index))
                 .or_else(|| {
-                    self.unstaged
+                    let other =
+                        if staged { &self.unstaged } else { &self.staged };
+                    other
                         .iter()
                         .position(|file| file.path == path)
-                        .map(|index| (false, index))
+                        .map(|index| (!staged, index))
                 })
         });
         cx.notify();
@@ -90,10 +93,12 @@ impl ChangesPanel {
         cx: &mut Context<Self>,
     ) {
         let list = if staged { &self.staged } else { &self.unstaged };
-        if list.get(index).is_some() {
-            self.selected = Some((staged, index));
-            cx.notify();
-        }
+        let Some(file) = list.get(index).cloned() else {
+            return;
+        };
+        self.selected = Some((staged, index));
+        cx.emit(ChangesPanelEvent::FileSelected { staged, file });
+        cx.notify();
     }
 
     fn section_header(
@@ -165,7 +170,7 @@ impl ChangesPanel {
             .map(|(index, file)| {
                 let this = cx.entity();
                 let (status_color, status_label) =
-                    status_style(&colors, file.code(), self.locale);
+                    status_style(&colors, file.code_for(staged), self.locale);
                 let selected = self.selected == Some((staged, index));
                 h_flex()
                     .id(SharedString::from(format!(
@@ -330,4 +335,64 @@ fn status_style(
         _ => "status-unknown",
     };
     (color, i18n::text(locale, key))
+}
+
+fn split_files(files: Vec<FileStatus>) -> (Vec<FileStatus>, Vec<FileStatus>) {
+    let mut staged = Vec::new();
+    let mut unstaged = Vec::new();
+    for file in files {
+        if file.has_staged_changes() {
+            staged.push(file.clone());
+        }
+        if file.has_worktree_changes() {
+            unstaged.push(file);
+        }
+    }
+    (staged, unstaged)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_files;
+    use crate::core::git::FileStatus;
+
+    fn file(index: char, worktree: char, path: &str) -> FileStatus {
+        FileStatus {
+            index,
+            worktree,
+            path: path.to_string(),
+            old_path: None,
+        }
+    }
+
+    #[test]
+    fn split_files_keeps_mixed_entries_in_both_groups() {
+        let (staged, unstaged) = split_files(vec![
+            file('M', ' ', "staged.rs"),
+            file(' ', 'M', "changed.rs"),
+            file('M', 'M', "mixed.rs"),
+            file('?', '?', "new.rs"),
+        ]);
+        assert_eq!(
+            staged
+                .iter()
+                .map(|entry| entry.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["staged.rs", "mixed.rs"]
+        );
+        assert_eq!(
+            unstaged
+                .iter()
+                .map(|entry| entry.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["changed.rs", "mixed.rs", "new.rs"]
+        );
+    }
+
+    #[test]
+    fn split_files_uses_group_specific_status_codes() {
+        let mixed = file('A', 'D', "mixed.rs");
+        assert_eq!(mixed.code_for(true), 'A');
+        assert_eq!(mixed.code_for(false), 'D');
+    }
 }

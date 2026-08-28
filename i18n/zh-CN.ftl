@@ -119,6 +119,10 @@ bottom-bin = 二进制
 diff-all-files = 全部变更文件
 diff-merge-first-parent = 相对第一父提交
 diff-no-output = (无输出)
+diff-working-tree-staged = 暂存
+diff-working-tree-changes = 变更
+diff-working-tree-loading = 正在加载工作区 diff…
+diff-working-tree-error = 无法加载工作区 diff
 
 # ===== 设置面板 =====
 settings-title = 设置

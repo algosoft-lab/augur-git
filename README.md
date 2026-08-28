@@ -16,7 +16,8 @@ operations; augur-git does not embed a Git implementation.
 ## Features
 
 - **Repository status** — current branch, ahead/behind counts, and staged and
-  unstaged changes, with commit for staged changes.
+  unstaged changes, with per-file diffs for staged, unstaged, and untracked
+  files plus commit for staged changes.
 - **Commit graph** — lane-based history graph with hash, message, author, and
   relative dates; select a commit to inspect its file list and per-file diffs.
 - **Branches, remotes, tags, and stashes** — browsable sidebar sections, with

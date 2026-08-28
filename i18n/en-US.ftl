@@ -120,6 +120,10 @@ bottom-bin = Binary
 diff-all-files = All changed files
 diff-merge-first-parent = vs first parent
 diff-no-output = (no output)
+diff-working-tree-staged = Staged
+diff-working-tree-changes = Changes
+diff-working-tree-loading = Loading working-tree diff…
+diff-working-tree-error = Unable to load working-tree diff
 
 # ===== Settings panel =====
 settings-title = Settings

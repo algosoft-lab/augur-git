@@ -22,7 +22,7 @@ use gpui::{Context, EventEmitter, SharedString, Task};
 use crate::core::diff::FileChange;
 use crate::core::git::{
     self, BranchInfo, CheckoutTarget, CommitMessage, FileStatus, GitError,
-    GitEvent, RefsInfo,
+    GitEvent, RefsInfo, WorkingTreeDiffKind,
 };
 use crate::core::graph::LogRow;
 use crate::core::i18n::{self, Locale};
@@ -57,6 +57,22 @@ pub enum GitUiEvent {
         patch: String,
         old_source: Option<String>,
         new_source: Option<String>,
+    },
+    /// Structured selected-file working-tree diff.
+    WorkingTreeFileDiffChanged {
+        request_id: u64,
+        kind: WorkingTreeDiffKind,
+        file: FileStatus,
+        patch: String,
+        old_source: Option<String>,
+        new_source: Option<String>,
+    },
+    /// Non-fatal working-tree diff error for one request.
+    WorkingTreeFileDiffError {
+        request_id: u64,
+        kind: WorkingTreeDiffKind,
+        file: FileStatus,
+        detail: String,
     },
     /// 通用命令执行结果（fetch/pull/push/commit/show…）
     CommandDone {
@@ -284,6 +300,22 @@ impl GitView {
         }
     }
 
+    /// Query one staged or unstaged working-tree file diff.
+    pub fn working_tree_file_diff(
+        &self,
+        request_id: u64,
+        kind: WorkingTreeDiffKind,
+        file: FileStatus,
+    ) {
+        log::debug!(
+            "[git_diff] requesting working-tree file diff: request_id={}, kind={kind:?}",
+            request_id
+        );
+        if let Some(handle) = &self.handle {
+            handle.working_tree_file_diff(request_id, kind, file);
+        }
+    }
+
     fn set_status(&mut self, status: GitStatus, cx: &mut Context<Self>) {
         if let GitStatus::Error(msg) = &status {
             cx.emit(GitUiEvent::Error(msg.clone()));
@@ -388,6 +420,45 @@ impl GitView {
                         patch,
                         old_source,
                         new_source,
+                    });
+                }
+                GitEvent::WorkingTreeFileDiff {
+                    request_id,
+                    kind,
+                    file,
+                    patch,
+                    old_source,
+                    new_source,
+                } => {
+                    log::info!(
+                        "[git_view] working-tree file diff received: request_id={}, kind={kind:?}, lines={}",
+                        request_id,
+                        patch.lines().count()
+                    );
+                    cx.emit(GitUiEvent::WorkingTreeFileDiffChanged {
+                        request_id,
+                        kind,
+                        file,
+                        patch,
+                        old_source,
+                        new_source,
+                    });
+                }
+                GitEvent::WorkingTreeFileDiffError {
+                    request_id,
+                    kind,
+                    file,
+                    detail,
+                } => {
+                    log::warn!(
+                        "[git_view] working-tree file diff failed: request_id={}, kind={kind:?}",
+                        request_id
+                    );
+                    cx.emit(GitUiEvent::WorkingTreeFileDiffError {
+                        request_id,
+                        kind,
+                        file,
+                        detail,
                     });
                 }
                 GitEvent::CommandDone {

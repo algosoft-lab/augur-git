@@ -389,8 +389,7 @@ impl DiffDocument {
         let language = language_for_path(&path);
         let old_source = old_source.map(SourceText::new);
         let new_source = new_source.map(SourceText::new);
-        let binary = patch.contains("Binary files ")
-            || patch.contains("GIT binary patch");
+        let binary = is_binary_patch(patch);
         let rows = parse_diff(patch)
             .into_iter()
             .filter_map(|line| match line.kind {
@@ -524,6 +523,16 @@ impl DiffDocument {
         }
         text
     }
+}
+
+/// Detect Git's binary-diff metadata without inspecting the changed content.
+///
+/// Searching the whole patch is incorrect because a text file can contain
+/// strings such as `Binary files ` or `GIT binary patch` in its own source.
+pub fn is_binary_patch(patch: &str) -> bool {
+    patch.lines().any(|line| {
+        line.starts_with("Binary files ") || line == "GIT binary patch"
+    })
 }
 
 fn row_from_line(
@@ -841,6 +850,22 @@ mod tests {
         );
         assert!(document.binary);
         assert!(document.rows.is_empty());
+    }
+
+    #[test]
+    fn binary_detection_ignores_matching_text_in_patch_content() {
+        let patch = "@@ -1,1 +1,2 @@\n-old\n+let marker = \"Binary files \";\n+let other = \"GIT binary patch\";\n";
+        let document = DiffDocument::from_patch(
+            "src/git.rs",
+            patch,
+            Some("old\n".to_string()),
+            Some(
+                "let marker = \"Binary files \";\nlet other = \"GIT binary patch\";\n"
+                    .to_string(),
+            ),
+        );
+        assert!(!document.binary);
+        assert!(!document.rows.is_empty());
     }
 
     #[test]

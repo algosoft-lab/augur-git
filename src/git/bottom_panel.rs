@@ -13,6 +13,9 @@ use crate::core::i18n::{self, Locale};
 use crate::git::diff_view::{self, DiffLayoutMode, DiffViewCache};
 use crate::git::{lucide, shared};
 
+#[path = "bottom_panel/working_tree.rs"]
+mod working_tree;
+
 fn bottom_empty_state(
     id: &'static str,
     colors: &ThemeColor,
@@ -85,6 +88,7 @@ pub struct BottomPanel {
     all_diff_loading: bool,
     diff_layout: DiffLayoutMode,
     diff_loading: bool,
+    working_tree: Option<working_tree::WorkingTreeDiffState>,
     content_width: f32,
     file_list_ratio: f32,
 }
@@ -116,6 +120,7 @@ impl BottomPanel {
             all_diff_loading: false,
             diff_layout,
             diff_loading: false,
+            working_tree: None,
             content_width: f32::INFINITY,
             file_list_ratio: file_list_ratio
                 .clamp(MIN_FILE_LIST_RATIO, MAX_FILE_LIST_RATIO),
@@ -170,6 +175,7 @@ impl BottomPanel {
         self.show_all_files = false;
         self.all_diff_loading = false;
         self.diff_loading = false;
+        self.working_tree = None;
         cx.notify();
     }
 
@@ -321,8 +327,14 @@ impl BottomPanel {
         cx.notify();
     }
 
-    fn copy_diff(&self, cx: &mut Context<Self>) {
+    pub(super) fn copy_diff(&self, cx: &mut Context<Self>) {
         let text = if let Some(document) = self.diff.as_ref() {
+            document.copy_text()
+        } else if let Some(document) = self
+            .working_tree
+            .as_ref()
+            .and_then(working_tree::WorkingTreeDiffState::document)
+        {
             document.copy_text()
         } else if self.show_all_files {
             self.all_diffs
@@ -755,6 +767,9 @@ impl Render for BottomPanel {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
+        if self.working_tree.is_some() {
+            return self.working_tree_view(&colors, window, cx);
+        }
         let Some((_, short, subject)) = &self.commit else {
             return bottom_empty_state(
                 "bottom-no-commit",

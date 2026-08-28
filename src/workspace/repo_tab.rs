@@ -7,9 +7,9 @@ use gpui_component::{
 };
 
 use crate::core::config::LayoutSettings;
-use crate::core::git::CheckoutTarget;
+use crate::core::git::{CheckoutTarget, WorkingTreeDiffKind};
 use crate::core::i18n::{self, Locale};
-use crate::git::changes_panel::ChangesPanel;
+use crate::git::changes_panel::{ChangesPanel, ChangesPanelEvent};
 use crate::git::diff_view::DiffLayoutMode;
 use crate::git::graph::{GraphEvent, GraphView};
 use crate::git::panel::{
@@ -86,6 +86,7 @@ pub struct RepoTab {
     status: GitStatus,
     status_message: Option<String>,
     status_message_ok: Option<bool>,
+    working_diff_request_id: u64,
     layout: LayoutSettings,
     /// Force-push confirmation dialog is open (run only on explicit confirm).
     confirm_force_push: bool,
@@ -241,6 +242,31 @@ impl RepoTab {
         })
         .detach();
 
+        cx.subscribe(&changes, |tab, _event, event, cx| match event {
+            ChangesPanelEvent::FileSelected { staged, file } => {
+                tab.working_diff_request_id =
+                    tab.working_diff_request_id.wrapping_add(1).max(1);
+                let request_id = tab.working_diff_request_id;
+                let kind = if *staged {
+                    WorkingTreeDiffKind::Staged
+                } else {
+                    WorkingTreeDiffKind::Unstaged
+                };
+                tab.bottom.update(cx, |bottom, cx| {
+                    bottom.set_working_tree_file(
+                        request_id,
+                        *staged,
+                        file.clone(),
+                        cx,
+                    );
+                });
+                tab.git_view.update(cx, |view, _| {
+                    view.working_tree_file_diff(request_id, kind, file.clone());
+                });
+            }
+        })
+        .detach();
+
         cx.subscribe(&bottom, |tab, _event, event, cx| match event {
             BottomPanelEvent::ShowFileDiff {
                 oid,
@@ -284,10 +310,14 @@ impl RepoTab {
                 branches,
             } => {
                 let branch_name = branch.clone();
-                let has_staged = files.iter().any(|file| file.is_staged());
+                let has_staged =
+                    files.iter().any(|file| file.has_staged_changes());
                 let staged_count =
-                    files.iter().filter(|file| file.is_staged()).count();
-                let unstaged_count = files.len() - staged_count;
+                    files.iter().filter(|file| file.has_staged_changes()).count();
+                let unstaged_count = files
+                    .iter()
+                    .filter(|file| file.has_worktree_changes())
+                    .count();
                 let ahead_text = ahead.to_string();
                 let behind_text = behind.to_string();
                 let staged_text = staged_count.to_string();
@@ -310,6 +340,9 @@ impl RepoTab {
                 });
                 tab.changes.update(cx, |changes, cx| {
                     changes.set_files(files.clone(), cx);
+                });
+                tab.bottom.update(cx, |bottom, cx| {
+                    bottom.sync_working_tree_files(files, cx);
                 });
                 tab.toolbar.update(cx, |toolbar, cx| {
                     toolbar.set_ahead_behind(*ahead, *behind, cx);
@@ -363,6 +396,46 @@ impl RepoTab {
                         patch.clone(),
                         old_source.clone(),
                         new_source.clone(),
+                        cx,
+                    );
+                });
+            }
+            GitUiEvent::WorkingTreeFileDiffChanged {
+                request_id,
+                kind,
+                file,
+                patch,
+                old_source,
+                new_source,
+            } => {
+                tab.bottom.update(cx, |bottom, cx| {
+                    bottom.set_working_tree_diff(
+                        *request_id,
+                        *kind,
+                        file,
+                        patch.clone(),
+                        old_source.clone(),
+                        new_source.clone(),
+                        cx,
+                    );
+                });
+            }
+            GitUiEvent::WorkingTreeFileDiffError {
+                request_id,
+                kind,
+                file,
+                detail,
+            } => {
+                log::warn!(
+                    "[workspace] working-tree diff unavailable: request_id={}, kind={kind:?}",
+                    request_id
+                );
+                tab.bottom.update(cx, |bottom, cx| {
+                    bottom.set_working_tree_error(
+                        *request_id,
+                        *kind,
+                        file,
+                        detail.clone(),
                         cx,
                     );
                 });
@@ -454,6 +527,7 @@ impl RepoTab {
             status: GitStatus::None,
             status_message: None,
             status_message_ok: None,
+            working_diff_request_id: 0,
             layout,
             confirm_force_push: false,
             locale,
