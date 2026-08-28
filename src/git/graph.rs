@@ -235,9 +235,18 @@ impl GraphView {
         } else {
             colors.background
         };
-        // The author initials sit on top of the graph node canvas.
+        // The author initials sit on top of the graph node canvas. On the
+        // filled HEAD node they sit on the lane fill, so their color flips
+        // with the fill luminance; hollow nodes keep the theme foreground.
         let node_col = Some(graph_row.node_lane as f32);
         let node_letters: String = row.author.chars().take(2).collect();
+        let initials_color = if graph_row.is_head {
+            crate::theme::initials_text_color(
+                lane_colors[graph_row.node_color % lane_colors.len()],
+            )
+        } else {
+            colors.foreground
+        };
         let checkout_label = i18n::text(self.locale, "context-checkout");
         let copy_label = i18n::text(self.locale, "context-copy-commit");
         let copy_message_label =
@@ -308,7 +317,7 @@ impl GraphView {
                                 .items_center()
                                 .justify_center()
                                 .text_size(px(13.))
-                                .text_color(colors.foreground)
+                                .text_color(initials_color)
                                 .child(shared(letters)),
                         )
                     }),

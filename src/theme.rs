@@ -4,7 +4,7 @@
 //! Lives outside `core/` because it is presentation-layer: it wires gpui and
 //! gpui-component globals rather than pure domain logic.
 
-use gpui::{App, Hsla, rgb};
+use gpui::{App, Hsla, Rgba, rgb};
 use gpui_component::theme::{Theme, ThemeRegistry};
 
 use crate::core::config::ThemePreference;
@@ -119,6 +119,31 @@ fn accent_lanes(accent: [u32; 10]) -> [Hsla; 10] {
     std::array::from_fn(|i| Hsla::from(rgb(accent[i])))
 }
 
+/// Readable author-initials text color for the filled HEAD graph node: dark
+/// text on a light fill, light text on a dark fill. The crossover is the
+/// black/white contrast crossover, `sqrt(0.05 * 1.05) - 0.05 ≈ 0.179` in WCAG
+/// relative luminance, the point where either choice yields the same ratio.
+pub fn initials_text_color(fill: Hsla) -> Hsla {
+    if relative_luminance(fill) > 0.179 {
+        Hsla::from(rgb(0x000000))
+    } else {
+        Hsla::from(rgb(0xFFFFFF))
+    }
+}
+
+/// WCAG relative luminance of `color` with sRGB channels gamma-expanded.
+fn relative_luminance(color: Hsla) -> f32 {
+    let rgba = Rgba::from(color);
+    let linear = |channel: f32| {
+        if channel <= 0.03928 {
+            channel / 12.92
+        } else {
+            ((channel + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * linear(rgba.r) + 0.7152 * linear(rgba.g) + 0.0722 * linear(rgba.b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,6 +255,29 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn initials_text_color_flips_with_fill_luminance() {
+        // GitHub Dark primary lane: light blue fill needs dark initials.
+        assert_eq!(
+            initials_text_color(hsla(217.0, 92.0, 65.0, 1.0)),
+            Hsla::from(rgb(0x000000))
+        );
+        // Catppuccin Latte primary lane: dark blue fill needs light initials.
+        assert_eq!(
+            initials_text_color(Hsla::from(rgb(0x1E66F5))),
+            Hsla::from(rgb(0xFFFFFF))
+        );
+        // Extremes stay on the sane side.
+        assert_eq!(
+            initials_text_color(Hsla::from(rgb(0xFFFFFF))),
+            Hsla::from(rgb(0x000000))
+        );
+        assert_eq!(
+            initials_text_color(Hsla::from(rgb(0x000000))),
+            Hsla::from(rgb(0xFFFFFF))
+        );
     }
 
     #[test]
