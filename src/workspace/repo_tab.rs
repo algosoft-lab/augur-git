@@ -8,6 +8,7 @@ use gpui_component::{
 
 use crate::core::git::CheckoutTarget;
 use crate::core::i18n::{self, Locale};
+use crate::git::diff_view::DiffLayoutMode;
 use crate::git::graph::{GraphEvent, GraphView};
 use crate::git::panel::{
     BottomPanel, BottomPanelEvent, CommitPanel, CommitPanelEvent,
@@ -108,6 +109,7 @@ impl RepoTab {
         id: TabId,
         repo_path: String,
         locale: Locale,
+        diff_layout: DiffLayoutMode,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -117,7 +119,7 @@ impl RepoTab {
         let toolbar = cx.new(|_cx| Toolbar::new(locale));
         let detail = cx.new(|_cx| DetailPanel::new(locale));
         let commit = cx.new(|cx| CommitPanel::new(window, cx, locale));
-        let bottom = cx.new(|_cx| BottomPanel::new(locale));
+        let bottom = cx.new(|_cx| BottomPanel::new(locale, diff_layout));
 
         cx.subscribe(&sidebar, |tab, _event, event, cx| match event {
             SidebarEvent::ToggleCollapse => {
@@ -612,6 +614,17 @@ impl RepoTab {
             bottom.set_locale(locale, cx);
         });
         cx.notify();
+    }
+
+    /// Apply the persisted diff layout chosen in the settings overlay.
+    pub fn set_diff_layout(
+        &mut self,
+        diff_layout: DiffLayoutMode,
+        cx: &mut Context<Self>,
+    ) {
+        self.bottom.update(cx, |bottom, cx| {
+            bottom.set_diff_layout(diff_layout, cx);
+        });
     }
 
     pub fn focus_branches(&mut self, cx: &mut Context<Self>) {

@@ -18,18 +18,28 @@ use gpui_component::input::Rope;
 use gpui_component::{h_flex, theme::ThemeColor};
 use similar::{ChangeTag, InlineChangeMode, InlineChangeOptions, TextDiff};
 
+use crate::core::config::DiffLayoutPreference;
 use crate::core::diff::{DiffDocument, DiffLineKind, DiffRow, SourceText};
 
 /// Keep syntax parsing bounded for unusually large source files.
 pub const MAX_HIGHLIGHT_BYTES: usize = 10 * 1024 * 1024;
 const MAX_INLINE_REFINEMENT_BYTES: usize = 64 * 1024;
 
-/// Layout choices exposed by the bottom diff header.
+/// Layout choices for the commit diff viewer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DiffLayoutMode {
     #[default]
     Inline,
     SideBySide,
+}
+
+impl From<DiffLayoutPreference> for DiffLayoutMode {
+    fn from(preference: DiffLayoutPreference) -> Self {
+        match preference {
+            DiffLayoutPreference::Inline => Self::Inline,
+            DiffLayoutPreference::SideBySide => Self::SideBySide,
+        }
+    }
 }
 
 /// Cached syntax and character-level ranges for one diff document.

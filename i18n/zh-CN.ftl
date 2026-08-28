@@ -126,8 +126,6 @@ bottom-bin = 二进制
 diff-all-files = 全部变更文件
 diff-merge-first-parent = 相对第一父提交
 diff-no-output = (无输出)
-diff-layout-inline = 内联
-diff-layout-side-by-side = 并排
 
 # ===== 设置弹层 =====
 settings-title = 设置
@@ -137,6 +135,9 @@ language-chinese = 简体中文
 language-english = English
 settings-close = 关闭
 theme-title = 主题
+diff-layout-title = Diff 布局
+diff-layout-inline = 内联
+diff-layout-side-by-side = 并排
 theme-github-dark = GitHub Dark
 theme-catppuccin-latte = Latte
 theme-catppuccin-frappe = Frappé

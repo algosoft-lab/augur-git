@@ -127,8 +127,6 @@ bottom-bin = Binary
 diff-all-files = All changed files
 diff-merge-first-parent = vs first parent
 diff-no-output = (no output)
-diff-layout-inline = Inline
-diff-layout-side-by-side = Side-by-side
 
 # ===== Settings overlay =====
 settings-title = Settings
@@ -138,6 +136,9 @@ language-chinese = 简体中文
 language-english = English
 settings-close = Close
 theme-title = Theme
+diff-layout-title = Diff layout
+diff-layout-inline = Inline
+diff-layout-side-by-side = Side-by-side
 theme-github-dark = GitHub Dark
 theme-catppuccin-latte = Latte
 theme-catppuccin-frappe = Frappé

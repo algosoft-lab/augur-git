@@ -20,9 +20,11 @@ use gpui_component::{
 };
 
 use crate::core::config::{
-    self, AppConfig, LanguagePreference, OpenTabConfig, ThemePreference,
+    self, AppConfig, DiffLayoutPreference, LanguagePreference, OpenTabConfig,
+    ThemePreference,
 };
 use crate::core::i18n::{self, Locale};
+use crate::git::diff_view::DiffLayoutMode;
 
 use self::app_menu::{AppMenu, AppMenuEvent};
 use self::repo_tab::{RepoTab, RepoTabEvent};
@@ -192,6 +194,9 @@ pub struct Workspace {
     language_preference: LanguagePreference,
     /// UI theme preference (settings overlay; source of truth is config.theme)
     theme_preference: ThemePreference,
+    /// Commit diff layout preference (settings overlay; source of truth is
+    /// config.view.diff_layout)
+    diff_layout: DiffLayoutPreference,
     locale: Locale,
     config_saver: config::ConfigSaveQueue,
     show_settings: bool,
@@ -207,6 +212,7 @@ impl Workspace {
     ) -> Self {
         let theme_preference = config.theme;
         let language_preference = config.language;
+        let diff_layout = config.view.diff_layout;
         let locale = i18n::resolve(&language_preference);
         let config_saver = config::ConfigSaveQueue::new();
         let tab_bar = cx.new(|_cx| RepoTabBar::new());
@@ -250,6 +256,7 @@ impl Workspace {
             config,
             language_preference,
             theme_preference,
+            diff_layout,
             locale,
             config_saver,
             show_settings: false,
@@ -313,8 +320,16 @@ impl Workspace {
         self.next_tab_id = self.next_tab_id.saturating_add(1);
         let locale = self.locale;
         let path_for_tab = path.clone();
-        let tab =
-            cx.new(|cx| RepoTab::new(id, path_for_tab, locale, window, cx));
+        let tab = cx.new(|cx| {
+            RepoTab::new(
+                id,
+                path_for_tab,
+                locale,
+                self.diff_layout.into(),
+                window,
+                cx,
+            )
+        });
         let summary = tab.read(cx).summary();
         self.tabs.push(TabEntry {
             id,
@@ -370,8 +385,16 @@ impl Workspace {
             return;
         };
         let locale = self.locale;
-        let tab =
-            cx.new(|cx| RepoTab::new(id, path.clone(), locale, window, cx));
+        let tab = cx.new(|cx| {
+            RepoTab::new(
+                id,
+                path.clone(),
+                locale,
+                self.diff_layout.into(),
+                window,
+                cx,
+            )
+        });
         let summary = tab.read(cx).summary();
         entry.key = repo_key(&path);
         entry.path = Some(path);
@@ -623,6 +646,29 @@ impl Workspace {
         self.config.theme = preference;
         theme::apply(preference, cx);
         self.config_saver.schedule(&self.config);
+        cx.notify();
+    }
+
+    /// Switch the commit diff layout: persists the choice and applies it to
+    /// every open repository tab immediately.
+    fn set_diff_layout(
+        &mut self,
+        preference: DiffLayoutPreference,
+        cx: &mut Context<Self>,
+    ) {
+        if self.diff_layout == preference {
+            return;
+        }
+        self.diff_layout = preference;
+        self.config.view.diff_layout = preference;
+        let layout = DiffLayoutMode::from(preference);
+        for entry in &self.tabs {
+            if let TabContent::Repo(tab) = &entry.content {
+                tab.update(cx, |tab, cx| tab.set_diff_layout(layout, cx));
+            }
+        }
+        self.config_saver.schedule(&self.config);
+        log::info!("[workspace] diff layout preference: {preference:?}");
         cx.notify();
     }
 

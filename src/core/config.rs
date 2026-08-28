@@ -66,10 +66,27 @@ pub struct OpenTabConfig {
     pub path: String,
 }
 
+/// Layout used to render commit diffs.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub enum DiffLayoutPreference {
+    #[serde(rename = "inline")]
+    Inline,
+    #[serde(rename = "side-by-side")]
+    SideBySide,
+}
+
+impl Default for DiffLayoutPreference {
+    fn default() -> Self {
+        Self::Inline
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ViewSettings {
     pub show_untracked: bool,
     pub auto_follow: bool,
+    #[serde(default)]
+    pub diff_layout: DiffLayoutPreference,
 }
 
 impl Default for ViewSettings {
@@ -77,6 +94,7 @@ impl Default for ViewSettings {
         Self {
             show_untracked: true,
             auto_follow: true,
+            diff_layout: DiffLayoutPreference::Inline,
         }
     }
 }
@@ -411,6 +429,27 @@ mod tests {
             serde_json::from_str::<RawAppConfig>(json).unwrap(),
         );
         assert_eq!(config.theme, ThemePreference::GitHubDark);
+    }
+
+    #[test]
+    fn diff_layout_preference_round_trips() {
+        let json = r#"{"view":{"show_untracked":true,"auto_follow":true,"diff_layout":"side-by-side"}}"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(config.view.diff_layout, DiffLayoutPreference::SideBySide);
+
+        let serialized = serde_json::to_string(&AppConfig::default()).unwrap();
+        assert!(serialized.contains(r#""diff_layout":"inline""#));
+    }
+
+    #[test]
+    fn missing_diff_layout_defaults_to_inline() {
+        let json = r#"{"view":{"show_untracked":false,"auto_follow":true}}"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(config.view.diff_layout, DiffLayoutPreference::Inline);
     }
 
     #[test]

@@ -95,7 +95,7 @@ struct AllDiffDocument {
 impl EventEmitter<BottomPanelEvent> for BottomPanel {}
 
 impl BottomPanel {
-    pub fn new(locale: Locale) -> Self {
+    pub fn new(locale: Locale, diff_layout: DiffLayoutMode) -> Self {
         Self {
             locale,
             commit: None,
@@ -107,10 +107,22 @@ impl BottomPanel {
             all_diffs: Vec::new(),
             show_all_files: false,
             all_diff_loading: false,
-            diff_layout: DiffLayoutMode::Inline,
+            diff_layout,
             diff_loading: false,
             content_width: f32::INFINITY,
             file_list_ratio: 0.4,
+        }
+    }
+
+    /// Apply the persisted diff layout chosen in the settings overlay.
+    pub fn set_diff_layout(
+        &mut self,
+        diff_layout: DiffLayoutMode,
+        cx: &mut Context<Self>,
+    ) {
+        if self.diff_layout != diff_layout {
+            self.diff_layout = diff_layout;
+            cx.notify();
         }
     }
 
@@ -746,81 +758,6 @@ impl Render for BottomPanel {
             window_width
         };
         let diff_width = panel_width * (1.0 - self.file_list_ratio);
-        let has_diff_content = if self.show_all_files {
-            self.all_diffs.iter().any(|entry| {
-                !entry.document.binary && !entry.document.rows.is_empty()
-            })
-        } else {
-            self.diff.as_ref().is_some_and(|document| {
-                !document.binary && !document.rows.is_empty()
-            })
-        };
-        let show_layout_controls = diff_width >= 900. && has_diff_content;
-        let layout_controls = {
-            let inline = cx.entity();
-            let side_by_side = inline.clone();
-            h_flex()
-                .gap_1()
-                .items_center()
-                .child(
-                    div()
-                        .id("diff-layout-inline")
-                        .px_1()
-                        .rounded_sm()
-                        .bg(if self.diff_layout == DiffLayoutMode::Inline {
-                            colors.list_active
-                        } else {
-                            colors.background
-                        })
-                        .text_color(
-                            if self.diff_layout == DiffLayoutMode::Inline {
-                                colors.foreground
-                            } else {
-                                colors.muted_foreground
-                            },
-                        )
-                        .text_size(px(10.))
-                        .child(shared(i18n::text(
-                            self.locale,
-                            "diff-layout-inline",
-                        )))
-                        .on_click(move |_event, _window, cx| {
-                            inline.update(cx, |panel, cx| {
-                                panel.diff_layout = DiffLayoutMode::Inline;
-                                cx.notify();
-                            });
-                        }),
-                )
-                .child(
-                    div()
-                        .id("diff-layout-side-by-side")
-                        .px_1()
-                        .rounded_sm()
-                        .bg(if self.diff_layout == DiffLayoutMode::SideBySide {
-                            colors.list_active
-                        } else {
-                            colors.background
-                        })
-                        .text_color(
-                            if self.diff_layout == DiffLayoutMode::SideBySide {
-                                colors.foreground
-                            } else {
-                                colors.muted_foreground
-                            },
-                        )
-                        .text_size(px(10.))
-                        .child(shared(i18n::text(
-                            self.locale,
-                            "diff-layout-side-by-side",
-                        )))
-                        .on_click(move |_event, _window, cx| {
-                            side_by_side.update(cx, |panel, cx| {
-                                panel.diff_layout = DiffLayoutMode::SideBySide;
-                                cx.notify();
-                            });
-                        }),
-                )
-        };
         let header = h_flex()
             .id("bottom-header")
             .w_full()
@@ -851,8 +788,7 @@ impl Render for BottomPanel {
                     .truncate()
                     .child(shared(subject.clone())),
             )
-            .child(stat_bar(&colors, total_add, total_del))
-            .when(show_layout_controls, |header| header.child(layout_controls));
+            .child(stat_bar(&colors, total_add, total_del));
 
         let resize_entity = cx.entity();
         v_flex()

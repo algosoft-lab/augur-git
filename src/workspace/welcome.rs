@@ -6,7 +6,9 @@ use gpui_component::{
     h_flex, v_flex,
 };
 
-use crate::core::config::{LanguagePreference, ThemePreference};
+use crate::core::config::{
+    DiffLayoutPreference, LanguagePreference, ThemePreference,
+};
 use crate::core::i18n;
 use crate::git::shared;
 
@@ -148,6 +150,7 @@ pub(super) fn render_settings_overlay(
     let locale = workspace.locale;
     let current = workspace.language_preference;
     let current_theme = workspace.theme_preference;
+    let current_layout = workspace.diff_layout;
 
     let lang_btn = |id: &'static str,
                     key: &str,
@@ -176,6 +179,21 @@ pub(super) fn render_settings_overlay(
             .when(pref != current_theme, |b| b.ghost())
             .on_click(move |_e, _w, cx| {
                 this.update(cx, |ws, cx| ws.set_theme(pref, cx));
+            })
+    };
+
+    let layout_btn = |id: &'static str,
+                      key: &str,
+                      pref: DiffLayoutPreference,
+                      cx: &Context<Workspace>| {
+        let this = cx.entity();
+        Button::new(id)
+            .label(i18n::text(locale, key))
+            .flex_1()
+            .when(pref == current_layout, |b| b.primary())
+            .when(pref != current_layout, |b| b.ghost())
+            .on_click(move |_e, _w, cx| {
+                this.update(cx, |ws, cx| ws.set_diff_layout(pref, cx));
             })
     };
 
@@ -312,6 +330,38 @@ pub(super) fn render_settings_overlay(
                                     "theme-catppuccin-latte",
                                     "theme-catppuccin-latte",
                                     ThemePreference::CatppuccinLatte,
+                                    cx,
+                                )),
+                        ),
+                )
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(colors.foreground)
+                                .child(shared(i18n::text(
+                                    locale,
+                                    "diff-layout-title",
+                                ))),
+                        )
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .gap_2()
+                                .child(layout_btn(
+                                    "diff-layout-inline",
+                                    "diff-layout-inline",
+                                    DiffLayoutPreference::Inline,
+                                    cx,
+                                ))
+                                .child(layout_btn(
+                                    "diff-layout-side-by-side",
+                                    "diff-layout-side-by-side",
+                                    DiffLayoutPreference::SideBySide,
                                     cx,
                                 )),
                         ),
