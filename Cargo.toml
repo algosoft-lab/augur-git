@@ -6,17 +6,6 @@ edition = "2024"
 description = "Git GUI client (Git 图形客户端) built with GPUI"
 
 [dependencies]
-gpui = { git = "https://github.com/zed-industries/zed" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = [
-    "font-kit",
-    "wayland",
-    "x11",
-] }
-gpui-component = {
-    git = "https://github.com/longbridge/gpui-component",
-    features = ["tree-sitter-languages"],
-}
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 similar = { version = "3", features = ["inline"] }
 log = "0.4"
 env_logger = "0.11"
@@ -26,6 +15,24 @@ serde_json = "1"
 sys-locale = "0.3"
 chrono = "0.4"
 dirs = "6"
+
+[dependencies.gpui]
+git = "https://github.com/zed-industries/zed"
+
+[dependencies.gpui_platform]
+git = "https://github.com/zed-industries/zed"
+features = [
+    "font-kit",
+    "wayland",
+    "x11",
+]
+
+[dependencies.gpui-component]
+git = "https://github.com/longbridge/gpui-component"
+features = ["tree-sitter-languages"]
+
+[dependencies.gpui-component-assets]
+git = "https://github.com/longbridge/gpui-component"
 
 [build-dependencies]
 winres = "0.1"
