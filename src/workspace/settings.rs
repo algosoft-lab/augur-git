@@ -5,7 +5,7 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     h_flex,
     scroll::ScrollableElement,
-    searchable_list::SearchableListItem,
+    searchable_list::{SearchableListItem, SearchableVec},
     select::{Select, SelectEvent, SelectState},
     v_flex,
 };
@@ -74,8 +74,10 @@ pub struct SettingsPanel {
     theme_state: Entity<SelectState<Vec<SettingsOption<ThemePreference>>>>,
     diff_layout_state:
         Entity<SelectState<Vec<SettingsOption<DiffLayoutPreference>>>>,
-    ui_font_state: Entity<SelectState<Vec<SettingsOption<Option<String>>>>>,
-    mono_font_state: Entity<SelectState<Vec<SettingsOption<Option<String>>>>>,
+    ui_font_state:
+        Entity<SelectState<SearchableVec<SettingsOption<Option<String>>>>>,
+    mono_font_state:
+        Entity<SelectState<SearchableVec<SettingsOption<Option<String>>>>>,
 }
 
 impl EventEmitter<SettingsPanelEvent> for SettingsPanel {}
@@ -121,7 +123,7 @@ impl SettingsPanel {
         let ui_font_state = cx.new(|cx| {
             let options = font_options(locale, &font_families);
             SelectState::new(
-                options.clone(),
+                SearchableVec::from(options.clone()),
                 selected_index(&options, &ui_font),
                 window,
                 cx,
@@ -131,7 +133,7 @@ impl SettingsPanel {
         let mono_font_state = cx.new(|cx| {
             let options = font_options(locale, &font_families);
             SelectState::new(
-                options.clone(),
+                SearchableVec::from(options.clone()),
                 selected_index(&options, &mono_font),
                 window,
                 cx,
@@ -239,12 +241,12 @@ impl SettingsPanel {
         });
         self.ui_font_state.update(cx, |state, cx| {
             let options = font_options(locale, &fonts);
-            state.set_items(options, window, cx);
+            state.set_items(SearchableVec::from(options), window, cx);
             state.set_selected_value(&ui_font, window, cx);
         });
         self.mono_font_state.update(cx, |state, cx| {
             let options = font_options(locale, &fonts);
-            state.set_items(options, window, cx);
+            state.set_items(SearchableVec::from(options), window, cx);
             state.set_selected_value(&mono_font, window, cx);
         });
         cx.notify();
