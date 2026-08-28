@@ -57,6 +57,12 @@ Building requires a recent stable Rust toolchain (edition 2024).
   directory; release builds do not write a log file. `RUST_LOG` can optionally
   override the log level.
 
+### Packaging
+
+Native packaging scripts for Windows, macOS, and Linux are documented in
+[`packaging/README.md`](packaging/README.md). They create an Inno Setup
+installer, a macOS `.app` and `.dmg`, or a Linux AppImage respectively.
+
 ## Architecture
 
 Dependencies flow from UI and rendering toward application state and domain
