@@ -19,7 +19,8 @@ use gpui::{Context, EventEmitter, SharedString, Task};
 
 use crate::core::diff::FileChange;
 use crate::core::git::{
-    self, BranchInfo, CheckoutTarget, FileStatus, GitError, GitEvent, RefsInfo,
+    self, BranchInfo, CheckoutTarget, CommitMessage, FileStatus, GitError,
+    GitEvent, RefsInfo,
 };
 use crate::core::graph::LogRow;
 use crate::core::i18n::{self, Locale};
@@ -41,6 +42,8 @@ pub enum GitUiEvent {
     RefsChanged(RefsInfo),
     /// 选中提交的逐文件增删统计快照
     CommitFilesChanged { oid: String, files: Vec<FileChange> },
+    /// 选中提交的完整提交信息快照（详情面板正文/co-author）
+    CommitMessageChanged { oid: String, message: CommitMessage },
     /// Structured selected-file commit diff.
     FileDiffChanged {
         oid: String,
@@ -230,6 +233,13 @@ impl GitView {
         }
     }
 
+    /// 查询选中提交的完整提交信息（详情面板正文/co-author）
+    pub fn commit_message(&self, oid: String) {
+        if let Some(handle) = &self.handle {
+            handle.commit_message(oid);
+        }
+    }
+
     /// 查询选中提交内单文件 diff（底部面板右栏）
     pub fn file_diff(&self, oid: String, file: FileChange) {
         if let Some(handle) = &self.handle {
@@ -315,6 +325,14 @@ impl GitView {
                         files.len()
                     );
                     cx.emit(GitUiEvent::CommitFilesChanged { oid, files });
+                }
+                GitEvent::CommitMessage { oid, message } => {
+                    log::info!(
+                        "[git_view] commit message received: oid={oid}, body_lines={}, co_authors={}",
+                        message.body.lines().count(),
+                        message.co_authors.len()
+                    );
+                    cx.emit(GitUiEvent::CommitMessageChanged { oid, message });
                 }
                 GitEvent::CommitFileDiff {
                     oid,

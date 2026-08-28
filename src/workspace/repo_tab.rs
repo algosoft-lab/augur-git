@@ -200,11 +200,13 @@ impl RepoTab {
                 tab.detail.update(cx, |detail, cx| {
                     detail.set_content(
                         DetailContent::Commit {
+                            oid: oid.clone(),
                             short: short.clone(),
                             subject: subject.clone(),
                             author: author.clone(),
                             date: date.clone(),
                             decorations: decorations.clone(),
+                            message: None,
                         },
                         cx,
                     )
@@ -214,6 +216,7 @@ impl RepoTab {
                 });
                 tab.git_view.update(cx, |view, _| {
                     view.commit_files(oid.clone());
+                    view.commit_message(oid.clone());
                 });
             }
             GraphEvent::CheckoutRef(target) => {
@@ -317,6 +320,11 @@ impl RepoTab {
             GitUiEvent::CommitFilesChanged { oid, files } => {
                 tab.bottom.update(cx, |bottom, cx| {
                     bottom.set_files(oid, files.clone(), cx);
+                });
+            }
+            GitUiEvent::CommitMessageChanged { oid, message } => {
+                tab.detail.update(cx, |detail, cx| {
+                    detail.set_commit_message(&oid, message.clone(), cx);
                 });
             }
             GitUiEvent::FileDiffChanged {

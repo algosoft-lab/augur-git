@@ -13,6 +13,7 @@ use gpui_component::{
     v_flex,
 };
 
+use crate::core::git::CommitMessage;
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
 
@@ -58,11 +59,14 @@ pub enum DetailContent {
     #[default]
     Empty,
     Commit {
+        oid: String,
         short: String,
         subject: String,
         author: String,
         date: String,
         decorations: String,
+        /// 完整提交信息（异步回填；加载前只有 subject）
+        message: Option<CommitMessage>,
     },
     File {
         path: String,
@@ -108,6 +112,26 @@ impl DetailPanel {
     ) {
         self.content = content;
         cx.notify();
+    }
+
+    /// 回填选中提交的完整提交信息（oid 不匹配当前详情时忽略迟到事件）
+    pub fn set_commit_message(
+        &mut self,
+        oid: &str,
+        message: CommitMessage,
+        cx: &mut Context<Self>,
+    ) {
+        if let DetailContent::Commit {
+            oid: current,
+            message: slot,
+            ..
+        } = &mut self.content
+        {
+            if current == oid && slot.as_ref() != Some(&message) {
+                *slot = Some(message);
+                cx.notify();
+            }
+        }
     }
 
     /// tab（key 为稳定 i18n 键作 id；title 为本地化文本）
@@ -201,11 +225,13 @@ impl Render for DetailPanel {
                     self.empty_view(&colors).into_any_element()
                 }
                 DetailContent::Commit {
+                    oid: _,
                     short,
                     subject,
                     author,
                     date,
                     decorations,
+                    message,
                 } => self
                     .commit_view(
                         &colors,
@@ -215,6 +241,7 @@ impl Render for DetailPanel {
                         author,
                         date,
                         decorations,
+                        message.as_ref(),
                     )
                     .into_any_element(),
                 DetailContent::File { path, staged, code } => self
@@ -243,10 +270,14 @@ impl DetailPanel {
         author: &str,
         date: &str,
         decorations: &str,
+        message: Option<&CommitMessage>,
     ) -> impl IntoElement {
-        v_flex()
+        let mut view = v_flex()
             .id("detail-commit")
             .w_full()
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
             .gap_2()
             .p_3()
             .child(
@@ -277,31 +308,67 @@ impl DetailPanel {
                     .text_size(px(13.))
                     .text_color(colors.foreground)
                     .child(shared(subject)),
-            )
-            .child(
-                h_flex()
-                    .gap_3()
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(colors.muted_foreground)
-                            .child(shared(i18n::text_args(
-                                self.locale,
-                                "detail-author",
-                                &[("author", author)],
-                            ))),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(colors.muted_foreground)
-                            .child(shared(i18n::text_args(
-                                self.locale,
-                                "detail-date",
-                                &[("date", date)],
-                            ))),
-                    ),
-            )
+            );
+
+        // 完整提交信息正文 + co-author（worker 异步回填后展示）
+        if let Some(message) = message {
+            if !message.body.is_empty() {
+                view = view.child(
+                    div()
+                        .w_full()
+                        .text_size(px(12.))
+                        .text_color(colors.foreground)
+                        .child(shared(message.body.clone())),
+                );
+            }
+            if !message.co_authors.is_empty() {
+                view = view.child(
+                    v_flex()
+                        .w_full()
+                        .gap_0p5()
+                        .child(
+                            div()
+                                .text_size(px(11.))
+                                .text_color(colors.muted_foreground)
+                                .child(shared(i18n::text(
+                                    self.locale,
+                                    "detail-coauthors",
+                                ))),
+                        )
+                        .children(message.co_authors.iter().map(|co_author| {
+                            div()
+                                .text_size(px(11.))
+                                .text_color(colors.foreground)
+                                .child(shared(co_author.display()))
+                        })),
+                );
+            }
+        }
+
+        view.child(
+            h_flex()
+                .gap_3()
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text_args(
+                            self.locale,
+                            "detail-author",
+                            &[("author", author)],
+                        ))),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text_args(
+                            self.locale,
+                            "detail-date",
+                            &[("date", date)],
+                        ))),
+                ),
+        )
     }
 
     fn file_view(

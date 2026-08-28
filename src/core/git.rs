@@ -54,6 +54,35 @@ impl GitError {
     }
 }
 
+/// Co-author trailer parsed from a commit message body
+/// (`Co-authored-by: Name <email>`)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CoAuthor {
+    pub name: String,
+    /// Empty when the trailer carries no `<email>` part
+    pub email: String,
+}
+
+impl CoAuthor {
+    /// Display form ("Name <email>" or just "Name")
+    pub fn display(&self) -> String {
+        if self.email.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{} <{}>", self.name, self.email)
+        }
+    }
+}
+
+/// Full commit message (`git show -s --format=%B` parse product)
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CommitMessage {
+    pub subject: String,
+    /// Message body after the subject with `Co-authored-by:` trailers removed
+    pub body: String,
+    pub co_authors: Vec<CoAuthor>,
+}
+
 /// 引用快照（remote / 远程分支 / 标签 / stash 清单，侧栏分区显示）
 #[derive(Clone, Debug, Default)]
 pub struct RefsInfo {
@@ -86,6 +115,8 @@ pub enum GitEvent {
     Refs(RefsInfo),
     /// 提交的逐文件增删统计（git show --numstat，选中提交时查询）
     CommitFiles { oid: String, files: Vec<FileChange> },
+    /// 选中提交的完整提交信息（git show -s --format=%B，选中提交时查询）
+    CommitMessage { oid: String, message: CommitMessage },
     /// Structured single-file commit diff payload.
     CommitFileDiff {
         oid: String,
@@ -156,6 +187,8 @@ pub enum GitCommand {
     Run { label: String, args: Vec<String> },
     /// 查询提交的逐文件增删统计（git show --numstat）
     CommitNumstat { oid: String },
+    /// 查询提交的完整提交信息（git show -s --format=%B）
+    CommitMessage { oid: String },
     /// Query a structured single-file commit diff.
     CommitFileDiff { oid: String, file: FileChange },
     /// 关闭工作线程
@@ -194,6 +227,11 @@ impl GitHandle {
     /// 查询提交的逐文件增删统计
     pub fn commit_numstat(&self, oid: String) {
         let _ = self.cmd_tx.send(GitCommand::CommitNumstat { oid });
+    }
+
+    /// 查询提交的完整提交信息
+    pub fn commit_message(&self, oid: String) {
+        let _ = self.cmd_tx.send(GitCommand::CommitMessage { oid });
     }
 
     /// Query a structured single-file commit diff.
@@ -247,6 +285,9 @@ fn worker_loop(
             }
             Ok(GitCommand::CommitNumstat { oid }) => {
                 run_numstat(&repo_path, &oid, &event_tx);
+            }
+            Ok(GitCommand::CommitMessage { oid }) => {
+                run_commit_message(&repo_path, &oid, &event_tx);
             }
             Ok(GitCommand::CommitFileDiff { oid, file }) => {
                 run_file_diff(&repo_path, &oid, &file, &event_tx);
@@ -434,6 +475,95 @@ fn is_merge_commit_parent_line(text: &str) -> bool {
     text.lines()
         .next()
         .is_some_and(|line| line.split_whitespace().count() > 2)
+}
+
+/// 查询选中提交的完整提交信息（详情面板正文 + co-author）
+fn run_commit_message(repo_path: &str, oid: &str, event_tx: &Sender<GitEvent>) {
+    let output = git_command()
+        .args([
+            "--no-pager",
+            "-C",
+            repo_path,
+            "show",
+            "-s",
+            "--no-color",
+            "--format=%B",
+            oid,
+        ])
+        .output();
+    match output {
+        Ok(output) if output.status.success() => {
+            let message =
+                parse_commit_message(&String::from_utf8_lossy(&output.stdout));
+            log::debug!(
+                "[git_commit_message] loaded commit message: oid={}, body_lines={}, co_authors={}",
+                oid,
+                message.body.lines().count(),
+                message.co_authors.len()
+            );
+            let _ = event_tx.send(GitEvent::CommitMessage {
+                oid: oid.to_string(),
+                message,
+            });
+        }
+        Ok(output) => {
+            let detail = String::from_utf8_lossy(&output.stderr);
+            let _ = event_tx.send(GitEvent::Error(GitError::new(
+                "err-commit-message",
+                detail,
+            )));
+        }
+        Err(e) => {
+            let _ = event_tx.send(GitEvent::Error(GitError::new(
+                "err-git-run",
+                e.to_string(),
+            )));
+        }
+    }
+}
+
+/// 解析 `git show -s --format=%B` 的原始提交信息
+///
+/// 首行为 subject，其余为 body；`Co-authored-by:` trailer 行（大小写不敏感）
+/// 从 body 剥离并收集进 `co_authors`，其余行原样保留。
+pub fn parse_commit_message(text: &str) -> CommitMessage {
+    let text = text.trim_matches(['\n', '\r']);
+    let mut lines = text.split('\n');
+    let subject = lines.next().unwrap_or("").trim_end().to_string();
+    let mut body_lines = Vec::new();
+    let mut co_authors = Vec::new();
+    for line in lines {
+        match parse_co_author_line(line) {
+            Some(co_author) => co_authors.push(co_author),
+            None => body_lines.push(line),
+        }
+    }
+    CommitMessage {
+        subject,
+        body: body_lines.join("\n").trim().to_string(),
+        co_authors,
+    }
+}
+
+/// 识别一行 `Co-authored-by: Name <email>` trailer（大小写不敏感）
+fn parse_co_author_line(line: &str) -> Option<CoAuthor> {
+    let (token, value) = line.trim().split_once(':')?;
+    if !token.trim().eq_ignore_ascii_case("co-authored-by") {
+        return None;
+    }
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    // "Name <email>"；缺 `<email>` 时整个值视作名字
+    let (name, email) = match value.split_once('<') {
+        Some((name, rest)) => (
+            name.trim().to_string(),
+            rest.trim_end_matches('>').trim().to_string(),
+        ),
+        None => (value.to_string(), String::new()),
+    };
+    Some(CoAuthor { name, email })
 }
 
 const MAX_BLOB_SIZE: usize = 10 * 1024 * 1024;
@@ -992,5 +1122,54 @@ mod tests {
         assert_eq!(lines[0].kind, DiffLineKind::Meta);
         assert_eq!(lines[1].kind, DiffLineKind::Meta);
         assert_eq!(lines[1].old_no, None);
+    }
+
+    #[test]
+    fn parse_commit_message_splits_subject_body_co_authors() {
+        let text = "feat(ui): add detail view\n\nLonger description\nspanning lines.\n\nCo-authored-by: Alice <alice@example.com>\nco-authored-by: Bob\nSigned-off-by: Carol <carl@example.com>\n";
+        let message = parse_commit_message(text);
+        assert_eq!(message.subject, "feat(ui): add detail view");
+        assert_eq!(
+            message.body,
+            "Longer description\nspanning lines.\n\nSigned-off-by: Carol <carl@example.com>"
+        );
+        assert_eq!(
+            message.co_authors,
+            vec![
+                CoAuthor {
+                    name: "Alice".into(),
+                    email: "alice@example.com".into()
+                },
+                CoAuthor {
+                    name: "Bob".into(),
+                    email: String::new()
+                },
+            ]
+        );
+        // 非 co-author trailer（如 Signed-off-by）保留在 body
+        assert!(message.body.contains("Signed-off-by"));
+        assert_eq!(
+            message.co_authors[0].display(),
+            "Alice <alice@example.com>"
+        );
+        assert_eq!(message.co_authors[1].display(), "Bob");
+    }
+
+    #[test]
+    fn parse_commit_message_subject_only_trims_trailing_newlines() {
+        let message = parse_commit_message("just subject\n\n\n");
+        assert_eq!(message.subject, "just subject");
+        assert!(message.body.is_empty());
+        assert!(message.co_authors.is_empty());
+    }
+
+    #[test]
+    fn parse_commit_message_empty_and_blank_co_author_values() {
+        assert_eq!(parse_commit_message(""), CommitMessage::default());
+        // 畸形（空值）trailer 不计入 co_authors，行原样保留在 body
+        let message = parse_commit_message("s\n\nCo-authored-by:\nreal note\n");
+        assert!(message.co_authors.is_empty());
+        assert!(message.body.contains("Co-authored-by:"));
+        assert!(message.body.contains("real note"));
     }
 }
