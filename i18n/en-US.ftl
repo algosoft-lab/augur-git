@@ -5,9 +5,7 @@
 # ===== App / Welcome =====
 app-tagline = Desktop Git client
 welcome-open = Open
-welcome-browse = Browse…
 recent-repos = Recent repositories
-repo-path-placeholder = Repository path, e.g. D:\repo
 repo-folder-prompt = Choose a Git repository folder
 
 # ===== Application menu / About =====

@@ -3,9 +3,7 @@ use gpui::*;
 use gpui_component::{
     ActiveTheme, Icon, IconName,
     button::{Button, ButtonVariants},
-    h_flex,
-    input::Input,
-    v_flex,
+    h_flex, v_flex,
 };
 
 use crate::core::config::{LanguagePreference, ThemePreference};
@@ -22,11 +20,11 @@ pub(super) fn render_welcome(
 ) -> impl IntoElement {
     let colors = cx.theme().colors.clone();
 
-    // Open button reads the shared repository-path input.
+    // Open button picks a repository folder and loads it directly.
     let btn_open = cx.entity();
     let open_btn = div()
         .id("welcome-open")
-        .px_3()
+        .px_4()
         .py_1()
         .rounded_md()
         .bg(colors.blue)
@@ -35,23 +33,6 @@ pub(super) fn render_welcome(
         .child(shared(i18n::text(workspace.locale, "welcome-open")))
         .on_click(move |_event, window, cx| {
             btn_open.update(cx, |ws, cx| {
-                ws.open_repo_from_input(window, cx);
-            });
-        });
-
-    // Browse button opens the system folder picker.
-    let btn_browse = cx.entity();
-    let browse_btn = div()
-        .id("welcome-browse")
-        .px_3()
-        .py_1()
-        .rounded_md()
-        .bg(colors.input)
-        .text_color(colors.foreground)
-        .text_size(px(12.))
-        .child(shared(i18n::text(workspace.locale, "welcome-browse")))
-        .on_click(move |_event, window, cx| {
-            btn_browse.update(cx, |ws, cx| {
                 ws.pick_repo_folder(window, cx);
             });
         });
@@ -135,15 +116,8 @@ pub(super) fn render_welcome(
                 .text_color(colors.muted_foreground)
                 .child(shared(i18n::text(workspace.locale, "app-tagline"))),
         )
-        // Path input row: input field, open button, and browse button.
-        .child(
-            h_flex()
-                .w(px(380.))
-                .gap_2()
-                .child(Input::new(&workspace.repo_path_input).flex_1())
-                .child(open_btn)
-                .child(browse_btn),
-        )
+        // Single action: pick a repository folder and open it.
+        .child(open_btn)
         .when(!recents.is_empty(), |w| {
             w.child(
                 v_flex()

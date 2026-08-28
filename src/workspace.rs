@@ -15,7 +15,6 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
     ActiveTheme, InteractiveElementExt, Root, TitleBar, h_flex,
-    input::{InputEvent, InputState},
     theme::{Theme, ThemeMode},
     v_flex,
 };
@@ -110,7 +109,6 @@ pub struct Workspace {
     next_tab_id: TabId,
     tab_bar: Entity<RepoTabBar>,
     app_menu: Entity<AppMenu>,
-    repo_path_input: Entity<InputState>,
     config: AppConfig,
     language_preference: LanguagePreference,
     /// UI theme preference (settings overlay; source of truth is config.theme)
@@ -135,30 +133,6 @@ impl Workspace {
         let tab_bar = cx.new(|_cx| RepoTabBar::new());
         let app_menu =
             cx.new(|_cx| AppMenu::new(locale, config.recent_repos.clone()));
-        let input_default = config.active_tab_path.clone().unwrap_or_default();
-        let repo_path_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder(i18n::text(locale, "repo-path-placeholder"))
-                .default_value(input_default)
-        });
-
-        let input = repo_path_input.clone();
-        cx.subscribe_in(
-            &input,
-            window,
-            |workspace, _input, event, window, cx| {
-                if matches!(
-                    event,
-                    InputEvent::PressEnter {
-                        secondary: false,
-                        ..
-                    }
-                ) {
-                    workspace.open_repo_from_input(window, cx);
-                }
-            },
-        )
-        .detach();
 
         let app_menu_for_events = app_menu.clone();
         cx.subscribe_in(
@@ -194,7 +168,6 @@ impl Workspace {
             next_tab_id: 1,
             tab_bar,
             app_menu,
-            repo_path_input,
             config,
             language_preference,
             theme_preference,
@@ -460,13 +433,6 @@ impl Workspace {
                 tab.set_locale(locale, window, cx);
             });
         }
-        self.repo_path_input.update(cx, |input, cx| {
-            input.set_placeholder(
-                i18n::text(locale, "repo-path-placeholder"),
-                window,
-                cx,
-            );
-        });
         self.config.language = preference;
         self.config_saver.schedule(&self.config);
         self.refresh_app_menu(cx);
@@ -608,17 +574,6 @@ impl Workspace {
     ) {
         log::info!("[app_menu] open about action");
         self.open_about(cx);
-    }
-
-    fn open_repo_from_input(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let path = self.repo_path_input.read(cx).value().trim().to_string();
-        if !path.is_empty() {
-            self.open_repo_path(path, false, window, cx);
-        }
     }
 
     fn open_repo_path(
