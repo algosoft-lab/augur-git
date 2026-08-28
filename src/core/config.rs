@@ -22,6 +22,42 @@ impl Default for LanguagePreference {
     }
 }
 
+/// User-selected UI theme. String values are stable config keys; the mapping
+/// to registered theme names lives in `registry_name`.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub enum ThemePreference {
+    #[serde(rename = "github-dark")]
+    GitHubDark,
+    #[serde(rename = "catppuccin-latte")]
+    CatppuccinLatte,
+    #[serde(rename = "catppuccin-frappe")]
+    CatppuccinFrappe,
+    #[serde(rename = "catppuccin-macchiato")]
+    CatppuccinMacchiato,
+    #[serde(rename = "catppuccin-mocha")]
+    CatppuccinMocha,
+}
+
+impl Default for ThemePreference {
+    fn default() -> Self {
+        Self::GitHubDark
+    }
+}
+
+impl ThemePreference {
+    /// Theme name registered in `assets/themes/augur-themes.json` (the
+    /// gpui-component theme registry key). Keep byte-identical with the JSON.
+    pub const fn registry_name(self) -> &'static str {
+        match self {
+            Self::GitHubDark => "GitHub Dark",
+            Self::CatppuccinLatte => "Catppuccin Latte",
+            Self::CatppuccinFrappe => "Catppuccin Frappé",
+            Self::CatppuccinMacchiato => "Catppuccin Macchiato",
+            Self::CatppuccinMocha => "Catppuccin Mocha",
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct OpenTabConfig {
     pub path: String,
@@ -44,6 +80,9 @@ impl Default for ViewSettings {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct AppConfig {
+    /// UI theme; missing field falls back to GitHub Dark (the original look).
+    #[serde(default)]
+    pub theme: ThemePreference,
     #[serde(default)]
     pub language: LanguagePreference,
     #[serde(default)]
@@ -90,6 +129,8 @@ impl AppConfig {
 #[derive(Deserialize, Default)]
 struct RawAppConfig {
     #[serde(default)]
+    theme: ThemePreference,
+    #[serde(default)]
     language: LanguagePreference,
     #[serde(default)]
     open_tabs: Vec<OpenTabConfig>,
@@ -112,6 +153,7 @@ struct LegacyRepoConfig {
 impl From<RawAppConfig> for AppConfig {
     fn from(raw: RawAppConfig) -> Self {
         let mut config = Self {
+            theme: raw.theme,
             language: raw.language,
             open_tabs: raw.open_tabs,
             active_tab_path: raw.active_tab_path,
@@ -258,5 +300,38 @@ mod tests {
             vec!["repo-a", "repo-b"]
         );
         assert_eq!(config.active_tab_path.as_deref(), Some("repo-a"));
+    }
+
+    #[test]
+    fn theme_preference_round_trips() {
+        let json = r#"{"theme":"catppuccin-latte"}"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(config.theme, ThemePreference::CatppuccinLatte);
+        assert_eq!(config.theme.registry_name(), "Catppuccin Latte");
+
+        let serialized = serde_json::to_string(&AppConfig::default()).unwrap();
+        assert!(serialized.contains(r#""theme":"github-dark""#));
+    }
+
+    #[test]
+    fn missing_theme_field_defaults_to_github_dark() {
+        let json = r#"{}"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(config.theme, ThemePreference::GitHubDark);
+    }
+
+    #[test]
+    fn theme_survives_legacy_repo_migration() {
+        let json =
+            r#"{"theme":"catppuccin-mocha","repo":{"path":"D:\\repo-a"}}"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(config.theme, ThemePreference::CatppuccinMocha);
+        assert_eq!(config.open_tabs.len(), 1);
     }
 }
