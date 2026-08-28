@@ -188,6 +188,11 @@ mod tests {
             ("base.red", "#F85149"),
             ("warning.background", "#D29922"),
             ("drag.border", "#388BFD"),
+            // Without these, gpui-component falls back to a near-white
+            // primary background and the theme foreground, rendering
+            // primary buttons as white-on-white.
+            ("primary.background", "#2F81F7"),
+            ("primary.foreground", "#FFFFFF"),
         ];
         assert_eq!(
             colors.len(),
