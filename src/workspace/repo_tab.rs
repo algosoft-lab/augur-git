@@ -1,13 +1,12 @@
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::{
-    ActiveTheme, Icon, IconName,
-    button::{Button, ButtonVariants},
-    h_flex, v_flex,
-};
+use gpui_component::{ActiveTheme, h_flex, v_flex};
 
 use crate::core::config::LayoutSettings;
-use crate::core::git::{CheckoutTarget, WorkingTreeDiffKind};
+use crate::core::git::{
+    CheckoutTarget, WorkingTreeAction, WorkingTreeDiffKind, WorkingTreeScope,
+    WorkingTreeScopeKind,
+};
 use crate::core::i18n::{self, Locale};
 use crate::git::changes_panel::{ChangesPanel, ChangesPanelEvent};
 use crate::git::diff_view::DiffLayoutMode;
@@ -17,10 +16,11 @@ use crate::git::panel::{
 };
 use crate::git::sidebar::{Sidebar, SidebarEvent};
 use crate::git::toolbar::{Toolbar, ToolbarEvent};
-use crate::git::{GitStatus, GitUiEvent, GitView, shared};
+use crate::git::{GitStatus, GitUiEvent, GitView};
 
 use super::tabs::{TabId, TabState, TabSummary};
 
+mod dialogs;
 mod layout;
 
 #[derive(Clone, Debug)]
@@ -29,6 +29,15 @@ pub enum RepoTabEvent {
     SummaryChanged(TabSummary),
     RequestSettings,
     LayoutChanged(LayoutSettings),
+}
+
+enum PendingConfirmation {
+    ForcePush,
+    Discard {
+        scope: WorkingTreeScope,
+        tracked_count: usize,
+        untracked_count: usize,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -87,9 +96,10 @@ pub struct RepoTab {
     status_message: Option<String>,
     status_message_ok: Option<bool>,
     working_diff_request_id: u64,
+    working_tree_operation_id: u64,
+    operation_busy: bool,
     layout: LayoutSettings,
-    /// Force-push confirmation dialog is open (run only on explicit confirm).
-    confirm_force_push: bool,
+    confirmation: Option<PendingConfirmation>,
     locale: Locale,
 }
 
@@ -141,47 +151,53 @@ impl RepoTab {
 
         cx.subscribe(&toolbar, |tab, _event, event, cx| match event {
             ToolbarEvent::Fetch => {
+                if tab.operation_busy {
+                    return;
+                }
                 tab.git_view.update(cx, |view, _| {
                     view.run(
                         "fetch --all",
                         vec!["fetch".into(), "--all".into()],
                     );
                 });
-                tab.toolbar.update(cx, |toolbar, cx| {
-                    toolbar.set_busy(true, cx);
-                });
+                tab.set_operation_busy(true, cx);
             }
             ToolbarEvent::PullMerge => {
+                if tab.operation_busy {
+                    return;
+                }
                 tab.git_view.update(cx, |view, _| {
                     view.run("pull", vec!["pull".into()]);
                 });
-                tab.toolbar.update(cx, |toolbar, cx| {
-                    toolbar.set_busy(true, cx);
-                });
+                tab.set_operation_busy(true, cx);
             }
             ToolbarEvent::PullRebase => {
+                if tab.operation_busy {
+                    return;
+                }
                 tab.git_view.update(cx, |view, _| {
                     view.run(
                         "pull --rebase",
                         vec!["pull".into(), "--rebase".into()],
                     );
                 });
-                tab.toolbar.update(cx, |toolbar, cx| {
-                    toolbar.set_busy(true, cx);
-                });
+                tab.set_operation_busy(true, cx);
             }
             ToolbarEvent::Push => {
+                if tab.operation_busy {
+                    return;
+                }
                 tab.git_view.update(cx, |view, _| {
                     view.run("push", vec!["push".into()]);
                 });
-                tab.toolbar.update(cx, |toolbar, cx| {
-                    toolbar.set_busy(true, cx);
-                });
+                tab.set_operation_busy(true, cx);
             }
             ToolbarEvent::PushForce => {
                 // Never run directly: open the confirmation dialog first.
-                tab.confirm_force_push = true;
-                cx.notify();
+                if !tab.operation_busy {
+                    tab.confirmation = Some(PendingConfirmation::ForcePush);
+                    cx.notify();
+                }
             }
             ToolbarEvent::Branch => {
                 tab.sidebar.update(cx, |sidebar, cx| {
@@ -189,7 +205,7 @@ impl RepoTab {
                 });
             }
             ToolbarEvent::Refresh => {
-                tab.git_view.update(cx, |view, _| view.refresh());
+                tab.refresh_repository(cx);
             }
             ToolbarEvent::Settings => {
                 cx.emit(RepoTabEvent::RequestSettings);
@@ -231,13 +247,14 @@ impl RepoTab {
 
         cx.subscribe(&commit, |tab, _event, event, cx| match event {
             CommitPanelEvent::Submit { message, amend } => {
+                if tab.operation_busy {
+                    return;
+                }
                 log::info!("[commit_panel] submit requested: amend={amend}");
                 tab.git_view.update(cx, |view, _| {
                     view.commit(message.clone(), *amend);
                 });
-                tab.toolbar.update(cx, |toolbar, cx| {
-                    toolbar.set_busy(true, cx);
-                });
+                tab.set_operation_busy(true, cx);
             }
         })
         .detach();
@@ -263,6 +280,22 @@ impl RepoTab {
                 tab.git_view.update(cx, |view, _| {
                     view.working_tree_file_diff(request_id, kind, file.clone());
                 });
+            }
+            ChangesPanelEvent::OperationRequested { action, scope } => {
+                if *action == WorkingTreeAction::Discard {
+                    tab.request_discard(scope.clone(), cx);
+                } else {
+                    tab.start_working_tree_operation(
+                        *action,
+                        scope.clone(),
+                        cx,
+                    );
+                }
+            }
+            ChangesPanelEvent::RefreshRequested => {
+                if !tab.operation_busy {
+                    tab.refresh_repository(cx);
+                }
             }
         })
         .detach();
@@ -316,7 +349,9 @@ impl RepoTab {
                     files.iter().filter(|file| file.has_staged_changes()).count();
                 let unstaged_count = files
                     .iter()
-                    .filter(|file| file.has_worktree_changes())
+                    .filter(|file| {
+                        file.is_conflicted() || file.has_worktree_changes()
+                    })
                     .count();
                 let ahead_text = ahead.to_string();
                 let behind_text = behind.to_string();
@@ -440,6 +475,33 @@ impl RepoTab {
                     );
                 });
             }
+            GitUiEvent::WorkingTreeOperationFinished {
+                request_id,
+                action,
+                scope,
+                success,
+                detail,
+            } => {
+                if *request_id != tab.working_tree_operation_id {
+                    log::debug!(
+                        "[git_worktree] ignoring stale operation result: request_id={request_id}"
+                    );
+                    return;
+                }
+                tab.set_operation_busy(false, cx);
+                let label_key = operation_result_key(*action, *scope, *success);
+                tab.status_message = Some(if *success {
+                    i18n::text(tab.locale, label_key)
+                } else {
+                    i18n::text_args(
+                        tab.locale,
+                        "changes-operation-failed",
+                        &[("error", first_line(detail))],
+                    )
+                });
+                tab.status_message_ok = Some(*success);
+                cx.notify();
+            }
             GitUiEvent::CommandDone {
                 label,
                 success,
@@ -451,9 +513,7 @@ impl RepoTab {
                     );
                 }
                 let copy_commit_message = label == "copy-commit-message";
-                tab.toolbar.update(cx, |toolbar, cx| {
-                    toolbar.set_busy(false, cx);
-                });
+                tab.set_operation_busy(false, cx);
                 if copy_commit_message {
                     if *success {
                         tab.finish_copy_commit_message(message, cx);
@@ -492,7 +552,7 @@ impl RepoTab {
                     });
                     tab.status_message_ok = Some(*success);
                     if *success && refresh_after {
-                        tab.git_view.update(cx, |view, _| view.refresh());
+                        tab.refresh_repository(cx);
                     }
                     cx.notify();
                 }
@@ -505,6 +565,12 @@ impl RepoTab {
                 tab.emit_summary(cx);
             }
             GitUiEvent::Error(message) => {
+                tab.set_operation_busy(false, cx);
+                tab.status = GitStatus::Error(message.clone());
+                tab.emit_summary(cx);
+                cx.notify();
+            }
+            GitUiEvent::StatusError(message) => {
                 tab.status = GitStatus::Error(message.clone());
                 tab.emit_summary(cx);
                 cx.notify();
@@ -528,10 +594,67 @@ impl RepoTab {
             status_message: None,
             status_message_ok: None,
             working_diff_request_id: 0,
+            working_tree_operation_id: 0,
+            operation_busy: false,
             layout,
-            confirm_force_push: false,
+            confirmation: None,
             locale,
         }
+    }
+
+    fn refresh_repository(&mut self, cx: &mut Context<Self>) {
+        let refresh_working_diff = self.bottom.read(cx).has_working_tree_diff();
+        self.changes.update(cx, |changes, _cx| {
+            changes.set_refresh_selected(refresh_working_diff);
+        });
+        self.git_view.update(cx, |view, _| view.refresh());
+    }
+
+    fn set_operation_busy(&mut self, busy: bool, cx: &mut Context<Self>) {
+        if self.operation_busy == busy {
+            return;
+        }
+        self.operation_busy = busy;
+        self.toolbar.update(cx, |toolbar, cx| {
+            toolbar.set_busy(busy, cx);
+        });
+        self.sidebar.update(cx, |sidebar, cx| {
+            sidebar.set_busy(busy, cx);
+        });
+        self.graph.update(cx, |graph, cx| {
+            graph.set_busy(busy, cx);
+        });
+        self.commit.update(cx, |commit, cx| {
+            commit.set_busy(busy, cx);
+        });
+        self.changes.update(cx, |changes, cx| {
+            changes.set_busy(busy, cx);
+        });
+    }
+
+    fn start_working_tree_operation(
+        &mut self,
+        action: WorkingTreeAction,
+        scope: WorkingTreeScope,
+        cx: &mut Context<Self>,
+    ) {
+        if self.operation_busy {
+            return;
+        }
+        self.working_tree_operation_id =
+            self.working_tree_operation_id.wrapping_add(1).max(1);
+        let request_id = self.working_tree_operation_id;
+        log::info!(
+            "[git_worktree] operation requested: request_id={}, action={}, scope={:?}",
+            request_id,
+            action.description(),
+            scope.kind()
+        );
+        self.set_operation_busy(true, cx);
+        self.git_view.update(cx, |view, _| {
+            view.working_tree_operation(request_id, action, scope);
+        });
+        cx.notify();
     }
 
     fn start_checkout(
@@ -539,29 +662,11 @@ impl RepoTab {
         target: CheckoutTarget,
         cx: &mut Context<Self>,
     ) {
-        self.git_view.update(cx, |view, _| view.checkout(target));
-        self.toolbar.update(cx, |toolbar, cx| {
-            toolbar.set_busy(true, cx);
-        });
-    }
-
-    /// Run the confirmed force push (`git push --force`).
-    fn start_force_push(&mut self, cx: &mut Context<Self>) {
-        self.confirm_force_push = false;
-        self.git_view.update(cx, |view, _| {
-            view.run("push --force", vec!["push".into(), "--force".into()]);
-        });
-        self.toolbar.update(cx, |toolbar, cx| {
-            toolbar.set_busy(true, cx);
-        });
-        cx.notify();
-    }
-
-    fn cancel_force_push(&mut self, cx: &mut Context<Self>) {
-        if self.confirm_force_push {
-            self.confirm_force_push = false;
-            cx.notify();
+        if self.operation_busy {
+            return;
         }
+        self.git_view.update(cx, |view, _| view.checkout(target));
+        self.set_operation_busy(true, cx);
     }
 
     fn copy_ref(&mut self, value: &str, cx: &mut Context<Self>) {
@@ -580,12 +685,13 @@ impl RepoTab {
         oid: String,
         cx: &mut Context<Self>,
     ) {
+        if self.operation_busy {
+            return;
+        }
         self.git_view.update(cx, |view, _| {
             view.copy_commit_message(oid);
         });
-        self.toolbar.update(cx, |toolbar, cx| {
-            toolbar.set_busy(true, cx);
-        });
+        self.set_operation_busy(true, cx);
     }
 
     fn finish_copy_commit_message(
@@ -761,108 +867,6 @@ impl RepoTab {
                     ),
             )
     }
-
-    /// Modal confirmation for the destructive force push (settings-overlay
-    /// pattern: full-cover backdrop with a card, backdrop click cancels).
-    fn force_push_confirm_overlay(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let colors = cx.theme().colors.clone();
-        let locale = self.locale;
-        let this = cx.entity();
-
-        let title_row = h_flex()
-            .items_center()
-            .gap_2()
-            .child(
-                div()
-                    .text_size(px(16.))
-                    .text_color(colors.red)
-                    .child(Icon::new(IconName::TriangleAlert)),
-            )
-            .child(
-                div()
-                    .text_size(px(14.))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(colors.foreground)
-                    .child(shared(i18n::text(locale, "push-force-title"))),
-            );
-
-        let cancel_btn = {
-            let this = this.clone();
-            Button::new("force-push-cancel")
-                .label(i18n::text(locale, "push-force-cancel"))
-                .ghost()
-                .flex_1()
-                .on_click(move |_e, _w, cx| {
-                    this.update(cx, |tab, cx| tab.cancel_force_push(cx));
-                })
-        };
-        let confirm_btn = Button::new("force-push-confirm")
-            .label(i18n::text(locale, "push-force-confirm"))
-            .danger()
-            .flex_1()
-            .on_click(move |_e, _w, cx| {
-                this.update(cx, |tab, cx| tab.start_force_push(cx));
-            });
-
-        v_flex()
-            .id("force-push-overlay")
-            .absolute()
-            .top_0()
-            .left_0()
-            .w_full()
-            .h_full()
-            .bg(colors.background.opacity(0.9))
-            .flex()
-            .items_center()
-            .justify_center()
-            // Clicking the backdrop cancels the force push.
-            .on_mouse_down(MouseButton::Left, {
-                let this = cx.entity();
-                move |_e, _w, cx| {
-                    this.update(cx, |tab, cx| tab.cancel_force_push(cx));
-                }
-            })
-            .child(
-                v_flex()
-                    .id("force-push-card")
-                    .items_start()
-                    .gap_3()
-                    .p_6()
-                    .bg(colors.background)
-                    .border_1()
-                    .border_color(colors.border)
-                    .rounded_lg()
-                    .min_w(px(380.))
-                    .max_w(px(460.))
-                    .when(cx.theme().shadow, |el| el.shadow_md())
-                    // Stop clicks inside the card from closing the overlay.
-                    .on_mouse_down(MouseButton::Left, |_, window, cx| {
-                        window.prevent_default();
-                        cx.stop_propagation();
-                    })
-                    .child(title_row)
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .text_color(colors.muted_foreground)
-                            .child(shared(i18n::text_args(
-                                locale,
-                                "push-force-warning",
-                                &[("branch", &self.branch)],
-                            ))),
-                    )
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .gap_2()
-                            .child(cancel_btn)
-                            .child(confirm_btn),
-                    ),
-            )
-    }
 }
 
 impl Render for RepoTab {
@@ -879,8 +883,8 @@ impl Render for RepoTab {
             .child(self.toolbar.clone())
             .child(self.main_content(window, cx))
             .child(self.status_bar(cx))
-            .when(self.confirm_force_push, |element| {
-                element.child(self.force_push_confirm_overlay(cx))
+            .when(self.confirmation.is_some(), |element| {
+                element.child(self.confirmation_overlay(cx))
             })
     }
 }
@@ -896,4 +900,32 @@ fn repo_title(path: &str) -> String {
 
 fn first_line(text: &str) -> &str {
     text.lines().next().unwrap_or("")
+}
+
+fn operation_result_key(
+    action: WorkingTreeAction,
+    scope: WorkingTreeScopeKind,
+    success: bool,
+) -> &'static str {
+    match (action, scope, success) {
+        (WorkingTreeAction::Stage, WorkingTreeScopeKind::File, true) => {
+            "changes-stage-success"
+        }
+        (WorkingTreeAction::Stage, WorkingTreeScopeKind::All, true) => {
+            "changes-stage-all-success"
+        }
+        (WorkingTreeAction::Unstage, WorkingTreeScopeKind::File, true) => {
+            "changes-unstage-success"
+        }
+        (WorkingTreeAction::Unstage, WorkingTreeScopeKind::All, true) => {
+            "changes-unstage-all-success"
+        }
+        (WorkingTreeAction::Discard, WorkingTreeScopeKind::File, true) => {
+            "changes-discard-success"
+        }
+        (WorkingTreeAction::Discard, WorkingTreeScopeKind::All, true) => {
+            "changes-discard-all-success"
+        }
+        (_, _, false) => "changes-operation-failed",
+    }
 }

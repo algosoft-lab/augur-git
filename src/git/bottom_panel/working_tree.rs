@@ -183,7 +183,7 @@ impl BottomPanel {
             let in_group = if staged {
                 file.has_staged_changes()
             } else {
-                file.has_worktree_changes()
+                file.is_conflicted() || file.has_worktree_changes()
             };
             in_group
                 && file.path == selected_path

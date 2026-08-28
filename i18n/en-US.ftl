@@ -88,6 +88,22 @@ section-staged = Staged
 section-changes = Changes
 changes-title = Working Tree
 changes-empty = No changes
+changes-refresh = Refresh changes
+changes-more = More changes actions
+changes-stage = Stage Changes
+changes-unstage = Unstage Changes
+changes-discard = Discard Changes
+changes-stage-all = Stage All Changes
+changes-unstage-all = Unstage All Changes
+changes-discard-all = Discard All Changes
+changes-action-conflict = Unavailable for conflicted files
+changes-stage-success = Changes staged
+changes-stage-all-success = All changes staged
+changes-unstage-success = Changes unstaged
+changes-unstage-all-success = All changes unstaged
+changes-discard-success = Changes discarded
+changes-discard-all-success = All changes discarded
+changes-operation-failed = Working-tree operation failed: { $error }
 status-mod = M
 status-add = A
 status-del = D
@@ -125,6 +141,14 @@ diff-working-tree-changes = Changes
 diff-working-tree-loading = Loading working-tree diff…
 diff-working-tree-error = Unable to load working-tree diff
 
+# ===== Destructive working-tree actions =====
+discard-title = Discard changes?
+discard-file-warning = Discard changes in { $path }? Staged changes will be kept. This action cannot be undone.
+discard-untracked-file-warning = Permanently delete untracked file { $path }? This action cannot be undone.
+discard-all-warning = Discard all working-tree changes? This keeps staged changes. Tracked files: { $tracked }, untracked files to permanently delete: { $untracked }. This action cannot be undone.
+discard-cancel = Cancel
+discard-confirm = Discard
+
 # ===== Settings panel =====
 settings-title = Settings
 settings-description = Application preferences
@@ -155,6 +179,8 @@ theme-catppuccin-mocha = Mocha
 err-path-not-exist = Path not found: { $detail }
 err-not-a-repo = Not a Git repository: { $detail }
 err-git-run = Failed to run git: { $detail }
+err-git-status = Failed to read Git status: { $detail }
+err-git-status-path = Git reported a path that cannot be handled safely: { $detail }
 err-git-log = git log failed: { $detail }
 err-numstat = git show --numstat failed: { $detail }
 err-file-diff = Failed to read file diff: { $detail }

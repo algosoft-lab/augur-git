@@ -8,8 +8,7 @@
 //!
 //! 输出解析全部为纯函数（可单测），解析规则见各函数注释。
 
-use std::fs;
-use std::path::{Component, Path};
+use std::path::Path;
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
@@ -27,10 +26,10 @@ pub use crate::core::diff::{
     DiffLine, DiffLineKind, FileChange, FileChangeStatus, parse_diff,
     stat_blocks,
 };
-use crate::core::diff::{
-    is_binary_patch, merge_numstat, parse_numstat, parse_raw_records,
-};
+use crate::core::diff::{merge_numstat, parse_numstat, parse_raw_records};
 use crate::core::graph::LogRow;
+
+mod working_tree;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -152,6 +151,16 @@ pub enum GitEvent {
         file: FileStatus,
         detail: String,
     },
+    /// A staged/working-tree mutation completed without stopping the worker.
+    WorkingTreeOperationFinished {
+        request_id: u64,
+        action: WorkingTreeAction,
+        scope: WorkingTreeScopeKind,
+        success: bool,
+        detail: String,
+    },
+    /// Status parsing or execution failed, but the worker can continue.
+    StatusError(GitError),
     /// 通用命令执行结果（fetch/pull/push/commit/show…）
     CommandDone {
         label: String,
@@ -195,6 +204,14 @@ impl FileStatus {
         self.worktree != ' '
     }
 
+    /// Whether Git reports an unmerged index/worktree entry.
+    pub fn is_conflicted(&self) -> bool {
+        matches!(
+            (self.index, self.worktree),
+            ('U', _) | (_, 'U') | ('D', 'D') | ('A', 'A')
+        )
+    }
+
     /// Whether this entry represents an untracked file.
     pub fn is_untracked(&self) -> bool {
         self.index == '?' && self.worktree == '?'
@@ -202,7 +219,7 @@ impl FileStatus {
 
     /// Whether the file has a staged change, retaining the legacy API name.
     pub fn is_staged(&self) -> bool {
-        self.index != ' ' && self.index != '?'
+        self.index != ' ' && self.index != '?' && !self.is_conflicted()
     }
 
     /// Return the status character relevant to a particular working-tree group.
@@ -227,6 +244,54 @@ impl FileStatus {
 pub enum WorkingTreeDiffKind {
     Staged,
     Unstaged,
+}
+
+/// A mutating operation exposed by the working-tree panel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkingTreeAction {
+    Stage,
+    Unstage,
+    Discard,
+}
+
+impl WorkingTreeAction {
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Stage => "stage",
+            Self::Unstage => "unstage",
+            Self::Discard => "discard",
+        }
+    }
+}
+
+/// The captured file snapshot targeted by a working-tree operation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WorkingTreeScope {
+    File(FileStatus),
+    All(Vec<FileStatus>),
+}
+
+impl WorkingTreeScope {
+    pub fn files(&self) -> Vec<&FileStatus> {
+        match self {
+            Self::File(file) => vec![file],
+            Self::All(files) => files.iter().collect(),
+        }
+    }
+
+    pub fn kind(&self) -> WorkingTreeScopeKind {
+        match self {
+            Self::File(_) => WorkingTreeScopeKind::File,
+            Self::All(_) => WorkingTreeScopeKind::All,
+        }
+    }
+}
+
+/// Whether an operation targeted one file or a whole panel group.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkingTreeScopeKind {
+    File,
+    All,
 }
 
 /// 本地分支信息
@@ -267,6 +332,12 @@ pub enum GitCommand {
         request_id: u64,
         kind: WorkingTreeDiffKind,
         file: FileStatus,
+    },
+    /// Apply a staged/working-tree mutation to a captured file snapshot.
+    WorkingTreeOperation {
+        request_id: u64,
+        action: WorkingTreeAction,
+        scope: WorkingTreeScope,
     },
     /// 关闭工作线程
     Close,
@@ -344,6 +415,20 @@ impl GitHandle {
         });
     }
 
+    /// Apply a staged/working-tree mutation without blocking the UI.
+    pub fn working_tree_operation(
+        &self,
+        request_id: u64,
+        action: WorkingTreeAction,
+        scope: WorkingTreeScope,
+    ) {
+        let _ = self.cmd_tx.send(GitCommand::WorkingTreeOperation {
+            request_id,
+            action,
+            scope,
+        });
+    }
+
     /// 请求关闭工作线程
     pub fn close(&self) {
         let _ = self.cmd_tx.send(GitCommand::Close);
@@ -412,9 +497,37 @@ fn worker_loop(
                 kind,
                 file,
             }) => {
-                run_working_tree_file_diff(
+                working_tree::run_file_diff(
                     &repo_path, request_id, kind, &file, &event_tx,
                 );
+            }
+            Ok(GitCommand::WorkingTreeOperation {
+                request_id,
+                action,
+                scope,
+            }) => {
+                let scope_kind = scope.kind();
+                let result =
+                    working_tree::apply_operation(&repo_path, action, &scope);
+                let (success, detail) = match result {
+                    Ok(()) => (true, String::new()),
+                    Err(detail) => (false, detail),
+                };
+                // A mutation can partially complete, so always publish a
+                // fresh status before reporting the operation result.
+                refresh_status(&repo_path, &event_tx);
+                log::info!(
+                    "[git_worktree] operation finished: action={}, scope={scope_kind:?}, files={}, success={success}",
+                    action.description(),
+                    scope.files().len()
+                );
+                let _ = event_tx.send(GitEvent::WorkingTreeOperationFinished {
+                    request_id,
+                    action,
+                    scope: scope_kind,
+                    success,
+                    detail,
+                });
             }
             Ok(GitCommand::Close) | Err(RecvTimeoutError::Disconnected) => {
                 break;
@@ -426,19 +539,30 @@ fn worker_loop(
 
 /// 仓库快照刷新：status + branch 合并为一个 Status 事件，log 独立事件
 fn refresh_all(repo_path: &str, event_tx: &Sender<GitEvent>) {
-    let status = run_status(repo_path);
-    let branches = run_branches(repo_path);
-    if let Some((branch, files, ahead, behind)) = status {
-        let _ = event_tx.send(GitEvent::Status {
-            branch,
-            files,
-            branches,
-            ahead,
-            behind,
-        });
-    }
+    refresh_status(repo_path, event_tx);
     run_log(repo_path, event_tx);
     run_refs(repo_path, event_tx);
+}
+
+/// Refresh only the status snapshot after a local index/worktree operation.
+fn refresh_status(repo_path: &str, event_tx: &Sender<GitEvent>) {
+    let status = run_status(repo_path);
+    let branches = run_branches(repo_path);
+    match status {
+        Ok((branch, files, ahead, behind)) => {
+            let _ = event_tx.send(GitEvent::Status {
+                branch,
+                files,
+                branches,
+                ahead,
+                behind,
+            });
+        }
+        Err(error) => {
+            log::warn!("[git_worktree] status refresh failed: {}", error.key);
+            let _ = event_tx.send(GitEvent::StatusError(error));
+        }
+    }
 }
 
 /// 执行 git 命令（子进程阻塞，只在工作线程跑）
@@ -708,48 +832,6 @@ fn parse_co_author_line(line: &str) -> Option<CoAuthor> {
 
 const MAX_BLOB_SIZE: usize = 10 * 1024 * 1024;
 
-/// Build the regular working-tree diff command for one status entry.
-fn working_tree_diff_args(
-    repo_path: &str,
-    kind: WorkingTreeDiffKind,
-    file: &FileStatus,
-) -> Vec<String> {
-    let mut args = vec![
-        "--no-pager".to_string(),
-        "-C".to_string(),
-        repo_path.to_string(),
-        "diff".to_string(),
-        "--no-color".to_string(),
-        "--no-ext-diff".to_string(),
-        "--find-renames".to_string(),
-    ];
-    if matches!(kind, WorkingTreeDiffKind::Staged) {
-        args.push("--cached".to_string());
-    }
-    args.push("--".to_string());
-    if let Some(old_path) = file.old_path.as_deref() {
-        args.push(old_path.to_string());
-    }
-    args.push(file.path.clone());
-    args
-}
-
-/// Build the synthetic diff command used to render an untracked file.
-fn untracked_diff_args(repo_path: &str, path: &str) -> Vec<String> {
-    vec![
-        "--no-pager".to_string(),
-        "-C".to_string(),
-        repo_path.to_string(),
-        "diff".to_string(),
-        "--no-index".to_string(),
-        "--no-color".to_string(),
-        "--no-ext-diff".to_string(),
-        "--".to_string(),
-        "/dev/null".to_string(),
-        path.to_string(),
-    ]
-}
-
 /// Query a single file patch and, when possible, its complete old/new blobs.
 fn run_file_diff(
     repo_path: &str,
@@ -826,120 +908,6 @@ fn run_file_diff(
     }
 }
 
-/// Query a staged or unstaged working-tree file without blocking the UI.
-fn run_working_tree_file_diff(
-    repo_path: &str,
-    request_id: u64,
-    kind: WorkingTreeDiffKind,
-    file: &FileStatus,
-    event_tx: &Sender<GitEvent>,
-) {
-    let untracked =
-        matches!(kind, WorkingTreeDiffKind::Unstaged) && file.is_untracked();
-    let args = if untracked {
-        untracked_diff_args(repo_path, &file.path)
-    } else {
-        working_tree_diff_args(repo_path, kind, file)
-    };
-    let output = git_command().args(&args).output();
-    match output {
-        Ok(output)
-            if output.status.success()
-                || (untracked && output.status.code() == Some(1)) =>
-        {
-            let patch = String::from_utf8_lossy(&output.stdout).into_owned();
-            let (old_source, new_source) = match kind {
-                WorkingTreeDiffKind::Staged => {
-                    let old_path =
-                        file.old_path.as_deref().unwrap_or(&file.path);
-                    let old_source = if file.index == 'A' {
-                        None
-                    } else {
-                        read_blob_spec(repo_path, &format!("HEAD:{old_path}"))
-                    };
-                    let new_source = if file.index == 'D' {
-                        None
-                    } else {
-                        read_blob_spec(repo_path, &format!(":{}", file.path))
-                    };
-                    (old_source, new_source)
-                }
-                WorkingTreeDiffKind::Unstaged => {
-                    let old_path = if file.index == ' ' {
-                        file.old_path.as_deref().unwrap_or(&file.path)
-                    } else {
-                        &file.path
-                    };
-                    let old_source = if untracked || file.worktree == 'A' {
-                        None
-                    } else {
-                        read_blob_spec(repo_path, &format!(":{old_path}"))
-                    };
-                    let new_source = if file.worktree == 'D' {
-                        None
-                    } else {
-                        read_worktree_source(repo_path, &file.path)
-                    };
-                    (old_source, new_source)
-                }
-            };
-            log::debug!(
-                "[git_diff] loaded working-tree file diff: request_id={}, kind={kind:?}, binary={}, patch_bytes={}",
-                request_id,
-                is_binary_patch(&patch),
-                patch.len()
-            );
-            let _ = event_tx.send(GitEvent::WorkingTreeFileDiff {
-                request_id,
-                kind,
-                file: file.clone(),
-                patch,
-                old_source,
-                new_source,
-            });
-        }
-        Ok(output) => {
-            let detail = diff_error_detail(&output);
-            log::warn!(
-                "[git_diff] working-tree file diff failed: request_id={}, kind={kind:?}, status={:?}",
-                request_id,
-                output.status.code()
-            );
-            let _ = event_tx.send(GitEvent::WorkingTreeFileDiffError {
-                request_id,
-                kind,
-                file: file.clone(),
-                detail,
-            });
-        }
-        Err(error) => {
-            log::warn!(
-                "[git_diff] working-tree file diff failed to run: request_id={}, kind={kind:?}",
-                request_id
-            );
-            let _ = event_tx.send(GitEvent::WorkingTreeFileDiffError {
-                request_id,
-                kind,
-                file: file.clone(),
-                detail: error.to_string(),
-            });
-        }
-    }
-}
-
-fn diff_error_detail(output: &std::process::Output) -> String {
-    let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    if detail.is_empty() {
-        output
-            .status
-            .code()
-            .map(|code| format!("git diff exited with status {code}"))
-            .unwrap_or_else(|| "git diff terminated unexpectedly".to_string())
-    } else {
-        detail
-    }
-}
-
 fn read_blob(repo_path: &str, oid: Option<&str>) -> Option<String> {
     read_blob_spec(repo_path, oid?)
 }
@@ -955,92 +923,146 @@ fn read_blob_spec(repo_path: &str, spec: &str) -> Option<String> {
     String::from_utf8(output.stdout).ok()
 }
 
-fn read_worktree_source(repo_path: &str, path: &str) -> Option<String> {
-    let relative_path = Path::new(path);
-    if relative_path.is_absolute()
-        || relative_path
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
-    {
-        return None;
-    }
-    let bytes = fs::read(Path::new(repo_path).join(relative_path)).ok()?;
-    if bytes.len() > MAX_BLOB_SIZE {
-        return None;
-    }
-    String::from_utf8(bytes).ok()
-}
-
-/// 执行 git status，返回 (分支, 变更文件, ahead, behind)
+/// Execute git status and return (branch, files, ahead, behind).
 fn run_status(
     repo_path: &str,
-) -> Option<(String, Vec<FileStatus>, usize, usize)> {
+) -> Result<(String, Vec<FileStatus>, usize, usize), GitError> {
     let output = git_command()
-        .args(["-C", repo_path, "status", "--porcelain", "-b"])
+        .args([
+            "-C",
+            repo_path,
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "-b",
+            "--untracked-files=all",
+        ])
         .output()
-        .ok()?;
+        .map_err(|error| GitError::new("err-git-status", error.to_string()))?;
     if !output.status.success() {
-        return None;
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(GitError::new(
+            "err-git-status",
+            if detail.is_empty() {
+                output
+                    .status
+                    .code()
+                    .map(|code| format!("git status exited with status {code}"))
+                    .unwrap_or_else(|| {
+                        "git status terminated unexpectedly".to_string()
+                    })
+            } else {
+                detail
+            },
+        ));
     }
-    let text = String::from_utf8_lossy(&output.stdout).into_owned();
-    Some(parse_status(&text))
+    parse_status(&output.stdout)
 }
 
-/// 解析 `git status --porcelain -b` 输出
+/// Parse `git status --porcelain=v1 -z -b` output.
 ///
-/// 格式：
+/// NUL separation is required here because Git can report paths containing
+/// newlines or the traditional rename separator (` -> `).
+///
+/// Format:
 /// ```text
 /// ## main...origin/main [ahead 1, behind 2]
 ///  M src/foo.rs
 /// ?? new.txt
-/// R  old -> new
+/// R  new.txt\0old.txt
 /// ```
-///
-/// 已知限制：porcelain v1 对非 ASCII 文件名做引号+八进制转义，
-/// 且路径含 ` -> ` 时重命名识别取箭头后部分——M4 里程碑再处理引号反转义。
-fn parse_status(text: &str) -> (String, Vec<FileStatus>, usize, usize) {
+fn parse_status(
+    output: &[u8],
+) -> Result<(String, Vec<FileStatus>, usize, usize), GitError> {
     let mut branch = String::new();
     let mut ahead = 0;
     let mut behind = 0;
     let mut files = Vec::new();
-    for line in text.lines() {
-        if let Some(rest) = line.strip_prefix("## ") {
-            // "main...origin/main [ahead 1, behind 2]" → 取 "..." 前分支名
-            branch = rest.split("...").next().unwrap_or("").to_string();
-            // 提取 ahead/behind（无上游时整段缺失）
-            if let Some(a) = rest.find("[ahead ") {
-                let tail = &rest[a + 7..];
-                let num = tail
-                    .split(|c: char| !c.is_ascii_digit())
-                    .next()
-                    .unwrap_or("");
-                ahead = num.parse().unwrap_or(0);
-                if let Some(b) = tail.find("behind ") {
-                    let num2 = tail[b + 7..]
-                        .split(|c: char| !c.is_ascii_digit())
-                        .next()
-                        .unwrap_or("");
-                    behind = num2.parse().unwrap_or(0);
-                }
-            }
-        } else if line.len() >= 3 {
-            let bytes = line.as_bytes();
-            let index = bytes[0] as char;
-            let worktree = bytes[1] as char;
-            let (old_path, path) = if let Some(idx) = line.find(" -> ") {
-                (Some(line[3..idx].to_string()), line[idx + 4..].to_string())
-            } else {
-                (None, line[3..].to_string())
-            };
-            files.push(FileStatus {
-                index,
-                worktree,
-                path,
-                old_path,
-            });
+    let mut records = output.split(|byte| *byte == 0);
+    while let Some(record) = records.next() {
+        if record.is_empty() {
+            continue;
         }
+        if let Some(rest) = record.strip_prefix(b"## ") {
+            let rest = decode_status_text(rest)?;
+            branch = parse_branch_name(&rest);
+            ahead = parse_count(&rest, "[ahead ");
+            behind = parse_count(&rest, "behind ");
+            continue;
+        }
+
+        if record.len() < 4 || record[2] != b' ' {
+            return Err(GitError::new(
+                "err-git-status",
+                "Git returned an invalid porcelain status record",
+            ));
+        }
+        let index = record[0] as char;
+        let worktree = record[1] as char;
+        let path = decode_status_path(&record[3..])?;
+        let old_path = if index == 'R'
+            || index == 'C'
+            || worktree == 'R'
+            || worktree == 'C'
+        {
+            let old_path = records.next().ok_or_else(|| {
+                GitError::new(
+                    "err-git-status",
+                    "Git returned an incomplete rename status record",
+                )
+            })?;
+            Some(decode_status_path(old_path)?)
+        } else {
+            None
+        };
+        files.push(FileStatus {
+            index,
+            worktree,
+            path,
+            old_path,
+        });
     }
-    (branch, files, ahead, behind)
+    Ok((branch, files, ahead, behind))
+}
+
+fn decode_status_text(bytes: &[u8]) -> Result<String, GitError> {
+    String::from_utf8(bytes.to_vec()).map_err(|_| {
+        GitError::new(
+            "err-git-status",
+            "Git returned non-UTF-8 branch or status metadata",
+        )
+    })
+}
+
+fn decode_status_path(bytes: &[u8]) -> Result<String, GitError> {
+    String::from_utf8(bytes.to_vec()).map_err(|_| {
+        GitError::new(
+            "err-git-status-path",
+            "Git returned a non-UTF-8 path that cannot be handled safely",
+        )
+    })
+}
+
+fn parse_branch_name(rest: &str) -> String {
+    if let Some(branch) = rest.strip_prefix("No commits yet on ") {
+        branch.to_string()
+    } else if let Some(branch) = rest.strip_prefix("Initial commit on ") {
+        branch.to_string()
+    } else {
+        rest.split("...").next().unwrap_or("").to_string()
+    }
+}
+
+fn parse_count(text: &str, marker: &str) -> usize {
+    let Some(index) = text.find(marker) else {
+        return 0;
+    };
+    text[index + marker.len()..]
+        .split(|character: char| !character.is_ascii_digit())
+        .next()
+        .unwrap_or("")
+        .parse()
+        .unwrap_or(0)
 }
 
 /// 执行 git branch，返回本地分支列表
@@ -1273,9 +1295,12 @@ mod tests {
             path: "new.rs".into(),
             old_path: Some("old.rs".into()),
         };
-        let staged =
-            working_tree_diff_args("repo", WorkingTreeDiffKind::Staged, &file);
-        let unstaged = working_tree_diff_args(
+        let staged = working_tree::working_tree_diff_args(
+            "repo",
+            WorkingTreeDiffKind::Staged,
+            &file,
+        );
+        let unstaged = working_tree::working_tree_diff_args(
             "repo",
             WorkingTreeDiffKind::Unstaged,
             &file,
@@ -1302,7 +1327,7 @@ mod tests {
 
     #[test]
     fn untracked_diff_args_compare_against_a_portable_null_path() {
-        let args = untracked_diff_args("repo", "new file.txt");
+        let args = working_tree::untracked_diff_args("repo", "new file.txt");
         assert!(
             args.windows(2)
                 .any(|pair| { pair[0] == "--" && pair[1] == "/dev/null" })
@@ -1341,8 +1366,8 @@ mod tests {
 
     #[test]
     fn parse_status_normal() {
-        let text = "## main...origin/main [ahead 1, behind 2]\n M src/a.rs\nA  new.rs\n?? untracked.txt\n";
-        let (branch, files, ahead, behind) = parse_status(text);
+        let output = b"## main...origin/main [ahead 1, behind 2]\0 M src/a.rs\0A  new.rs\0?? untracked.txt\0";
+        let (branch, files, ahead, behind) = parse_status(output).unwrap();
         assert_eq!(branch, "main");
         assert_eq!(ahead, 1);
         assert_eq!(behind, 2);
@@ -1359,9 +1384,9 @@ mod tests {
 
     #[test]
     fn file_status_separates_staged_worktree_and_mixed_changes() {
-        let text =
-            "## main\nM  staged.rs\n M changed.rs\nMM mixed.rs\n?? new.txt\n";
-        let (_, files, _, _) = parse_status(text);
+        let output =
+            b"## main\0M  staged.rs\0 M changed.rs\0MM mixed.rs\0?? new.txt\0";
+        let (_, files, _, _) = parse_status(output).unwrap();
         assert!(files[0].has_staged_changes());
         assert!(!files[0].has_worktree_changes());
         assert!(!files[1].has_staged_changes());
@@ -1376,8 +1401,8 @@ mod tests {
 
     #[test]
     fn parse_status_no_upstream() {
-        let text = "## main\n M a.rs\n";
-        let (branch, _files, ahead, behind) = parse_status(text);
+        let output = b"## main\0 M a.rs\0";
+        let (branch, _files, ahead, behind) = parse_status(output).unwrap();
         assert_eq!(branch, "main");
         assert_eq!(ahead, 0);
         assert_eq!(behind, 0);
@@ -1385,13 +1410,64 @@ mod tests {
 
     #[test]
     fn parse_status_rename_and_detached() {
-        let text = "## HEAD (no branch)\nR  old.txt -> new.txt\n";
-        let (branch, files, _, _) = parse_status(text);
+        let output = b"## HEAD (no branch)\0R  new.txt\0old.txt\0";
+        let (branch, files, _, _) = parse_status(output).unwrap();
         assert_eq!(branch, "HEAD (no branch)");
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].index, 'R');
         assert_eq!(files[0].path, "new.txt");
         assert_eq!(files[0].old_path.as_deref(), Some("old.txt"));
+    }
+
+    #[test]
+    fn parse_status_tracks_worktree_rename_and_copy_paths() {
+        let output =
+            b"## main\0 R renamed.txt\0old.txt\0 C copied.txt\0source.txt\0";
+        let (_, files, _, _) = parse_status(output).unwrap();
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].worktree, 'R');
+        assert_eq!(files[0].path, "renamed.txt");
+        assert_eq!(files[0].old_path.as_deref(), Some("old.txt"));
+        assert_eq!(files[1].worktree, 'C');
+        assert_eq!(files[1].path, "copied.txt");
+        assert_eq!(files[1].old_path.as_deref(), Some("source.txt"));
+    }
+
+    #[test]
+    fn parse_status_z_preserves_special_paths() {
+        let output = b"## main\0 M path -> literal\nname.rs\0?? unicode-\xE4\xB8\xAD.txt\0";
+        let (_, files, _, _) = parse_status(output).unwrap();
+        assert_eq!(files[0].path, "path -> literal\nname.rs");
+        assert_eq!(files[1].path, "unicode-中.txt");
+    }
+
+    #[test]
+    fn parse_status_rejects_non_utf8_paths() {
+        let error = parse_status(b"## main\0 M invalid-\xFF.txt\0")
+            .expect_err("non-UTF-8 paths must not reach Git operations");
+        assert_eq!(error.key, "err-git-status-path");
+    }
+
+    #[test]
+    fn conflicted_status_variants_are_not_staged() {
+        for (index, worktree) in [
+            ('U', 'U'),
+            ('U', ' '),
+            (' ', 'U'),
+            ('D', 'D'),
+            ('A', 'A'),
+            ('A', 'U'),
+            ('U', 'A'),
+        ] {
+            let file = FileStatus {
+                index,
+                worktree,
+                path: "conflict.rs".to_string(),
+                old_path: None,
+            };
+            assert!(file.is_conflicted(), "{index}{worktree}");
+            assert!(!file.has_staged_changes(), "{index}{worktree}");
+        }
     }
 
     #[test]

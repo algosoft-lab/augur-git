@@ -28,6 +28,8 @@ pub struct CommitPanel {
     input: Entity<TextareaState>,
     /// Whether staged changes are available for a normal commit.
     has_staged: bool,
+    /// Whether another repository operation is currently running.
+    busy: bool,
     /// Whether the selected action amends the last commit.
     amend: bool,
     /// UI locale, synchronized by Workspace.
@@ -61,6 +63,7 @@ impl CommitPanel {
         Self {
             input,
             has_staged: false,
+            busy: false,
             amend: false,
             locale,
         }
@@ -91,6 +94,14 @@ impl CommitPanel {
         }
     }
 
+    /// Disable commit submission while another repository operation is active.
+    pub fn set_busy(&mut self, busy: bool, cx: &mut Context<Self>) {
+        if self.busy != busy {
+            self.busy = busy;
+            cx.notify();
+        }
+    }
+
     fn set_amend(&mut self, amend: bool, cx: &mut Context<Self>) {
         if self.amend != amend {
             self.amend = amend;
@@ -99,6 +110,9 @@ impl CommitPanel {
     }
 
     fn submit(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
         let msg = self.input.read(cx).value().to_string();
         if msg.trim().is_empty() {
             return;
@@ -138,7 +152,7 @@ impl Render for CommitPanel {
                     .child(shared(i18n::text(self.locale, "commit-title"))),
             );
 
-        let can_commit = self.has_staged || self.amend;
+        let can_commit = !self.busy && (self.has_staged || self.amend);
         let commit_button_label = i18n::text(
             self.locale,
             if self.amend {
@@ -170,6 +184,7 @@ impl Render for CommitPanel {
             .primary()
             .xsmall()
             .h_8()
+            .disabled(self.busy)
             .dropdown_menu_with_anchor(
                 Anchor::BottomRight,
                 move |menu, _window, _cx| {

@@ -22,7 +22,8 @@ use gpui::{Context, EventEmitter, SharedString, Task};
 use crate::core::diff::FileChange;
 use crate::core::git::{
     self, BranchInfo, CheckoutTarget, CommitMessage, FileStatus, GitError,
-    GitEvent, RefsInfo, WorkingTreeDiffKind,
+    GitEvent, RefsInfo, WorkingTreeAction, WorkingTreeDiffKind,
+    WorkingTreeScope, WorkingTreeScopeKind,
 };
 use crate::core::graph::LogRow;
 use crate::core::i18n::{self, Locale};
@@ -74,6 +75,14 @@ pub enum GitUiEvent {
         file: FileStatus,
         detail: String,
     },
+    /// Completed staged/working-tree mutation.
+    WorkingTreeOperationFinished {
+        request_id: u64,
+        action: WorkingTreeAction,
+        scope: WorkingTreeScopeKind,
+        success: bool,
+        detail: String,
+    },
     /// 通用命令执行结果（fetch/pull/push/commit/show…）
     CommandDone {
         label: String,
@@ -84,6 +93,8 @@ pub enum GitUiEvent {
     RepoOpened(String),
     /// 错误（状态栏显示）
     Error(String),
+    /// Non-fatal status refresh error; the Git worker remains available.
+    StatusError(String),
 }
 
 /// 仓库连接状态（状态栏显示）
@@ -316,6 +327,24 @@ impl GitView {
         }
     }
 
+    /// Apply a staged/working-tree mutation.
+    pub fn working_tree_operation(
+        &self,
+        request_id: u64,
+        action: WorkingTreeAction,
+        scope: WorkingTreeScope,
+    ) {
+        log::info!(
+            "[git_worktree] queueing operation: request_id={}, action={}, scope={:?}",
+            request_id,
+            action.description(),
+            scope.kind()
+        );
+        if let Some(handle) = &self.handle {
+            handle.working_tree_operation(request_id, action, scope);
+        }
+    }
+
     fn set_status(&mut self, status: GitStatus, cx: &mut Context<Self>) {
         if let GitStatus::Error(msg) = &status {
             cx.emit(GitUiEvent::Error(msg.clone()));
@@ -460,6 +489,36 @@ impl GitView {
                         file,
                         detail,
                     });
+                }
+                GitEvent::WorkingTreeOperationFinished {
+                    request_id,
+                    action,
+                    scope,
+                    success,
+                    detail,
+                } => {
+                    log::info!(
+                        "[git_worktree] operation result: request_id={}, action={}, scope={scope:?}, success={success}",
+                        request_id,
+                        action.description()
+                    );
+                    cx.emit(GitUiEvent::WorkingTreeOperationFinished {
+                        request_id,
+                        action,
+                        scope,
+                        success,
+                        detail,
+                    });
+                }
+                GitEvent::StatusError(error) => {
+                    log::warn!(
+                        "[git_view] status refresh failed: {}",
+                        error.key
+                    );
+                    cx.emit(GitUiEvent::StatusError(localized_error(
+                        self.locale,
+                        &error,
+                    )));
                 }
                 GitEvent::CommandDone {
                     label,

@@ -62,6 +62,8 @@ pub struct GraphView {
     hovered_oid: Option<String>,
     /// UI locale synchronized by Workspace.
     locale: Locale,
+    /// Disable checkout actions while a repository operation is running.
+    busy: bool,
     /// 自身实测渲染宽（测量 canvas 回写；初始视为宽屏，首帧后校正）。
     /// 响应式列显隐以它为准——拖侧栏挤压中央列时窗口宽并未变
     content_width: f32,
@@ -93,6 +95,7 @@ impl GraphView {
             hover_preview,
             hovered_oid: None,
             locale,
+            busy: false,
             content_width: f32::INFINITY,
             scroll_handle: UniformListScrollHandle::new(),
             list_id: SharedString::from(format!("graph-rows-{tab_id}")),
@@ -106,6 +109,14 @@ impl GraphView {
             preview.set_locale(locale, cx);
         });
         cx.notify();
+    }
+
+    /// Disable checkout actions while another repository operation is active.
+    pub fn set_busy(&mut self, busy: bool, cx: &mut Context<Self>) {
+        if self.busy != busy {
+            self.busy = busy;
+            cx.notify();
+        }
     }
 
     pub fn set_rows(&mut self, rows: Vec<LogRow>, cx: &mut Context<Self>) {
@@ -328,6 +339,7 @@ impl GraphView {
         let commit_target = CheckoutTarget::Commit(row.oid.clone());
         let copy_value = row.oid.clone();
         let copy_message_value = row.oid.clone();
+        let checkout_disabled = self.busy;
         let graph_for_click = graph.clone();
         let graph_for_hover = graph.clone();
         let hover_preview = self.hover_preview.clone();
@@ -468,6 +480,7 @@ impl GraphView {
                 menu.item(
                     PopupMenuItem::new(checkout_label.clone())
                         .icon(crate::git::lucide("git-commit-horizontal"))
+                        .disabled(checkout_disabled)
                         .on_click(move |_event, _window, cx| {
                             graph_for_checkout.update(cx, |_graph, cx| {
                                 cx.emit(GraphEvent::CheckoutRef(
@@ -490,6 +503,7 @@ impl GraphView {
                 .item(
                     PopupMenuItem::new(copy_message_label.clone())
                         .icon(IconName::Copy)
+                        .disabled(checkout_disabled)
                         .on_click(move |_event, _window, cx| {
                             graph_for_copy_message.update(cx, |_graph, cx| {
                                 cx.emit(GraphEvent::CopyCommitMessage(

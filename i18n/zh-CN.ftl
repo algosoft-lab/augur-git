@@ -87,6 +87,22 @@ section-staged = 暂存
 section-changes = 变更
 changes-title = 工作区
 changes-empty = 暂无变更
+changes-refresh = 刷新变更
+changes-more = 更多变更操作
+changes-stage = 暂存变更
+changes-unstage = 取消暂存
+changes-discard = 丢弃变更
+changes-stage-all = 暂存全部变更
+changes-unstage-all = 取消全部暂存
+changes-discard-all = 丢弃全部变更
+changes-action-conflict = 冲突文件不可用
+changes-stage-success = 已暂存变更
+changes-stage-all-success = 已暂存全部变更
+changes-unstage-success = 已取消暂存变更
+changes-unstage-all-success = 已取消全部暂存
+changes-discard-success = 已丢弃变更
+changes-discard-all-success = 已丢弃全部变更
+changes-operation-failed = 工作区操作失败：{ $error }
 status-mod = 改
 status-add = 增
 status-del = 删
@@ -124,6 +140,14 @@ diff-working-tree-changes = 变更
 diff-working-tree-loading = 正在加载工作区 diff…
 diff-working-tree-error = 无法加载工作区 diff
 
+# ===== 危险工作区操作 =====
+discard-title = 丢弃变更？
+discard-file-warning = 确定要丢弃 { $path } 的变更吗？已暂存内容会保留。此操作无法撤销。
+discard-untracked-file-warning = 确定要永久删除未跟踪文件 { $path } 吗？此操作无法撤销。
+discard-all-warning = 确定要丢弃全部工作区变更吗？已暂存内容会保留。tracked 文件：{ $tracked } 个；将永久删除的未跟踪文件：{ $untracked } 个。此操作无法撤销。
+discard-cancel = 取消
+discard-confirm = 丢弃
+
 # ===== 设置面板 =====
 settings-title = 设置
 settings-description = 应用偏好设置
@@ -154,6 +178,8 @@ theme-catppuccin-mocha = Mocha
 err-path-not-exist = 路径不存在: { $detail }
 err-not-a-repo = 不是 Git 仓库: { $detail }
 err-git-run = git 执行失败: { $detail }
+err-git-status = 读取 Git 状态失败: { $detail }
+err-git-status-path = Git 返回了无法安全处理的路径: { $detail }
 err-git-log = git log 失败: { $detail }
 err-numstat = git show --numstat 失败: { $detail }
 err-file-diff = 读取文件 diff 失败: { $detail }

@@ -42,6 +42,8 @@ pub struct Sidebar {
     collapsed: Vec<&'static str>,
     /// UI locale synchronized by Workspace.
     locale: Locale,
+    /// Disable checkout actions while a repository operation is running.
+    busy: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -81,6 +83,7 @@ impl Sidebar {
             flash_branches_until: None,
             collapsed: Vec::new(),
             locale,
+            busy: false,
         }
     }
 
@@ -88,6 +91,14 @@ impl Sidebar {
     pub fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
         self.locale = locale;
         cx.notify();
+    }
+
+    /// Disable checkout actions while another repository operation is active.
+    pub fn set_busy(&mut self, busy: bool, cx: &mut Context<Self>) {
+        if self.busy != busy {
+            self.busy = busy;
+            cx.notify();
+        }
     }
 
     /// Apply the repository branch snapshot.
@@ -270,7 +281,7 @@ impl Sidebar {
                     CheckoutTarget::LocalBranch(name.clone()),
                     name,
                     "context-copy-branch",
-                    is_head,
+                    self.busy || is_head,
                 )
             })
             .collect::<Vec<_>>();
@@ -378,7 +389,7 @@ impl Sidebar {
                     kind.target(name.clone()),
                     name,
                     kind.copy_label_key(),
-                    false,
+                    self.busy,
                 )
             })
             .collect::<Vec<_>>();

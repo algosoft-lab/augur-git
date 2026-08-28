@@ -17,7 +17,9 @@ operations; augur-git does not embed a Git implementation.
 
 - **Repository status** — current branch, ahead/behind counts, and staged and
   unstaged changes, with per-file diffs for staged, unstaged, and untracked
-  files plus commit for staged changes.
+  files plus commit for staged changes. Changes and Staged support per-file
+  and group Stage/Unstage actions; Discard always asks for confirmation and
+  permanently removes only explicitly confirmed untracked files.
 - **Commit graph** — lane-based history graph with hash, message, author, and
   relative dates; select a commit to inspect its file list and per-file diffs.
 - **Branches, remotes, tags, and stashes** — browsable sidebar sections, with
@@ -81,6 +83,8 @@ src/
 ├── workspace/
 │   ├── tabs.rs      # Repository tab bar
 │   ├── repo_tab.rs  # Per-repository tab state
+│   ├── repo_tab/
+│   │   └── dialogs.rs # Force-push and discard confirmations
 │   ├── settings.rs  # Categorized settings panel
 │   ├── window_state.rs # Window geometry persistence
 │   └── welcome.rs   # Welcome page
@@ -88,12 +92,16 @@ src/
 │   ├── commit_diff.rs # Commit diff context and Git argument builders
 │   ├── config.rs    # Persisted application and repository settings
 │   ├── git.rs       # Git worker, command execution, events, output parsers
+│   ├── git/
+│   │   └── working_tree.rs # Path-safe Stage/Unstage/Discard operations
 │   ├── graph.rs     # Pure commit-graph layout and time formatting
 │   └── i18n.rs      # Locale selection and translation lookup
 └── git/
     ├── mod.rs       # GitView bridge between the worker and UI panels
     ├── graph.rs     # Commit-graph presentation
-    ├── panel.rs     # Commit details, commit input, file list, diff panels
+    ├── panel.rs     # Commit details and commit input presentation
+    ├── bottom_panel.rs # Commit and working-tree diff presentation
+    ├── changes_panel.rs # Staged/working-tree file lists and Git actions
     ├── sidebar.rs   # Repository, branch, staging, working-tree sections
     └── toolbar.rs   # Git operation controls and status indicators
 i18n/               # English and Simplified Chinese translations (Fluent)
@@ -121,7 +129,7 @@ exercise the relevant flow, and filter by the module's log prefix:
 
 ```bash
 cargo run
-rg "\[(git_view|workspace|git_command)\]" debug.log > git-debug.log
+rg "\[(git_view|workspace|git_command|git_worktree)\]" debug.log > git-debug.log
 ```
 
 Engineering policy, architecture rules, and validation requirements are

@@ -157,6 +157,11 @@ impl BottomPanel {
         cx.notify();
     }
 
+    /// Whether the bottom panel is currently showing a working-tree diff.
+    pub fn has_working_tree_diff(&self) -> bool {
+        self.working_tree.is_some()
+    }
+
     pub fn set_commit(
         &mut self,
         oid: &str,
