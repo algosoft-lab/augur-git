@@ -11,7 +11,7 @@ use std::time::Duration;
 use gpui::prelude::*;
 use gpui::{
     AnyElement, Div, HighlightStyle, Hsla, ListHorizontalSizingBehavior,
-    SharedString, Stateful, StyledText, div, px, relative, uniform_list,
+    SharedString, Stateful, StyledText, div, px, uniform_list,
 };
 use gpui_component::highlighter::{HighlightTheme, SyntaxHighlighter};
 use gpui_component::input::Rope;
@@ -168,11 +168,28 @@ fn syntax_for_source(
     rows
 }
 
+/// Character-level changed ranges per line, keyed by source line index —
+/// the same key `side_cell` and `inline_for_row` use for lookups.
 fn inline_ranges_for_rows(
     document: &DiffDocument,
 ) -> (Vec<Vec<Range<usize>>>, Vec<Vec<Range<usize>>>) {
-    let mut old_ranges = vec![Vec::new(); document.rows.len()];
-    let mut new_ranges = vec![Vec::new(); document.rows.len()];
+    let fallback_size = document.rows.len();
+    let mut old_ranges =
+        vec![
+            Vec::new();
+            document
+                .old_source
+                .as_ref()
+                .map_or(fallback_size, |source| source.lines.len())
+        ];
+    let mut new_ranges =
+        vec![
+            Vec::new();
+            document
+                .new_source
+                .as_ref()
+                .map_or(fallback_size, |source| source.lines.len())
+        ];
     if document.binary {
         return (old_ranges, new_ranges);
     }
@@ -214,8 +231,16 @@ fn inline_ranges_for_rows(
                 continue;
             }
             let (old, new) = inline_ranges(old_text, new_text);
-            old_ranges[old_index] = old;
-            new_ranges[new_index] = new;
+            if let Some(index) = document.rows[old_index].old_line_index {
+                if let Some(slot) = old_ranges.get_mut(index) {
+                    *slot = old;
+                }
+            }
+            if let Some(index) = document.rows[new_index].new_line_index {
+                if let Some(slot) = new_ranges.get_mut(index) {
+                    *slot = new;
+                }
+            }
         }
     }
     (old_ranges, new_ranges)
@@ -379,11 +404,12 @@ pub fn render_documents(
             continue;
         }
         for (row_index, row) in rows.iter().enumerate() {
-            let score = row
-                .old_text
-                .as_deref()
-                .map_or(0, str::len)
-                .max(row.new_text.as_deref().map_or(0, str::len));
+            // Match the natural side-by-side row width: both panes plus
+            // furniture scale with the combined line lengths.
+            let score =
+                row.old_text.as_deref().map_or(0, str::len).saturating_add(
+                    row.new_text.as_deref().map_or(0, str::len),
+                );
             if score > width_score {
                 width_score = score;
                 width_item = items.len();
@@ -632,9 +658,12 @@ fn render_side_by_side_row(
     } else {
         None
     };
+    // Definite full width so the two equal-flex panes split it identically on
+    // every row; percentage widths would not resolve against an auto-width
+    // parent and the columns would collapse to their text content.
     h_flex()
         .id(SharedString::from(format!("commit-diff-split-row-{index}")))
-        .min_w_full()
+        .w_full()
         .h(px(22.))
         .flex_shrink_0()
         .items_stretch()
@@ -693,9 +722,9 @@ fn side_cell(
         colors.red.opacity(0.30)
     };
     h_flex()
-        .w(relative(0.5))
+        .flex_1()
         .min_w_0()
-        .flex_shrink_0()
+        .overflow_hidden()
         .items_center()
         .when_some(background, |this, bg| this.bg(bg))
         .child(number_gutter(line_number, colors, mono))
@@ -849,7 +878,27 @@ fn merged_highlights(
 
 #[cfg(test)]
 mod tests {
-    use super::inline_ranges;
+    use super::{DiffDocument, inline_ranges, inline_ranges_for_rows};
+
+    #[test]
+    fn inline_ranges_for_rows_key_by_source_line_index() {
+        // The hunk starts at line 5, so parsed-row positions (0..2) and
+        // source line indices (4) differ; ranges must land on line index 4.
+        let patch = "@@ -5,1 +5,1 @@\n-old value\n+new value\n";
+        let document = DiffDocument::from_patch(
+            "src/example.rs",
+            patch,
+            Some("a\nb\nc\nd\nold value\n".to_string()),
+            Some("a\nb\nc\nd\nnew value\n".to_string()),
+        );
+        let (old_ranges, new_ranges) = inline_ranges_for_rows(&document);
+        assert_eq!(old_ranges.len(), 5);
+        assert_eq!(new_ranges.len(), 5);
+        assert_eq!(old_ranges[4], vec![0..3]);
+        assert_eq!(new_ranges[4], vec![0..3]);
+        assert!(old_ranges[0].is_empty());
+        assert!(new_ranges[0].is_empty());
+    }
 
     #[test]
     fn inline_ranges_mark_changed_utf8_characters() {
