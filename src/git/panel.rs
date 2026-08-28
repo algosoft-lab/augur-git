@@ -547,9 +547,9 @@ impl Render for CommitPanel {
                     .text_size(px(12.))
                     .text_color(colors.muted_foreground)
                     .child(if self.collapsed {
-                        Icon::new(IconName::ChevronDown)
-                    } else {
                         Icon::new(IconName::ChevronUp)
+                    } else {
+                        Icon::new(IconName::ChevronDown)
                     })
                     .on_click(move |_e, _w, cx| {
                         this.update(cx, |panel, cx| {
