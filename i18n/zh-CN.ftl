@@ -111,10 +111,11 @@ file-unstaged = 未暂存
 
 # ===== 提交面板 =====
 commit-title = 提交
-commit-placeholder = 提交信息（Enter 提交）
+commit-placeholder = 提交信息
 commit-btn = 提交
-commit-hint-staged = 将提交暂存的变更
-commit-hint-none = 无暂存变更（暂存功能 M2）
+commit-amend-btn = 修改
+commit-action-commit = 提交
+commit-action-amend = 修改上次提交
 
 # ===== 底部面板（选中提交文件清单 + 单文件 diff） =====
 bottom-no-commit = 未选择提交

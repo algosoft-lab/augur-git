@@ -7,8 +7,11 @@
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Icon, IconName, h_flex,
-    input::{Input, InputEvent, InputState},
+    ActiveTheme, Disableable, Icon, IconName, Sizable,
+    button::{Button, ButtonVariants},
+    h_flex,
+    input::{InputEvent, Textarea, TextareaState},
+    menu::{DropdownMenu, PopupMenuItem},
     theme::ThemeColor,
     v_flex,
 };
@@ -19,11 +22,11 @@ use crate::git::shared;
 
 pub use crate::git::bottom_panel::{BottomPanel, BottomPanelEvent};
 
-/// CommitPanel → Workspace 事件
+/// CommitPanel to Workspace events.
 #[derive(Clone, Debug)]
 pub enum CommitPanelEvent {
-    /// 提交（git commit -m）
-    Submit(String),
+    /// Commit the current message, optionally amending the last commit.
+    Submit { message: String, amend: bool },
 }
 
 /// 统一空态：24px muted 图标 + 一行 11px 提示（居中；图标可为内置 IconName 或本地 lucide）
@@ -429,13 +432,15 @@ impl DetailPanel {
     }
 }
 
-/// 提交输入面板
+/// Commit message input panel.
 pub struct CommitPanel {
-    input: Entity<InputState>,
+    input: Entity<TextareaState>,
     collapsed: bool,
-    /// 是否有暂存变更（无暂存时提交按钮禁用）
+    /// Whether staged changes are available for a normal commit.
     has_staged: bool,
-    /// 界面语言（Workspace 切换语言时同步）
+    /// Whether the selected action amends the last commit.
+    amend: bool,
+    /// UI locale, synchronized by Workspace.
     locale: Locale,
 }
 
@@ -448,24 +453,17 @@ impl CommitPanel {
         locale: Locale,
     ) -> Self {
         let input = cx.new(|cx| {
-            InputState::new(window, cx)
+            TextareaState::new(window, cx)
+                .auto_grow(2, 5)
+                .submit_on_enter(true)
                 .placeholder(i18n::text(locale, "commit-placeholder"))
         });
 
-        // Ctrl+Enter = 提交
+        // Enter submits; Shift+Enter inserts a newline.
         let input_entity = input.clone();
         cx.subscribe(&input_entity, |panel, _e, event, cx| {
-            if matches!(
-                event,
-                InputEvent::PressEnter {
-                    secondary: false,
-                    ..
-                }
-            ) {
-                let msg = panel.input.read(cx).value().to_string();
-                if !msg.trim().is_empty() {
-                    cx.emit(CommitPanelEvent::Submit(msg));
-                }
+            if matches!(event, InputEvent::PressEnter { shift: false, .. }) {
+                panel.submit(cx);
             }
         })
         .detach();
@@ -474,6 +472,7 @@ impl CommitPanel {
             input,
             collapsed: false,
             has_staged: false,
+            amend: false,
             locale,
         }
     }
@@ -488,7 +487,10 @@ impl CommitPanel {
         self.locale = locale;
         let placeholder = i18n::text(locale, "commit-placeholder");
         self.input.update(cx, |input, cx| {
-            input.set_placeholder(placeholder, window, cx);
+            let base = input.base_state().clone();
+            base.update(cx, |state, cx| {
+                state.set_placeholder(placeholder, window, cx);
+            });
         });
         cx.notify();
     }
@@ -500,13 +502,22 @@ impl CommitPanel {
         }
     }
 
+    fn set_amend(&mut self, amend: bool, cx: &mut Context<Self>) {
+        if self.amend != amend {
+            self.amend = amend;
+            cx.notify();
+        }
+    }
+
     fn submit(&mut self, cx: &mut Context<Self>) {
         let msg = self.input.read(cx).value().to_string();
         if msg.trim().is_empty() {
             return;
         }
-        // 提交后清空输入框（需要 window，subscribe 里没有——由 workspace 完成后通知）
-        cx.emit(CommitPanelEvent::Submit(msg));
+        cx.emit(CommitPanelEvent::Submit {
+            message: msg,
+            amend: self.amend,
+        });
     }
 }
 
@@ -518,7 +529,7 @@ impl Render for CommitPanel {
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
 
-        // 标题行：提交 + 收起
+        // Header: commit action and collapse control.
         let this = cx.entity();
         let header = h_flex()
             .id("commit-header")
@@ -567,31 +578,63 @@ impl Render for CommitPanel {
                 .child(header);
         }
 
-        // 提交按钮：无 staged 时不挂 on_click（灰态即禁用，杜绝空提交误触）
+        let can_commit = self.has_staged || self.amend;
+        let commit_button_label = i18n::text(
+            self.locale,
+            if self.amend {
+                "commit-amend-btn"
+            } else {
+                "commit-btn"
+            },
+        );
         let btn_commit = cx.entity();
-        let commit_btn = div()
-            .id("btn-commit")
-            .px_3()
-            .py_1()
-            .rounded_md()
-            .bg(if self.has_staged {
-                colors.blue
-            } else {
-                colors.input
-            })
-            .text_color(if self.has_staged {
-                colors.primary_foreground
-            } else {
-                colors.muted_foreground
-            })
-            .text_size(px(12.))
-            .child(shared(i18n::text(self.locale, "commit-btn")))
-            .when(self.has_staged, |btn| {
-                btn.on_click(move |_e, _w, cx| {
+        let commit_btn = Button::new("btn-commit")
+            .label(commit_button_label)
+            .primary()
+            .compact()
+            .flex_1()
+            .disabled(!can_commit)
+            .when(can_commit, |button| {
+                button.on_click(move |_event, _window, cx| {
                     btn_commit.update(cx, |panel, cx| panel.submit(cx));
                 })
             });
 
+        let amend = self.amend;
+        let mode_panel = cx.entity();
+        let commit_action_label =
+            i18n::text(self.locale, "commit-action-commit");
+        let amend_action_label = i18n::text(self.locale, "commit-action-amend");
+        let commit_mode_menu = Button::new("btn-commit-mode")
+            .icon(IconName::ChevronDown)
+            .primary()
+            .xsmall()
+            .h_8()
+            .dropdown_menu_with_anchor(
+                Anchor::BottomRight,
+                move |menu, _window, _cx| {
+                    let commit_panel = mode_panel.clone();
+                    let amend_panel = mode_panel.clone();
+                    menu.item(
+                        PopupMenuItem::new(commit_action_label.clone())
+                            .checked(!amend)
+                            .on_click(move |_event, _window, cx| {
+                                commit_panel.update(cx, |panel, cx| {
+                                    panel.set_amend(false, cx);
+                                });
+                            }),
+                    )
+                    .item(
+                        PopupMenuItem::new(amend_action_label.clone())
+                            .checked(amend)
+                            .on_click(move |_event, _window, cx| {
+                                amend_panel.update(cx, |panel, cx| {
+                                    panel.set_amend(true, cx);
+                                });
+                            }),
+                    )
+                },
+            );
         v_flex()
             .id("commit-panel")
             .w_full()
@@ -600,31 +643,16 @@ impl Render for CommitPanel {
             .child(
                 v_flex()
                     .w_full()
-                    .gap_2()
+                    .gap_1()
                     .p_2()
-                    .child(Input::new(&self.input).w_full().h_7())
+                    .child(Textarea::new(&self.input).w_full())
                     .child(
                         h_flex()
                             .w_full()
                             .items_center()
-                            .child(
-                                div()
-                                    .text_size(px(11.))
-                                    .text_color(colors.muted_foreground)
-                                    .child(shared(if self.has_staged {
-                                        i18n::text(
-                                            self.locale,
-                                            "commit-hint-staged",
-                                        )
-                                    } else {
-                                        i18n::text(
-                                            self.locale,
-                                            "commit-hint-none",
-                                        )
-                                    })),
-                            )
-                            .child(div().flex_1())
-                            .child(commit_btn),
+                            .gap_0()
+                            .child(commit_btn)
+                            .child(commit_mode_menu),
                     ),
             )
     }

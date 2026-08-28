@@ -255,12 +255,10 @@ impl RepoTab {
         .detach();
 
         cx.subscribe(&commit, |tab, _event, event, cx| match event {
-            CommitPanelEvent::Submit(message) => {
+            CommitPanelEvent::Submit { message, amend } => {
+                log::info!("[commit_panel] submit requested: amend={amend}");
                 tab.git_view.update(cx, |view, _| {
-                    view.run(
-                        "commit",
-                        vec!["commit".into(), "-m".into(), message.clone()],
-                    );
+                    view.commit(message.clone(), *amend);
                 });
                 tab.toolbar.update(cx, |toolbar, cx| {
                     toolbar.set_busy(true, cx);

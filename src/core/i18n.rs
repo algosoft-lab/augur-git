@@ -1,7 +1,7 @@
-//! 编译期内嵌的翻译目录与语言环境选择（镜像 augur-pdf/augur-term src/core/i18n.rs）。
+//! Compile-time embedded translations and locale selection.
 //!
-//! 文案在仓库根 i18n/ 下的 .ftl 文件（key = value 一行一条），
-//! include_str! 编译期嵌入，缺失键回落英文、再缺失返回键本身。
+//! Translation catalogs live in `.ftl` files under the repository's `i18n/`
+//! directory. Missing keys fall back to English, then to the key itself.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -15,7 +15,7 @@ const ENGLISH_TRANSLATIONS: &str = include_str!("../../i18n/en-US.ftl");
 const SIMPLIFIED_CHINESE_TRANSLATIONS: &str =
     include_str!("../../i18n/zh-CN.ftl");
 
-/// 已编译进二进制的语言环境。
+/// A locale embedded in the application binary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Locale {
     English,
@@ -23,7 +23,7 @@ pub enum Locale {
 }
 
 impl Locale {
-    /// 资源与日志中使用的稳定语言标识。
+    /// Stable language identifier used by resources and logs.
     pub const fn id(self) -> &'static str {
         match self {
             Self::English => ENGLISH,
@@ -32,7 +32,7 @@ impl Locale {
     }
 }
 
-/// 把持久化的语言偏好解析为具体语言环境。
+/// Resolve a persisted language preference to a concrete locale.
 pub fn resolve(preference: &LanguagePreference) -> Locale {
     match preference {
         LanguagePreference::System => detect_system_language(),
@@ -41,7 +41,7 @@ pub fn resolve(preference: &LanguagePreference) -> Locale {
     }
 }
 
-/// 检测系统语言，不支持的语言回落到英文。
+/// Detect the system language, falling back to English when unsupported.
 pub fn detect_system_language() -> Locale {
     let Some(language) = sys_locale::get_locale().and_then(|locale| {
         locale.split(['-', '_']).next().map(str::to_lowercase)
@@ -56,12 +56,12 @@ pub fn detect_system_language() -> Locale {
     }
 }
 
-/// 返回翻译文本，缺失时回落英文，再缺失返回 key 本身。
+/// Return translated text, falling back to English and then the key itself.
 pub fn text(locale: Locale, key: &str) -> String {
     text_args(locale, key, &[])
 }
 
-/// 返回带 `{ $name }` 占位符替换的翻译文本。
+/// Return translated text with `{ $name }` placeholders substituted.
 pub fn text_args(locale: Locale, key: &str, args: &[(&str, &str)]) -> String {
     let catalog = translations(locale);
     let template = catalog
@@ -118,6 +118,18 @@ mod tests {
         assert_eq!(text(Locale::English, "toolbar-refresh"), "Refresh");
         assert_eq!(text(Locale::SimplifiedChinese, "toolbar-refresh"), "刷新");
         assert_eq!(text(Locale::English, "missing-key"), "missing-key");
+    }
+
+    #[test]
+    fn commit_placeholder_is_compact() {
+        assert_eq!(
+            text(Locale::English, "commit-placeholder"),
+            "Commit Message"
+        );
+        assert_eq!(
+            text(Locale::SimplifiedChinese, "commit-placeholder"),
+            "提交信息"
+        );
     }
 
     #[test]

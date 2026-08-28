@@ -214,6 +214,14 @@ impl GitView {
         }
     }
 
+    /// Request a commit from staged changes, optionally amending the last commit.
+    pub fn commit(&self, message: String, amend: bool) {
+        log::info!("[git_commit] request queued: amend={amend}");
+        if let Some(handle) = &self.handle {
+            handle.commit(message, amend);
+        }
+    }
+
     /// Request a structured checkout operation on the Git worker.
     pub fn checkout(&self, target: CheckoutTarget) {
         log::info!("[git_checkout] requested target={target:?}");

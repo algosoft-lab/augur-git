@@ -112,10 +112,11 @@ file-unstaged = Unstaged
 
 # ===== Commit panel =====
 commit-title = Commit
-commit-placeholder = Commit message (Enter to commit)
+commit-placeholder = Commit Message
 commit-btn = Commit
-commit-hint-staged = Will commit staged changes
-commit-hint-none = No staged changes (staging arrives in M2)
+commit-amend-btn = Amend
+commit-action-commit = Commit
+commit-action-amend = Amend last commit
 
 # ===== Bottom panel (selected commit file list + file diff) =====
 bottom-no-commit = No commit selected

@@ -231,6 +231,11 @@ impl GitHandle {
         self.run("checkout", checkout_args(target));
     }
 
+    /// Create a commit from the staged changes, optionally amending HEAD.
+    pub fn commit(&self, message: String, amend: bool) {
+        self.run("commit", commit_args(message, amend));
+    }
+
     /// Query the complete commit message without including the commit diff.
     pub fn copy_commit_message(&self, oid: String) {
         self.run("copy-commit-message", commit_message_args(oid));
@@ -383,6 +388,16 @@ fn checkout_args(target: CheckoutTarget) -> Vec<String> {
         | CheckoutTarget::Tag(name)
         | CheckoutTarget::Commit(name) => args.push(name),
     }
+    args
+}
+
+fn commit_args(message: String, amend: bool) -> Vec<String> {
+    let mut args = vec!["commit".to_string()];
+    if amend {
+        args.push("--amend".to_string());
+    }
+    args.push("-m".to_string());
+    args.push(message);
     args
 }
 
@@ -949,6 +964,24 @@ mod tests {
                 "0123456789abcdef0123456789abcdef01234567".into()
             )),
             vec!["checkout", "0123456789abcdef0123456789abcdef01234567"]
+        );
+    }
+
+    #[test]
+    fn commit_args_support_amend_without_splitting_message() {
+        let message = "subject\n\nbody with spaces".to_string();
+        assert_eq!(
+            commit_args(message.clone(), false),
+            vec!["commit".to_string(), "-m".to_string(), message.clone()]
+        );
+        assert_eq!(
+            commit_args(message.clone(), true),
+            vec![
+                "commit".to_string(),
+                "--amend".to_string(),
+                "-m".to_string(),
+                message,
+            ]
         );
     }
 
