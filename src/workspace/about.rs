@@ -139,17 +139,17 @@ fn render_about_content(
                 .mt_3()
                 .child(metadata_row(
                     i18n::text(locale, "about-author"),
-                    build_info::APP_AUTHORS,
+                    build_info::app_authors_display(),
                     colors,
                 ))
                 .child(metadata_row(
                     i18n::text(locale, "about-version"),
-                    build_info::APP_VERSION,
+                    build_info::APP_VERSION.to_string(),
                     colors,
                 ))
                 .child(metadata_row(
                     i18n::text(locale, "about-commit"),
-                    build_info::GIT_COMMIT,
+                    build_info::GIT_COMMIT.to_string(),
                     colors,
                 )),
         )
@@ -157,7 +157,7 @@ fn render_about_content(
 
 fn metadata_row(
     label: String,
-    value: &'static str,
+    value: String,
     colors: &gpui_component::theme::ThemeColor,
 ) -> impl IntoElement {
     h_flex()

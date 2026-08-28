@@ -3,6 +3,10 @@
 pub const APP_NAME: &str = env!("CARGO_PKG_NAME");
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APP_AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
+
+pub fn app_authors_display() -> String {
+    APP_AUTHORS.split(':').collect::<Vec<_>>().join(", ")
+}
 pub const GIT_COMMIT: &str = env!("AUGUR_GIT_COMMIT");
 
 #[cfg(test)]

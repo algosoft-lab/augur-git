@@ -1,7 +1,7 @@
 [package]
 name = "augur-git"
 version = "0.1.0"
-authors = ["Lionel Fung"]
+authors = ["Lionel Fung", "Li Haozhe"]
 edition = "2024"
 description = "Git GUI client (Git 图形客户端) built with GPUI"
 
