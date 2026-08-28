@@ -6,6 +6,7 @@ use gpui_component::{
     h_flex, v_flex,
 };
 
+use crate::core::config::LayoutSettings;
 use crate::core::git::CheckoutTarget;
 use crate::core::i18n::{self, Locale};
 use crate::git::changes_panel::ChangesPanel;
@@ -20,18 +21,14 @@ use crate::git::{GitStatus, GitUiEvent, GitView, shared};
 
 use super::tabs::{TabId, TabState, TabSummary};
 
+mod layout;
+
 #[derive(Clone, Debug)]
 pub enum RepoTabEvent {
     Opened { id: TabId, path: String },
     SummaryChanged(TabSummary),
     RequestSettings,
-}
-
-#[derive(Clone, Debug)]
-struct LayoutState {
-    sidebar_width: f32,
-    right_panel_width: f32,
-    diff_height: Option<f32>,
+    LayoutChanged(LayoutSettings),
 }
 
 #[derive(Clone, Debug)]
@@ -71,14 +68,8 @@ impl Render for DiffViewerResize {
     }
 }
 
-const MIN_SIDEBAR_WIDTH: f32 = 180.0;
-const MAX_SIDEBAR_WIDTH: f32 = 400.0;
-const MIN_RIGHT_PANEL_WIDTH: f32 = 250.0;
-const MAX_RIGHT_PANEL_WIDTH: f32 = 600.0;
-const MIN_DIFF_HEIGHT: f32 = 100.0;
-const MAX_DIFF_HEIGHT: f32 = 1000.0;
-const MIN_COMMIT_HEIGHT: f32 = 120.0;
-const DIFF_RESIZE_HANDLE_HEIGHT: f32 = 3.0;
+pub(super) const MIN_COMMIT_HEIGHT: f32 = 120.0;
+pub(super) const DIFF_RESIZE_HANDLE_HEIGHT: f32 = 3.0;
 
 pub struct RepoTab {
     id: TabId,
@@ -95,8 +86,7 @@ pub struct RepoTab {
     status: GitStatus,
     status_message: Option<String>,
     status_message_ok: Option<bool>,
-    layout: LayoutState,
-    sidebar_collapsed: bool,
+    layout: LayoutSettings,
     /// Force-push confirmation dialog is open (run only on explicit confirm).
     confirm_force_push: bool,
     locale: Locale,
@@ -110,20 +100,25 @@ impl RepoTab {
         repo_path: String,
         locale: Locale,
         diff_layout: DiffLayoutMode,
+        mut layout: LayoutSettings,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        layout.normalize();
         let git_view = cx.new(|cx| GitView::new(locale, cx));
         let sidebar = cx.new(|cx| Sidebar::new(window, cx, locale));
         let graph = cx.new(|cx| GraphView::new(id, locale, cx));
         let toolbar = cx.new(|_cx| Toolbar::new(locale));
         let commit = cx.new(|cx| CommitPanel::new(window, cx, locale));
         let changes = cx.new(|_cx| ChangesPanel::new(locale));
-        let bottom = cx.new(|_cx| BottomPanel::new(locale, diff_layout));
+        let bottom = cx.new(|_cx| {
+            BottomPanel::new(locale, diff_layout, layout.file_list_ratio)
+        });
 
         cx.subscribe(&sidebar, |tab, _event, event, cx| match event {
             SidebarEvent::ToggleCollapse => {
-                tab.sidebar_collapsed = !tab.sidebar_collapsed;
+                tab.layout.sidebar_collapsed = !tab.layout.sidebar_collapsed;
+                cx.emit(RepoTabEvent::LayoutChanged(tab.layout.clone()));
                 cx.notify();
             }
             SidebarEvent::BranchSelected(name) => {
@@ -272,6 +267,10 @@ impl RepoTab {
                         files.clone(),
                     );
                 });
+            }
+            BottomPanelEvent::LayoutChanged { file_list_ratio } => {
+                tab.layout.file_list_ratio = *file_list_ratio;
+                cx.emit(RepoTabEvent::LayoutChanged(tab.layout.clone()));
             }
         })
         .detach();
@@ -455,12 +454,7 @@ impl RepoTab {
             status: GitStatus::None,
             status_message: None,
             status_message_ok: None,
-            layout: LayoutState {
-                sidebar_width: 250.0,
-                right_panel_width: 320.0,
-                diff_height: None,
-            },
-            sidebar_collapsed: false,
+            layout,
             confirm_force_push: false,
             locale,
         }
@@ -600,6 +594,19 @@ impl RepoTab {
         self.bottom.update(cx, |bottom, cx| {
             bottom.set_diff_layout(diff_layout, cx);
         });
+    }
+
+    pub fn set_layout(
+        &mut self,
+        mut layout: LayoutSettings,
+        cx: &mut Context<Self>,
+    ) {
+        layout.normalize();
+        self.layout = layout.clone();
+        self.bottom.update(cx, |bottom, cx| {
+            bottom.set_file_list_ratio(layout.file_list_ratio, cx);
+        });
+        cx.notify();
     }
 
     pub fn focus_branches(&mut self, cx: &mut Context<Self>) {
@@ -779,180 +786,6 @@ impl RepoTab {
                             .gap_2()
                             .child(cancel_btn)
                             .child(confirm_btn),
-                    ),
-            )
-    }
-
-    fn collapsed_rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let this = cx.entity();
-        v_flex()
-            .id("sidebar-rail")
-            .w(px(28.))
-            .h_full()
-            .flex_shrink_0()
-            .bg(cx.theme().colors.background)
-            .items_center()
-            .pt_2()
-            .child(
-                div()
-                    .id("btn-expand")
-                    .p_1()
-                    .rounded_md()
-                    .hover(|element| element.bg(cx.theme().colors.input))
-                    .text_size(px(12.))
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child(Icon::new(IconName::PanelLeftOpen))
-                    .on_click(move |_event, _window, cx| {
-                        this.update(cx, |tab, cx| {
-                            tab.sidebar_collapsed = false;
-                            cx.notify();
-                        });
-                    }),
-            )
-    }
-
-    fn main_content(
-        &self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let colors = cx.theme().colors.clone();
-        let sidebar_width = px(self.layout.sidebar_width);
-        let right_panel_width = px(self.layout.right_panel_width);
-        let diff_height = self.layout.diff_height.map(px);
-
-        h_flex()
-            .id("main-content")
-            .size_full()
-            .min_h_0()
-            .on_drag_move::<SidebarResize>(cx.listener(
-                |tab, event: &DragMoveEvent<SidebarResize>, _, cx| {
-                    let new_width = f32::from(event.event.position.x)
-                        .clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
-                    tab.layout.sidebar_width = new_width;
-                    cx.notify();
-                },
-            ))
-            .on_drag_move::<RightPanelResize>(cx.listener(
-                |tab, event: &DragMoveEvent<RightPanelResize>, window, cx| {
-                    let width = window.bounds().size.width;
-                    let new_width = (f32::from(width)
-                        - f32::from(event.event.position.x))
-                    .clamp(MIN_RIGHT_PANEL_WIDTH, MAX_RIGHT_PANEL_WIDTH);
-                    tab.layout.right_panel_width = new_width;
-                    cx.notify();
-                },
-            ))
-            .on_drag_move::<DiffViewerResize>(cx.listener(
-                |tab, event: &DragMoveEvent<DiffViewerResize>, _, cx| {
-                    let main_content_height =
-                        f32::from(event.bounds.size.height);
-                    let position = f32::from(
-                        event.event.position.y - event.bounds.origin.y,
-                    );
-                    let max_diff_height = (main_content_height
-                        - MIN_COMMIT_HEIGHT
-                        - DIFF_RESIZE_HANDLE_HEIGHT)
-                        .clamp(MIN_DIFF_HEIGHT, MAX_DIFF_HEIGHT);
-                    tab.layout.diff_height = Some(
-                        (main_content_height - position)
-                            .clamp(MIN_DIFF_HEIGHT, max_diff_height),
-                    );
-                    cx.notify();
-                },
-            ))
-            .child(
-                div()
-                    .relative()
-                    .w(sidebar_width)
-                    .h_full()
-                    .flex_shrink_0()
-                    .border_r_1()
-                    .border_color(colors.border)
-                    .child(if self.sidebar_collapsed {
-                        self.collapsed_rail(cx).into_any_element()
-                    } else {
-                        self.sidebar.clone().into_any_element()
-                    })
-                    .child(
-                        div()
-                            .id("sidebar-resize-handle")
-                            .absolute()
-                            .top_0()
-                            .right(px(-3.))
-                            .h_full()
-                            .w(px(5.))
-                            .cursor_col_resize()
-                            .hover(|element| element.bg(colors.drag_border))
-                            .on_drag(SidebarResize, |value, _, _, cx| {
-                                cx.stop_propagation();
-                                cx.new(|_| value.clone())
-                            }),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .child(div().flex_1().min_h_0().child(self.graph.clone()))
-                    .child(
-                        div()
-                            .id("diff-resize-handle")
-                            .w_full()
-                            .h(px(3.))
-                            .flex_shrink_0()
-                            .border_t_1()
-                            .border_color(colors.border)
-                            .cursor_row_resize()
-                            .hover(|element| element.bg(colors.drag_border))
-                            .on_drag(DiffViewerResize, |value, _, _, cx| {
-                                cx.stop_propagation();
-                                cx.new(|_| value.clone())
-                            }),
-                    )
-                    .child({
-                        let bottom =
-                            v_flex().min_h_0().child(self.bottom.clone());
-                        match diff_height {
-                            Some(height) => bottom.h(height).flex_shrink_0(),
-                            None => bottom.flex_1(),
-                        }
-                    }),
-            )
-            .child(
-                div()
-                    .relative()
-                    .w(right_panel_width)
-                    .h_full()
-                    .flex_shrink_0()
-                    .border_l_1()
-                    .border_color(colors.border)
-                    .flex()
-                    .flex_col()
-                    .child(self.commit.clone())
-                    .child(
-                        div()
-                            .w_full()
-                            .h(px(1.))
-                            .flex_shrink_0()
-                            .bg(colors.border),
-                    )
-                    .child(div().flex_1().min_h_0().child(self.changes.clone()))
-                    .child(
-                        div()
-                            .id("right-panel-resize-handle")
-                            .absolute()
-                            .top_0()
-                            .left(px(-3.))
-                            .h_full()
-                            .w(px(5.))
-                            .cursor_col_resize()
-                            .hover(|element| element.bg(colors.drag_border))
-                            .on_drag(RightPanelResize, |value, _, _, cx| {
-                                cx.stop_propagation();
-                                cx.new(|_| value.clone())
-                            }),
                     ),
             )
     }

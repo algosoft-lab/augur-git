@@ -3,6 +3,7 @@
 //! The configuration is stored under the platform's standard user config directory.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -99,6 +100,123 @@ impl Default for ViewSettings {
     }
 }
 
+/// User-selected font families. `None` keeps the active theme/platform
+/// default and avoids serializing GPUI-specific types into application config.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct TypographySettings {
+    #[serde(default)]
+    pub ui_font_family: Option<String>,
+    #[serde(default)]
+    pub mono_font_family: Option<String>,
+}
+
+pub const DEFAULT_WINDOW_WIDTH: u32 = 1280;
+pub const DEFAULT_WINDOW_HEIGHT: u32 = 800;
+pub const MIN_WINDOW_WIDTH: u32 = 860;
+pub const MIN_WINDOW_HEIGHT: u32 = 480;
+
+pub const MIN_SIDEBAR_WIDTH: f32 = 180.0;
+pub const MAX_SIDEBAR_WIDTH: f32 = 400.0;
+pub const MIN_RIGHT_PANEL_WIDTH: f32 = 250.0;
+pub const MAX_RIGHT_PANEL_WIDTH: f32 = 600.0;
+pub const MIN_DIFF_HEIGHT: f32 = 100.0;
+pub const MAX_DIFF_HEIGHT: f32 = 1000.0;
+pub const DEFAULT_FILE_LIST_RATIO: f32 = 0.25;
+pub const MIN_FILE_LIST_RATIO: f32 = 0.2;
+pub const MAX_FILE_LIST_RATIO: f32 = 0.7;
+
+/// Persisted geometry and panel layout shared by all repository tabs.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct LayoutSettings {
+    pub sidebar_width: f32,
+    pub right_panel_width: f32,
+    pub diff_height: Option<f32>,
+    pub file_list_ratio: f32,
+    pub sidebar_collapsed: bool,
+}
+
+impl Default for LayoutSettings {
+    fn default() -> Self {
+        Self {
+            sidebar_width: 250.0,
+            right_panel_width: 320.0,
+            diff_height: None,
+            file_list_ratio: DEFAULT_FILE_LIST_RATIO,
+            sidebar_collapsed: false,
+        }
+    }
+}
+
+impl LayoutSettings {
+    /// Clamp persisted or runtime values before applying them to a layout.
+    pub fn normalize(&mut self) {
+        self.sidebar_width =
+            finite_or(self.sidebar_width, Self::default().sidebar_width)
+                .clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
+        self.right_panel_width = finite_or(
+            self.right_panel_width,
+            Self::default().right_panel_width,
+        )
+        .clamp(MIN_RIGHT_PANEL_WIDTH, MAX_RIGHT_PANEL_WIDTH);
+        self.diff_height = self.diff_height.map(|height| {
+            finite_or(height, Self::default().diff_height.unwrap_or(0.0))
+                .clamp(MIN_DIFF_HEIGHT, MAX_DIFF_HEIGHT)
+        });
+        self.file_list_ratio =
+            finite_or(self.file_list_ratio, DEFAULT_FILE_LIST_RATIO)
+                .clamp(MIN_FILE_LIST_RATIO, MAX_FILE_LIST_RATIO);
+    }
+}
+
+/// Window geometry stored independently from application preferences.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(default)]
+pub struct WindowState {
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+    pub width: u32,
+    pub height: u32,
+    pub maximized: bool,
+}
+
+impl Default for WindowState {
+    fn default() -> Self {
+        Self {
+            x: None,
+            y: None,
+            width: DEFAULT_WINDOW_WIDTH,
+            height: DEFAULT_WINDOW_HEIGHT,
+            maximized: false,
+        }
+    }
+}
+
+impl WindowState {
+    pub fn normalize(&mut self) {
+        self.width = self.width.max(MIN_WINDOW_WIDTH);
+        self.height = self.height.max(MIN_WINDOW_HEIGHT);
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct UiState {
+    pub window: WindowState,
+    pub layout: LayoutSettings,
+}
+
+impl UiState {
+    pub fn normalize(&mut self) {
+        self.window.normalize();
+        self.layout.normalize();
+    }
+}
+
+fn finite_or(value: f32, fallback: f32) -> f32 {
+    if value.is_finite() { value } else { fallback }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct AppConfig {
     /// UI theme; missing field falls back to GitHub Dark (the original look).
@@ -112,6 +230,8 @@ pub struct AppConfig {
     pub active_tab_path: Option<String>,
     #[serde(default)]
     pub view: ViewSettings,
+    #[serde(default)]
+    pub typography: TypographySettings,
     #[serde(default)]
     pub recent_repos: Vec<String>,
 }
@@ -160,6 +280,8 @@ struct RawAppConfig {
     #[serde(default)]
     view: ViewSettings,
     #[serde(default)]
+    typography: TypographySettings,
+    #[serde(default)]
     recent_repos: Vec<String>,
     #[serde(default)]
     repo: LegacyRepoConfig,
@@ -179,6 +301,7 @@ impl From<RawAppConfig> for AppConfig {
             open_tabs: raw.open_tabs,
             active_tab_path: raw.active_tab_path,
             view: raw.view,
+            typography: raw.typography,
             recent_repos: raw.recent_repos,
         };
 
@@ -196,13 +319,21 @@ impl From<RawAppConfig> for AppConfig {
 }
 
 pub fn store_path() -> PathBuf {
+    config_dir().join("config.json")
+}
+
+pub fn ui_state_store_path() -> PathBuf {
+    config_dir().join("ui-state.json")
+}
+
+fn config_dir() -> PathBuf {
     let dir = dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("augur-git");
     if let Err(error) = std::fs::create_dir_all(&dir) {
         log::warn!("[config] failed to create config directory: {error}");
     }
-    dir.join("config.json")
+    dir
 }
 
 pub fn load() -> AppConfig {
@@ -222,8 +353,66 @@ pub fn load() -> AppConfig {
 
 pub fn save(config: &AppConfig) -> anyhow::Result<()> {
     let text = serde_json::to_string_pretty(config)?;
-    std::fs::write(store_path(), text)?;
+    write_atomically(&store_path(), &text)?;
     Ok(())
+}
+
+pub fn load_ui_state() -> UiState {
+    let path = ui_state_store_path();
+    match std::fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str::<UiState>(&text)
+            .map(|mut state| {
+                state.normalize();
+                state
+            })
+            .unwrap_or_else(|error| {
+                log::warn!(
+                    "[ui_state] failed to parse UI state; using defaults: {error}"
+                );
+                UiState::default()
+            }),
+        Err(_) => UiState::default(),
+    }
+}
+
+pub fn save_ui_state(state: &UiState) -> anyhow::Result<()> {
+    let mut state = state.clone();
+    state.normalize();
+    let text = serde_json::to_string_pretty(&state)?;
+    write_atomically(&ui_state_store_path(), &text)?;
+    Ok(())
+}
+
+fn write_atomically(path: &std::path::Path, text: &str) -> anyhow::Result<()> {
+    static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config");
+    let temp_path = path.with_file_name(format!(
+        ".{filename}.tmp-{}-{counter}",
+        std::process::id(),
+    ));
+    std::fs::write(&temp_path, text)?;
+    match std::fs::rename(&temp_path, path) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            // Windows does not replace an existing destination with rename.
+            // Keep the same temporary-file path and use the platform fallback
+            // only when the atomic replacement cannot be performed directly.
+            #[cfg(windows)]
+            {
+                if path.exists() {
+                    std::fs::remove_file(path)?;
+                    std::fs::rename(&temp_path, path)?;
+                    return Ok(());
+                }
+            }
+            let _ = std::fs::remove_file(&temp_path);
+            Err(error.into())
+        }
+    }
 }
 
 const CONFIG_SAVE_DEBOUNCE: Duration = Duration::from_millis(150);
@@ -231,7 +420,15 @@ const CONFIG_SAVE_DEBOUNCE: Duration = Duration::from_millis(150);
 /// Serializes configuration writes away from the UI thread and coalesces
 /// bursts of updates such as rapid tab switching.
 pub struct ConfigSaveQueue {
-    sender: Option<Sender<AppConfig>>,
+    sender: Option<Sender<ConfigSaveRequest>>,
+}
+
+enum ConfigSaveRequest {
+    Save(AppConfig),
+    Flush {
+        config: AppConfig,
+        completed: Sender<()>,
+    },
 }
 
 impl ConfigSaveQueue {
@@ -268,14 +465,42 @@ impl ConfigSaveQueue {
             return;
         };
 
-        if sender.send(config.clone()).is_err() {
+        if sender
+            .send(ConfigSaveRequest::Save(config.clone()))
+            .is_err()
+        {
             log::warn!("[config] save worker is unavailable");
         }
     }
+
+    /// Queue the final snapshot and return a receiver that completes after it
+    /// has been written. This prevents an older debounced snapshot from
+    /// racing with the final application-quit write.
+    pub fn flush(&self, config: &AppConfig) -> Option<Receiver<()>> {
+        let sender = self.sender.as_ref()?;
+        let (completed, receiver) = mpsc::channel();
+        if sender
+            .send(ConfigSaveRequest::Flush {
+                config: config.clone(),
+                completed,
+            })
+            .is_err()
+        {
+            log::warn!("[config] save worker is unavailable during flush");
+            return None;
+        }
+        Some(receiver)
+    }
 }
 
-fn run_save_worker(receiver: Receiver<AppConfig>) {
-    while let Ok(mut latest) = receiver.recv() {
+fn run_save_worker(receiver: Receiver<ConfigSaveRequest>) {
+    while let Ok(request) = receiver.recv() {
+        let (mut latest, mut completed) = match request {
+            ConfigSaveRequest::Save(config) => (config, None),
+            ConfigSaveRequest::Flush { config, completed } => {
+                (config, Some(completed))
+            }
+        };
         let mut coalesced = 0;
         let deadline = Instant::now() + CONFIG_SAVE_DEBOUNCE;
         let mut disconnected = false;
@@ -286,10 +511,20 @@ fn run_save_worker(receiver: Receiver<AppConfig>) {
                 break;
             }
             match receiver.recv_timeout(remaining) {
-                Ok(config) => {
-                    latest = config;
-                    coalesced += 1;
-                }
+                Ok(request) => match request {
+                    ConfigSaveRequest::Save(config) => {
+                        latest = config;
+                        coalesced += 1;
+                    }
+                    ConfigSaveRequest::Flush {
+                        config,
+                        completed: ack,
+                    } => {
+                        latest = config;
+                        completed = Some(ack);
+                        coalesced += 1;
+                    }
+                },
                 Err(mpsc::RecvTimeoutError::Timeout) => break,
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
                     disconnected = true;
@@ -304,6 +539,9 @@ fn run_save_worker(receiver: Receiver<AppConfig>) {
             log::debug!(
                 "[config] configuration saved (coalesced_updates={coalesced})"
             );
+        }
+        if let Some(completed) = completed {
+            let _ = completed.send(());
         }
 
         if disconnected {
@@ -324,12 +562,15 @@ mod tests {
         });
         config.active_tab_path = Some(r"D:\dev\gitee\augur-git".into());
         config.view.show_untracked = false;
+        config.typography.ui_font_family = Some("Inter".into());
+        config.typography.mono_font_family = Some("JetBrains Mono".into());
 
         let text = serde_json::to_string(&config).unwrap();
         let back: AppConfig = serde_json::from_str(&text).unwrap();
         assert_eq!(back.open_tabs, config.open_tabs);
         assert_eq!(back.active_tab_path, config.active_tab_path);
         assert!(!back.view.show_untracked);
+        assert_eq!(back.typography, config.typography);
     }
 
     #[test]
@@ -338,6 +579,7 @@ mod tests {
         assert!(config.view.show_untracked);
         assert!(config.open_tabs.is_empty());
         assert!(config.recent_repos.is_empty());
+        assert_eq!(config.typography, TypographySettings::default());
     }
 
     #[test]
@@ -432,6 +674,15 @@ mod tests {
     }
 
     #[test]
+    fn missing_typography_fields_default_to_system_fonts() {
+        let json = r#"{}"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(config.typography, TypographySettings::default());
+    }
+
+    #[test]
     fn diff_layout_preference_round_trips() {
         let json = r#"{"view":{"show_untracked":true,"auto_follow":true,"diff_layout":"side-by-side"}}"#;
         let config = AppConfig::from(
@@ -461,5 +712,36 @@ mod tests {
         );
         assert_eq!(config.theme, ThemePreference::CatppuccinMocha);
         assert_eq!(config.open_tabs.len(), 1);
+    }
+
+    #[test]
+    fn ui_state_roundtrips_and_normalizes_layout() {
+        let mut state = UiState {
+            window: WindowState {
+                x: Some(12),
+                y: Some(24),
+                width: 640,
+                height: 400,
+                maximized: true,
+            },
+            layout: LayoutSettings {
+                sidebar_width: 1000.0,
+                right_panel_width: 100.0,
+                diff_height: Some(10.0),
+                file_list_ratio: 0.9,
+                sidebar_collapsed: true,
+            },
+        };
+        state.normalize();
+        let text = serde_json::to_string(&state).unwrap();
+        let back: UiState = serde_json::from_str(&text).unwrap();
+        assert_eq!(back, state);
+        assert_eq!(back.window.width, MIN_WINDOW_WIDTH);
+        assert_eq!(back.window.height, MIN_WINDOW_HEIGHT);
+        assert_eq!(back.layout.sidebar_width, MAX_SIDEBAR_WIDTH);
+        assert_eq!(back.layout.right_panel_width, MIN_RIGHT_PANEL_WIDTH);
+        assert_eq!(back.layout.diff_height, Some(MIN_DIFF_HEIGHT));
+        assert_eq!(back.layout.file_list_ratio, MAX_FILE_LIST_RATIO);
+        assert!(back.layout.sidebar_collapsed);
     }
 }

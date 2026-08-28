@@ -7,6 +7,7 @@ use gpui_component::{
 };
 use std::sync::Arc;
 
+use crate::core::config::{MAX_FILE_LIST_RATIO, MIN_FILE_LIST_RATIO};
 use crate::core::diff::{DiffDocument, FileChange, stat_blocks};
 use crate::core::i18n::{self, Locale};
 use crate::git::diff_view::{self, DiffLayoutMode, DiffViewCache};
@@ -53,6 +54,8 @@ pub enum BottomPanelEvent {
         merge_parent: Option<String>,
         files: Vec<FileChange>,
     },
+    /// Report the global file-list width ratio to the owning repository tab.
+    LayoutChanged { file_list_ratio: f32 },
 }
 
 #[derive(Clone, Debug)]
@@ -95,7 +98,11 @@ struct AllDiffDocument {
 impl EventEmitter<BottomPanelEvent> for BottomPanel {}
 
 impl BottomPanel {
-    pub fn new(locale: Locale, diff_layout: DiffLayoutMode) -> Self {
+    pub fn new(
+        locale: Locale,
+        diff_layout: DiffLayoutMode,
+        file_list_ratio: f32,
+    ) -> Self {
         Self {
             locale,
             commit: None,
@@ -110,7 +117,8 @@ impl BottomPanel {
             diff_layout,
             diff_loading: false,
             content_width: f32::INFINITY,
-            file_list_ratio: 0.25,
+            file_list_ratio: file_list_ratio
+                .clamp(MIN_FILE_LIST_RATIO, MAX_FILE_LIST_RATIO),
         }
     }
 
@@ -122,6 +130,19 @@ impl BottomPanel {
     ) {
         if self.diff_layout != diff_layout {
             self.diff_layout = diff_layout;
+            cx.notify();
+        }
+    }
+
+    pub fn set_file_list_ratio(
+        &mut self,
+        file_list_ratio: f32,
+        cx: &mut Context<Self>,
+    ) {
+        let file_list_ratio =
+            file_list_ratio.clamp(MIN_FILE_LIST_RATIO, MAX_FILE_LIST_RATIO);
+        if (self.file_list_ratio - file_list_ratio).abs() > f32::EPSILON {
+            self.file_list_ratio = file_list_ratio;
             cx.notify();
         }
     }
@@ -803,9 +824,13 @@ impl Render for BottomPanel {
                 let x = f32::from(event.event.position.x)
                     - f32::from(event.bounds.origin.x);
                 resize_entity.update(cx, |panel, cx| {
-                    let ratio = (x / width).clamp(0.2, 0.7);
+                    let ratio = (x / width)
+                        .clamp(MIN_FILE_LIST_RATIO, MAX_FILE_LIST_RATIO);
                     if (panel.file_list_ratio - ratio).abs() > f32::EPSILON {
                         panel.file_list_ratio = ratio;
+                        cx.emit(BottomPanelEvent::LayoutChanged {
+                            file_list_ratio: ratio,
+                        });
                         cx.notify();
                     }
                 });

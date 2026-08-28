@@ -4,27 +4,35 @@
 //! Lives outside `core/` because it is presentation-layer: it wires gpui and
 //! gpui-component globals rather than pure domain logic.
 
-use gpui::{App, Hsla, Rgba, rgb};
+use gpui::{App, Hsla, Rgba, SharedString, rgb};
 use gpui_component::theme::{Theme, ThemeRegistry};
 
-use crate::core::config::ThemePreference;
+use crate::core::config::{ThemePreference, TypographySettings};
 
 const THEMES_JSON: &str = include_str!("../assets/themes/augur-themes.json");
 
 /// Register the embedded themes and apply `preference`. Call once at startup,
 /// after `gpui_component::init` and after a `Theme::change` call has created
 /// the `Theme` global (the registry observer reads it).
-pub fn init(preference: ThemePreference, cx: &mut App) {
+pub fn init(
+    preference: ThemePreference,
+    typography: &TypographySettings,
+    cx: &mut App,
+) {
     if let Err(error) =
         ThemeRegistry::global_mut(cx).load_themes_from_str(THEMES_JSON)
     {
         log::warn!("[theme] failed to load embedded themes: {error}");
     }
-    apply(preference, cx);
+    apply(preference, typography, cx);
 }
 
 /// Switch to `preference` at runtime and refresh all windows.
-pub fn apply(preference: ThemePreference, cx: &mut App) {
+pub fn apply(
+    preference: ThemePreference,
+    typography: &TypographySettings,
+    cx: &mut App,
+) {
     let Some(config) = ThemeRegistry::global(cx)
         .themes()
         .get(preference.registry_name())
@@ -36,12 +44,17 @@ pub fn apply(preference: ThemePreference, cx: &mut App) {
         );
         return;
     };
+    let mut config = (*config).clone();
+    config.font_family =
+        typography.ui_font_family.clone().map(SharedString::from);
+    config.mono_font_family =
+        typography.mono_font_family.clone().map(SharedString::from);
     let mode = config.mode;
     let theme = Theme::global_mut(cx);
     if mode.is_dark() {
-        theme.dark_theme = config;
+        theme.dark_theme = config.into();
     } else {
-        theme.light_theme = config;
+        theme.light_theme = config.into();
     }
     Theme::change(mode, None, cx);
     cx.refresh_windows();

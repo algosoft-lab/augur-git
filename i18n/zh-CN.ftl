@@ -120,14 +120,23 @@ diff-all-files = 全部变更文件
 diff-merge-first-parent = 相对第一父提交
 diff-no-output = (无输出)
 
-# ===== 设置弹层 =====
+# ===== 设置面板 =====
 settings-title = 设置
+settings-description = 应用偏好设置
+settings-general = 常规
+settings-appearance = 外观
+settings-layout = 布局
 language-title = 界面语言
 language-system = 跟随系统
 language-chinese = 简体中文
 language-english = English
 settings-close = 关闭
 theme-title = 主题
+ui-font-title = 界面字体
+mono-font-title = 等宽字体
+font-system-default = 系统默认
+font-search-placeholder = 搜索已安装字体…
+layout-persistence-description = 面板尺寸、左栏折叠状态和窗口几何信息会在应用关闭时保存。
 diff-layout-title = Diff 布局
 diff-layout-inline = 内联
 diff-layout-side-by-side = 并排

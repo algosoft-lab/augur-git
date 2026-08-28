@@ -5,11 +5,13 @@
 
 mod about;
 mod app_menu;
+mod persistence;
+mod preferences;
 mod repo_tab;
+mod settings;
 mod tabs;
 mod welcome;
-
-use std::path::Path;
+mod window_state;
 
 use gpui::prelude::*;
 use gpui::*;
@@ -19,15 +21,16 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::core::config::{
-    self, AppConfig, DiffLayoutPreference, LanguagePreference, OpenTabConfig,
-    ThemePreference,
-};
+use crate::core::config::{self, AppConfig, UiState};
 use crate::core::i18n::{self, Locale};
-use crate::git::diff_view::DiffLayoutMode;
 
 use self::app_menu::{AppMenu, AppMenuEvent};
+use self::persistence::{
+    installed_font_families, normalize_typography, normalized_path, repo_key,
+    welcome_tab_key,
+};
 use self::repo_tab::{RepoTab, RepoTabEvent};
+use self::settings::{SettingsPanel, SettingsPanelEvent};
 use self::tabs::{
     RepoTabBar, RepoTabBarEvent, TabId, TabState, TabSummary,
     fallback_after_close,
@@ -47,9 +50,16 @@ pub fn run(app: Application) {
         log::info!("[app_lifecycle] macOS reopen requested");
         cx.activate(true);
         cx.spawn(async move |cx| {
-            let config = cx.background_spawn(async { config::load() }).await;
+            let (mut config, ui_state) = cx
+                .background_spawn(async {
+                    (config::load(), config::load_ui_state())
+                })
+                .await;
             let result = cx.update(|cx| {
-                open_main_window(cx, config)
+                let fonts = installed_font_families(cx);
+                normalize_typography(&mut config, &fonts);
+                theme::apply(config.theme, &config.typography, cx);
+                open_main_window(cx, config, ui_state, fonts)
             });
             match result {
                 Ok(_) => log::info!("[app_lifecycle] reopened main window"),
@@ -67,11 +77,14 @@ pub fn run(app: Application) {
         // Load config before the window opens: the persisted theme must be
         // applied before first paint, and Workspace::new receives the config
         // (single read, no double IO).
-        let config = config::load();
+        let mut config = config::load();
+        let font_families = installed_font_families(cx);
+        normalize_typography(&mut config, &font_families);
+        let ui_state = config::load_ui_state();
         // Create the Theme global before touching ThemeRegistry::global_mut:
         // the registry's global observer reads Theme::global.
         Theme::change(ThemeMode::Dark, None, cx);
-        theme::init(config.theme, cx);
+        theme::init(config.theme, &config.typography, cx);
         cx.on_action(|_: &app_menu::Quit, cx| cx.quit());
         cx.on_action(|_: &app_menu::OpenAbout, cx| {
             log::info!("[app_menu] routing global open about action");
@@ -88,7 +101,9 @@ pub fn run(app: Application) {
         app_menu::install_native_menu(i18n::resolve(&config.language), cx);
 
         cx.activate(true);
-        if let Err(error) = open_main_window(cx, config) {
+        if let Err(error) =
+            open_main_window(cx, config, ui_state, font_families)
+        {
             log::error!(
                 "[app_lifecycle] failed to open initial window: {error}"
             );
@@ -122,10 +137,15 @@ fn update_active_workspace(
 fn open_main_window(
     cx: &mut App,
     config: AppConfig,
+    ui_state: UiState,
+    font_families: Vec<String>,
 ) -> anyhow::Result<WindowHandle<Root>> {
-    let window_options = initial_window_options(cx);
+    let window_options =
+        window_state::initial_window_options(cx, &ui_state.window);
     let window = cx.open_window(window_options, |window, cx| {
-        let workspace = cx.new(|cx| Workspace::new(config, window, cx));
+        let workspace = cx.new(|cx| {
+            Workspace::new(config, ui_state, font_families, window, cx)
+        });
         cx.set_global(ActiveWorkspace {
             workspace: workspace.downgrade(),
         });
@@ -134,37 +154,6 @@ fn open_main_window(
     cx.activate(true);
     log::info!("[app_lifecycle] main window created");
     Ok(window)
-}
-
-fn initial_window_options(cx: &mut App) -> WindowOptions {
-    let desired_size = size(px(1280.), px(800.));
-    let primary_display = cx.primary_display();
-
-    let window_bounds = if let Some(display) = primary_display.clone() {
-        let visible_bounds = display.visible_bounds();
-        let clamped_size = desired_size.min(&visible_bounds.size);
-        WindowBounds::Windowed(Bounds::centered_at(
-            visible_bounds.center(),
-            clamped_size,
-        ))
-    } else {
-        WindowBounds::centered(desired_size, cx)
-    };
-
-    WindowOptions {
-        window_bounds: Some(window_bounds),
-        display_id: primary_display.map(|display| display.id()),
-        titlebar: Some(TitleBar::title_bar_options()),
-        // Draw the custom title bar's own window controls on Linux instead of
-        // showing them next to server-side decorations. Ignored on macOS and
-        // Windows, where the field has no platform implementation.
-        window_decorations: Some(WindowDecorations::Client),
-        window_min_size: Some(gpui::Size {
-            width: px(860.),
-            height: px(480.),
-        }),
-        ..Default::default()
-    }
 }
 
 /// Content of a workspace tab. A tab either hosts an open repository or is
@@ -191,12 +180,8 @@ pub struct Workspace {
     tab_bar: Entity<RepoTabBar>,
     app_menu: Entity<AppMenu>,
     config: AppConfig,
-    language_preference: LanguagePreference,
-    /// UI theme preference (settings overlay; source of truth is config.theme)
-    theme_preference: ThemePreference,
-    /// Commit diff layout preference (settings overlay; source of truth is
-    /// config.view.diff_layout)
-    diff_layout: DiffLayoutPreference,
+    settings_panel: Entity<SettingsPanel>,
+    ui_state: UiState,
     locale: Locale,
     config_saver: config::ConfigSaveQueue,
     show_settings: bool,
@@ -207,17 +192,18 @@ pub struct Workspace {
 impl Workspace {
     pub fn new(
         config: AppConfig,
+        ui_state: UiState,
+        font_families: Vec<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let theme_preference = config.theme;
-        let language_preference = config.language;
-        let diff_layout = config.view.diff_layout;
-        let locale = i18n::resolve(&language_preference);
+        let locale = i18n::resolve(&config.language);
         let config_saver = config::ConfigSaveQueue::new();
         let tab_bar = cx.new(|_cx| RepoTabBar::new());
         let app_menu =
             cx.new(|_cx| AppMenu::new(locale, config.recent_repos.clone()));
+        let settings_panel =
+            cx.new(|cx| SettingsPanel::new(&config, font_families, window, cx));
 
         let app_menu_for_events = app_menu.clone();
         cx.subscribe_in(
@@ -227,6 +213,34 @@ impl Workspace {
                 AppMenuEvent::OpenRecent(path) => {
                     log::info!("[app_menu] opening recent repository");
                     workspace.open_repo_path(path.clone(), false, window, cx);
+                }
+            },
+        )
+        .detach();
+
+        let settings_panel_for_events = settings_panel.clone();
+        cx.subscribe_in(
+            &settings_panel_for_events,
+            window,
+            |workspace, _panel, event, window, cx| match event {
+                SettingsPanelEvent::Close => {
+                    workspace.show_settings = false;
+                    cx.notify();
+                }
+                SettingsPanelEvent::LanguageChanged(preference) => {
+                    workspace.set_language(*preference, window, cx);
+                }
+                SettingsPanelEvent::ThemeChanged(preference) => {
+                    workspace.set_theme(*preference, cx);
+                }
+                SettingsPanelEvent::DiffLayoutChanged(preference) => {
+                    workspace.set_diff_layout(*preference, cx);
+                }
+                SettingsPanelEvent::UiFontChanged(font) => {
+                    workspace.set_ui_font(font.clone(), cx);
+                }
+                SettingsPanelEvent::MonoFontChanged(font) => {
+                    workspace.set_mono_font(font.clone(), cx);
                 }
             },
         )
@@ -254,9 +268,8 @@ impl Workspace {
             tab_bar,
             app_menu,
             config,
-            language_preference,
-            theme_preference,
-            diff_layout,
+            settings_panel,
+            ui_state,
             locale,
             config_saver,
             show_settings: false,
@@ -271,6 +284,27 @@ impl Workspace {
         workspace.restoring = false;
         workspace.refresh_tab_bar(cx);
         workspace.persist_config();
+        cx.observe_window_bounds(window, |workspace, window, _cx| {
+            window_state::update_ui_state_window(
+                &mut workspace.ui_state,
+                window,
+            );
+        })
+        .detach();
+        cx.on_app_quit(|workspace, cx| workspace.persist_on_quit(cx))
+            .detach();
+        #[cfg(target_os = "macos")]
+        {
+            let active = cx.entity().downgrade();
+            cx.on_window_closed(move |cx, _window_id| {
+                if let Some(workspace) = active.upgrade() {
+                    workspace.update(cx, |workspace, cx| {
+                        workspace.persist_ui_state(cx);
+                    });
+                }
+            })
+            .detach();
+        }
         workspace
     }
 
@@ -325,7 +359,8 @@ impl Workspace {
                 id,
                 path_for_tab,
                 locale,
-                self.diff_layout.into(),
+                self.config.view.diff_layout.into(),
+                self.ui_state.layout.clone(),
                 window,
                 cx,
             )
@@ -390,7 +425,8 @@ impl Workspace {
                 id,
                 path.clone(),
                 locale,
-                self.diff_layout.into(),
+                self.config.view.diff_layout.into(),
+                self.ui_state.layout.clone(),
                 window,
                 cx,
             )
@@ -478,6 +514,18 @@ impl Workspace {
             }
             RepoTabEvent::RequestSettings => {
                 self.open_settings(cx);
+            }
+            RepoTabEvent::LayoutChanged(layout) => {
+                self.ui_state.layout = layout.clone();
+                self.ui_state.layout.normalize();
+                for entry in &self.tabs {
+                    if let TabContent::Repo(tab) = &entry.content {
+                        tab.update(cx, |tab, cx| {
+                            tab.set_layout(self.ui_state.layout.clone(), cx);
+                        });
+                    }
+                }
+                cx.notify();
             }
         }
     }
@@ -568,108 +616,6 @@ impl Workspace {
         if let Some(tab) = self.active_tab_entity() {
             tab.update(cx, |tab, cx| tab.focus_branches(cx));
         }
-    }
-
-    fn open_settings(&mut self, cx: &mut Context<Self>) {
-        self.show_settings = true;
-        cx.notify();
-    }
-
-    fn open_about(&mut self, cx: &mut Context<Self>) {
-        self.show_settings = false;
-        cx.notify();
-        about::open_about_window(self, cx);
-    }
-
-    fn refresh_app_menu(&mut self, cx: &mut Context<Self>) {
-        let locale = self.locale;
-        let recent_repos = self.config.recent_repos.clone();
-        self.app_menu.update(cx, |menu, cx| {
-            menu.set_locale(locale);
-            menu.set_recent_repos(recent_repos);
-            cx.notify();
-        });
-        app_menu::install_native_menu(locale, cx);
-    }
-
-    fn set_language(
-        &mut self,
-        preference: LanguagePreference,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.language_preference = preference;
-        self.locale = i18n::resolve(&preference);
-        let locale = self.locale;
-        for entry in &mut self.tabs {
-            match &entry.content {
-                TabContent::Repo(tab) => {
-                    tab.update(cx, |tab, cx| {
-                        tab.set_locale(locale, window, cx);
-                    });
-                }
-                TabContent::Welcome => {
-                    entry.summary.title = i18n::text(locale, "tab-new");
-                }
-            }
-        }
-        if let Some(about_window) = self.about_window {
-            if about_window
-                .update(cx, |about, _window, cx| {
-                    about.set_locale(locale, cx);
-                })
-                .is_err()
-            {
-                self.about_window = None;
-            }
-        }
-        self.config.language = preference;
-        self.config_saver.schedule(&self.config);
-        self.refresh_app_menu(cx);
-        log::info!(
-            "[workspace] language preference: {:?}, locale: {}",
-            preference,
-            self.locale.id()
-        );
-        cx.notify();
-    }
-
-    /// Switch the UI theme: applies the embedded theme immediately and
-    /// persists the choice. Panels read colors from `cx.theme()` on every
-    /// render, so no per-panel fan-out is needed.
-    fn set_theme(
-        &mut self,
-        preference: ThemePreference,
-        cx: &mut Context<Self>,
-    ) {
-        self.theme_preference = preference;
-        self.config.theme = preference;
-        theme::apply(preference, cx);
-        self.config_saver.schedule(&self.config);
-        cx.notify();
-    }
-
-    /// Switch the commit diff layout: persists the choice and applies it to
-    /// every open repository tab immediately.
-    fn set_diff_layout(
-        &mut self,
-        preference: DiffLayoutPreference,
-        cx: &mut Context<Self>,
-    ) {
-        if self.diff_layout == preference {
-            return;
-        }
-        self.diff_layout = preference;
-        self.config.view.diff_layout = preference;
-        let layout = DiffLayoutMode::from(preference);
-        for entry in &self.tabs {
-            if let TabContent::Repo(tab) = &entry.content {
-                tab.update(cx, |tab, cx| tab.set_diff_layout(layout, cx));
-            }
-        }
-        self.config_saver.schedule(&self.config);
-        log::info!("[workspace] diff layout preference: {preference:?}");
-        cx.notify();
     }
 
     fn title_bar(
@@ -875,23 +821,6 @@ impl Workspace {
         })
         .detach();
     }
-
-    fn persist_config(&mut self) {
-        self.config.open_tabs = self
-            .tabs
-            .iter()
-            .filter(|tab| tab.persisted)
-            .filter_map(|tab| {
-                tab.path.clone().map(|path| OpenTabConfig { path })
-            })
-            .collect();
-        self.config.active_tab_path = self
-            .active_tab
-            .and_then(|active| self.tabs.iter().find(|tab| tab.id == active))
-            .filter(|tab| tab.persisted)
-            .and_then(|tab| tab.path.clone());
-        self.config_saver.schedule(&self.config);
-    }
 }
 
 impl Render for Workspace {
@@ -924,7 +853,7 @@ impl Render for Workspace {
             .child(self.title_bar(window, cx))
             .child(content)
             .when(self.show_settings, |element| {
-                element.child(self.settings_overlay(cx))
+                element.child(self.settings_overlay())
             })
     }
 }
@@ -938,8 +867,8 @@ impl Workspace {
         welcome::render_welcome(self, window, cx)
     }
 
-    fn settings_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        welcome::render_settings_overlay(self, cx)
+    fn settings_overlay(&self) -> impl IntoElement {
+        self.settings_panel.clone()
     }
 
     fn empty_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -961,25 +890,4 @@ impl Workspace {
                     .child(i18n::text(self.locale, "status-no-repo-selected")),
             )
     }
-}
-
-fn normalized_path(path: &str) -> String {
-    let path = Path::new(path);
-    std::fs::canonicalize(path)
-        .unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy()
-        .into_owned()
-}
-
-fn repo_key(path: &str) -> String {
-    let mut key = normalized_path(path);
-    #[cfg(windows)]
-    key.make_ascii_lowercase();
-    key
-}
-
-/// Unique key for a start-page tab. Repository keys are canonical paths, so
-/// this prefix cannot collide with them.
-fn welcome_tab_key(id: TabId) -> String {
-    format!("welcome:{id}")
 }

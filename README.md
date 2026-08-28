@@ -52,7 +52,8 @@ Building requires a recent stable Rust toolchain (edition 2024).
 
 - Settings and the recent-repository list are stored in
   `augur-git/config.json` under the platform's standard user config directory
-  (for example `~/.config/augur-git/config.json` on Linux).
+  (for example `~/.config/augur-git/config.json` on Linux). Window geometry
+  and global panel layout are stored alongside it in `augur-git/ui-state.json`.
 - Debug builds append application logs to `debug.log` in the working
   directory; release builds do not write a log file. `RUST_LOG` can optionally
   override the log level.
@@ -79,7 +80,9 @@ src/
 ├── workspace/
 │   ├── tabs.rs      # Repository tab bar
 │   ├── repo_tab.rs  # Per-repository tab state
-│   └── welcome.rs   # Welcome page and settings overlay
+│   ├── settings.rs  # Categorized settings panel
+│   ├── window_state.rs # Window geometry persistence
+│   └── welcome.rs   # Welcome page
 ├── core/
 │   ├── commit_diff.rs # Commit diff context and Git argument builders
 │   ├── config.rs    # Persisted application and repository settings

@@ -121,14 +121,23 @@ diff-all-files = All changed files
 diff-merge-first-parent = vs first parent
 diff-no-output = (no output)
 
-# ===== Settings overlay =====
+# ===== Settings panel =====
 settings-title = Settings
+settings-description = Application preferences
+settings-general = General
+settings-appearance = Appearance
+settings-layout = Layout
 language-title = Language
 language-system = System
 language-chinese = 简体中文
 language-english = English
 settings-close = Close
 theme-title = Theme
+ui-font-title = UI font
+mono-font-title = Monospace font
+font-system-default = System default
+font-search-placeholder = Search installed fonts…
+layout-persistence-description = Panel sizes, sidebar collapse, and window geometry are saved when the application closes.
 diff-layout-title = Diff layout
 diff-layout-inline = Inline
 diff-layout-side-by-side = Side-by-side
