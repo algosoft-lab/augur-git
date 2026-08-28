@@ -30,7 +30,7 @@ pub enum RepoTabEvent {
 struct LayoutState {
     sidebar_width: f32,
     detail_width: f32,
-    diff_height: f32,
+    diff_height: Option<f32>,
 }
 
 #[derive(Clone, Debug)]
@@ -75,8 +75,9 @@ const MAX_SIDEBAR_WIDTH: f32 = 400.0;
 const MIN_DETAIL_WIDTH: f32 = 220.0;
 const MAX_DETAIL_WIDTH: f32 = 600.0;
 const MIN_DIFF_HEIGHT: f32 = 100.0;
-const MAX_DIFF_HEIGHT: f32 = 500.0;
-const STATUS_BAR_HEIGHT: f32 = 24.0;
+const MAX_DIFF_HEIGHT: f32 = 1000.0;
+const MIN_COMMIT_HEIGHT: f32 = 120.0;
+const DIFF_RESIZE_HANDLE_HEIGHT: f32 = 3.0;
 
 pub struct RepoTab {
     id: TabId,
@@ -482,7 +483,7 @@ impl RepoTab {
             layout: LayoutState {
                 sidebar_width: 250.0,
                 detail_width: 320.0,
-                diff_height: 260.0,
+                diff_height: None,
             },
             sidebar_collapsed: false,
             confirm_force_push: false,
@@ -803,8 +804,6 @@ impl RepoTab {
             .w(px(28.))
             .h_full()
             .flex_shrink_0()
-            .border_r_1()
-            .border_color(cx.theme().border)
             .bg(cx.theme().colors.background)
             .items_center()
             .pt_2()
@@ -834,7 +833,7 @@ impl RepoTab {
         let colors = cx.theme().colors.clone();
         let sidebar_width = px(self.layout.sidebar_width);
         let detail_width = px(self.layout.detail_width);
-        let diff_height = px(self.layout.diff_height);
+        let diff_height = self.layout.diff_height.map(px);
 
         h_flex()
             .id("main-content")
@@ -859,13 +858,20 @@ impl RepoTab {
                 },
             ))
             .on_drag_move::<DiffViewerResize>(cx.listener(
-                |tab, event: &DragMoveEvent<DiffViewerResize>, window, cx| {
-                    let height = window.bounds().size.height;
-                    let new_height = (f32::from(height)
-                        - STATUS_BAR_HEIGHT
-                        - f32::from(event.event.position.y))
-                    .clamp(MIN_DIFF_HEIGHT, MAX_DIFF_HEIGHT);
-                    tab.layout.diff_height = new_height;
+                |tab, event: &DragMoveEvent<DiffViewerResize>, _, cx| {
+                    let main_content_height =
+                        f32::from(event.bounds.size.height);
+                    let position = f32::from(
+                        event.event.position.y - event.bounds.origin.y,
+                    );
+                    let max_diff_height = (main_content_height
+                        - MIN_COMMIT_HEIGHT
+                        - DIFF_RESIZE_HANDLE_HEIGHT)
+                        .clamp(MIN_DIFF_HEIGHT, MAX_DIFF_HEIGHT);
+                    tab.layout.diff_height = Some(
+                        (main_content_height - position)
+                            .clamp(MIN_DIFF_HEIGHT, max_diff_height),
+                    );
                     cx.notify();
                 },
             ))
@@ -875,6 +881,8 @@ impl RepoTab {
                     .w(sidebar_width)
                     .h_full()
                     .flex_shrink_0()
+                    .border_r_1()
+                    .border_color(colors.border)
                     .child(if self.sidebar_collapsed {
                         self.collapsed_rail(cx).into_any_element()
                     } else {
@@ -917,12 +925,14 @@ impl RepoTab {
                                 cx.new(|_| value.clone())
                             }),
                     )
-                    .child(
-                        v_flex()
-                            .h(diff_height)
-                            .flex_shrink_0()
-                            .child(self.bottom.clone()),
-                    ),
+                    .child({
+                        let bottom =
+                            v_flex().min_h_0().child(self.bottom.clone());
+                        match diff_height {
+                            Some(height) => bottom.h(height).flex_shrink_0(),
+                            None => bottom.flex_1(),
+                        }
+                    }),
             )
             .child(
                 div()

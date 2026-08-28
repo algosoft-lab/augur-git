@@ -591,13 +591,20 @@ impl Workspace {
                 })
         });
 
-        TitleBar::new().child(
+        let title_bar = if cfg!(target_os = "macos") {
+            TitleBar::new()
+        } else {
+            TitleBar::new().pl_0()
+        };
+
+        title_bar.child(
             h_flex()
                 .id("title-bar-content")
                 .w_full()
                 .h_full()
                 .items_center()
-                .px_2()
+                .pl_0()
+                .pr_2()
                 .gap_3()
                 .on_double_click(|_event, window, _cx| {
                     window.zoom_window();
