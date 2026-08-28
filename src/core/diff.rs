@@ -937,6 +937,23 @@ mod tests {
     }
 
     #[test]
+    fn merge_diff_fixture_combines_raw_records_and_numstat() {
+        let raw = parse_raw_records(
+            b":100644 100644 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb M\0src/merge.rs\0:000000 100644 0000000000000000000000000000000000000000 cccccccccccccccccccccccccccccccccccccccc A\0src/incoming.rs\0",
+        );
+        let stats =
+            parse_numstat("2\t1\tsrc/merge.rs\n4\t0\tsrc/incoming.rs\n");
+        let merged = merge_numstat(raw, stats);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].path, "src/merge.rs");
+        assert_eq!(merged[0].added, Some(2));
+        assert_eq!(merged[0].deleted, Some(1));
+        assert_eq!(merged[1].status, FileChangeStatus::Added);
+        assert_eq!(merged[1].added, Some(4));
+        assert_eq!(merged[1].deleted, Some(0));
+    }
+
+    #[test]
     fn numstat_decodes_quoted_control_character_paths() {
         let files = parse_numstat("1\t0\t\"tab\\tname.rs\"\n");
         assert_eq!(files.len(), 1);

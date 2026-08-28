@@ -118,10 +118,12 @@ commit-hint-none = 无暂存变更（暂存功能 M2）
 
 # ===== 底部面板（选中提交文件清单 + 单文件 diff） =====
 bottom-no-commit = 未选择提交
-bottom-merge-empty = 合并提交无逐文件统计
+bottom-merge-empty = 合并提交相对第一父提交没有文件变化
+bottom-no-changes = 此提交没有文件变化
 bottom-no-file = 点击左侧文件查看 diff
 bottom-bin = 二进制
 diff-all-files = 全部变更文件
+diff-merge-first-parent = 相对第一父提交
 diff-no-output = (无输出)
 diff-layout-inline = 内联
 diff-layout-side-by-side = 并排

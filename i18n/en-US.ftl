@@ -119,10 +119,12 @@ commit-hint-none = No staged changes (staging arrives in M2)
 
 # ===== Bottom panel (selected commit file list + file diff) =====
 bottom-no-commit = No commit selected
-bottom-merge-empty = Merge commit — no per-file stats
+bottom-merge-empty = Merge commit has no changes relative to its first parent
+bottom-no-changes = This commit has no file changes
 bottom-no-file = Select a file on the left to view its diff
 bottom-bin = Binary
 diff-all-files = All changed files
+diff-merge-first-parent = vs first parent
 diff-no-output = (no output)
 diff-layout-inline = Inline
 diff-layout-side-by-side = Side-by-side

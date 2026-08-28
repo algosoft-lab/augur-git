@@ -75,6 +75,7 @@ src/
 │   ├── repo_tab.rs  # Per-repository tab state
 │   └── welcome.rs   # Welcome page and settings overlay
 ├── core/
+│   ├── commit_diff.rs # Commit diff context and Git argument builders
 │   ├── config.rs    # Persisted application and repository settings
 │   ├── git.rs       # Git worker, command execution, events, output parsers
 │   ├── graph.rs     # Pure commit-graph layout and time formatting
@@ -90,9 +91,9 @@ assets/             # Logos, interface icons, and theme definitions
 ```
 
 `src/core/graph.rs` keeps commit-graph layout as pure, unit-tested logic
-without rendering concerns, and the parsers for status, log, and diff output in
-`src/core/git.rs` are exercised by unit tests without a GUI or live
-repository.
+without rendering concerns. Diff context and Git argument construction live in
+`src/core/commit_diff.rs`, while the status, log, and diff output parsers are
+exercised by unit tests without a GUI or live repository.
 
 Repository operations that can change user data are only initiated by explicit
 user actions, and their results or errors are surfaced in the UI.

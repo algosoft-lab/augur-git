@@ -17,6 +17,10 @@ use std::time::Duration;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+use crate::core::commit_diff::{
+    CommitDiffContext, merge_numstat_args, merge_patch_args, merge_raw_args,
+    parent_query_args, parse_parent_line,
+};
 #[allow(unused_imports)]
 pub use crate::core::diff::{
     DiffLine, DiffLineKind, FileChange, FileChangeStatus, parse_diff,
@@ -113,8 +117,12 @@ pub enum GitEvent {
     Log { rows: Vec<LogRow> },
     /// 引用快照（侧栏 remotes/远程分支/标签/stash 分区）
     Refs(RefsInfo),
-    /// 提交的逐文件增删统计（git show --numstat，选中提交时查询）
-    CommitFiles { oid: String, files: Vec<FileChange> },
+    /// Commit file metadata and line counts for the selected commit.
+    CommitFiles {
+        oid: String,
+        files: Vec<FileChange>,
+        merge_parent: Option<String>,
+    },
     /// 选中提交的完整提交信息（git show -s --format=%B，选中提交时查询）
     CommitMessage { oid: String, message: CommitMessage },
     /// Structured single-file commit diff payload.
@@ -185,12 +193,16 @@ pub enum GitCommand {
     Refresh,
     /// 执行任意 git 命令（label 供 UI 显示；args 不含 "git" 本身）
     Run { label: String, args: Vec<String> },
-    /// 查询提交的逐文件增删统计（git show --numstat）
+    /// Query file metadata and line counts for the selected commit.
     CommitNumstat { oid: String },
     /// 查询提交的完整提交信息（git show -s --format=%B）
     CommitMessage { oid: String },
     /// Query a structured single-file commit diff.
-    CommitFileDiff { oid: String, file: FileChange },
+    CommitFileDiff {
+        oid: String,
+        merge_parent: Option<String>,
+        file: FileChange,
+    },
     /// 关闭工作线程
     Close,
 }
@@ -235,8 +247,17 @@ impl GitHandle {
     }
 
     /// Query a structured single-file commit diff.
-    pub fn commit_file_diff(&self, oid: String, file: FileChange) {
-        let _ = self.cmd_tx.send(GitCommand::CommitFileDiff { oid, file });
+    pub fn commit_file_diff(
+        &self,
+        oid: String,
+        merge_parent: Option<String>,
+        file: FileChange,
+    ) {
+        let _ = self.cmd_tx.send(GitCommand::CommitFileDiff {
+            oid,
+            merge_parent,
+            file,
+        });
     }
 
     /// 请求关闭工作线程
@@ -289,8 +310,18 @@ fn worker_loop(
             Ok(GitCommand::CommitMessage { oid }) => {
                 run_commit_message(&repo_path, &oid, &event_tx);
             }
-            Ok(GitCommand::CommitFileDiff { oid, file }) => {
-                run_file_diff(&repo_path, &oid, &file, &event_tx);
+            Ok(GitCommand::CommitFileDiff {
+                oid,
+                merge_parent,
+                file,
+            }) => {
+                run_file_diff(
+                    &repo_path,
+                    &oid,
+                    merge_parent.as_deref(),
+                    &file,
+                    &event_tx,
+                );
             }
             Ok(GitCommand::Close) | Err(RecvTimeoutError::Disconnected) => {
                 break;
@@ -369,41 +400,62 @@ fn commit_message_args(oid: String) -> Vec<String> {
 
 /// Query structured file metadata for a commit.
 fn run_numstat(repo_path: &str, oid: &str, event_tx: &Sender<GitEvent>) {
-    let raw = git_command()
-        .args([
-            "--no-pager",
-            "-c",
-            "core.quotePath=false",
-            "-C",
-            repo_path,
-            "diff-tree",
-            "--root",
-            "--no-commit-id",
-            "-r",
-            "-M",
-            "--raw",
-            "--no-color",
-            "--no-ext-diff",
-            "-z",
-            oid,
-        ])
-        .output();
-    let stats = git_command()
-        .args([
-            "--no-pager",
-            "-c",
-            "core.quotePath=false",
-            "-C",
-            repo_path,
-            "show",
-            "--numstat",
-            "--format=",
-            "--no-color",
-            "--no-ext-diff",
-            "--find-renames",
-            oid,
-        ])
-        .output();
+    let merge_parent = match resolve_merge_parent(repo_path, oid) {
+        Ok(parent) => parent,
+        Err(detail) => {
+            let _ = event_tx
+                .send(GitEvent::Error(GitError::new("err-numstat", detail)));
+            return;
+        }
+    };
+    let (raw, stats) = if let Some(parent) = merge_parent.as_deref() {
+        (
+            git_command()
+                .args(merge_raw_args(repo_path, parent, oid))
+                .output(),
+            git_command()
+                .args(merge_numstat_args(repo_path, parent, oid))
+                .output(),
+        )
+    } else {
+        (
+            git_command()
+                .args([
+                    "--no-pager",
+                    "-c",
+                    "core.quotePath=false",
+                    "-C",
+                    repo_path,
+                    "diff-tree",
+                    "--root",
+                    "--no-commit-id",
+                    "-r",
+                    "-M",
+                    "--raw",
+                    "--no-color",
+                    "--no-ext-diff",
+                    "-z",
+                    oid,
+                ])
+                .output(),
+            git_command()
+                .args([
+                    "--no-pager",
+                    "-c",
+                    "core.quotePath=false",
+                    "-C",
+                    repo_path,
+                    "show",
+                    "--numstat",
+                    "--format=",
+                    "--no-color",
+                    "--no-ext-diff",
+                    "--find-renames",
+                    oid,
+                ])
+                .output(),
+        )
+    };
 
     match (raw, stats) {
         (Ok(raw), Ok(stats))
@@ -412,9 +464,7 @@ fn run_numstat(repo_path: &str, oid: &str, event_tx: &Sender<GitEvent>) {
             let raw_files = parse_raw_records(&raw.stdout);
             let stat_files =
                 parse_numstat(&String::from_utf8_lossy(&stats.stdout));
-            let files = if is_merge_commit(repo_path, oid) {
-                Vec::new()
-            } else if raw_files.is_empty() {
+            let files = if raw_files.is_empty() {
                 stat_files
             } else {
                 merge_numstat(raw_files, stat_files)
@@ -427,6 +477,7 @@ fn run_numstat(repo_path: &str, oid: &str, event_tx: &Sender<GitEvent>) {
             let _ = event_tx.send(GitEvent::CommitFiles {
                 oid: oid.to_string(),
                 files,
+                merge_parent,
             });
         }
         (Ok(raw), Ok(stats)) => {
@@ -447,34 +498,20 @@ fn run_numstat(repo_path: &str, oid: &str, event_tx: &Sender<GitEvent>) {
     }
 }
 
-fn is_merge_commit(repo_path: &str, oid: &str) -> bool {
+fn resolve_merge_parent(
+    repo_path: &str,
+    oid: &str,
+) -> Result<Option<String>, String> {
     let output = git_command()
-        .args([
-            "--no-pager",
-            "-C",
-            repo_path,
-            "rev-list",
-            "--parents",
-            "-n",
-            "1",
-            oid,
-        ])
-        .output();
-    output
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| {
-            is_merge_commit_parent_line(&String::from_utf8_lossy(
-                &output.stdout,
-            ))
-        })
-        .unwrap_or(false)
-}
-
-fn is_merge_commit_parent_line(text: &str) -> bool {
-    text.lines()
-        .next()
-        .is_some_and(|line| line.split_whitespace().count() > 2)
+        .args(parent_query_args(repo_path, oid))
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+    }
+    let context: CommitDiffContext =
+        parse_parent_line(&String::from_utf8_lossy(&output.stdout))?;
+    Ok(context.merge_parent)
 }
 
 /// 查询选中提交的完整提交信息（详情面板正文 + co-author）
@@ -572,32 +609,38 @@ const MAX_BLOB_SIZE: usize = 10 * 1024 * 1024;
 fn run_file_diff(
     repo_path: &str,
     oid: &str,
+    merge_parent: Option<&str>,
     file: &FileChange,
     event_tx: &Sender<GitEvent>,
 ) {
-    let path = if matches!(file.status, FileChangeStatus::Deleted) {
-        file.old_path.as_deref().unwrap_or(&file.new_path)
+    let args = if let Some(parent) = merge_parent {
+        merge_patch_args(repo_path, parent, oid, file)
     } else {
-        &file.new_path
-    };
-    let mut args = vec![
-        "--no-pager".to_string(),
-        "-C".to_string(),
-        repo_path.to_string(),
-        "show".to_string(),
-        "--format=".to_string(),
-        "--no-color".to_string(),
-        "--no-ext-diff".to_string(),
-        "--find-renames".to_string(),
-        oid.to_string(),
-        "--".to_string(),
-    ];
-    if file.status.is_rename() {
-        if let Some(old_path) = file.old_path.as_deref() {
-            args.push(old_path.to_string());
+        let path = if matches!(file.status, FileChangeStatus::Deleted) {
+            file.old_path.as_deref().unwrap_or(&file.new_path)
+        } else {
+            &file.new_path
+        };
+        let mut args = vec![
+            "--no-pager".to_string(),
+            "-C".to_string(),
+            repo_path.to_string(),
+            "show".to_string(),
+            "--format=".to_string(),
+            "--no-color".to_string(),
+            "--no-ext-diff".to_string(),
+            "--find-renames".to_string(),
+            oid.to_string(),
+            "--".to_string(),
+        ];
+        if file.status.is_rename() {
+            if let Some(old_path) = file.old_path.as_deref() {
+                args.push(old_path.to_string());
+            }
         }
-    }
-    args.push(path.to_string());
+        args.push(path.to_string());
+        args
+    };
     let output = git_command().args(&args).output();
     match output {
         Ok(output) if output.status.success() => {
@@ -942,15 +985,6 @@ mod tests {
         // 空/畸形行跳过
         assert!(parse_numstat("").is_empty());
         assert!(parse_numstat("garbage\n12\t3\n").is_empty());
-    }
-
-    #[test]
-    fn merge_parent_line_detection_preserves_merge_empty_diff() {
-        assert!(!is_merge_commit_parent_line("abc123\n"));
-        assert!(is_merge_commit_parent_line(
-            "abc123 parent-one parent-two\n"
-        ));
-        assert!(!is_merge_commit_parent_line(""));
     }
 
     #[test]

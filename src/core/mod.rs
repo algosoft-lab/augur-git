@@ -2,6 +2,7 @@
 //! persistence, build metadata, and localized copy.
 
 pub mod build_info;
+pub mod commit_diff;
 pub mod config;
 pub mod diff;
 pub mod git;

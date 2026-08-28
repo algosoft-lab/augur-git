@@ -269,14 +269,30 @@ impl RepoTab {
         .detach();
 
         cx.subscribe(&bottom, |tab, _event, event, cx| match event {
-            BottomPanelEvent::ShowFileDiff { oid, file } => {
+            BottomPanelEvent::ShowFileDiff {
+                oid,
+                merge_parent,
+                file,
+            } => {
                 tab.git_view.update(cx, |view, _| {
-                    view.file_diff(oid.clone(), file.clone());
+                    view.file_diff(
+                        oid.clone(),
+                        merge_parent.clone(),
+                        file.clone(),
+                    );
                 });
             }
-            BottomPanelEvent::ShowAllFileDiffs { oid, files } => {
+            BottomPanelEvent::ShowAllFileDiffs {
+                oid,
+                merge_parent,
+                files,
+            } => {
                 tab.git_view.update(cx, |view, _| {
-                    view.file_diffs(oid.clone(), files.clone());
+                    view.file_diffs(
+                        oid.clone(),
+                        merge_parent.clone(),
+                        files.clone(),
+                    );
                 });
             }
         })
@@ -339,9 +355,18 @@ impl RepoTab {
                     sidebar.set_refs(refs.clone(), cx);
                 });
             }
-            GitUiEvent::CommitFilesChanged { oid, files } => {
+            GitUiEvent::CommitFilesChanged {
+                oid,
+                files,
+                merge_parent,
+            } => {
                 tab.bottom.update(cx, |bottom, cx| {
-                    bottom.set_files(oid, files.clone(), cx);
+                    bottom.set_files(
+                        oid,
+                        merge_parent.clone(),
+                        files.clone(),
+                        cx,
+                    );
                 });
             }
             GitUiEvent::CommitMessageChanged { oid, message } => {

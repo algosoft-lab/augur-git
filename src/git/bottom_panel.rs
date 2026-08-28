@@ -42,9 +42,17 @@ fn bottom_empty_state(
 #[derive(Clone, Debug)]
 pub enum BottomPanelEvent {
     /// Select a file and load its commit diff through the Git worker.
-    ShowFileDiff { oid: String, file: FileChange },
+    ShowFileDiff {
+        oid: String,
+        merge_parent: Option<String>,
+        file: FileChange,
+    },
     /// Load every changed file when a commit has no explicit file selection.
-    ShowAllFileDiffs { oid: String, files: Vec<FileChange> },
+    ShowAllFileDiffs {
+        oid: String,
+        merge_parent: Option<String>,
+        files: Vec<FileChange>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -64,6 +72,7 @@ impl Render for DiffFileListResize {
 pub struct BottomPanel {
     locale: Locale,
     commit: Option<(String, String, String)>,
+    merge_parent: Option<String>,
     files: Vec<FileChange>,
     selected: Option<usize>,
     diff: Option<DiffDocument>,
@@ -90,6 +99,7 @@ impl BottomPanel {
         Self {
             locale,
             commit: None,
+            merge_parent: None,
             files: Vec::new(),
             selected: None,
             diff: None,
@@ -118,6 +128,7 @@ impl BottomPanel {
     ) {
         self.commit =
             Some((oid.to_string(), short.to_string(), subject.to_string()));
+        self.merge_parent = None;
         self.files.clear();
         self.selected = None;
         self.diff = None;
@@ -132,6 +143,7 @@ impl BottomPanel {
     pub fn set_files(
         &mut self,
         oid: &str,
+        merge_parent: Option<String>,
         files: Vec<FileChange>,
         cx: &mut Context<Self>,
     ) {
@@ -142,6 +154,7 @@ impl BottomPanel {
         {
             return;
         }
+        self.merge_parent = merge_parent.clone();
         self.files = files;
         self.selected = None;
         self.diff = None;
@@ -153,6 +166,7 @@ impl BottomPanel {
         if self.show_all_files {
             cx.emit(BottomPanelEvent::ShowAllFileDiffs {
                 oid: oid.to_string(),
+                merge_parent,
                 files: self.files.clone(),
             });
         }
@@ -268,6 +282,7 @@ impl BottomPanel {
         self.diff_loading = true;
         cx.emit(BottomPanelEvent::ShowFileDiff {
             oid,
+            merge_parent: self.merge_parent.clone(),
             file: file.clone(),
         });
         cx.notify();
@@ -393,6 +408,18 @@ impl BottomPanel {
                     .flex_1()
                     .child(shared(i18n::text(self.locale, "diff-all-files"))),
             )
+            .when(self.merge_parent.is_some(), |header| {
+                header.child(
+                    div()
+                        .mr_1()
+                        .text_size(px(10.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text(
+                            self.locale,
+                            "diff-merge-first-parent",
+                        ))),
+                )
+            })
             .child(
                 div()
                     .id("bottom-diff-all-copy")
@@ -429,6 +456,15 @@ impl BottomPanel {
             .into_any_element()
     }
 
+    fn no_changes_message(&self) -> String {
+        let key = if self.merge_parent.is_some() {
+            "bottom-merge-empty"
+        } else {
+            "bottom-no-changes"
+        };
+        i18n::text(self.locale, key)
+    }
+
     fn file_list(
         &self,
         colors: &ThemeColor,
@@ -441,7 +477,7 @@ impl BottomPanel {
                 "bottom-files-empty",
                 colors,
                 Icon::new(IconName::Info).into_any_element(),
-                i18n::text(self.locale, "bottom-merge-empty"),
+                self.no_changes_message(),
             )
             .w(relative(width_ratio))
             .flex_shrink_0()
@@ -528,6 +564,15 @@ impl BottomPanel {
     ) -> AnyElement {
         if self.show_all_files {
             return self.all_diff_view(colors, cx, width);
+        }
+        if self.files.is_empty() {
+            return bottom_empty_state(
+                "bottom-diff-no-changes",
+                colors,
+                Icon::new(IconName::File).into_any_element(),
+                self.no_changes_message(),
+            )
+            .into_any_element();
         }
         let Some(document) = self.diff.as_ref() else {
             let body = if self.selected.is_some() && self.diff_loading {

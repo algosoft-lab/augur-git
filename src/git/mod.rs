@@ -41,7 +41,11 @@ pub enum GitUiEvent {
     /// 引用快照（侧栏 remotes/远程分支/标签/stash 分区）
     RefsChanged(RefsInfo),
     /// 选中提交的逐文件增删统计快照
-    CommitFilesChanged { oid: String, files: Vec<FileChange> },
+    CommitFilesChanged {
+        oid: String,
+        files: Vec<FileChange>,
+        merge_parent: Option<String>,
+    },
     /// 选中提交的完整提交信息快照（详情面板正文/co-author）
     CommitMessageChanged { oid: String, message: CommitMessage },
     /// Structured selected-file commit diff.
@@ -241,17 +245,31 @@ impl GitView {
     }
 
     /// 查询选中提交内单文件 diff（底部面板右栏）
-    pub fn file_diff(&self, oid: String, file: FileChange) {
+    pub fn file_diff(
+        &self,
+        oid: String,
+        merge_parent: Option<String>,
+        file: FileChange,
+    ) {
         if let Some(handle) = &self.handle {
-            handle.commit_file_diff(oid, file);
+            handle.commit_file_diff(oid, merge_parent, file);
         }
     }
 
     /// Query each changed file in a commit for the aggregate diff view.
-    pub fn file_diffs(&self, oid: String, files: Vec<FileChange>) {
+    pub fn file_diffs(
+        &self,
+        oid: String,
+        merge_parent: Option<String>,
+        files: Vec<FileChange>,
+    ) {
         if let Some(handle) = &self.handle {
             for file in files {
-                handle.commit_file_diff(oid.clone(), file);
+                handle.commit_file_diff(
+                    oid.clone(),
+                    merge_parent.clone(),
+                    file,
+                );
             }
         }
     }
@@ -319,12 +337,21 @@ impl GitView {
                     );
                     cx.emit(GitUiEvent::RefsChanged(refs));
                 }
-                GitEvent::CommitFiles { oid, files } => {
+                GitEvent::CommitFiles {
+                    oid,
+                    files,
+                    merge_parent,
+                } => {
                     log::info!(
-                        "[git_view] commit file list received: oid={oid}, files={}",
-                        files.len()
+                        "[git_view] commit file list received: oid={oid}, files={}, merge_parent={}",
+                        files.len(),
+                        merge_parent.is_some()
                     );
-                    cx.emit(GitUiEvent::CommitFilesChanged { oid, files });
+                    cx.emit(GitUiEvent::CommitFilesChanged {
+                        oid,
+                        files,
+                        merge_parent,
+                    });
                 }
                 GitEvent::CommitMessage { oid, message } => {
                     log::info!(
