@@ -106,12 +106,6 @@ struct TabEntry {
     persisted: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WorkspacePage {
-    Main,
-    About,
-}
-
 pub struct Workspace {
     tabs: Vec<TabEntry>,
     active_tab: Option<TabId>,
@@ -125,7 +119,7 @@ pub struct Workspace {
     locale: Locale,
     config_saver: config::ConfigSaveQueue,
     show_settings: bool,
-    page: WorkspacePage,
+    about_window: Option<WindowHandle<about::AboutWindow>>,
     restoring: bool,
 }
 
@@ -183,7 +177,7 @@ impl Workspace {
             locale,
             config_saver,
             show_settings: false,
-            page: WorkspacePage::Main,
+            about_window: None,
             restoring: true,
         };
         workspace.restore_tabs(window, cx);
@@ -401,7 +395,6 @@ impl Workspace {
     }
 
     fn select_tab(&mut self, id: TabId, cx: &mut Context<Self>) {
-        self.page = WorkspacePage::Main;
         if self.activate_tab(id, cx) {
             self.persist_config();
             self.refresh_tab_bar(cx);
@@ -485,13 +478,8 @@ impl Workspace {
 
     fn open_about(&mut self, cx: &mut Context<Self>) {
         self.show_settings = false;
-        self.page = WorkspacePage::About;
         cx.notify();
-    }
-
-    fn show_main(&mut self, cx: &mut Context<Self>) {
-        self.page = WorkspacePage::Main;
-        cx.notify();
+        about::open_about_window(self, cx);
     }
 
     fn refresh_app_menu(&mut self, cx: &mut Context<Self>) {
@@ -526,6 +514,16 @@ impl Workspace {
                 }
             }
         }
+        if let Some(about_window) = self.about_window {
+            if about_window
+                .update(cx, |about, _window, cx| {
+                    about.set_locale(locale, cx);
+                })
+                .is_err()
+            {
+                self.about_window = None;
+            }
+        }
         self.config.language = preference;
         self.config_saver.schedule(&self.config);
         self.refresh_app_menu(cx);
@@ -558,15 +556,10 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
-        let branch = if self.page == WorkspacePage::Main {
-            self.active_tab
-                .and_then(|active| {
-                    self.tabs.iter().find(|tab| tab.id == active)
-                })
-                .and_then(|tab| tab.summary.branch.clone())
-        } else {
-            None
-        };
+        let branch = self
+            .active_tab
+            .and_then(|active| self.tabs.iter().find(|tab| tab.id == active))
+            .and_then(|tab| tab.summary.branch.clone());
         let this = cx.entity();
         let branch_badge = branch.map(|branch| {
             h_flex()
@@ -676,7 +669,6 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.page = WorkspacePage::Main;
         let key = repo_key(&requested_path);
         if let Some(existing) = self
             .tabs
@@ -780,22 +772,15 @@ impl Render for Workspace {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
-        let content = match self.page {
-            WorkspacePage::About => {
-                about::render_about(self, cx).into_any_element()
-            }
-            WorkspacePage::Main => {
-                if let Some(tab) = self.active_tab_entity() {
-                    tab.into_any_element()
-                } else {
-                    v_flex()
-                        .flex_1()
-                        .min_h_0()
-                        .child(self.welcome(window, cx))
-                        .child(self.empty_status_bar(cx))
-                        .into_any_element()
-                }
-            }
+        let content = if let Some(tab) = self.active_tab_entity() {
+            tab.into_any_element()
+        } else {
+            v_flex()
+                .flex_1()
+                .min_h_0()
+                .child(self.welcome(window, cx))
+                .child(self.empty_status_bar(cx))
+                .into_any_element()
         };
 
         v_flex()

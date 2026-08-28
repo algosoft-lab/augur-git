@@ -26,7 +26,6 @@ about-tagline = Desktop Git client
 about-author = Author
 about-version = Version
 about-commit = Commit
-about-back = Back to workspace
 
 # ===== Tab bar / Status bar =====
 no-repo-open = No repository open

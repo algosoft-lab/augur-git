@@ -25,7 +25,6 @@ about-tagline = 桌面 Git 客户端
 about-author = 作者
 about-version = 版本
 about-commit = 提交
-about-back = 返回工作区
 
 # ===== Tab 栏 / 状态栏 =====
 no-repo-open = 未打开仓库
