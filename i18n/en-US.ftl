@@ -43,7 +43,10 @@ context-checkout = Checkout
 context-copy-branch = Copy branch name
 context-copy-tag = Copy tag name
 context-copy-commit = Copy commit hash
+context-copy-commit-message = Copy commit message
 context-copied = Copied { $name }
+context-copied-commit-message = Copied commit message
+context-copy-commit-message-failed = Failed to copy commit message: { $error }
 
 # ===== Toolbar =====
 toolbar-fetch = Fetch

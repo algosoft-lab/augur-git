@@ -222,6 +222,9 @@ impl RepoTab {
             GraphEvent::CopyRef(value) => {
                 tab.copy_ref(value, cx);
             }
+            GraphEvent::CopyCommitMessage(oid) => {
+                tab.start_copy_commit_message(oid.clone(), cx);
+            }
         })
         .detach();
 
@@ -344,31 +347,46 @@ impl RepoTab {
                         "[git_checkout] result received: success={success}"
                     );
                 }
+                let copy_commit_message = label == "copy-commit-message";
                 tab.toolbar.update(cx, |toolbar, cx| {
                     toolbar.set_busy(false, cx);
                 });
-                let refresh_after = matches!(
-                    label.as_str(),
-                    "commit" | "checkout" | "fetch --all" | "pull" | "push"
-                );
-                tab.status_message = Some(if *success {
-                    i18n::text_args(
-                        tab.locale,
-                        "command-success",
-                        &[("label", label)],
-                    )
+                if copy_commit_message {
+                    if *success {
+                        tab.finish_copy_commit_message(message, cx);
+                    } else {
+                        tab.status_message = Some(i18n::text_args(
+                            tab.locale,
+                            "context-copy-commit-message-failed",
+                            &[("error", first_line(message))],
+                        ));
+                        tab.status_message_ok = Some(false);
+                        cx.notify();
+                    }
                 } else {
-                    i18n::text_args(
-                        tab.locale,
-                        "command-failed",
-                        &[("label", label), ("error", first_line(message))],
-                    )
-                });
-                tab.status_message_ok = Some(*success);
-                if *success && refresh_after {
-                    tab.git_view.update(cx, |view, _| view.refresh());
+                    let refresh_after = matches!(
+                        label.as_str(),
+                        "commit" | "checkout" | "fetch --all" | "pull" | "push"
+                    );
+                    tab.status_message = Some(if *success {
+                        i18n::text_args(
+                            tab.locale,
+                            "command-success",
+                            &[("label", label)],
+                        )
+                    } else {
+                        i18n::text_args(
+                            tab.locale,
+                            "command-failed",
+                            &[("label", label), ("error", first_line(message))],
+                        )
+                    });
+                    tab.status_message_ok = Some(*success);
+                    if *success && refresh_after {
+                        tab.git_view.update(cx, |view, _| view.refresh());
+                    }
+                    cx.notify();
                 }
-                cx.notify();
             }
             GitUiEvent::RepoOpened(path) => {
                 cx.emit(RepoTabEvent::Opened {
@@ -428,6 +446,31 @@ impl RepoTab {
             "context-copied",
             &[("name", value)],
         ));
+        self.status_message_ok = Some(true);
+        cx.notify();
+    }
+
+    fn start_copy_commit_message(
+        &mut self,
+        oid: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.git_view.update(cx, |view, _| {
+            view.copy_commit_message(oid);
+        });
+        self.toolbar.update(cx, |toolbar, cx| {
+            toolbar.set_busy(true, cx);
+        });
+    }
+
+    fn finish_copy_commit_message(
+        &mut self,
+        message: &str,
+        cx: &mut Context<Self>,
+    ) {
+        cx.write_to_clipboard(ClipboardItem::new_string(message.to_string()));
+        self.status_message =
+            Some(i18n::text(self.locale, "context-copied-commit-message"));
         self.status_message_ok = Some(true);
         cx.notify();
     }

@@ -42,6 +42,8 @@ pub enum GraphEvent {
     CheckoutRef(CheckoutTarget),
     /// Copy the selected commit OID to the system clipboard.
     CopyRef(String),
+    /// Copy the selected commit's complete message to the system clipboard.
+    CopyCommitMessage(String),
 }
 
 pub struct GraphView {
@@ -238,8 +240,11 @@ impl GraphView {
         let node_letters: String = row.author.chars().take(2).collect();
         let checkout_label = i18n::text(self.locale, "context-checkout");
         let copy_label = i18n::text(self.locale, "context-copy-commit");
+        let copy_message_label =
+            i18n::text(self.locale, "context-copy-commit-message");
         let commit_target = CheckoutTarget::Commit(row.oid.clone());
         let copy_value = row.oid.clone();
+        let copy_message_value = row.oid.clone();
         let graph_for_click = graph.clone();
 
         let row_element = h_flex()
@@ -359,8 +364,10 @@ impl GraphView {
             .context_menu(move |menu, _window, _cx| {
                 let graph_for_checkout = graph.clone();
                 let graph_for_copy = graph.clone();
+                let graph_for_copy_message = graph.clone();
                 let commit_target = commit_target.clone();
                 let copy_value = copy_value.clone();
+                let copy_message_value = copy_message_value.clone();
 
                 menu.item(
                     PopupMenuItem::new(checkout_label.clone())
@@ -380,6 +387,17 @@ impl GraphView {
                             graph_for_copy.update(cx, |_graph, cx| {
                                 cx.emit(GraphEvent::CopyRef(
                                     copy_value.clone(),
+                                ));
+                            });
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(copy_message_label.clone())
+                        .icon(IconName::Copy)
+                        .on_click(move |_event, _window, cx| {
+                            graph_for_copy_message.update(cx, |_graph, cx| {
+                                cx.emit(GraphEvent::CopyCommitMessage(
+                                    copy_message_value.clone(),
                                 ));
                             });
                         }),

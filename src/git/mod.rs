@@ -215,6 +215,14 @@ impl GitView {
         }
     }
 
+    /// Request the complete message for a commit selected in the graph.
+    pub fn copy_commit_message(&self, oid: String) {
+        log::info!("[git_copy_message] requested oid={oid}");
+        if let Some(handle) = &self.handle {
+            handle.copy_commit_message(oid);
+        }
+    }
+
     /// 查询选中提交的逐文件增删统计（底部面板文件清单）
     pub fn commit_files(&self, oid: String) {
         if let Some(handle) = &self.handle {
@@ -335,6 +343,10 @@ impl GitView {
                     if label == "checkout" {
                         log::info!(
                             "[git_checkout] command completed: success={success}"
+                        );
+                    } else if label == "copy-commit-message" {
+                        log::info!(
+                            "[git_copy_message] command completed: success={success}"
                         );
                     }
                     log::info!(

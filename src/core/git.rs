@@ -186,6 +186,11 @@ impl GitHandle {
         self.run("checkout", checkout_args(target));
     }
 
+    /// Query the complete commit message without including the commit diff.
+    pub fn copy_commit_message(&self, oid: String) {
+        self.run("copy-commit-message", commit_message_args(oid));
+    }
+
     /// 查询提交的逐文件增删统计
     pub fn commit_numstat(&self, oid: String) {
         let _ = self.cmd_tx.send(GitCommand::CommitNumstat { oid });
@@ -307,6 +312,18 @@ fn checkout_args(target: CheckoutTarget) -> Vec<String> {
         | CheckoutTarget::Commit(name) => args.push(name),
     }
     args
+}
+
+fn commit_message_args(oid: String) -> Vec<String> {
+    vec![
+        "show".to_string(),
+        "--no-patch".to_string(),
+        "--format=%B".to_string(),
+        "--no-color".to_string(),
+        "--no-ext-diff".to_string(),
+        "--no-notes".to_string(),
+        oid,
+    ]
 }
 
 /// Query structured file metadata for a commit.
@@ -759,6 +776,23 @@ mod tests {
                 "0123456789abcdef0123456789abcdef01234567".into()
             )),
             vec!["checkout", "0123456789abcdef0123456789abcdef01234567"]
+        );
+    }
+
+    #[test]
+    fn commit_message_args_preserve_oid_as_one_argument() {
+        let oid = "0123456789abcdef0123456789abcdef01234567".to_string();
+        assert_eq!(
+            commit_message_args(oid.clone()),
+            vec![
+                "show".to_string(),
+                "--no-patch".to_string(),
+                "--format=%B".to_string(),
+                "--no-color".to_string(),
+                "--no-ext-diff".to_string(),
+                "--no-notes".to_string(),
+                oid,
+            ]
         );
     }
 

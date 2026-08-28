@@ -42,7 +42,10 @@ context-checkout = 切换
 context-copy-branch = 复制分支名称
 context-copy-tag = 复制标签名称
 context-copy-commit = 复制提交哈希
+context-copy-commit-message = 复制提交信息
 context-copied = 已复制 { $name }
+context-copied-commit-message = 已复制提交信息
+context-copy-commit-message-failed = 复制提交信息失败：{ $error }
 
 # ===== 工具栏 =====
 toolbar-fetch = 获取
