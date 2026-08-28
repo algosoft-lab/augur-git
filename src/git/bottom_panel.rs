@@ -110,7 +110,7 @@ impl BottomPanel {
             diff_layout,
             diff_loading: false,
             content_width: f32::INFINITY,
-            file_list_ratio: 0.4,
+            file_list_ratio: 0.25,
         }
     }
 
