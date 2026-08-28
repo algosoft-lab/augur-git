@@ -491,10 +491,11 @@ fn has_head(repo_path: &str) -> Result<bool, String> {
 mod tests {
     use std::fs;
     use std::path::PathBuf;
-    use std::process::Command;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use super::{apply_operation, deduplicate, validate_status_path};
+    use super::{
+        apply_operation, deduplicate, git_command, validate_status_path,
+    };
     use crate::core::git::{FileStatus, WorkingTreeAction, WorkingTreeScope};
 
     #[test]
@@ -543,7 +544,7 @@ mod tests {
             I: IntoIterator<Item = S>,
             S: AsRef<std::ffi::OsStr>,
         {
-            let output = Command::new("git")
+            let output = git_command()
                 .arg("-C")
                 .arg(&self.path)
                 .args(args)
@@ -561,7 +562,7 @@ mod tests {
             I: IntoIterator<Item = S>,
             S: AsRef<std::ffi::OsStr>,
         {
-            Command::new("git")
+            git_command()
                 .arg("-C")
                 .arg(&self.path)
                 .args(args)
