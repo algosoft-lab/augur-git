@@ -3,7 +3,7 @@
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Icon,
+    ActiveTheme,
     button::{Button, ButtonVariants},
     h_flex, v_flex,
 };
@@ -49,11 +49,7 @@ pub(super) fn render_about(
                 .border_color(colors.border)
                 .rounded_lg()
                 .when(cx.theme().shadow, |element| element.shadow_md())
-                .child(
-                    Icon::empty()
-                        .path(SharedString::from("augur-git-logo.svg"))
-                        .size(px(104.)),
-                )
+                .child(img("augur-git-logo.svg").size(px(104.)))
                 .child(
                     div()
                         .text_size(px(14.))

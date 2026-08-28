@@ -85,54 +85,47 @@ impl Render for AppMenu {
                 });
 
                 let file_menu = PopupMenu::build(window, cx, move |menu, _, _| {
-                    menu.menu_with_icon(
+                    menu.menu(
                         i18n::text(locale, "menu-open-repository"),
-                        IconName::FolderOpen,
                         Box::new(OpenRepository),
                     )
-                    .menu_with_icon(
+                    .menu(
                         i18n::text(locale, "menu-new-tab"),
-                        IconName::Plus,
                         Box::new(NewTab),
                     )
                     .separator()
-                    .item(
-                        PopupMenuItem::submenu(
-                            i18n::text(locale, "menu-recent-repositories"),
-                            recent_menu.clone(),
-                        )
-                        .icon(IconName::Folder),
-                    )
+                    .item(PopupMenuItem::submenu(
+                        i18n::text(locale, "menu-recent-repositories"),
+                        recent_menu.clone(),
+                    ))
                 });
 
-                let view_menu = PopupMenu::build(window, cx, move |menu, _, _| {
-                    menu.menu_with_icon(
+                let edit_menu = PopupMenu::build(window, cx, move |menu, _, _| {
+                    menu.menu(
                         i18n::text(locale, "menu-settings"),
-                        IconName::Settings,
                         Box::new(OpenSettings),
                     )
                 });
 
                 let help_menu = PopupMenu::build(window, cx, move |menu, _, _| {
-                    menu.menu_with_icon(
+                    menu.menu(
                         i18n::text(locale, "menu-about"),
-                        IconName::Info,
                         Box::new(OpenAbout),
                     )
                 });
 
-                menu.item(
-                    PopupMenuItem::submenu(i18n::text(locale, "menu-file"), file_menu)
-                        .icon(IconName::FolderOpen),
-                )
-                .item(
-                    PopupMenuItem::submenu(i18n::text(locale, "menu-view"), view_menu)
-                        .icon(IconName::Settings),
-                )
-                .item(
-                    PopupMenuItem::submenu(i18n::text(locale, "menu-help"), help_menu)
-                        .icon(IconName::Info),
-                )
+                menu.item(PopupMenuItem::submenu(
+                    i18n::text(locale, "menu-file"),
+                    file_menu,
+                ))
+                .item(PopupMenuItem::submenu(
+                    i18n::text(locale, "menu-edit"),
+                    edit_menu,
+                ))
+                .item(PopupMenuItem::submenu(
+                    i18n::text(locale, "menu-help"),
+                    help_menu,
+                ))
                 .separator()
                 .menu(i18n::text(locale, "menu-quit"), Box::new(Quit))
             })
@@ -164,7 +157,7 @@ pub(crate) fn install_native_menu(locale: i18n::Locale, cx: &mut App) {
         MenuItem::action(i18n::text(locale, "menu-quit"), Quit),
     ]);
     menus.push(Menu::new(i18n::text(locale, "menu-file")).items(file_items));
-    menus.push(Menu::new(i18n::text(locale, "menu-view")).items([
+    menus.push(Menu::new(i18n::text(locale, "menu-edit")).items([
         MenuItem::action(i18n::text(locale, "menu-settings"), OpenSettings),
     ]));
     menus.push(Menu::new(i18n::text(locale, "menu-help")).items([
