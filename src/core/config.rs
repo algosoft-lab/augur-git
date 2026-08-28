@@ -3,6 +3,9 @@
 //! The configuration is stored under the platform's standard user config directory.
 
 use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -203,6 +206,92 @@ pub fn save(config: &AppConfig) -> anyhow::Result<()> {
     let text = serde_json::to_string_pretty(config)?;
     std::fs::write(store_path(), text)?;
     Ok(())
+}
+
+const CONFIG_SAVE_DEBOUNCE: Duration = Duration::from_millis(150);
+
+/// Serializes configuration writes away from the UI thread and coalesces
+/// bursts of updates such as rapid tab switching.
+pub struct ConfigSaveQueue {
+    sender: Option<Sender<AppConfig>>,
+}
+
+impl ConfigSaveQueue {
+    pub fn new() -> Self {
+        let (sender, receiver) = mpsc::channel();
+        let worker = thread::Builder::new()
+            .name("augur-config-save".to_string())
+            .spawn(move || run_save_worker(receiver));
+
+        match worker {
+            Ok(_) => Self {
+                sender: Some(sender),
+            },
+            Err(error) => {
+                log::error!("[config] failed to start save worker: {error}");
+                Self { sender: None }
+            }
+        }
+    }
+
+    /// Queue the latest configuration snapshot for persistence.
+    pub fn schedule(&self, config: &AppConfig) {
+        let Some(sender) = &self.sender else {
+            let config = config.clone();
+            let _ = thread::Builder::new()
+                .name("augur-config-save-fallback".to_string())
+                .spawn(move || {
+                    if let Err(error) = save(&config) {
+                        log::error!(
+                            "[config] failed to save configuration: {error}"
+                        );
+                    }
+                });
+            return;
+        };
+
+        if sender.send(config.clone()).is_err() {
+            log::warn!("[config] save worker is unavailable");
+        }
+    }
+}
+
+fn run_save_worker(receiver: Receiver<AppConfig>) {
+    while let Ok(mut latest) = receiver.recv() {
+        let mut coalesced = 0;
+        let deadline = Instant::now() + CONFIG_SAVE_DEBOUNCE;
+        let mut disconnected = false;
+
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match receiver.recv_timeout(remaining) {
+                Ok(config) => {
+                    latest = config;
+                    coalesced += 1;
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => break,
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    disconnected = true;
+                    break;
+                }
+            }
+        }
+
+        if let Err(error) = save(&latest) {
+            log::error!("[config] failed to save configuration: {error}");
+        } else {
+            log::debug!(
+                "[config] configuration saved (coalesced_updates={coalesced})"
+            );
+        }
+
+        if disconnected {
+            break;
+        }
+    }
 }
 
 #[cfg(test)]

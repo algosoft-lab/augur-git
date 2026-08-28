@@ -3,6 +3,7 @@
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{ActiveTheme, h_flex, theme::ThemeColor, v_flex};
+use std::ops::Range;
 
 use crate::core::graph::{
     AUTHOR_COL_WIDTH, DATE_COL_WIDTH, GraphRow, HASH_COL_WIDTH, LogRow,
@@ -35,23 +36,40 @@ pub enum GraphEvent {
 
 pub struct GraphView {
     rows: Vec<LogRow>,
+    layout: Vec<GraphRow>,
     selected: Option<usize>,
     /// 界面语言（Workspace 切换语言时同步）
     locale: Locale,
     /// 自身实测渲染宽（测量 canvas 回写；初始视为宽屏，首帧后校正）。
     /// 响应式列显隐以它为准——拖侧栏挤压中央列时窗口宽并未变
     content_width: f32,
+    scroll_handle: UniformListScrollHandle,
+    list_id: SharedString,
+}
+
+#[derive(Clone)]
+struct GraphRenderOptions {
+    tree_w: f32,
+    show_author: bool,
+    show_message: bool,
+    now: i64,
+    colors: ThemeColor,
+    mono: SharedString,
+    lane_colors: [Hsla; 10],
 }
 
 impl EventEmitter<GraphEvent> for GraphView {}
 
 impl GraphView {
-    pub fn new(locale: Locale) -> Self {
+    pub fn new(tab_id: u64, locale: Locale) -> Self {
         Self {
             rows: Vec::new(),
+            layout: Vec::new(),
             selected: None,
             locale,
             content_width: f32::INFINITY,
+            scroll_handle: UniformListScrollHandle::new(),
+            list_id: SharedString::from(format!("graph-rows-{tab_id}")),
         }
     }
 
@@ -66,6 +84,11 @@ impl GraphView {
             .selected
             .and_then(|i| rows.get(i).map(|_| i))
             .filter(|i| *i < rows.len());
+        self.layout = compute_graph(&rows);
+        log::debug!(
+            "[graph_perf] graph layout cached: rows={}",
+            self.layout.len()
+        );
         self.rows = rows;
         cx.notify();
     }
@@ -93,7 +116,7 @@ impl Render for GraphView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let colors = cx.theme().colors.clone();
+        let colors = cx.theme().colors;
         let mono = cx.theme().mono_font_family.clone();
 
         if self.rows.is_empty() {
@@ -121,9 +144,12 @@ impl Render for GraphView {
                 .into_any_element();
         }
 
-        // 分支布局（镜像 rgitui：main 恒在 lane 0，颜色沿分支延续）
-        let layout = compute_graph(&self.rows);
-        let max_lanes = layout.iter().map(|r| r.lane_count).max().unwrap_or(1);
+        let max_lanes = self
+            .layout
+            .iter()
+            .map(|row| row.lane_count)
+            .max()
+            .unwrap_or(1);
         let tree_w = GRAPH_LEFT_PAD + max_lanes as f32 * COL_WIDTH + 8.0;
         // 响应式列显隐：以自身实测宽为准（窄则先藏 Author 再藏 Message，见 column_visibility）
         let (show_author, show_message) =
@@ -134,135 +160,28 @@ impl Render for GraphView {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        let rows = self
-            .rows
-            .iter()
-            .zip(layout.iter())
-            .enumerate()
-            .map(|(i, (row, g))| {
-                let this = cx.entity();
-                let row = row.clone();
-                let graph_row = g.clone();
-                let selected = self.selected == Some(i);
-                let row_bg = if selected {
-                    colors.list_active
-                } else {
-                    colors.background
-                };
-                // 节点圆内字母：提交者姓名前 2 个字符（验证项目同款 div 叠加）
-                let node_col = Some(graph_row.node_lane as f32);
-                let node_letters: String = row.author.chars().take(2).collect();
-                h_flex()
-                    .id(SharedString::from(format!("graph-row-{}", row.oid)))
-                    .w_full()
-                    .h_9()
-                    .flex_shrink_0()
-                    .items_center()
-                    .pr_2()
-                    .gap_2()
-                    .bg(row_bg)
-                    .hover(|this| {
-                        if !selected {
-                            this.bg(colors.list_hover)
-                        } else {
-                            this
-                        }
-                    })
-                    .on_click(move |_e, _w, cx| {
-                        this.update(cx, |v, cx| v.select(i, cx));
-                    })
-                    // 树列：行内 canvas + HEAD 字母（absolute div 叠加）
-                    .child(
-                        div()
-                            .w(px(tree_w))
-                            .flex_shrink_0()
-                            .h_full()
-                            .relative()
-                            .child(
-                                canvas(
-                                    |_b: Bounds<Pixels>, _w: &mut Window, _c: &mut App| {},
-                                    move |bounds: Bounds<Pixels>,
-                                          (): (),
-                                          window: &mut Window,
-                                          cx: &mut App| {
-                                        draw_graph_row(
-                                            &graph_row,
-                                            bounds,
-                                            window,
-                                            cx,
-                                        );
-                                    },
-                                )
-                                .w_full()
-                                .h_full(),
-                            )
-                            .when_some(node_col, |el, col| {
-                                let xc = GRAPH_LEFT_PAD + col * COL_WIDTH + COL_WIDTH / 2.0;
-                                let letters = node_letters.clone();
-                                el.child(
-                                    div()
-                                        .absolute()
-                                        .left(px(xc - 12.))
-                                        .top(px(ROW_HEIGHT / 2.0 - 15.))
-                                        .w(px(24.))
-                                        .h(px(30.))
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .text_size(px(13.))
-                                        .text_color(colors.foreground)
-                                        .child(shared(letters)),
-                                )
-                            }),
-                    )
-                    .child(
-                        div()
-                            .w(px(HASH_COL_WIDTH))
-                            .flex_shrink_0()
-                            .font_family(mono.clone())
-                            .text_size(px(12.))
-                            .text_color(colors.blue)
-                            .child(shared(row.short)),
-                    )
-                    // Message 列：唯一 flex 列吃剩余空间，超宽省略号（镜像 rgitui subject 列）
-                    .when(show_message, |el| {
-                        el.child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .text_size(px(12.))
-                                .text_color(colors.foreground)
-                                .child(shared(row.subject.clone())),
-                        )
-                    })
-                    // Author 列：定宽 140，超长省略号
-                    .when(show_author, |el| {
-                        el.child(
-                            div()
-                                .w(px(AUTHOR_COL_WIDTH))
-                                .flex_shrink_0()
-                                .truncate()
-                                .text_size(px(12.))
-                                .text_color(colors.foreground)
-                                .child(shared(row.author)),
-                        )
-                    })
-                    // Date 列：相对时间（镜像 rgitui format_relative_time）
-                    .child(
-                        div()
-                            .w(px(DATE_COL_WIDTH))
-                            .flex_shrink_0()
-                            .text_size(px(12.))
-                            .text_color(colors.muted_foreground)
-                            .child(shared(format_relative_time(
-                                row.timestamp,
-                                now,
-                                self.locale,
-                            ))),
-                    )
-            })
-            .collect::<Vec<_>>();
+        let lane_colors = crate::theme::lane_colors(cx);
+        let render_options = GraphRenderOptions {
+            tree_w,
+            show_author,
+            show_message,
+            now,
+            colors,
+            mono,
+            lane_colors,
+        };
+        let rows = uniform_list(
+            self.list_id.clone(),
+            self.rows.len(),
+            cx.processor(move |graph, range: Range<usize>, _window, cx| {
+                range
+                    .map(|index| graph.render_row(index, &render_options, cx))
+                    .collect()
+            }),
+        )
+        .track_scroll(&self.scroll_handle)
+        .flex_1()
+        .min_h_0();
 
         v_flex()
             .id("graph-view")
@@ -276,19 +195,153 @@ impl Render for GraphView {
                 show_author,
                 show_message,
             ))
-            .child(
-                v_flex()
-                    .id("graph-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(v_flex().id("graph-rows").children(rows)),
-            )
+            .child(rows)
             .into_any_element()
     }
 }
 
 impl GraphView {
+    fn render_row(
+        &self,
+        index: usize,
+        options: &GraphRenderOptions,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(row) = self.rows.get(index).cloned() else {
+            return div().into_any_element();
+        };
+        let Some(graph_row) = self.layout.get(index).cloned() else {
+            return div().into_any_element();
+        };
+        let this = cx.entity();
+        let selected = self.selected == Some(index);
+        let colors = options.colors;
+        let tree_w = options.tree_w;
+        let lane_colors = options.lane_colors;
+        let row_bg = if selected {
+            colors.list_active
+        } else {
+            colors.background
+        };
+        // The author initials sit on top of the graph node canvas.
+        let node_col = Some(graph_row.node_lane as f32);
+        let node_letters: String = row.author.chars().take(2).collect();
+
+        h_flex()
+            .id(SharedString::from(format!("graph-row-{}", row.oid)))
+            .w_full()
+            .h_9()
+            .flex_shrink_0()
+            .items_center()
+            .pr_2()
+            .gap_2()
+            .bg(row_bg)
+            .hover(|this| {
+                if !selected {
+                    this.bg(colors.list_hover)
+                } else {
+                    this
+                }
+            })
+            .on_click(move |_e, _w, cx| {
+                this.update(cx, |v, cx| v.select(index, cx));
+            })
+            // Graph column: row canvas plus HEAD initials overlay.
+            .child(
+                div()
+                    .w(px(tree_w))
+                    .flex_shrink_0()
+                    .h_full()
+                    .relative()
+                    .child(
+                        canvas(
+                            |_b: Bounds<Pixels>,
+                             _w: &mut Window,
+                             _c: &mut App| {},
+                            move |bounds: Bounds<Pixels>,
+                                  (): (),
+                                  window: &mut Window,
+                                  _cx: &mut App| {
+                                draw_graph_row(
+                                    &graph_row,
+                                    bounds,
+                                    window,
+                                    &lane_colors,
+                                );
+                            },
+                        )
+                        .w_full()
+                        .h_full(),
+                    )
+                    .when_some(node_col, |el, col| {
+                        let xc =
+                            GRAPH_LEFT_PAD + col * COL_WIDTH + COL_WIDTH / 2.0;
+                        let letters = node_letters.clone();
+                        el.child(
+                            div()
+                                .absolute()
+                                .left(px(xc - 12.))
+                                .top(px(ROW_HEIGHT / 2.0 - 15.))
+                                .w(px(24.))
+                                .h(px(30.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(px(13.))
+                                .text_color(colors.foreground)
+                                .child(shared(letters)),
+                        )
+                    }),
+            )
+            .child(
+                div()
+                    .w(px(HASH_COL_WIDTH))
+                    .flex_shrink_0()
+                    .font_family(options.mono.clone())
+                    .text_size(px(12.))
+                    .text_color(colors.blue)
+                    .child(shared(row.short)),
+            )
+            // Message column takes remaining space and truncates when needed.
+            .when(options.show_message, |el| {
+                el.child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(12.))
+                        .text_color(colors.foreground)
+                        .child(shared(row.subject.clone())),
+                )
+            })
+            // Author column is fixed width and truncates long names.
+            .when(options.show_author, |el| {
+                el.child(
+                    div()
+                        .w(px(AUTHOR_COL_WIDTH))
+                        .flex_shrink_0()
+                        .truncate()
+                        .text_size(px(12.))
+                        .text_color(colors.foreground)
+                        .child(shared(row.author)),
+                )
+            })
+            // Date column displays the relative commit time.
+            .child(
+                div()
+                    .w(px(DATE_COL_WIDTH))
+                    .flex_shrink_0()
+                    .text_size(px(12.))
+                    .text_color(colors.muted_foreground)
+                    .child(shared(format_relative_time(
+                        row.timestamp,
+                        options.now,
+                        self.locale,
+                    ))),
+            )
+            .into_any_element()
+    }
+
     /// 列头（参考 rgitui graph header：26px 条、muted 半粗小标签、下边框；
     /// 列宽与行内列对齐：Graph 树列 / Hash / Message(flex) / Author / Date，
     /// 后三列随窗口变窄按 column_visibility 收缩至隐藏，与行同步）
@@ -427,11 +480,8 @@ fn draw_graph_row(
     row: &GraphRow,
     bounds: Bounds<Pixels>,
     window: &mut Window,
-    cx: &App,
+    lane_colors: &[Hsla; 10],
 ) {
-    // Lane colors follow the active theme (moved from the fixed rgitui
-    // palette that used to live here).
-    let lane_colors = crate::theme::lane_colors(cx);
     let lane_color = |index: usize| lane_colors[index % lane_colors.len()];
     let origin_x = bounds.origin.x;
     let origin_y = bounds.origin.y;

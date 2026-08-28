@@ -76,6 +76,7 @@ const STATUS_BAR_HEIGHT: f32 = 24.0;
 pub struct RepoTab {
     id: TabId,
     repo_path: String,
+    opened: bool,
     branch: String,
     git_view: Entity<GitView>,
     sidebar: Entity<Sidebar>,
@@ -104,7 +105,7 @@ impl RepoTab {
     ) -> Self {
         let git_view = cx.new(|cx| GitView::new(locale, cx));
         let sidebar = cx.new(|cx| Sidebar::new(window, cx, locale));
-        let graph = cx.new(|_cx| GraphView::new(locale));
+        let graph = cx.new(|_cx| GraphView::new(id, locale));
         let toolbar = cx.new(|_cx| Toolbar::new(locale));
         let detail = cx.new(|_cx| DetailPanel::new(locale));
         let commit = cx.new(|cx| CommitPanel::new(window, cx, locale));
@@ -359,6 +360,7 @@ impl RepoTab {
         Self {
             id,
             repo_path,
+            opened: false,
             branch: String::new(),
             git_view,
             sidebar,
@@ -381,6 +383,10 @@ impl RepoTab {
     }
 
     pub fn open(&mut self, cx: &mut Context<Self>) {
+        if self.opened {
+            return;
+        }
+        self.opened = true;
         self.status = GitStatus::Scanning;
         self.emit_summary(cx);
         let path = self.repo_path.clone();
@@ -388,8 +394,22 @@ impl RepoTab {
             .update(cx, |view, cx| view.open_repo(&path, cx));
     }
 
+    /// Make this repository the active UI tab and start consuming its events.
+    pub fn activate(&mut self, cx: &mut Context<Self>) {
+        self.open(cx);
+        self.git_view
+            .update(cx, |view, cx| view.set_active(true, cx));
+    }
+
+    /// Stop consuming events while retaining the repository state and worker.
+    pub fn deactivate(&mut self, cx: &mut Context<Self>) {
+        self.git_view
+            .update(cx, |view, cx| view.set_active(false, cx));
+    }
+
     pub fn close(&mut self, cx: &mut Context<Self>) {
         self.git_view.update(cx, |view, _| view.close_repo());
+        self.opened = false;
     }
 
     pub fn set_locale(

@@ -13,7 +13,7 @@ pub mod toolbar;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use gpui::{Context, EventEmitter, SharedString};
+use gpui::{Context, EventEmitter, SharedString, Task};
 
 use crate::core::git::{
     self, BranchInfo, FileChange, FileStatus, GitError, GitEvent, RefsInfo,
@@ -71,6 +71,8 @@ pub enum GitStatus {
 pub struct GitView {
     handle: Option<git::GitHandle>,
     rx: Option<mpsc::Receiver<GitEvent>>,
+    /// Foreground event delivery is enabled only for the active repository tab.
+    poll_task: Option<Task<()>>,
     status: GitStatus,
     /// 仓库绝对路径（显示/后续命令用）
     repo_path: String,
@@ -81,26 +83,51 @@ pub struct GitView {
 impl EventEmitter<GitUiEvent> for GitView {}
 
 impl GitView {
-    pub fn new(locale: Locale, cx: &mut Context<Self>) -> Self {
-        // 工作线程事件轮询（20ms，镜像 augur-com 的 poll_serial）
-        cx.spawn(async move |this, cx| {
-            loop {
-                if this.update(cx, |view, cx| view.poll_events(cx)).is_err() {
-                    break;
-                }
-                cx.background_executor()
-                    .timer(Duration::from_millis(20))
-                    .await;
-            }
-        })
-        .detach();
-
+    pub fn new(locale: Locale, _cx: &mut Context<Self>) -> Self {
         Self {
             handle: None,
             rx: None,
+            poll_task: None,
             status: GitStatus::None,
             repo_path: String::new(),
             locale,
+        }
+    }
+
+    /// Enable or disable foreground delivery of worker events for this tab.
+    ///
+    /// Git work continues on the worker thread while a tab is inactive; only
+    /// UI event consumption is paused. Events remain queued in `rx` until the
+    /// tab is activated again.
+    pub fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        if active {
+            if self.poll_task.as_ref().is_some_and(|task| task.is_ready()) {
+                self.poll_task = None;
+            }
+            if self.poll_task.is_none() {
+                log::info!(
+                    "[workspace_tabs] GitView event polling started: {}",
+                    dir_name(&self.repo_path)
+                );
+                self.poll_task = Some(cx.spawn(async move |this, cx| {
+                    loop {
+                        let keep_polling = this
+                            .update(cx, |view, cx| view.poll_events(cx))
+                            .unwrap_or(false);
+                        if !keep_polling {
+                            break;
+                        }
+                        cx.background_executor()
+                            .timer(Duration::from_millis(20))
+                            .await;
+                    }
+                }));
+            }
+        } else if self.poll_task.take().is_some() {
+            log::info!(
+                "[workspace_tabs] GitView event polling stopped: {}",
+                dir_name(&self.repo_path)
+            );
         }
     }
 
@@ -148,6 +175,12 @@ impl GitView {
 
     /// 关闭仓库（工作线程收到 Close 后退出）
     pub fn close_repo(&mut self) {
+        if self.poll_task.take().is_some() {
+            log::info!(
+                "[workspace_tabs] GitView event polling stopped: {}",
+                dir_name(&self.repo_path)
+            );
+        }
         if let Some(handle) = &self.handle {
             handle.close();
             self.handle = None;
@@ -188,13 +221,12 @@ impl GitView {
             cx.emit(GitUiEvent::Error(msg.clone()));
         }
         self.status = status;
-        cx.notify();
     }
 
     /// 轮询工作线程事件并派发
-    fn poll_events(&mut self, cx: &mut Context<Self>) {
+    fn poll_events(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(rx) = &self.rx else {
-            return;
+            return false;
         };
         // 先 drain 事件（借用 rx），再处理（需要 &mut self）
         let mut events = Vec::new();
@@ -202,9 +234,10 @@ impl GitView {
             events.push(evt);
         }
         if events.is_empty() {
-            return;
+            return true;
         }
 
+        let mut keep_polling = true;
         for evt in events {
             match evt {
                 GitEvent::Status {
@@ -279,6 +312,7 @@ impl GitView {
                     log::error!("[git_view] Git operation failed: {}", err.key);
                     self.handle = None;
                     self.rx = None;
+                    keep_polling = false;
                     self.set_status(
                         GitStatus::Error(localized_error(self.locale, &err)),
                         cx,
@@ -286,6 +320,7 @@ impl GitView {
                 }
             }
         }
+        keep_polling && self.rx.is_some()
     }
 }
 

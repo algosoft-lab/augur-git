@@ -32,7 +32,7 @@ pub enum TabState {
     Error,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TabSummary {
     pub id: TabId,
     pub title: String,
@@ -68,6 +68,9 @@ impl RepoTabBar {
         active: Option<TabId>,
         cx: &mut Context<Self>,
     ) {
+        if self.tabs == tabs && self.active == active {
+            return;
+        }
         self.tabs = tabs;
         self.active = active;
         cx.notify();

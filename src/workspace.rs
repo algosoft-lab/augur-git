@@ -104,6 +104,7 @@ pub struct Workspace {
     /// UI theme preference (settings overlay; source of truth is config.theme)
     theme_preference: ThemePreference,
     locale: Locale,
+    config_saver: config::ConfigSaveQueue,
     show_settings: bool,
     restoring: bool,
 }
@@ -117,6 +118,7 @@ impl Workspace {
         let theme_preference = config.theme;
         let language_preference = config.language;
         let locale = i18n::resolve(&language_preference);
+        let config_saver = config::ConfigSaveQueue::new();
         let tab_bar = cx.new(|_cx| RepoTabBar::new());
         let input_default = config.active_tab_path.clone().unwrap_or_default();
         let repo_path_input = cx.new(|cx| {
@@ -168,12 +170,16 @@ impl Workspace {
             language_preference,
             theme_preference,
             locale,
+            config_saver,
             show_settings: false,
             restoring: true,
         };
         workspace.restore_tabs(window, cx);
-        workspace.restoring = false;
         workspace.restore_active_tab();
+        if let Some(active) = workspace.active_tab {
+            workspace.activate_tab(active, cx);
+        }
+        workspace.restoring = false;
         workspace.refresh_tab_bar(cx);
         workspace.persist_config();
         workspace
@@ -187,7 +193,7 @@ impl Workspace {
             .map(|tab| tab.path.clone())
             .collect::<Vec<_>>();
         for path in paths {
-            self.add_repo_tab(path, true, window, cx);
+            self.add_repo_tab(path, true, false, window, cx);
         }
     }
 
@@ -203,6 +209,7 @@ impl Workspace {
         &mut self,
         requested_path: String,
         restored: bool,
+        activate: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -214,7 +221,9 @@ impl Workspace {
             .find(|tab| tab.key == key)
             .map(|tab| tab.id)
         {
-            self.select_tab(id, cx);
+            if activate {
+                self.select_tab(id, cx);
+            }
             return;
         }
 
@@ -233,9 +242,10 @@ impl Workspace {
             summary,
             persisted: restored,
         });
-        self.active_tab = Some(id);
         self.subscribe_to_tab(&tab, cx);
-        tab.update(cx, |tab, cx| tab.open(cx));
+        if activate {
+            self.activate_tab(id, cx);
+        }
         self.refresh_tab_bar(cx);
         cx.notify();
     }
@@ -271,13 +281,22 @@ impl Workspace {
                 cx.notify();
             }
             RepoTabEvent::SummaryChanged(summary) => {
-                if let Some(entry) =
+                let changed = if let Some(entry) =
                     self.tabs.iter_mut().find(|tab| tab.id == summary.id)
                 {
-                    entry.summary = summary.clone();
+                    if entry.summary != *summary {
+                        entry.summary = summary.clone();
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                if changed {
+                    self.refresh_tab_bar(cx);
+                    cx.notify();
                 }
-                self.refresh_tab_bar(cx);
-                cx.notify();
             }
             RepoTabEvent::RequestSettings => {
                 self.show_settings = true;
@@ -298,14 +317,43 @@ impl Workspace {
     }
 
     fn select_tab(&mut self, id: TabId, cx: &mut Context<Self>) {
-        if self.tabs.iter().any(|tab| tab.id == id) {
-            if self.active_tab != Some(id) {
-                self.active_tab = Some(id);
-                self.persist_config();
-                self.refresh_tab_bar(cx);
-                cx.notify();
-            }
+        if self.activate_tab(id, cx) {
+            self.persist_config();
+            self.refresh_tab_bar(cx);
+            cx.notify();
         }
+    }
+
+    fn activate_tab(&mut self, id: TabId, cx: &mut Context<Self>) -> bool {
+        let Some(next_tab) = self
+            .tabs
+            .iter()
+            .find(|entry| entry.id == id)
+            .map(|entry| entry.tab.clone())
+        else {
+            return false;
+        };
+
+        let changed = self.active_tab != Some(id);
+        if changed {
+            if let Some(previous_tab) = self
+                .active_tab
+                .and_then(|active| {
+                    self.tabs.iter().find(|entry| entry.id == active)
+                })
+                .map(|entry| entry.tab.clone())
+            {
+                previous_tab.update(cx, |tab, cx| tab.deactivate(cx));
+                log::info!("[workspace_tabs] tab deactivated");
+            }
+            self.active_tab = Some(id);
+        }
+
+        next_tab.update(cx, |tab, cx| tab.activate(cx));
+        if changed {
+            log::info!("[workspace_tabs] tab activated");
+        }
+        changed
     }
 
     fn close_tab(&mut self, id: TabId, cx: &mut Context<Self>) {
@@ -317,6 +365,9 @@ impl Workspace {
         let entry = self.tabs.remove(index);
         entry.tab.update(cx, |tab, cx| tab.close(cx));
         self.active_tab = fallback;
+        if let Some(active) = fallback {
+            self.activate_tab(active, cx);
+        }
         self.persist_config();
         self.refresh_tab_bar(cx);
         cx.notify();
@@ -359,7 +410,7 @@ impl Workspace {
             );
         });
         self.config.language = preference;
-        let _ = config::save(&self.config);
+        self.config_saver.schedule(&self.config);
         log::info!(
             "[workspace] language preference: {:?}, locale: {}",
             preference,
@@ -379,7 +430,7 @@ impl Workspace {
         self.theme_preference = preference;
         self.config.theme = preference;
         theme::apply(preference, cx);
-        let _ = config::save(&self.config);
+        self.config_saver.schedule(&self.config);
         cx.notify();
     }
 
@@ -472,7 +523,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.add_repo_tab(path, restored, window, cx);
+        self.add_repo_tab(path, restored, true, window, cx);
     }
 
     fn pick_repo_folder(
@@ -539,7 +590,7 @@ impl Workspace {
             .and_then(|active| self.tabs.iter().find(|tab| tab.id == active))
             .filter(|tab| tab.persisted)
             .map(|tab| tab.path.clone());
-        let _ = config::save(&self.config);
+        self.config_saver.schedule(&self.config);
     }
 }
 
