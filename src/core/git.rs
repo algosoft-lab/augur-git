@@ -14,7 +14,22 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::Duration;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use crate::core::graph::LogRow;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn git_command() -> Command {
+    let mut command = Command::new("git");
+
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    command
+}
 
 /// 错误载荷：key 为 core/i18n 的文案键，detail 为原始错误串
 /// （本层不做本地化，展示侧有 locale 时经 text_args 拼接，镜像 augur-pdf）
@@ -397,11 +412,7 @@ fn run_git(
     args: &[String],
     event_tx: &Sender<GitEvent>,
 ) {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(args)
-        .output();
+    let output = git_command().arg("-C").arg(repo_path).args(args).output();
     let event = match output {
         Ok(output) if output.status.success() => GitEvent::CommandDone {
             label: label.to_string(),
@@ -420,7 +431,7 @@ fn run_git(
 
 /// 查询提交的逐文件增删统计（真合并提交输出为空，展示侧按空清单处理）
 fn run_numstat(repo_path: &str, oid: &str, event_tx: &Sender<GitEvent>) {
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", repo_path, "show", "--numstat", "--format=", oid])
         .output();
     match output {
@@ -452,7 +463,7 @@ fn run_file_diff(
     path: &str,
     event_tx: &Sender<GitEvent>,
 ) {
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", repo_path, "show", "--format=", oid, "--", path])
         .output();
     match output {
@@ -481,7 +492,7 @@ fn run_file_diff(
 fn run_status(
     repo_path: &str,
 ) -> Option<(String, Vec<FileStatus>, usize, usize)> {
-    let output = Command::new("git")
+    let output = git_command()
         .args(["-C", repo_path, "status", "--porcelain", "-b"])
         .output()
         .ok()?;
@@ -551,7 +562,7 @@ fn parse_status(text: &str) -> (String, Vec<FileStatus>, usize, usize) {
 
 /// 执行 git branch，返回本地分支列表
 fn run_branches(repo_path: &str) -> Vec<BranchInfo> {
-    let Ok(output) = Command::new("git")
+    let Ok(output) = git_command()
         .args([
             "-C",
             repo_path,
@@ -582,7 +593,7 @@ fn run_branches(repo_path: &str) -> Vec<BranchInfo> {
 /// 收集侧栏引用清单（四个只读快命令，任一失败按空处理不影响其余分区）
 fn run_refs(repo_path: &str, event_tx: &Sender<GitEvent>) {
     let out = |args: &[&str]| -> String {
-        let mut cmd = Command::new("git");
+        let mut cmd = git_command();
         cmd.arg("-C").arg(repo_path);
         for arg in args {
             cmd.arg(arg);
@@ -628,7 +639,7 @@ fn parse_stashes(text: &str) -> Vec<String> {
 
 /// 执行 git log（提交图数据：oid/short/author/date/subject/装饰/parents）
 fn run_log(repo_path: &str, event_tx: &Sender<GitEvent>) {
-    let output = Command::new("git")
+    let output = git_command()
         .args([
             "-C",
             repo_path,
