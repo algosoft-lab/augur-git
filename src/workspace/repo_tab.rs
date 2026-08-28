@@ -158,9 +158,20 @@ impl RepoTab {
                     toolbar.set_busy(true, cx);
                 });
             }
-            ToolbarEvent::Pull => {
+            ToolbarEvent::PullMerge => {
                 tab.git_view.update(cx, |view, _| {
                     view.run("pull", vec!["pull".into()]);
+                });
+                tab.toolbar.update(cx, |toolbar, cx| {
+                    toolbar.set_busy(true, cx);
+                });
+            }
+            ToolbarEvent::PullRebase => {
+                tab.git_view.update(cx, |view, _| {
+                    view.run(
+                        "pull --rebase",
+                        vec!["pull".into(), "--rebase".into()],
+                    );
                 });
                 tab.toolbar.update(cx, |toolbar, cx| {
                     toolbar.set_busy(true, cx);
@@ -374,7 +385,12 @@ impl RepoTab {
                 } else {
                     let refresh_after = matches!(
                         label.as_str(),
-                        "commit" | "checkout" | "fetch --all" | "pull" | "push"
+                        "commit"
+                            | "checkout"
+                            | "fetch --all"
+                            | "pull"
+                            | "pull --rebase"
+                            | "push"
                     );
                     tab.status_message = Some(if *success {
                         i18n::text_args(

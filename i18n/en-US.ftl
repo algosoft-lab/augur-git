@@ -49,7 +49,8 @@ context-copy-commit-message-failed = Failed to copy commit message: { $error }
 
 # ===== Toolbar =====
 toolbar-fetch = Fetch
-toolbar-pull = Pull
+toolbar-pull-merge = Pull (Merge)
+toolbar-pull-rebase = Pull (Rebase)
 toolbar-push = Push
 toolbar-branch = Branch
 toolbar-refresh = Refresh

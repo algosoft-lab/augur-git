@@ -16,7 +16,8 @@ use crate::git::{lucide, shared};
 #[derive(Clone, Debug)]
 pub enum ToolbarEvent {
     Fetch,
-    Pull,
+    PullMerge,
+    PullRebase,
     Push,
     Branch,
     Refresh,
@@ -171,12 +172,21 @@ impl Render for Toolbar {
                 cx,
             ))
             .child(self.tool_button(
-                "tb-pull",
+                "tb-pull-merge",
                 Icon::new(IconName::ArrowDown),
-                "toolbar-pull",
+                "toolbar-pull-merge",
                 &colors,
                 enabled,
-                ToolbarEvent::Pull,
+                ToolbarEvent::PullMerge,
+                cx,
+            ))
+            .child(self.tool_button(
+                "tb-pull-rebase",
+                lucide("git-commit-horizontal"),
+                "toolbar-pull-rebase",
+                &colors,
+                enabled,
+                ToolbarEvent::PullRebase,
                 cx,
             ))
             .child(self.tool_button(

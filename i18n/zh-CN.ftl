@@ -48,7 +48,8 @@ context-copy-commit-message-failed = 复制提交信息失败：{ $error }
 
 # ===== 工具栏 =====
 toolbar-fetch = 获取
-toolbar-pull = 拉取
+toolbar-pull-merge = 拉取（合并）
+toolbar-pull-rebase = 拉取（变基）
 toolbar-push = 推送
 toolbar-branch = 分支
 toolbar-refresh = 刷新
