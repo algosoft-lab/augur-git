@@ -1,0 +1,123 @@
+{
+  "name": "augur-git",
+  "themes": [
+    {
+      "name": "GitHub Dark",
+      "mode": "dark",
+      "colors": {
+        "background": "#0D1117",
+        "foreground": "#E6EDF3",
+        "border": "#30363D",
+        "tab_bar.background": "#161B22",
+        "title_bar.background": "#161B22",
+        "input.border": "#21262D",
+        "list.hover.background": "#21262D",
+        "list.active.background": "#264F78",
+        "muted.foreground": "#8B949E",
+        "table.head.foreground": "#8B949E",
+        "base.blue": "#2F81F7",
+        "accent.background": "#2F81F7",
+        "base.green": "#3FB950",
+        "base.red": "#F85149",
+        "warning.background": "#D29922",
+        "drag.border": "#388BFD"
+      }
+    },
+    {
+      "name": "Catppuccin Latte",
+      "mode": "light",
+      "colors": {
+        "background": "#eff1f5",
+        "foreground": "#4c4f69",
+        "border": "#ccd0da",
+        "tab_bar.background": "#e6e9ef",
+        "title_bar.background": "#e6e9ef",
+        "input.border": "#ccd0da",
+        "list.hover.background": "#ccd0da",
+        "list.active.background": "#bcc0cc",
+        "muted.foreground": "#9ca0b0",
+        "table.head.foreground": "#6c6f85",
+        "base.blue": "#1e66f5",
+        "accent.background": "#1e66f5",
+        "base.green": "#40a02b",
+        "base.red": "#d20f39",
+        "warning.background": "#df8e1d",
+        "drag.border": "#1e66f5",
+        "primary.background": "#1e66f5",
+        "primary.foreground": "#ffffff"
+      }
+    },
+    {
+      "name": "Catppuccin Frappé",
+      "mode": "dark",
+      "colors": {
+        "background": "#303446",
+        "foreground": "#c6d0f5",
+        "border": "#414559",
+        "tab_bar.background": "#292c3c",
+        "title_bar.background": "#292c3c",
+        "input.border": "#414559",
+        "list.hover.background": "#414559",
+        "list.active.background": "#51576d",
+        "muted.foreground": "#737994",
+        "table.head.foreground": "#a5adce",
+        "base.blue": "#8caaee",
+        "accent.background": "#8caaee",
+        "base.green": "#a6d189",
+        "base.red": "#e78284",
+        "warning.background": "#e5c890",
+        "drag.border": "#8caaee",
+        "primary.background": "#8caaee",
+        "primary.foreground": "#303446"
+      }
+    },
+    {
+      "name": "Catppuccin Macchiato",
+      "mode": "dark",
+      "colors": {
+        "background": "#24273a",
+        "foreground": "#cad3f5",
+        "border": "#363a4f",
+        "tab_bar.background": "#1e2030",
+        "title_bar.background": "#1e2030",
+        "input.border": "#363a4f",
+        "list.hover.background": "#363a4f",
+        "list.active.background": "#494d64",
+        "muted.foreground": "#6e738d",
+        "table.head.foreground": "#a5adcb",
+        "base.blue": "#8aadf4",
+        "accent.background": "#8aadf4",
+        "base.green": "#a6da95",
+        "base.red": "#ed8796",
+        "warning.background": "#eed49f",
+        "drag.border": "#8aadf4",
+        "primary.background": "#8aadf4",
+        "primary.foreground": "#24273a"
+      }
+    },
+    {
+      "name": "Catppuccin Mocha",
+      "mode": "dark",
+      "colors": {
+        "background": "#1e1e2e",
+        "foreground": "#cdd6f4",
+        "border": "#313244",
+        "tab_bar.background": "#181825",
+        "title_bar.background": "#181825",
+        "input.border": "#313244",
+        "list.hover.background": "#313244",
+        "list.active.background": "#45475a",
+        "muted.foreground": "#6c7086",
+        "table.head.foreground": "#a6adc8",
+        "base.blue": "#89b4fa",
+        "accent.background": "#89b4fa",
+        "base.green": "#a6e3a1",
+        "base.red": "#f38ba8",
+        "warning.background": "#f9e2af",
+        "drag.border": "#89b4fa",
+        "primary.background": "#89b4fa",
+        "primary.foreground": "#1e1e2e"
+      }
+    }
+  ]
+}

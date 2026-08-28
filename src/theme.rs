@@ -1,0 +1,240 @@
+//! Embedded theme registry, runtime switching, and theme-dependent accent
+//! colors (commit-graph lanes, diff hunk header) that have no gpui-component
+//! token counterpart.
+//!
+//! Lives outside `core/` because it is presentation-layer: it wires gpui and
+//! gpui-component globals rather than pure domain logic.
+
+use gpui::{App, Hsla, rgb};
+use gpui_component::theme::{Theme, ThemeRegistry};
+
+use crate::core::config::ThemePreference;
+
+const THEMES_JSON: &str = include_str!("../assets/themes/augur-themes.json");
+
+/// Register the embedded themes and apply `preference`. Call once at startup,
+/// after `gpui_component::init` and after a `Theme::change` call has created
+/// the `Theme` global (the registry observer reads it).
+pub fn init(preference: ThemePreference, cx: &mut App) {
+    if let Err(error) =
+        ThemeRegistry::global_mut(cx).load_themes_from_str(THEMES_JSON)
+    {
+        log::warn!("[theme] failed to load embedded themes: {error}");
+    }
+    apply(preference, cx);
+}
+
+/// Switch to `preference` at runtime and refresh all windows.
+pub fn apply(preference: ThemePreference, cx: &mut App) {
+    let Some(config) = ThemeRegistry::global(cx)
+        .themes()
+        .get(preference.registry_name())
+        .cloned()
+    else {
+        log::warn!(
+            "[theme] theme not registered: {}",
+            preference.registry_name()
+        );
+        return;
+    };
+    let mode = config.mode;
+    let theme = Theme::global_mut(cx);
+    if mode.is_dark() {
+        theme.dark_theme = config;
+    } else {
+        theme.light_theme = config;
+    }
+    Theme::change(mode, None, cx);
+    cx.refresh_windows();
+    log::info!("[theme] applied theme: {}", preference.registry_name());
+}
+
+/// Preference matching the currently active theme (unknown names fall back to
+/// the default). Lets render code resolve theme accents without extra state.
+pub fn active_preference(cx: &App) -> ThemePreference {
+    match Theme::global(cx).theme_name().as_ref() {
+        "Catppuccin Latte" => ThemePreference::CatppuccinLatte,
+        "Catppuccin Frappé" => ThemePreference::CatppuccinFrappe,
+        "Catppuccin Macchiato" => ThemePreference::CatppuccinMacchiato,
+        "Catppuccin Mocha" => ThemePreference::CatppuccinMocha,
+        _ => ThemePreference::GitHubDark,
+    }
+}
+
+/// Commit-graph lane palette for the active theme.
+pub fn lane_colors(cx: &App) -> [Hsla; 10] {
+    lanes(active_preference(cx))
+}
+
+/// Diff hunk-header color for the active theme (Mauve for Catppuccin flavors).
+pub fn diff_purple(cx: &App) -> Hsla {
+    match active_preference(cx) {
+        ThemePreference::CatppuccinLatte => Hsla::from(rgb(0x8839EF)),
+        ThemePreference::CatppuccinFrappe => Hsla::from(rgb(0xCA9EE6)),
+        ThemePreference::CatppuccinMacchiato => Hsla::from(rgb(0xC6A0F6)),
+        ThemePreference::CatppuccinMocha => Hsla::from(rgb(0xCBA6F7)),
+        ThemePreference::GitHubDark => Hsla::from(rgb(0xBC8CFF)),
+    }
+}
+
+/// Normalize rgitui-style `hsl(h°, s%, l%)` values: this gpui fork takes
+/// 0..1 normalized `hsla` arguments, so raw degrees would clamp to plain
+/// white.
+fn hsla(h: f32, s: f32, l: f32, a: f32) -> Hsla {
+    Hsla {
+        h: h / 360.0,
+        s: s / 100.0,
+        l: l / 100.0,
+        a,
+    }
+}
+
+/// Pure per-theme lane tables, testable without an `App`.
+fn lanes(preference: ThemePreference) -> [Hsla; 10] {
+    match preference {
+        // Original rgitui-tuned palette, moved verbatim from src/git/graph.rs.
+        ThemePreference::GitHubDark => [
+            hsla(267.0, 84.0, 75.0, 1.0),
+            hsla(217.0, 92.0, 65.0, 1.0),
+            hsla(115.0, 60.0, 65.0, 1.0),
+            hsla(23.0, 92.0, 65.0, 1.0),
+            hsla(343.0, 81.0, 65.0, 1.0),
+            hsla(170.0, 65.0, 60.0, 1.0),
+            hsla(41.0, 86.0, 70.0, 1.0),
+            hsla(189.0, 75.0, 60.0, 1.0),
+            hsla(316.0, 72.0, 72.0, 1.0),
+            hsla(10.0, 70.0, 75.0, 1.0),
+        ],
+        ThemePreference::CatppuccinLatte => accent_lanes([
+            0x8839EF, 0x1E66F5, 0x40A02B, 0xFE640B, 0xD20F39, 0x179299,
+            0xDF8E1D, 0x04A5E5, 0xEA76CB, 0xE64553,
+        ]),
+        ThemePreference::CatppuccinFrappe => accent_lanes([
+            0xCA9EE6, 0x8CAAEE, 0xA6D189, 0xEF9F76, 0xE78284, 0x81C8BE,
+            0xE5C890, 0x99D1DB, 0xF4B8E4, 0xEA999C,
+        ]),
+        ThemePreference::CatppuccinMacchiato => accent_lanes([
+            0xC6A0F6, 0x8AADF4, 0xA6DA95, 0xF5A97F, 0xED8796, 0x8BD5CA,
+            0xEED49F, 0x91D7E3, 0xF5BDE6, 0xEE99A0,
+        ]),
+        ThemePreference::CatppuccinMocha => accent_lanes([
+            0xCBA6F7, 0x89B4FA, 0xA6E3A1, 0xFAB387, 0xF38BA8, 0x94E2D5,
+            0xF9E2AF, 0x89DCEB, 0xF5C2E7, 0xEBA0AC,
+        ]),
+    }
+}
+
+/// Catppuccin lane rotation:
+/// [mauve, blue, green, peach, red, teal, yellow, sky, pink, maroon].
+fn accent_lanes(accent: [u32; 10]) -> [Hsla; 10] {
+    std::array::from_fn(|i| Hsla::from(rgb(accent[i])))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embedded_themes_cover_all_preferences() {
+        let set: serde_json::Value = serde_json::from_str(THEMES_JSON).unwrap();
+        let themes = set["themes"].as_array().unwrap();
+        for preference in [
+            ThemePreference::GitHubDark,
+            ThemePreference::CatppuccinLatte,
+            ThemePreference::CatppuccinFrappe,
+            ThemePreference::CatppuccinMacchiato,
+            ThemePreference::CatppuccinMocha,
+        ] {
+            let theme = themes
+                .iter()
+                .find(|t| t["name"] == preference.registry_name())
+                .unwrap_or_else(|| {
+                    panic!("missing theme {}", preference.registry_name())
+                });
+            let expected_mode = match preference {
+                ThemePreference::CatppuccinLatte => "light",
+                _ => "dark",
+            };
+            assert_eq!(
+                theme["mode"].as_str().unwrap(),
+                expected_mode,
+                "wrong mode for {}",
+                preference.registry_name()
+            );
+            assert!(
+                theme["colors"]["background"].is_string(),
+                "missing background for {}",
+                preference.registry_name()
+            );
+        }
+    }
+
+    #[test]
+    fn github_dark_reproduces_startup_overrides() {
+        // Regression guard for the migration from the hardcoded startup
+        // palette: key spellings must stay exact (unknown keys would be
+        // silently ignored by the theme loader).
+        let set: serde_json::Value = serde_json::from_str(THEMES_JSON).unwrap();
+        let github_dark = set["themes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "GitHub Dark")
+            .unwrap();
+        let colors = github_dark["colors"].as_object().unwrap();
+        let expected: &[(&str, &str)] = &[
+            ("background", "#0D1117"),
+            ("foreground", "#E6EDF3"),
+            ("border", "#30363D"),
+            ("tab_bar.background", "#161B22"),
+            ("title_bar.background", "#161B22"),
+            ("input.border", "#21262D"),
+            ("list.hover.background", "#21262D"),
+            ("list.active.background", "#264F78"),
+            ("muted.foreground", "#8B949E"),
+            ("table.head.foreground", "#8B949E"),
+            ("base.blue", "#2F81F7"),
+            ("accent.background", "#2F81F7"),
+            ("base.green", "#3FB950"),
+            ("base.red", "#F85149"),
+            ("warning.background", "#D29922"),
+            ("drag.border", "#388BFD"),
+        ];
+        assert_eq!(
+            colors.len(),
+            expected.len(),
+            "GitHub Dark token set changed"
+        );
+        for (key, value) in expected {
+            assert_eq!(
+                colors.get(*key).and_then(|v| v.as_str()),
+                Some(*value),
+                "unexpected value for key {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn lanes_are_distinct_per_theme() {
+        for preference in [
+            ThemePreference::GitHubDark,
+            ThemePreference::CatppuccinLatte,
+            ThemePreference::CatppuccinFrappe,
+            ThemePreference::CatppuccinMacchiato,
+            ThemePreference::CatppuccinMocha,
+        ] {
+            let lanes = lanes(preference);
+            assert_eq!(lanes.len(), 10);
+            let keys: Vec<(f32, f32, f32)> =
+                lanes.iter().map(|c| (c.h, c.s, c.l)).collect();
+            for i in 0..keys.len() {
+                for j in (i + 1)..keys.len() {
+                    assert_ne!(
+                        keys[i], keys[j],
+                        "duplicate lane color in {preference:?}"
+                    );
+                }
+            }
+        }
+    }
+}

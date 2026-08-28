@@ -3,6 +3,7 @@
 
 mod core;
 mod git;
+mod theme;
 mod workspace;
 
 #[cfg(debug_assertions)]

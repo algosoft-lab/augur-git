@@ -8,7 +8,7 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::core::config::LanguagePreference;
+use crate::core::config::{LanguagePreference, ThemePreference};
 use crate::core::i18n;
 use crate::git::shared;
 
@@ -30,7 +30,7 @@ pub(super) fn render_welcome(
         .py_1()
         .rounded_md()
         .bg(colors.blue)
-        .text_color(gpui::white())
+        .text_color(colors.primary_foreground)
         .text_size(px(12.))
         .child(shared(i18n::text(workspace.locale, "welcome-open")))
         .on_click(move |_event, window, cx| {
@@ -165,7 +165,7 @@ pub(super) fn render_welcome(
         })
 }
 
-/// Render the settings overlay for language selection.
+/// Render the settings overlay for language and theme selection.
 pub(super) fn render_settings_overlay(
     workspace: &Workspace,
     cx: &mut Context<Workspace>,
@@ -173,6 +173,7 @@ pub(super) fn render_settings_overlay(
     let colors = cx.theme().colors.clone();
     let locale = workspace.locale;
     let current = workspace.language_preference;
+    let current_theme = workspace.theme_preference;
 
     let lang_btn = |id: &'static str,
                     key: &str,
@@ -186,6 +187,21 @@ pub(super) fn render_settings_overlay(
             .when(pref != current, |b| b.ghost())
             .on_click(move |_e, window, cx| {
                 this.update(cx, |ws, cx| ws.set_language(pref, window, cx));
+            })
+    };
+
+    let theme_btn = |id: &'static str,
+                     key: &str,
+                     pref: ThemePreference,
+                     cx: &Context<Workspace>| {
+        let this = cx.entity();
+        Button::new(id)
+            .label(i18n::text(locale, key))
+            .flex_1()
+            .when(pref == current_theme, |b| b.primary())
+            .when(pref != current_theme, |b| b.ghost())
+            .on_click(move |_e, _w, cx| {
+                this.update(cx, |ws, cx| ws.set_theme(pref, cx));
             })
     };
 
@@ -267,6 +283,61 @@ pub(super) fn render_settings_overlay(
                                     "lang-english",
                                     "language-english",
                                     LanguagePreference::English,
+                                    cx,
+                                )),
+                        ),
+                )
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(colors.foreground)
+                                .child(shared(i18n::text(
+                                    locale,
+                                    "theme-title",
+                                ))),
+                        )
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .gap_2()
+                                .child(theme_btn(
+                                    "theme-github-dark",
+                                    "theme-github-dark",
+                                    ThemePreference::GitHubDark,
+                                    cx,
+                                ))
+                                .child(theme_btn(
+                                    "theme-catppuccin-mocha",
+                                    "theme-catppuccin-mocha",
+                                    ThemePreference::CatppuccinMocha,
+                                    cx,
+                                ))
+                                .child(theme_btn(
+                                    "theme-catppuccin-macchiato",
+                                    "theme-catppuccin-macchiato",
+                                    ThemePreference::CatppuccinMacchiato,
+                                    cx,
+                                )),
+                        )
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .gap_2()
+                                .child(theme_btn(
+                                    "theme-catppuccin-frappe",
+                                    "theme-catppuccin-frappe",
+                                    ThemePreference::CatppuccinFrappe,
+                                    cx,
+                                ))
+                                .child(theme_btn(
+                                    "theme-catppuccin-latte",
+                                    "theme-catppuccin-latte",
+                                    ThemePreference::CatppuccinLatte,
                                     cx,
                                 )),
                         ),

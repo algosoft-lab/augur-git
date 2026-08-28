@@ -18,41 +18,34 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::core::config::{self, AppConfig, LanguagePreference, OpenTabConfig};
+use crate::core::config::{
+    self, AppConfig, LanguagePreference, OpenTabConfig, ThemePreference,
+};
 use crate::core::i18n::{self, Locale};
 
 use self::repo_tab::{RepoTab, RepoTabEvent};
 use self::tabs::{
     RepoTabBar, RepoTabBarEvent, TabId, TabSummary, fallback_after_close,
 };
+use crate::theme;
 
 pub fn run(app: Application) {
     app.run(|cx| {
         gpui_component::init(cx);
 
+        // Load config before the window opens: the persisted theme must be
+        // applied before first paint, and Workspace::new receives the config
+        // (single read, no double IO).
+        let config = config::load();
+        // Create the Theme global before touching ThemeRegistry::global_mut:
+        // the registry's global observer reads Theme::global.
         Theme::change(ThemeMode::Dark, None, cx);
-        let theme = Theme::global_mut(cx);
-        theme.background = Hsla::from(rgb(0x0D1117));
-        theme.tab_bar = Hsla::from(rgb(0x161B22));
-        theme.title_bar = Hsla::from(rgb(0x161B22));
-        theme.input = Hsla::from(rgb(0x21262D));
-        theme.list_hover = Hsla::from(rgb(0x21262D));
-        theme.list_active = Hsla::from(rgb(0x264F78));
-        theme.border = Hsla::from(rgb(0x30363D));
-        theme.foreground = Hsla::from(rgb(0xE6EDF3));
-        theme.muted_foreground = Hsla::from(rgb(0x8B949E));
-        theme.table_head_foreground = Hsla::from(rgb(0x8B949E));
-        theme.blue = Hsla::from(rgb(0x2F81F7));
-        theme.accent = Hsla::from(rgb(0x2F81F7));
-        theme.green = Hsla::from(rgb(0x3FB950));
-        theme.red = Hsla::from(rgb(0xF85149));
-        theme.warning = Hsla::from(rgb(0xD29922));
-        theme.drag_border = Hsla::from(rgb(0x388BFD));
+        theme::init(config.theme, cx);
 
         cx.spawn(async move |cx| {
             let window_options = cx.update(initial_window_options);
             cx.open_window(window_options, |window, cx| {
-                let workspace = cx.new(|cx| Workspace::new(window, cx));
+                let workspace = cx.new(|cx| Workspace::new(config, window, cx));
                 cx.new(|cx| Root::new(workspace, window, cx))
             })
             .unwrap_or_else(|error| {
@@ -108,14 +101,20 @@ pub struct Workspace {
     repo_path_input: Entity<InputState>,
     config: AppConfig,
     language_preference: LanguagePreference,
+    /// UI theme preference (settings overlay; source of truth is config.theme)
+    theme_preference: ThemePreference,
     locale: Locale,
     show_settings: bool,
     restoring: bool,
 }
 
 impl Workspace {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let config = config::load();
+    pub fn new(
+        config: AppConfig,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let theme_preference = config.theme;
         let language_preference = config.language;
         let locale = i18n::resolve(&language_preference);
         let tab_bar = cx.new(|_cx| RepoTabBar::new());
@@ -167,6 +166,7 @@ impl Workspace {
             repo_path_input,
             config,
             language_preference,
+            theme_preference,
             locale,
             show_settings: false,
             restoring: true,
@@ -365,6 +365,21 @@ impl Workspace {
             preference,
             self.locale.id()
         );
+        cx.notify();
+    }
+
+    /// Switch the UI theme: applies the embedded theme immediately and
+    /// persists the choice. Panels read colors from `cx.theme()` on every
+    /// render, so no per-panel fan-out is needed.
+    fn set_theme(
+        &mut self,
+        preference: ThemePreference,
+        cx: &mut Context<Self>,
+    ) {
+        self.theme_preference = preference;
+        self.config.theme = preference;
+        theme::apply(preference, cx);
+        let _ = config::save(&self.config);
         cx.notify();
     }
 

@@ -99,6 +99,12 @@ language-system = System
 language-chinese = 简体中文
 language-english = English
 settings-close = Close
+theme-title = Theme
+theme-github-dark = GitHub Dark
+theme-catppuccin-latte = Latte
+theme-catppuccin-frappe = Frappé
+theme-catppuccin-macchiato = Macchiato
+theme-catppuccin-mocha = Mocha
 
 # ===== Errors (keys produced by core, localized at display side) =====
 err-path-not-exist = Path not found: { $detail }

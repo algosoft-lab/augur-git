@@ -98,6 +98,12 @@ language-system = 跟随系统
 language-chinese = 简体中文
 language-english = English
 settings-close = 关闭
+theme-title = 主题
+theme-github-dark = GitHub Dark
+theme-catppuccin-latte = Latte
+theme-catppuccin-frappe = Frappé
+theme-catppuccin-macchiato = Macchiato
+theme-catppuccin-mocha = Mocha
 
 # ===== 错误（core 产生 key，展示侧拼接本地化） =====
 err-path-not-exist = 路径不存在: { $detail }
