@@ -6,6 +6,8 @@
 //! - 面板交互事件由 Workspace 汇总后经 GitCommand 下发工作线程
 
 pub mod bottom_panel;
+pub mod changes_panel;
+pub mod commit_preview;
 pub mod diff_view;
 pub mod graph;
 pub mod panel;
@@ -46,7 +48,7 @@ pub enum GitUiEvent {
         files: Vec<FileChange>,
         merge_parent: Option<String>,
     },
-    /// 选中提交的完整提交信息快照（详情面板正文/co-author）
+    /// Full commit message snapshot for the graph hover preview.
     CommitMessageChanged { oid: String, message: CommitMessage },
     /// Structured selected-file commit diff.
     FileDiffChanged {
@@ -245,7 +247,7 @@ impl GitView {
         }
     }
 
-    /// 查询选中提交的完整提交信息（详情面板正文/co-author）
+    /// Query the full commit message used by the graph hover preview.
     pub fn commit_message(&self, oid: String) {
         if let Some(handle) = &self.handle {
             handle.commit_message(oid);

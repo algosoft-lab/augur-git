@@ -8,11 +8,11 @@ use gpui_component::{
 
 use crate::core::git::CheckoutTarget;
 use crate::core::i18n::{self, Locale};
+use crate::git::changes_panel::ChangesPanel;
 use crate::git::diff_view::DiffLayoutMode;
 use crate::git::graph::{GraphEvent, GraphView};
 use crate::git::panel::{
     BottomPanel, BottomPanelEvent, CommitPanel, CommitPanelEvent,
-    DetailContent, DetailPanel,
 };
 use crate::git::sidebar::{Sidebar, SidebarEvent};
 use crate::git::toolbar::{Toolbar, ToolbarEvent};
@@ -30,14 +30,14 @@ pub enum RepoTabEvent {
 #[derive(Clone, Debug)]
 struct LayoutState {
     sidebar_width: f32,
-    detail_width: f32,
+    right_panel_width: f32,
     diff_height: Option<f32>,
 }
 
 #[derive(Clone, Debug)]
 pub struct SidebarResize;
 #[derive(Clone, Debug)]
-pub struct DetailPanelResize;
+pub struct RightPanelResize;
 #[derive(Clone, Debug)]
 pub struct DiffViewerResize;
 
@@ -51,7 +51,7 @@ impl Render for SidebarResize {
     }
 }
 
-impl Render for DetailPanelResize {
+impl Render for RightPanelResize {
     fn render(
         &mut self,
         _window: &mut Window,
@@ -73,8 +73,8 @@ impl Render for DiffViewerResize {
 
 const MIN_SIDEBAR_WIDTH: f32 = 180.0;
 const MAX_SIDEBAR_WIDTH: f32 = 400.0;
-const MIN_DETAIL_WIDTH: f32 = 220.0;
-const MAX_DETAIL_WIDTH: f32 = 600.0;
+const MIN_RIGHT_PANEL_WIDTH: f32 = 250.0;
+const MAX_RIGHT_PANEL_WIDTH: f32 = 600.0;
 const MIN_DIFF_HEIGHT: f32 = 100.0;
 const MAX_DIFF_HEIGHT: f32 = 1000.0;
 const MIN_COMMIT_HEIGHT: f32 = 120.0;
@@ -89,8 +89,8 @@ pub struct RepoTab {
     sidebar: Entity<Sidebar>,
     graph: Entity<GraphView>,
     toolbar: Entity<Toolbar>,
-    detail: Entity<DetailPanel>,
     commit: Entity<CommitPanel>,
+    changes: Entity<ChangesPanel>,
     bottom: Entity<BottomPanel>,
     status: GitStatus,
     status_message: Option<String>,
@@ -115,10 +115,10 @@ impl RepoTab {
     ) -> Self {
         let git_view = cx.new(|cx| GitView::new(locale, cx));
         let sidebar = cx.new(|cx| Sidebar::new(window, cx, locale));
-        let graph = cx.new(|_cx| GraphView::new(id, locale));
+        let graph = cx.new(|cx| GraphView::new(id, locale, cx));
         let toolbar = cx.new(|_cx| Toolbar::new(locale));
-        let detail = cx.new(|_cx| DetailPanel::new(locale));
         let commit = cx.new(|cx| CommitPanel::new(window, cx, locale));
+        let changes = cx.new(|_cx| ChangesPanel::new(locale));
         let bottom = cx.new(|_cx| BottomPanel::new(locale, diff_layout));
 
         cx.subscribe(&sidebar, |tab, _event, event, cx| match event {
@@ -139,18 +139,6 @@ impl RepoTab {
             }
             SidebarEvent::CopyRef(value) => {
                 tab.copy_ref(value, cx);
-            }
-            SidebarEvent::FileSelected { path, staged, code } => {
-                tab.detail.update(cx, |detail, cx| {
-                    detail.set_content(
-                        DetailContent::File {
-                            path: path.clone(),
-                            staged: *staged,
-                            code: *code,
-                        },
-                        cx,
-                    )
-                });
             }
         })
         .detach();
@@ -218,29 +206,18 @@ impl RepoTab {
                 oid,
                 short,
                 subject,
-                author,
-                date,
-                decorations,
+                ..
             } => {
-                tab.detail.update(cx, |detail, cx| {
-                    detail.set_content(
-                        DetailContent::Commit {
-                            oid: oid.clone(),
-                            short: short.clone(),
-                            subject: subject.clone(),
-                            author: author.clone(),
-                            date: date.clone(),
-                            decorations: decorations.clone(),
-                            message: None,
-                        },
-                        cx,
-                    )
-                });
                 tab.bottom.update(cx, |bottom, cx| {
                     bottom.set_commit(oid, short, subject, cx);
                 });
                 tab.git_view.update(cx, |view, _| {
                     view.commit_files(oid.clone());
+                    view.commit_message(oid.clone());
+                });
+            }
+            GraphEvent::CommitHovered(oid) => {
+                tab.git_view.update(cx, |view, _| {
                     view.commit_message(oid.clone());
                 });
             }
@@ -330,12 +307,10 @@ impl RepoTab {
                     ],
                 ));
                 tab.sidebar.update(cx, |sidebar, cx| {
-                    sidebar.set_status(
-                        branch.clone(),
-                        branches.clone(),
-                        files.clone(),
-                        cx,
-                    );
+                    sidebar.set_status(branch.clone(), branches.clone(), cx);
+                });
+                tab.changes.update(cx, |changes, cx| {
+                    changes.set_files(files.clone(), cx);
                 });
                 tab.toolbar.update(cx, |toolbar, cx| {
                     toolbar.set_ahead_behind(*ahead, *behind, cx);
@@ -371,8 +346,8 @@ impl RepoTab {
                 });
             }
             GitUiEvent::CommitMessageChanged { oid, message } => {
-                tab.detail.update(cx, |detail, cx| {
-                    detail.set_commit_message(&oid, message.clone(), cx);
+                tab.graph.update(cx, |graph, cx| {
+                    graph.set_commit_message(&oid, message.clone(), cx);
                 });
             }
             GitUiEvent::FileDiffChanged {
@@ -474,15 +449,15 @@ impl RepoTab {
             sidebar,
             graph,
             toolbar,
-            detail,
             commit,
+            changes,
             bottom,
             status: GitStatus::None,
             status_message: None,
             status_message_ok: None,
             layout: LayoutState {
                 sidebar_width: 250.0,
-                detail_width: 320.0,
+                right_panel_width: 320.0,
                 diff_height: None,
             },
             sidebar_collapsed: false,
@@ -604,11 +579,11 @@ impl RepoTab {
         self.graph.update(cx, |graph, cx| {
             graph.set_locale(locale, cx);
         });
-        self.detail.update(cx, |detail, cx| {
-            detail.set_locale(locale, cx);
-        });
         self.commit.update(cx, |commit, cx| {
             commit.set_locale(locale, window, cx);
+        });
+        self.changes.update(cx, |changes, cx| {
+            changes.set_locale(locale, cx);
         });
         self.bottom.update(cx, |bottom, cx| {
             bottom.set_locale(locale, cx);
@@ -843,7 +818,7 @@ impl RepoTab {
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let sidebar_width = px(self.layout.sidebar_width);
-        let detail_width = px(self.layout.detail_width);
+        let right_panel_width = px(self.layout.right_panel_width);
         let diff_height = self.layout.diff_height.map(px);
 
         h_flex()
@@ -858,13 +833,13 @@ impl RepoTab {
                     cx.notify();
                 },
             ))
-            .on_drag_move::<DetailPanelResize>(cx.listener(
-                |tab, event: &DragMoveEvent<DetailPanelResize>, window, cx| {
+            .on_drag_move::<RightPanelResize>(cx.listener(
+                |tab, event: &DragMoveEvent<RightPanelResize>, window, cx| {
                     let width = window.bounds().size.width;
                     let new_width = (f32::from(width)
                         - f32::from(event.event.position.x))
-                    .clamp(MIN_DETAIL_WIDTH, MAX_DETAIL_WIDTH);
-                    tab.layout.detail_width = new_width;
+                    .clamp(MIN_RIGHT_PANEL_WIDTH, MAX_RIGHT_PANEL_WIDTH);
+                    tab.layout.right_panel_width = new_width;
                     cx.notify();
                 },
             ))
@@ -948,17 +923,25 @@ impl RepoTab {
             .child(
                 div()
                     .relative()
-                    .w(detail_width)
+                    .w(right_panel_width)
                     .h_full()
                     .flex_shrink_0()
                     .border_l_1()
                     .border_color(colors.border)
                     .flex()
                     .flex_col()
-                    .child(div().flex_1().min_h_0().child(self.detail.clone()))
+                    .child(self.commit.clone())
                     .child(
                         div()
-                            .id("detail-resize-handle")
+                            .w_full()
+                            .h(px(1.))
+                            .flex_shrink_0()
+                            .bg(colors.border),
+                    )
+                    .child(div().flex_1().min_h_0().child(self.changes.clone()))
+                    .child(
+                        div()
+                            .id("right-panel-resize-handle")
                             .absolute()
                             .top_0()
                             .left(px(-3.))
@@ -966,12 +949,11 @@ impl RepoTab {
                             .w(px(5.))
                             .cursor_col_resize()
                             .hover(|element| element.bg(colors.drag_border))
-                            .on_drag(DetailPanelResize, |value, _, _, cx| {
+                            .on_drag(RightPanelResize, |value, _, _, cx| {
                                 cx.stop_propagation();
                                 cx.new(|_| value.clone())
                             }),
-                    )
-                    .child(self.commit.clone()),
+                    ),
             )
     }
 }

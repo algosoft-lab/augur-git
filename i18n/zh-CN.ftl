@@ -36,7 +36,7 @@ status-summary = { $branch } · ↑{ $ahead }↓{ $behind } · 暂存{ $staged }
 # ===== 命令结果 / 消息 =====
 command-success = { $label } 成功
 command-failed = { $label } 失败：{ $error }
-branch-selected = 分支 { $name }（详情 M2）
+branch-selected = 已选择分支 { $name }
 context-checkout = 切换
 context-copy-branch = 复制分支名称
 context-copy-tag = 复制标签名称
@@ -85,6 +85,8 @@ section-tags = 标签
 section-stashes = 贮藏
 section-staged = 暂存
 section-changes = 变更
+changes-title = 工作区
+changes-empty = 暂无变更
 status-mod = 改
 status-add = 增
 status-del = 删
@@ -93,20 +95,12 @@ status-cpy = 拷
 status-conflict = 冲
 status-unknown = ?
 
-# ===== 详情面板 =====
-tab-details = 详情
-detail-empty = 选择提交或文件查看详情
-detail-author = 作者 { $author }
-detail-date = 时间 { $date }
-detail-coauthors = 共同作者
-file-modified = 修改
-file-added = 新增
-file-deleted = 删除
-file-renamed = 重命名
-file-conflict = 冲突
-file-untracked = 未跟踪
-file-staged = 已暂存
-file-unstaged = 未暂存
+# ===== 提交信息悬停预览 =====
+commit-message-preview = 提交信息
+commit-message-loading = 正在加载完整提交信息…
+commit-author = 作者 { $author }
+commit-date = 时间 { $date }
+commit-coauthors = 共同作者
 
 # ===== 提交面板 =====
 commit-title = 提交

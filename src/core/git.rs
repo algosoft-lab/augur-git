@@ -123,7 +123,7 @@ pub enum GitEvent {
         files: Vec<FileChange>,
         merge_parent: Option<String>,
     },
-    /// 选中提交的完整提交信息（git show -s --format=%B，选中提交时查询）
+    /// Full commit message for the selected or hovered commit.
     CommitMessage { oid: String, message: CommitMessage },
     /// Structured single-file commit diff payload.
     CommitFileDiff {

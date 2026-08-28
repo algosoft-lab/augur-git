@@ -37,7 +37,7 @@ status-summary = { $branch } · ↑{ $ahead }↓{ $behind } · staged { $staged 
 # ===== Command results / messages =====
 command-success = { $label } succeeded
 command-failed = { $label } failed: { $error }
-branch-selected = Branch { $name } (details in M2)
+branch-selected = Selected branch { $name }
 context-checkout = Checkout
 context-copy-branch = Copy branch name
 context-copy-tag = Copy tag name
@@ -86,6 +86,8 @@ section-tags = Tags
 section-stashes = Stashes
 section-staged = Staged
 section-changes = Changes
+changes-title = Working Tree
+changes-empty = No changes
 status-mod = M
 status-add = A
 status-del = D
@@ -94,20 +96,12 @@ status-cpy = C
 status-conflict = U
 status-unknown = ?
 
-# ===== Detail panel =====
-tab-details = Details
-detail-empty = Select a commit or file to see details
-detail-author = Author { $author }
-detail-date = Date { $date }
-detail-coauthors = Co-authored-by
-file-modified = Modified
-file-added = Added
-file-deleted = Deleted
-file-renamed = Renamed
-file-conflict = Conflict
-file-untracked = Untracked
-file-staged = Staged
-file-unstaged = Unstaged
+# ===== Commit message preview =====
+commit-message-preview = Commit message
+commit-message-loading = Loading full commit message…
+commit-author = Author { $author }
+commit-date = Date { $date }
+commit-coauthors = Co-authored-by
 
 # ===== Commit panel =====
 commit-title = Commit

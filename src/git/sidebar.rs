@@ -1,9 +1,7 @@
-//! Sidebar sections for branches, refs, and working-tree changes.
+//! Sidebar sections for branches and repository refs.
 //!
-//! The sections are ordered as local branches, remotes, remote branches, tags,
-//! stashes, staged changes, and unstaged changes. Section headers toggle their
-//! contents, while checkoutable refs expose actions through a full-row context
-//! menu.
+//! Section headers toggle their contents, while checkoutable refs expose
+//! actions through a full-row context menu.
 
 use std::time::{Duration, Instant};
 
@@ -15,45 +13,34 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::core::git::{BranchInfo, CheckoutTarget, FileStatus, RefsInfo};
+use crate::core::git::{BranchInfo, CheckoutTarget, RefsInfo};
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
 
-/// 侧栏事件
+/// Sidebar events routed to Workspace.
 pub enum SidebarEvent {
-    /// 收起/展开侧栏
+    /// Collapse or expand the sidebar.
     ToggleCollapse,
-    /// Select a branch for the detail panel.
+    /// Select a branch in the repository navigator.
     BranchSelected(String),
     /// Check out a branch, tag, or commit target.
     CheckoutRef(CheckoutTarget),
     /// Copy a displayed ref name to the system clipboard.
     CopyRef(String),
-    /// Select a changed file for the detail panel.
-    FileSelected {
-        path: String,
-        staged: bool,
-        code: char,
-    },
 }
 
 pub struct Sidebar {
-    /// 本地分支列表
+    /// Local branch list.
     branches: Vec<BranchInfo>,
-    /// 当前分支
+    /// Current branch.
     branch: String,
-    /// 变更文件（staged/unstaged 已分类）
-    staged: Vec<FileStatus>,
-    unstaged: Vec<FileStatus>,
-    /// 引用清单（远程/远程分支/标签/stash，只读展示）
+    /// Read-only remotes, remote branches, tags, and stashes.
     refs: RefsInfo,
-    /// 选中行（(是否暂存, 索引)）
-    selected: Option<(bool, usize)>,
-    /// 分支区高亮截止时刻（标题栏徽标点击，时间戳过期自动消失）
+    /// Branch highlight expiration after the toolbar branch action.
     flash_branches_until: Option<Instant>,
-    /// 已折叠分区（i18n 键列表；内存态，重启恢复全展开）
+    /// Collapsed section keys (in-memory only).
     collapsed: Vec<&'static str>,
-    /// 界面语言（Workspace 切换语言时同步）
+    /// UI locale synchronized by Workspace.
     locale: Locale,
 }
 
@@ -90,52 +77,38 @@ impl Sidebar {
         Self {
             branches: Vec::new(),
             branch: String::new(),
-            staged: Vec::new(),
-            unstaged: Vec::new(),
             refs: RefsInfo::default(),
-            selected: None,
             flash_branches_until: None,
             collapsed: Vec::new(),
             locale,
         }
     }
 
-    /// 切换语言（Workspace::set_language 同步）
+    /// Synchronize the UI locale.
     pub fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
         self.locale = locale;
         cx.notify();
     }
 
-    /// 接收仓库状态快照（workspace 从 GitUiEvent 转发）
+    /// Apply the repository branch snapshot.
     pub fn set_status(
         &mut self,
         branch: String,
         branches: Vec<BranchInfo>,
-        files: Vec<FileStatus>,
         cx: &mut Context<Self>,
     ) {
         self.branch = branch;
         self.branches = branches;
-        self.staged = files.iter().filter(|f| f.is_staged()).cloned().collect();
-        self.unstaged =
-            files.iter().filter(|f| !f.is_staged()).cloned().collect();
-        // 选中行可能已消失
-        if let Some((staged, i)) = self.selected {
-            let list = if staged { &self.staged } else { &self.unstaged };
-            if i >= list.len() {
-                self.selected = None;
-            }
-        }
         cx.notify();
     }
 
-    /// 接收引用快照（workspace 从 GitUiEvent::RefsChanged 转发）
+    /// Apply the read-only refs snapshot.
     pub fn set_refs(&mut self, refs: RefsInfo, cx: &mut Context<Self>) {
         self.refs = refs;
         cx.notify();
     }
 
-    /// 标题栏分支徽标点击：自动展开分支区并高亮 800ms
+    /// Expand the branch section and highlight it briefly.
     pub fn flash_branches(&mut self, cx: &mut Context<Self>) {
         self.flash_branches_until =
             Some(Instant::now() + Duration::from_millis(800));
@@ -147,7 +120,7 @@ impl Sidebar {
         self.collapsed.iter().any(|k| *k == key)
     }
 
-    /// 点击分区标题：开合该分区
+    /// Toggle a section when its header is clicked.
     fn toggle_section(&mut self, key: &'static str, cx: &mut Context<Self>) {
         match self.collapsed.iter().position(|k| *k == key) {
             Some(i) => {
@@ -155,25 +128,6 @@ impl Sidebar {
             }
             None => self.collapsed.push(key),
         }
-        cx.notify();
-    }
-
-    fn select_file(
-        &mut self,
-        staged: bool,
-        index: usize,
-        cx: &mut Context<Self>,
-    ) {
-        let list = if staged { &self.staged } else { &self.unstaged };
-        let Some(file) = list.get(index) else {
-            return;
-        };
-        self.selected = Some((staged, index));
-        cx.emit(SidebarEvent::FileSelected {
-            path: file.path.clone(),
-            staged,
-            code: file.code(),
-        });
         cx.notify();
     }
 
@@ -191,7 +145,7 @@ impl Sidebar {
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
 
-        // 收起按钮（PanelLeftClose 图标）
+        // Collapse button.
         let btn_collapse = cx.entity();
         let collapse_btn = div()
             .id("btn-collapse")
@@ -212,7 +166,7 @@ impl Sidebar {
             .w_full()
             .h_full()
             .bg(colors.background)
-            // 细顶行：仅右侧收起按钮（标题文案已并入全局标题栏）
+            // Keep only the collapse button in this compact top row.
             .child(
                 v_flex().w_full().p_1().child(
                     h_flex()
@@ -250,9 +204,7 @@ impl Sidebar {
                         cx,
                         "section-stashes",
                         &self.refs.stashes,
-                    ))
-                    .child(self.change_section(cx, true, &self.staged))
-                    .child(self.change_section(cx, false, &self.unstaged)),
+                    )),
             )
     }
 
@@ -447,88 +399,6 @@ impl Sidebar {
             ))
             .when(!collapsed, |s| s.children(rows))
     }
-
-    /// Staged and unstaged change sections.
-    fn change_section(
-        &self,
-        cx: &Context<Self>,
-        staged: bool,
-        files: &[FileStatus],
-    ) -> impl IntoElement {
-        let colors = cx.theme().colors.clone();
-        let title_key: &'static str = if staged {
-            "section-staged"
-        } else {
-            "section-changes"
-        };
-        let collapsed = self.is_collapsed(title_key);
-        let rows = files
-            .iter()
-            .enumerate()
-            .map(|(i, f)| {
-                let this = cx.entity();
-                let (code_color, label) =
-                    status_style(&colors, f.code(), self.locale);
-                let selected = self.selected == Some((staged, i));
-                h_flex()
-                    .id(SharedString::from(format!("file-{staged}-{i}")))
-                    .w_full()
-                    .h(px(22.))
-                    .flex_shrink_0()
-                    .px_2()
-                    .gap_1()
-                    .items_center()
-                    .rounded_sm()
-                    .bg(if selected {
-                        colors.list_active
-                    } else {
-                        colors.background
-                    })
-                    .hover(|this| {
-                        if !selected {
-                            this.bg(colors.list_hover)
-                        } else {
-                            this
-                        }
-                    })
-                    .on_click(move |_e, _w, cx| {
-                        this.update(cx, |sidebar, cx| {
-                            sidebar.select_file(staged, i, cx)
-                        });
-                    })
-                    .child(
-                        div()
-                            .w(px(24.))
-                            .text_size(px(11.))
-                            .text_color(code_color)
-                            .child(label),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_size(px(12.))
-                            .text_color(colors.foreground)
-                            .child(shared(f.path.clone())),
-                    )
-            })
-            .collect::<Vec<_>>();
-
-        v_flex()
-            .id(SharedString::from(format!("change-section-{staged}")))
-            .w_full()
-            .gap_0p5()
-            .p_2()
-            .child(section_header(
-                cx,
-                title_key,
-                i18n::text(self.locale, title_key),
-                files.len(),
-                collapsed,
-                false,
-            ))
-            .when(!collapsed, |s| s.children(rows))
-    }
 }
 
 fn ref_context_menu<E>(
@@ -584,9 +454,7 @@ impl Render for Sidebar {
     }
 }
 
-/// 分区标题：折叠 chevron + 13px semibold 前景色标题 + 计数；整行点击开合
-/// （GitHub Dark 风格：弃蓝色文字与焦点竖条）
-/// （flash 为分支区高亮态背景；id 用稳定的 i18n 键——标题文本随语言变，不能当 id）
+/// Section header with a chevron, title, and item count.
 fn section_header(
     cx: &Context<Sidebar>,
     key: &'static str,
@@ -639,28 +507,4 @@ fn section_header(
                 .text_color(colors.muted_foreground)
                 .child(count.to_string()),
         )
-}
-
-/// 状态码 → 颜色/标签（标签双语：zh 单字 改/增/删/移/拷/冲，en 字母 M/A/D/R/C/U）
-fn status_style(
-    colors: &gpui_component::theme::ThemeColor,
-    code: char,
-    locale: Locale,
-) -> (Hsla, String) {
-    let color = match code {
-        'M' | 'R' | 'C' => colors.warning,
-        'A' => colors.green,
-        'D' | 'U' => colors.red,
-        _ => colors.muted_foreground,
-    };
-    let key = match code {
-        'M' => "status-mod",
-        'A' => "status-add",
-        'D' => "status-del",
-        'R' => "status-ren",
-        'C' => "status-cpy",
-        'U' => "status-conflict",
-        _ => "status-unknown",
-    };
-    (color, i18n::text(locale, key))
 }

@@ -1,15 +1,20 @@
-//! M1：GraphView 提交树（镜像 rgitui：compute_graph 布局 + canvas 画 lane/节点/连线）
+//! Commit graph presentation with delayed full-message previews.
 
-use crate::core::git::CheckoutTarget;
+use std::collections::HashMap;
+use std::ops::Range;
+use std::time::Duration;
+
+use crate::core::git::{CheckoutTarget, CommitMessage};
+use crate::git::commit_preview::CommitHoverPreview;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
     ActiveTheme, IconName, h_flex,
     menu::{ContextMenuExt, PopupMenuItem},
     theme::ThemeColor,
+    tooltip::Tooltip,
     v_flex,
 };
-use std::ops::Range;
 
 use crate::core::graph::{
     AUTHOR_COL_WIDTH, DATE_COL_WIDTH, GraphRow, HASH_COL_WIDTH, LogRow,
@@ -30,14 +35,13 @@ const GRAPH_LEFT_PAD: f32 = 12.0;
 #[derive(Clone, Debug)]
 pub enum GraphEvent {
     CommitSelected {
-        /// 完整 oid（底部面板查文件清单/diff 用）
+        /// Full OID used by the bottom file list and diff viewer.
         oid: String,
         short: String,
         subject: String,
-        author: String,
-        date: String,
-        decorations: String,
     },
+    /// Request the full message for a commit whose row stayed hovered.
+    CommitHovered(String),
     /// Check out the selected commit.
     CheckoutRef(CheckoutTarget),
     /// Copy the selected commit OID to the system clipboard.
@@ -50,7 +54,13 @@ pub struct GraphView {
     rows: Vec<LogRow>,
     layout: Vec<GraphRow>,
     selected: Option<usize>,
-    /// 界面语言（Workspace 切换语言时同步）
+    /// Full messages cached after selection or hover requests.
+    commit_messages: HashMap<String, CommitMessage>,
+    /// Commit preview entity shared by every graph-row tooltip.
+    hover_preview: Entity<CommitHoverPreview>,
+    /// OID currently under the pointer, if any.
+    hovered_oid: Option<String>,
+    /// UI locale synchronized by Workspace.
     locale: Locale,
     /// 自身实测渲染宽（测量 canvas 回写；初始视为宽屏，首帧后校正）。
     /// 响应式列显隐以它为准——拖侧栏挤压中央列时窗口宽并未变
@@ -73,11 +83,15 @@ struct GraphRenderOptions {
 impl EventEmitter<GraphEvent> for GraphView {}
 
 impl GraphView {
-    pub fn new(tab_id: u64, locale: Locale) -> Self {
+    pub fn new(tab_id: u64, locale: Locale, cx: &mut Context<Self>) -> Self {
+        let hover_preview = cx.new(|_| CommitHoverPreview::new(locale));
         Self {
             rows: Vec::new(),
             layout: Vec::new(),
             selected: None,
+            commit_messages: HashMap::new(),
+            hover_preview,
+            hovered_oid: None,
             locale,
             content_width: f32::INFINITY,
             scroll_handle: UniformListScrollHandle::new(),
@@ -85,9 +99,12 @@ impl GraphView {
         }
     }
 
-    /// 切换语言（Workspace::set_language 同步）
+    /// Synchronize the locale with the workspace.
     pub fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
         self.locale = locale;
+        self.hover_preview.update(cx, |preview, cx| {
+            preview.set_locale(locale, cx);
+        });
         cx.notify();
     }
 
@@ -102,7 +119,67 @@ impl GraphView {
             self.layout.len()
         );
         self.rows = rows;
+        if self
+            .hovered_oid
+            .as_ref()
+            .is_some_and(|oid| !self.rows.iter().any(|row| &row.oid == oid))
+        {
+            self.hovered_oid = None;
+            self.hover_preview.update(cx, |preview, cx| {
+                preview.clear(cx);
+            });
+        }
         cx.notify();
+    }
+
+    /// Cache an asynchronous message response and update the active preview.
+    pub fn set_commit_message(
+        &mut self,
+        oid: &str,
+        message: CommitMessage,
+        cx: &mut Context<Self>,
+    ) {
+        self.commit_messages
+            .insert(oid.to_string(), message.clone());
+        if self.hovered_oid.as_deref() == Some(oid) {
+            self.hover_preview.update(cx, |preview, cx| {
+                preview.set_message(oid, message, cx);
+            });
+        }
+    }
+
+    fn set_hovered(
+        &mut self,
+        index: usize,
+        hovered: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(row) = self.rows.get(index).cloned() else {
+            return;
+        };
+
+        if hovered {
+            let changed = self.hovered_oid.as_deref() != Some(row.oid.as_str());
+            self.hovered_oid = Some(row.oid.clone());
+            if changed {
+                let message = self.commit_messages.get(&row.oid).cloned();
+                let needs_message = message.is_none();
+                self.hover_preview.update(cx, |preview, cx| {
+                    preview.set_commit(&row, message, cx);
+                });
+                if needs_message {
+                    log::debug!(
+                        "[commit_preview] requesting hovered commit message"
+                    );
+                    cx.emit(GraphEvent::CommitHovered(row.oid));
+                }
+            }
+        } else if self.hovered_oid.as_deref() == Some(row.oid.as_str()) {
+            self.hovered_oid = None;
+            self.hover_preview.update(cx, |preview, cx| {
+                preview.clear(cx);
+            });
+        }
     }
 
     fn select(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -114,9 +191,6 @@ impl GraphView {
             oid: row.oid.clone(),
             short: row.short.clone(),
             subject: row.subject.clone(),
-            author: row.author.clone(),
-            date: row.date.clone(),
-            decorations: row.decorations.clone(),
         });
         cx.notify();
     }
@@ -255,6 +329,8 @@ impl GraphView {
         let copy_value = row.oid.clone();
         let copy_message_value = row.oid.clone();
         let graph_for_click = graph.clone();
+        let graph_for_hover = graph.clone();
+        let hover_preview = self.hover_preview.clone();
 
         let row_element = h_flex()
             .id(SharedString::from(format!("graph-row-{}", row.oid)))
@@ -275,6 +351,17 @@ impl GraphView {
             .on_click(move |_e, _w, cx| {
                 graph_for_click.update(cx, |v, cx| v.select(index, cx));
             })
+            .on_hover(move |hovered, _window, cx| {
+                graph_for_hover.update(cx, |graph, cx| {
+                    graph.set_hovered(index, *hovered, cx);
+                });
+            })
+            .tooltip(move |window, cx| {
+                let hover_preview = hover_preview.clone();
+                Tooltip::element(move |_window, _cx| hover_preview.clone())
+                    .build(window, cx)
+            })
+            .tooltip_show_delay(Duration::from_millis(500))
             // Graph column: row canvas plus HEAD initials overlay.
             .child(
                 div()
