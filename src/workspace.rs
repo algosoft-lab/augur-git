@@ -33,6 +33,32 @@ use self::tabs::{
 use crate::theme;
 
 pub fn run(app: Application) {
+    app.on_reopen(|cx| {
+        if !cx.windows().is_empty() {
+            log::info!(
+                "[app_lifecycle] reopen requested while a window is open; activating it"
+            );
+            cx.activate(true);
+            return;
+        }
+
+        log::info!("[app_lifecycle] macOS reopen requested");
+        cx.activate(true);
+        cx.spawn(async move |cx| {
+            let config = cx.background_spawn(async { config::load() }).await;
+            let result = cx.update(|cx| {
+                open_main_window(cx, config)
+            });
+            match result {
+                Ok(_) => log::info!("[app_lifecycle] reopened main window"),
+                Err(error) => log::error!(
+                    "[app_lifecycle] failed to reopen main window: {error}"
+                ),
+            }
+        })
+        .detach();
+    });
+
     app.run(|cx| {
         gpui_component::init(cx);
 
@@ -44,22 +70,68 @@ pub fn run(app: Application) {
         // the registry's global observer reads Theme::global.
         Theme::change(ThemeMode::Dark, None, cx);
         theme::init(config.theme, cx);
-        app_menu::install_native_menu(i18n::resolve(&config.language), cx);
         cx.on_action(|_: &app_menu::Quit, cx| cx.quit());
+        cx.on_action(|_: &app_menu::OpenAbout, cx| {
+            log::info!("[app_menu] routing global open about action");
+            update_active_workspace(cx, |workspace, cx| {
+                workspace.open_about(cx)
+            });
+        });
+        cx.on_action(|_: &app_menu::OpenSettings, cx| {
+            log::info!("[app_menu] routing global open settings action");
+            update_active_workspace(cx, |workspace, cx| {
+                workspace.open_settings(cx)
+            });
+        });
+        app_menu::install_native_menu(i18n::resolve(&config.language), cx);
 
-        cx.spawn(async move |cx| {
-            let window_options = cx.update(initial_window_options);
-            cx.open_window(window_options, |window, cx| {
-                let workspace = cx.new(|cx| Workspace::new(config, window, cx));
-                cx.new(|cx| Root::new(workspace, window, cx))
-            })
-            .unwrap_or_else(|error| {
-                log::error!("[workspace] failed to open window: {error}");
-                std::process::exit(1);
-            })
-        })
-        .detach();
+        cx.activate(true);
+        if let Err(error) = open_main_window(cx, config) {
+            log::error!(
+                "[app_lifecycle] failed to open initial window: {error}"
+            );
+            std::process::exit(1);
+        }
     });
+}
+
+#[derive(Clone)]
+struct ActiveWorkspace {
+    workspace: WeakEntity<Workspace>,
+}
+
+impl Global for ActiveWorkspace {}
+
+fn update_active_workspace(
+    cx: &mut App,
+    update: impl FnOnce(&mut Workspace, &mut Context<Workspace>),
+) {
+    let workspace = cx
+        .try_global::<ActiveWorkspace>()
+        .and_then(|active| active.workspace.upgrade());
+    let Some(workspace) = workspace else {
+        log::warn!("[app_menu] no active workspace for application action");
+        return;
+    };
+
+    workspace.update(cx, update);
+}
+
+fn open_main_window(
+    cx: &mut App,
+    config: AppConfig,
+) -> anyhow::Result<WindowHandle<Root>> {
+    let window_options = initial_window_options(cx);
+    let window = cx.open_window(window_options, |window, cx| {
+        let workspace = cx.new(|cx| Workspace::new(config, window, cx));
+        cx.set_global(ActiveWorkspace {
+            workspace: workspace.downgrade(),
+        });
+        cx.new(|cx| Root::new(workspace, window, cx))
+    })?;
+    cx.activate(true);
+    log::info!("[app_lifecycle] main window created");
+    Ok(window)
 }
 
 fn initial_window_options(cx: &mut App) -> WindowOptions {
