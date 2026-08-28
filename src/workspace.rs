@@ -27,7 +27,8 @@ use crate::core::i18n::{self, Locale};
 use self::app_menu::{AppMenu, AppMenuEvent};
 use self::repo_tab::{RepoTab, RepoTabEvent};
 use self::tabs::{
-    RepoTabBar, RepoTabBarEvent, TabId, TabSummary, fallback_after_close,
+    RepoTabBar, RepoTabBarEvent, TabId, TabState, TabSummary,
+    fallback_after_close,
 };
 use crate::theme;
 
@@ -88,11 +89,19 @@ fn initial_window_options(cx: &mut App) -> WindowOptions {
     }
 }
 
+/// Content of a workspace tab. A tab either hosts an open repository or is
+/// an empty start page that turns into a repository tab once the user opens
+/// one from it.
+enum TabContent {
+    Welcome,
+    Repo(Entity<RepoTab>),
+}
+
 struct TabEntry {
     id: TabId,
     key: String,
-    path: String,
-    tab: Entity<RepoTab>,
+    path: Option<String>,
+    content: TabContent,
     summary: TabSummary,
     persisted: bool,
 }
@@ -151,10 +160,10 @@ impl Workspace {
         cx.subscribe_in(
             &tab_bar_for_events,
             window,
-            |workspace, _bar, event, window, cx| match event {
+            |workspace, _bar, event, _window, cx| match event {
                 RepoTabBarEvent::NewTab => {
                     log::info!("[workspace_tabs] new-tab event received");
-                    workspace.pick_repo_folder(window, cx)
+                    workspace.add_welcome_tab(cx)
                 }
                 RepoTabBarEvent::Select(id) => workspace.select_tab(*id, cx),
                 RepoTabBarEvent::Close(id) => workspace.close_tab(*id, cx),
@@ -240,8 +249,8 @@ impl Workspace {
         self.tabs.push(TabEntry {
             id,
             key,
-            path,
-            tab: tab.clone(),
+            path: Some(path),
+            content: TabContent::Repo(tab.clone()),
             summary,
             persisted: restored,
         });
@@ -251,6 +260,78 @@ impl Workspace {
         }
         self.refresh_tab_bar(cx);
         cx.notify();
+    }
+
+    /// Open an empty start-page tab; it turns into a repository tab when the
+    /// user opens a repository from it. Start-page tabs are never persisted.
+    fn add_welcome_tab(&mut self, cx: &mut Context<Self>) {
+        let id = self.next_tab_id;
+        self.next_tab_id = self.next_tab_id.saturating_add(1);
+        log::info!("[workspace_tabs] opening start-page tab {id}");
+        self.tabs.push(TabEntry {
+            id,
+            key: welcome_tab_key(id),
+            path: None,
+            content: TabContent::Welcome,
+            summary: TabSummary {
+                id,
+                title: i18n::text(self.locale, "tab-new"),
+                branch: None,
+                state: TabState::Ready,
+            },
+            persisted: false,
+        });
+        self.activate_tab(id, cx);
+        self.refresh_tab_bar(cx);
+        cx.notify();
+    }
+
+    /// Load a repository into an existing start-page tab, keeping its slot.
+    fn open_repo_in_tab(
+        &mut self,
+        id: TabId,
+        requested_path: String,
+        restored: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let path = normalized_path(&requested_path);
+        let Some(entry) = self.tabs.iter_mut().find(|tab| tab.id == id) else {
+            return;
+        };
+        let locale = self.locale;
+        let tab =
+            cx.new(|cx| RepoTab::new(id, path.clone(), locale, window, cx));
+        let summary = tab.read(cx).summary();
+        entry.key = repo_key(&path);
+        entry.path = Some(path);
+        entry.content = TabContent::Repo(tab.clone());
+        entry.summary = summary;
+        entry.persisted = restored;
+        self.subscribe_to_tab(&tab, cx);
+        self.activate_tab(id, cx);
+        self.refresh_tab_bar(cx);
+        cx.notify();
+    }
+
+    fn active_welcome_tab_id(&self) -> Option<TabId> {
+        let active = self.active_tab?;
+        self.tabs
+            .iter()
+            .find(|tab| tab.id == active)
+            .filter(|tab| matches!(tab.content, TabContent::Welcome))
+            .map(|tab| tab.id)
+    }
+
+    /// Remove a tab entry without changing the active-tab selection.
+    fn remove_tab_entry(&mut self, id: TabId, cx: &mut Context<Self>) {
+        let Some(index) = self.tabs.iter().position(|tab| tab.id == id) else {
+            return;
+        };
+        let entry = self.tabs.remove(index);
+        if let TabContent::Repo(tab) = &entry.content {
+            tab.update(cx, |tab, cx| tab.close(cx));
+        }
     }
 
     fn subscribe_to_tab(
@@ -329,31 +410,35 @@ impl Workspace {
     }
 
     fn activate_tab(&mut self, id: TabId, cx: &mut Context<Self>) -> bool {
-        let Some(next_tab) = self
-            .tabs
-            .iter()
-            .find(|entry| entry.id == id)
-            .map(|entry| entry.tab.clone())
-        else {
+        let Some(entry) = self.tabs.iter().find(|entry| entry.id == id) else {
             return false;
+        };
+        let next_tab = match &entry.content {
+            TabContent::Repo(tab) => Some(tab.clone()),
+            TabContent::Welcome => None,
         };
 
         let changed = self.active_tab != Some(id);
         if changed {
-            if let Some(previous_tab) = self
+            let previous_tab = self
                 .active_tab
                 .and_then(|active| {
                     self.tabs.iter().find(|entry| entry.id == active)
                 })
-                .map(|entry| entry.tab.clone())
-            {
+                .and_then(|entry| match &entry.content {
+                    TabContent::Repo(tab) => Some(tab.clone()),
+                    TabContent::Welcome => None,
+                });
+            if let Some(previous_tab) = previous_tab {
                 previous_tab.update(cx, |tab, cx| tab.deactivate(cx));
                 log::info!("[workspace_tabs] tab deactivated");
             }
             self.active_tab = Some(id);
         }
 
-        next_tab.update(cx, |tab, cx| tab.activate(cx));
+        if let Some(next_tab) = next_tab {
+            next_tab.update(cx, |tab, cx| tab.activate(cx));
+        }
         if changed {
             log::info!("[workspace_tabs] tab activated");
         }
@@ -367,7 +452,9 @@ impl Workspace {
         let order = self.tabs.iter().map(|tab| tab.id).collect::<Vec<_>>();
         let fallback = fallback_after_close(&order, self.active_tab, id);
         let entry = self.tabs.remove(index);
-        entry.tab.update(cx, |tab, cx| tab.close(cx));
+        if let TabContent::Repo(tab) = &entry.content {
+            tab.update(cx, |tab, cx| tab.close(cx));
+        }
         self.active_tab = fallback;
         if let Some(active) = fallback {
             self.activate_tab(active, cx);
@@ -378,12 +465,11 @@ impl Workspace {
     }
 
     fn active_tab_entity(&self) -> Option<Entity<RepoTab>> {
-        self.active_tab.and_then(|active| {
-            self.tabs
-                .iter()
-                .find(|tab| tab.id == active)
-                .map(|tab| tab.tab.clone())
-        })
+        let active = self.active_tab?;
+        match &self.tabs.iter().find(|tab| tab.id == active)?.content {
+            TabContent::Repo(tab) => Some(tab.clone()),
+            TabContent::Welcome => None,
+        }
     }
 
     fn emit_sidebar_focus(&mut self, cx: &mut Context<Self>) {
@@ -428,10 +514,17 @@ impl Workspace {
         self.language_preference = preference;
         self.locale = i18n::resolve(&preference);
         let locale = self.locale;
-        for entry in &self.tabs {
-            entry.tab.update(cx, |tab, cx| {
-                tab.set_locale(locale, window, cx);
-            });
+        for entry in &mut self.tabs {
+            match &entry.content {
+                TabContent::Repo(tab) => {
+                    tab.update(cx, |tab, cx| {
+                        tab.set_locale(locale, window, cx);
+                    });
+                }
+                TabContent::Welcome => {
+                    entry.summary.title = i18n::text(locale, "tab-new");
+                }
+            }
         }
         self.config.language = preference;
         self.config_saver.schedule(&self.config);
@@ -549,11 +642,11 @@ impl Workspace {
     fn handle_new_tab(
         &mut self,
         _: &app_menu::NewTab,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         log::info!("[app_menu] new tab action");
-        self.pick_repo_folder(window, cx);
+        self.add_welcome_tab(cx);
     }
 
     fn handle_open_settings(
@@ -578,13 +671,38 @@ impl Workspace {
 
     fn open_repo_path(
         &mut self,
-        path: String,
+        requested_path: String,
         restored: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.page = WorkspacePage::Main;
-        self.add_repo_tab(path, restored, true, window, cx);
+        let key = repo_key(&requested_path);
+        if let Some(existing) = self
+            .tabs
+            .iter()
+            .find(|tab| tab.key == key)
+            .map(|tab| tab.id)
+        {
+            // The repository is already open: drop the start-page tab that
+            // triggered the request instead of duplicating the repository.
+            if let Some(welcome) = self.active_welcome_tab_id() {
+                self.remove_tab_entry(welcome, cx);
+            }
+            self.select_tab(existing, cx);
+            return;
+        }
+        if let Some(welcome) = self.active_welcome_tab_id() {
+            self.open_repo_in_tab(
+                welcome,
+                requested_path,
+                restored,
+                window,
+                cx,
+            );
+            return;
+        }
+        self.add_repo_tab(requested_path, restored, true, window, cx);
     }
 
     fn pick_repo_folder(
@@ -642,15 +760,15 @@ impl Workspace {
             .tabs
             .iter()
             .filter(|tab| tab.persisted)
-            .map(|tab| OpenTabConfig {
-                path: tab.path.clone(),
+            .filter_map(|tab| {
+                tab.path.clone().map(|path| OpenTabConfig { path })
             })
             .collect();
         self.config.active_tab_path = self
             .active_tab
             .and_then(|active| self.tabs.iter().find(|tab| tab.id == active))
             .filter(|tab| tab.persisted)
-            .map(|tab| tab.path.clone());
+            .and_then(|tab| tab.path.clone());
         self.config_saver.schedule(&self.config);
     }
 }
@@ -744,4 +862,10 @@ fn repo_key(path: &str) -> String {
     #[cfg(windows)]
     key.make_ascii_lowercase();
     key
+}
+
+/// Unique key for a start-page tab. Repository keys are canonical paths, so
+/// this prefix cannot collide with them.
+fn welcome_tab_key(id: TabId) -> String {
+    format!("welcome:{id}")
 }

@@ -4,6 +4,7 @@
 # ===== 应用 / Welcome =====
 app-tagline = 桌面 Git 客户端
 welcome-open = 打开
+tab-new = 新建标签页
 recent-repos = 最近仓库
 repo-folder-prompt = 选择 Git 仓库文件夹
 
