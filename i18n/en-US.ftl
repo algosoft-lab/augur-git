@@ -46,12 +46,17 @@ context-copy-commit-message = Copy commit message
 context-copied = Copied { $name }
 context-copied-commit-message = Copied commit message
 context-copy-commit-message-failed = Failed to copy commit message: { $error }
+push-force-title = Force push?
+push-force-warning = Force pushing overwrites the remote history of { $branch }. Commits that exist only on the remote may be lost.
+push-force-confirm = Force Push
+push-force-cancel = Cancel
 
 # ===== Toolbar =====
 toolbar-fetch = Fetch
 toolbar-pull-merge = Pull (Merge)
 toolbar-pull-rebase = Pull (Rebase)
 toolbar-push = Push
+toolbar-push-force = Push (Force)
 toolbar-branch = Branch
 toolbar-refresh = Refresh
 toolbar-settings = Settings

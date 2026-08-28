@@ -45,12 +45,17 @@ context-copy-commit-message = 复制提交信息
 context-copied = 已复制 { $name }
 context-copied-commit-message = 已复制提交信息
 context-copy-commit-message-failed = 复制提交信息失败：{ $error }
+push-force-title = 强制推送？
+push-force-warning = 强制推送会覆盖远程分支 { $branch } 的历史，仅存在于远程的提交可能丢失。
+push-force-confirm = 强制推送
+push-force-cancel = 取消
 
 # ===== 工具栏 =====
 toolbar-fetch = 获取
 toolbar-pull-merge = 拉取（合并）
 toolbar-pull-rebase = 拉取（变基）
 toolbar-push = 推送
+toolbar-push-force = 推送（强制）
 toolbar-branch = 分支
 toolbar-refresh = 刷新
 toolbar-settings = 设置

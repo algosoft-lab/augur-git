@@ -1,6 +1,10 @@
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::{ActiveTheme, Icon, IconName, h_flex, v_flex};
+use gpui_component::{
+    ActiveTheme, Icon, IconName,
+    button::{Button, ButtonVariants},
+    h_flex, v_flex,
+};
 
 use crate::core::git::CheckoutTarget;
 use crate::core::i18n::{self, Locale};
@@ -11,7 +15,7 @@ use crate::git::panel::{
 };
 use crate::git::sidebar::{Sidebar, SidebarEvent};
 use crate::git::toolbar::{Toolbar, ToolbarEvent};
-use crate::git::{GitStatus, GitUiEvent, GitView};
+use crate::git::{GitStatus, GitUiEvent, GitView, shared};
 
 use super::tabs::{TabId, TabState, TabSummary};
 
@@ -91,6 +95,8 @@ pub struct RepoTab {
     status_message_ok: Option<bool>,
     layout: LayoutState,
     sidebar_collapsed: bool,
+    /// Force-push confirmation dialog is open (run only on explicit confirm).
+    confirm_force_push: bool,
     locale: Locale,
 }
 
@@ -184,6 +190,11 @@ impl RepoTab {
                 tab.toolbar.update(cx, |toolbar, cx| {
                     toolbar.set_busy(true, cx);
                 });
+            }
+            ToolbarEvent::PushForce => {
+                // Never run directly: open the confirmation dialog first.
+                tab.confirm_force_push = true;
+                cx.notify();
             }
             ToolbarEvent::Branch => {
                 tab.sidebar.update(cx, |sidebar, cx| {
@@ -391,6 +402,7 @@ impl RepoTab {
                             | "pull"
                             | "pull --rebase"
                             | "push"
+                            | "push --force"
                     );
                     tab.status_message = Some(if *success {
                         i18n::text_args(
@@ -448,6 +460,7 @@ impl RepoTab {
                 diff_height: 260.0,
             },
             sidebar_collapsed: false,
+            confirm_force_push: false,
             locale,
         }
     }
@@ -461,6 +474,25 @@ impl RepoTab {
         self.toolbar.update(cx, |toolbar, cx| {
             toolbar.set_busy(true, cx);
         });
+    }
+
+    /// Run the confirmed force push (`git push --force`).
+    fn start_force_push(&mut self, cx: &mut Context<Self>) {
+        self.confirm_force_push = false;
+        self.git_view.update(cx, |view, _| {
+            view.run("push --force", vec!["push".into(), "--force".into()]);
+        });
+        self.toolbar.update(cx, |toolbar, cx| {
+            toolbar.set_busy(true, cx);
+        });
+        cx.notify();
+    }
+
+    fn cancel_force_push(&mut self, cx: &mut Context<Self>) {
+        if self.confirm_force_push {
+            self.confirm_force_push = false;
+            cx.notify();
+        }
     }
 
     fn copy_ref(&mut self, value: &str, cx: &mut Context<Self>) {
@@ -637,6 +669,108 @@ impl RepoTab {
             )
     }
 
+    /// Modal confirmation for the destructive force push (settings-overlay
+    /// pattern: full-cover backdrop with a card, backdrop click cancels).
+    fn force_push_confirm_overlay(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let colors = cx.theme().colors.clone();
+        let locale = self.locale;
+        let this = cx.entity();
+
+        let title_row = h_flex()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    .text_size(px(16.))
+                    .text_color(colors.red)
+                    .child(Icon::new(IconName::TriangleAlert)),
+            )
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(colors.foreground)
+                    .child(shared(i18n::text(locale, "push-force-title"))),
+            );
+
+        let cancel_btn = {
+            let this = this.clone();
+            Button::new("force-push-cancel")
+                .label(i18n::text(locale, "push-force-cancel"))
+                .ghost()
+                .flex_1()
+                .on_click(move |_e, _w, cx| {
+                    this.update(cx, |tab, cx| tab.cancel_force_push(cx));
+                })
+        };
+        let confirm_btn = Button::new("force-push-confirm")
+            .label(i18n::text(locale, "push-force-confirm"))
+            .danger()
+            .flex_1()
+            .on_click(move |_e, _w, cx| {
+                this.update(cx, |tab, cx| tab.start_force_push(cx));
+            });
+
+        v_flex()
+            .id("force-push-overlay")
+            .absolute()
+            .top_0()
+            .left_0()
+            .w_full()
+            .h_full()
+            .bg(colors.background.opacity(0.9))
+            .flex()
+            .items_center()
+            .justify_center()
+            // Clicking the backdrop cancels the force push.
+            .on_mouse_down(MouseButton::Left, {
+                let this = cx.entity();
+                move |_e, _w, cx| {
+                    this.update(cx, |tab, cx| tab.cancel_force_push(cx));
+                }
+            })
+            .child(
+                v_flex()
+                    .id("force-push-card")
+                    .items_start()
+                    .gap_3()
+                    .p_6()
+                    .bg(colors.background)
+                    .border_1()
+                    .border_color(colors.border)
+                    .rounded_lg()
+                    .min_w(px(380.))
+                    .max_w(px(460.))
+                    .when(cx.theme().shadow, |el| el.shadow_md())
+                    // Stop clicks inside the card from closing the overlay.
+                    .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                    })
+                    .child(title_row)
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(colors.muted_foreground)
+                            .child(shared(i18n::text_args(
+                                locale,
+                                "push-force-warning",
+                                &[("branch", &self.branch)],
+                            ))),
+                    )
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .gap_2()
+                            .child(cancel_btn)
+                            .child(confirm_btn),
+                    ),
+            )
+    }
+
     fn collapsed_rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity();
         v_flex()
@@ -804,11 +938,15 @@ impl Render for RepoTab {
     ) -> impl IntoElement {
         v_flex()
             .id(SharedString::from(format!("repo-content-{}", self.id)))
+            .relative()
             .size_full()
             .min_h_0()
             .child(self.toolbar.clone())
             .child(self.main_content(window, cx))
             .child(self.status_bar(cx))
+            .when(self.confirm_force_push, |element| {
+                element.child(self.force_push_confirm_overlay(cx))
+            })
     }
 }
 

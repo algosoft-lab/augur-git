@@ -19,6 +19,7 @@ pub enum ToolbarEvent {
     PullMerge,
     PullRebase,
     Push,
+    PushForce,
     Branch,
     Refresh,
     Settings,
@@ -196,6 +197,15 @@ impl Render for Toolbar {
                 &colors,
                 enabled,
                 ToolbarEvent::Push,
+                cx,
+            ))
+            .child(self.tool_button(
+                "tb-push-force",
+                Icon::new(IconName::TriangleAlert),
+                "toolbar-push-force",
+                &colors,
+                enabled,
+                ToolbarEvent::PushForce,
                 cx,
             ))
             .child(self.tool_button(
