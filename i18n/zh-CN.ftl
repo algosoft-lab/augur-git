@@ -9,6 +9,25 @@ recent-repos = 最近仓库
 repo-path-placeholder = 仓库路径，如 D:\repo
 repo-folder-prompt = 选择 Git 仓库文件夹
 
+# ===== Application menu / About =====
+menu-open = 打开应用菜单
+menu-file = 文件
+menu-open-repository = 打开仓库…
+menu-new-tab = 新建标签页
+menu-recent-repositories = 最近仓库
+menu-no-recent-repositories = 没有最近仓库
+menu-view = 视图
+menu-settings = 设置
+menu-help = 帮助
+menu-about = 关于 augur-git
+menu-quit = 退出
+about-title = 关于
+about-tagline = 桌面 Git 客户端
+about-author = 作者
+about-version = 版本
+about-commit = 提交
+about-back = 返回工作区
+
 # ===== Tab 栏 / 状态栏 =====
 no-repo-open = 未打开仓库
 status-scanning = 扫描中…

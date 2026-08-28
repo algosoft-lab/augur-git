@@ -10,6 +10,25 @@ recent-repos = Recent repositories
 repo-path-placeholder = Repository path, e.g. D:\repo
 repo-folder-prompt = Choose a Git repository folder
 
+# ===== Application menu / About =====
+menu-open = Open application menu
+menu-file = File
+menu-open-repository = Open Repository…
+menu-new-tab = New Tab
+menu-recent-repositories = Recent Repositories
+menu-no-recent-repositories = No Recent Repositories
+menu-view = View
+menu-settings = Settings
+menu-help = Help
+menu-about = About augur-git
+menu-quit = Quit
+about-title = About
+about-tagline = Desktop Git client
+about-author = Author
+about-version = Version
+about-commit = Commit
+about-back = Back to workspace
+
 # ===== Tab bar / Status bar =====
 no-repo-open = No repository open
 status-scanning = Scanning…

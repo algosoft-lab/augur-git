@@ -3,6 +3,8 @@
 //! The workspace owns application-wide state. Each open repository is represented
 //! by an independent `RepoTab` entity, including its Git worker and panels.
 
+mod about;
+mod app_menu;
 mod repo_tab;
 mod tabs;
 mod welcome;
@@ -23,6 +25,7 @@ use crate::core::config::{
 };
 use crate::core::i18n::{self, Locale};
 
+use self::app_menu::{AppMenu, AppMenuEvent};
 use self::repo_tab::{RepoTab, RepoTabEvent};
 use self::tabs::{
     RepoTabBar, RepoTabBarEvent, TabId, TabSummary, fallback_after_close,
@@ -41,6 +44,8 @@ pub fn run(app: Application) {
         // the registry's global observer reads Theme::global.
         Theme::change(ThemeMode::Dark, None, cx);
         theme::init(config.theme, cx);
+        app_menu::install_native_menu(i18n::resolve(&config.language), cx);
+        cx.on_action(|_: &app_menu::Quit, cx| cx.quit());
 
         cx.spawn(async move |cx| {
             let window_options = cx.update(initial_window_options);
@@ -93,11 +98,18 @@ struct TabEntry {
     persisted: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WorkspacePage {
+    Main,
+    About,
+}
+
 pub struct Workspace {
     tabs: Vec<TabEntry>,
     active_tab: Option<TabId>,
     next_tab_id: TabId,
     tab_bar: Entity<RepoTabBar>,
+    app_menu: Entity<AppMenu>,
     repo_path_input: Entity<InputState>,
     config: AppConfig,
     language_preference: LanguagePreference,
@@ -106,6 +118,7 @@ pub struct Workspace {
     locale: Locale,
     config_saver: config::ConfigSaveQueue,
     show_settings: bool,
+    page: WorkspacePage,
     restoring: bool,
 }
 
@@ -120,6 +133,8 @@ impl Workspace {
         let locale = i18n::resolve(&language_preference);
         let config_saver = config::ConfigSaveQueue::new();
         let tab_bar = cx.new(|_cx| RepoTabBar::new());
+        let app_menu =
+            cx.new(|_cx| AppMenu::new(locale, config.recent_repos.clone()));
         let input_default = config.active_tab_path.clone().unwrap_or_default();
         let repo_path_input = cx.new(|cx| {
             InputState::new(window, cx)
@@ -145,6 +160,19 @@ impl Workspace {
         )
         .detach();
 
+        let app_menu_for_events = app_menu.clone();
+        cx.subscribe_in(
+            &app_menu_for_events,
+            window,
+            |workspace, _menu, event, window, cx| match event {
+                AppMenuEvent::OpenRecent(path) => {
+                    log::info!("[app_menu] opening recent repository");
+                    workspace.open_repo_path(path.clone(), false, window, cx);
+                }
+            },
+        )
+        .detach();
+
         let tab_bar_for_events = tab_bar.clone();
         cx.subscribe_in(
             &tab_bar_for_events,
@@ -165,6 +193,7 @@ impl Workspace {
             active_tab: None,
             next_tab_id: 1,
             tab_bar,
+            app_menu,
             repo_path_input,
             config,
             language_preference,
@@ -172,6 +201,7 @@ impl Workspace {
             locale,
             config_saver,
             show_settings: false,
+            page: WorkspacePage::Main,
             restoring: true,
         };
         workspace.restore_tabs(window, cx);
@@ -277,6 +307,7 @@ impl Workspace {
                     self.config.push_recent(path);
                     self.persist_config();
                 }
+                self.refresh_app_menu(cx);
                 self.refresh_tab_bar(cx);
                 cx.notify();
             }
@@ -299,8 +330,7 @@ impl Workspace {
                 }
             }
             RepoTabEvent::RequestSettings => {
-                self.show_settings = true;
-                cx.notify();
+                self.open_settings(cx);
             }
         }
     }
@@ -317,6 +347,7 @@ impl Workspace {
     }
 
     fn select_tab(&mut self, id: TabId, cx: &mut Context<Self>) {
+        self.page = WorkspacePage::Main;
         if self.activate_tab(id, cx) {
             self.persist_config();
             self.refresh_tab_bar(cx);
@@ -388,6 +419,33 @@ impl Workspace {
         }
     }
 
+    fn open_settings(&mut self, cx: &mut Context<Self>) {
+        self.show_settings = true;
+        cx.notify();
+    }
+
+    fn open_about(&mut self, cx: &mut Context<Self>) {
+        self.show_settings = false;
+        self.page = WorkspacePage::About;
+        cx.notify();
+    }
+
+    fn show_main(&mut self, cx: &mut Context<Self>) {
+        self.page = WorkspacePage::Main;
+        cx.notify();
+    }
+
+    fn refresh_app_menu(&mut self, cx: &mut Context<Self>) {
+        let locale = self.locale;
+        let recent_repos = self.config.recent_repos.clone();
+        self.app_menu.update(cx, |menu, cx| {
+            menu.set_locale(locale);
+            menu.set_recent_repos(recent_repos);
+            cx.notify();
+        });
+        app_menu::install_native_menu(locale, cx);
+    }
+
     fn set_language(
         &mut self,
         preference: LanguagePreference,
@@ -411,6 +469,7 @@ impl Workspace {
         });
         self.config.language = preference;
         self.config_saver.schedule(&self.config);
+        self.refresh_app_menu(cx);
         log::info!(
             "[workspace] language preference: {:?}, locale: {}",
             preference,
@@ -440,10 +499,15 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
-        let branch = self
-            .active_tab
-            .and_then(|active| self.tabs.iter().find(|tab| tab.id == active))
-            .and_then(|tab| tab.summary.branch.clone());
+        let branch = if self.page == WorkspacePage::Main {
+            self.active_tab
+                .and_then(|active| {
+                    self.tabs.iter().find(|tab| tab.id == active)
+                })
+                .and_then(|tab| tab.summary.branch.clone())
+        } else {
+            None
+        };
         let this = cx.entity();
         let branch_badge = branch.map(|branch| {
             h_flex()
@@ -482,6 +546,7 @@ impl Workspace {
                 .on_double_click(|_event, window, _cx| {
                     window.zoom_window();
                 })
+                .child(self.app_menu.clone())
                 .child(
                     h_flex()
                         .items_center()
@@ -505,6 +570,46 @@ impl Workspace {
         )
     }
 
+    fn handle_open_repository(
+        &mut self,
+        _: &app_menu::OpenRepository,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        log::info!("[app_menu] open repository action");
+        self.pick_repo_folder(window, cx);
+    }
+
+    fn handle_new_tab(
+        &mut self,
+        _: &app_menu::NewTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        log::info!("[app_menu] new tab action");
+        self.pick_repo_folder(window, cx);
+    }
+
+    fn handle_open_settings(
+        &mut self,
+        _: &app_menu::OpenSettings,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        log::info!("[app_menu] open settings action");
+        self.open_settings(cx);
+    }
+
+    fn handle_open_about(
+        &mut self,
+        _: &app_menu::OpenAbout,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        log::info!("[app_menu] open about action");
+        self.open_about(cx);
+    }
+
     fn open_repo_from_input(
         &mut self,
         window: &mut Window,
@@ -523,6 +628,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.page = WorkspacePage::Main;
         self.add_repo_tab(path, restored, true, window, cx);
     }
 
@@ -601,15 +707,22 @@ impl Render for Workspace {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
-        let content = if let Some(tab) = self.active_tab_entity() {
-            tab.into_any_element()
-        } else {
-            v_flex()
-                .flex_1()
-                .min_h_0()
-                .child(self.welcome(window, cx))
-                .child(self.empty_status_bar(cx))
-                .into_any_element()
+        let content = match self.page {
+            WorkspacePage::About => {
+                about::render_about(self, cx).into_any_element()
+            }
+            WorkspacePage::Main => {
+                if let Some(tab) = self.active_tab_entity() {
+                    tab.into_any_element()
+                } else {
+                    v_flex()
+                        .flex_1()
+                        .min_h_0()
+                        .child(self.welcome(window, cx))
+                        .child(self.empty_status_bar(cx))
+                        .into_any_element()
+                }
+            }
         };
 
         v_flex()
@@ -617,6 +730,10 @@ impl Render for Workspace {
             .size_full()
             .relative()
             .bg(colors.background)
+            .on_action(cx.listener(Self::handle_open_repository))
+            .on_action(cx.listener(Self::handle_new_tab))
+            .on_action(cx.listener(Self::handle_open_settings))
+            .on_action(cx.listener(Self::handle_open_about))
             .child(self.title_bar(window, cx))
             .child(content)
             .when(self.show_settings, |element| {

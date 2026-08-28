@@ -12,12 +12,16 @@ use std::io::{self, Write};
 
 use gpui::{AssetSource, SharedString};
 
-/// 本地资产（assets/icons/*.svg，lucide MIT）：优先于 gpui-component 内置集
+/// Local assets (`assets/icons/*.svg`, Lucide MIT) take precedence over the
+/// built-in gpui-component assets.
 struct AppAssets;
 
-/// 编译期内嵌本地图标（新增图标在此登记一行）
+/// Embedded local assets. Add new assets here as they are introduced.
 fn local_asset(path: &str) -> Option<&'static [u8]> {
     match path {
+        "augur-git-logo.svg" => {
+            Some(include_bytes!("../assets/augur-git-logo.svg").as_slice())
+        }
         "icons/download.svg" => {
             Some(include_bytes!("../assets/icons/download.svg").as_slice())
         }
@@ -50,6 +54,7 @@ impl AssetSource for AppAssets {
         let mut paths = gpui_component_assets::Assets.list(path)?;
         if path.is_empty() {
             paths.extend([
+                SharedString::from("augur-git-logo.svg"),
                 SharedString::from("icons/download.svg"),
                 SharedString::from("icons/git-branch.svg"),
                 SharedString::from("icons/refresh-cw.svg"),
