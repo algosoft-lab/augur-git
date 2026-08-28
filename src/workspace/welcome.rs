@@ -33,8 +33,10 @@ pub(super) fn render_welcome(
         .text_color(gpui::white())
         .text_size(px(12.))
         .child(shared(i18n::text(workspace.locale, "welcome-open")))
-        .on_click(move |_e, _w, cx| {
-            btn_open.update(cx, |ws, cx| ws.open_repo_from_input(cx));
+        .on_click(move |_event, window, cx| {
+            btn_open.update(cx, |ws, cx| {
+                ws.open_repo_from_input(window, cx);
+            });
         });
 
     // Browse button opens the system folder picker.
@@ -48,8 +50,10 @@ pub(super) fn render_welcome(
         .text_color(colors.foreground)
         .text_size(px(12.))
         .child(shared(i18n::text(workspace.locale, "welcome-browse")))
-        .on_click(move |_e, _w, cx| {
-            btn_browse.update(cx, |ws, cx| ws.pick_repo_folder(cx));
+        .on_click(move |_event, window, cx| {
+            btn_browse.update(cx, |ws, cx| {
+                ws.pick_repo_folder(window, cx);
+            });
         });
 
     let recents = workspace
@@ -59,6 +63,7 @@ pub(super) fn render_welcome(
         .map(|path| {
             let this = cx.entity();
             let path = path.clone();
+            let path_for_click = path.clone();
             h_flex()
                 .id(SharedString::from(format!("welcome-recent-{path}")))
                 .w(px(380.))
@@ -83,10 +88,14 @@ pub(super) fn render_welcome(
                         .text_color(colors.muted_foreground)
                         .child(SharedString::from(path.clone())),
                 )
-                .on_click(move |_e, _w, cx| {
+                .on_click(move |_event, window, cx| {
                     this.update(cx, |ws, cx| {
-                        ws.git_view
-                            .update(cx, |view, cx| view.open_repo(&path, cx));
+                        ws.open_repo_path(
+                            path_for_click.clone(),
+                            false,
+                            window,
+                            cx,
+                        );
                     });
                 })
         })

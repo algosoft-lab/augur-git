@@ -1,4 +1,4 @@
-//! M2: Application configuration and persistence for repository and view settings.
+//! Application configuration and persistence for repository and view settings.
 //!
 //! The configuration is stored under the platform's standard user config directory.
 
@@ -6,10 +6,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-/// 用户选择的语言偏好（镜像 augur-pdf/augur-term config.rs）。
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub enum LanguagePreference {
-    /// 跟随操作系统语言。
     #[serde(rename = "system")]
     System,
     #[serde(rename = "en-US", alias = "en")]
@@ -24,27 +22,14 @@ impl Default for LanguagePreference {
     }
 }
 
-/// 仓库参数（侧栏配置面板，单一来源）
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct RepoParams {
-    /// 仓库路径（空 = 未选择）
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct OpenTabConfig {
     pub path: String,
 }
 
-impl Default for RepoParams {
-    fn default() -> Self {
-        Self {
-            path: String::new(),
-        }
-    }
-}
-
-/// 视图设置
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ViewSettings {
-    /// 显示未跟踪文件
     pub show_untracked: bool,
-    /// 日志视图自动跟随（M3 提交历史引入）
     pub auto_follow: bool,
 }
 
@@ -57,31 +42,96 @@ impl Default for ViewSettings {
     }
 }
 
-/// 应用配置（单一事实源，Workspace 持有；任一变更即存盘）
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct AppConfig {
-    /// 界面语言；`system` 跟随操作系统。字段缺失时回落「跟随系统」。
     #[serde(default)]
     pub language: LanguagePreference,
     #[serde(default)]
-    pub repo: RepoParams,
+    pub open_tabs: Vec<OpenTabConfig>,
+    #[serde(default)]
+    pub active_tab_path: Option<String>,
     #[serde(default)]
     pub view: ViewSettings,
-    /// 最近打开的仓库（MRU，最多 8 个，侧栏快速切换）
     #[serde(default)]
     pub recent_repos: Vec<String>,
 }
 
 impl AppConfig {
-    /// 记录一个最近仓库（去重、置顶、截断）
     pub fn push_recent(&mut self, path: &str) {
         self.recent_repos.retain(|p| p != path);
         self.recent_repos.insert(0, path.to_string());
         self.recent_repos.truncate(8);
     }
+
+    fn normalize(&mut self) {
+        let mut seen = Vec::new();
+        self.open_tabs.retain(|tab| {
+            if tab.path.is_empty() || seen.iter().any(|path| path == &tab.path)
+            {
+                false
+            } else {
+                seen.push(tab.path.clone());
+                true
+            }
+        });
+
+        if self.active_tab_path.as_ref().is_some_and(|path| {
+            self.open_tabs.iter().all(|tab| &tab.path != path)
+        }) {
+            self.active_tab_path = None;
+        }
+        if self.active_tab_path.is_none() {
+            self.active_tab_path =
+                self.open_tabs.first().map(|tab| tab.path.clone());
+        }
+    }
 }
 
-/// Return the configuration file path in the platform-specific config directory.
+#[derive(Deserialize, Default)]
+struct RawAppConfig {
+    #[serde(default)]
+    language: LanguagePreference,
+    #[serde(default)]
+    open_tabs: Vec<OpenTabConfig>,
+    #[serde(default)]
+    active_tab_path: Option<String>,
+    #[serde(default)]
+    view: ViewSettings,
+    #[serde(default)]
+    recent_repos: Vec<String>,
+    #[serde(default)]
+    repo: LegacyRepoConfig,
+}
+
+#[derive(Deserialize, Default)]
+struct LegacyRepoConfig {
+    #[serde(default)]
+    path: String,
+}
+
+impl From<RawAppConfig> for AppConfig {
+    fn from(raw: RawAppConfig) -> Self {
+        let mut config = Self {
+            language: raw.language,
+            open_tabs: raw.open_tabs,
+            active_tab_path: raw.active_tab_path,
+            view: raw.view,
+            recent_repos: raw.recent_repos,
+        };
+
+        if config.open_tabs.is_empty() && !raw.repo.path.is_empty() {
+            config.open_tabs.push(OpenTabConfig {
+                path: raw.repo.path.clone(),
+            });
+        }
+        if config.active_tab_path.is_none() && !raw.repo.path.is_empty() {
+            config.active_tab_path = Some(raw.repo.path);
+        }
+        config.normalize();
+        config
+    }
+}
+
 pub fn store_path() -> PathBuf {
     let dir = dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -92,19 +142,21 @@ pub fn store_path() -> PathBuf {
     dir.join("config.json")
 }
 
-/// 加载配置（文件不存在或解析失败时返回默认值）
 pub fn load() -> AppConfig {
     let path = store_path();
     match std::fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(&text).unwrap_or_else(|e| {
-            log::warn!("[config] failed to parse config; using defaults: {e}");
-            AppConfig::default()
-        }),
+        Ok(text) => serde_json::from_str::<RawAppConfig>(&text)
+            .map(AppConfig::from)
+            .unwrap_or_else(|e| {
+                log::warn!(
+                    "[config] failed to parse config; using defaults: {e}"
+                );
+                AppConfig::default()
+            }),
         Err(_) => AppConfig::default(),
     }
 }
 
-/// 保存配置
 pub fn save(config: &AppConfig) -> anyhow::Result<()> {
     let text = serde_json::to_string_pretty(config)?;
     std::fs::write(store_path(), text)?;
@@ -117,38 +169,51 @@ mod tests {
 
     #[test]
     fn config_roundtrip() {
-        let mut c = AppConfig::default();
-        c.repo.path = r"D:\dev\gitee\augur-git".into();
-        c.view.show_untracked = false;
-        let text = serde_json::to_string(&c).unwrap();
+        let mut config = AppConfig::default();
+        config.open_tabs.push(OpenTabConfig {
+            path: r"D:\dev\gitee\augur-git".into(),
+        });
+        config.active_tab_path = Some(r"D:\dev\gitee\augur-git".into());
+        config.view.show_untracked = false;
+
+        let text = serde_json::to_string(&config).unwrap();
         let back: AppConfig = serde_json::from_str(&text).unwrap();
-        assert_eq!(back.repo.path, r"D:\dev\gitee\augur-git");
+        assert_eq!(back.open_tabs, config.open_tabs);
+        assert_eq!(back.active_tab_path, config.active_tab_path);
         assert!(!back.view.show_untracked);
     }
 
     #[test]
     fn defaults_are_sane() {
-        let c = AppConfig::default();
-        assert!(c.view.show_untracked);
-        assert!(c.recent_repos.is_empty());
+        let config = AppConfig::default();
+        assert!(config.view.show_untracked);
+        assert!(config.open_tabs.is_empty());
+        assert!(config.recent_repos.is_empty());
     }
 
     #[test]
     fn recent_repos_dedup_and_truncate() {
-        let mut c = AppConfig::default();
+        let mut config = AppConfig::default();
         for i in 0..10 {
-            c.push_recent(&format!("repo{i}"));
+            config.push_recent(&format!("repo{i}"));
         }
-        assert_eq!(c.recent_repos.len(), 8);
-        c.push_recent("repo3");
-        assert_eq!(c.recent_repos.first().map(String::as_str), Some("repo3"));
-        assert_eq!(c.recent_repos.iter().filter(|p| *p == "repo3").count(), 1);
+        assert_eq!(config.recent_repos.len(), 8);
+        config.push_recent("repo3");
+        assert_eq!(
+            config.recent_repos.first().map(String::as_str),
+            Some("repo3")
+        );
+        assert_eq!(
+            config.recent_repos.iter().filter(|p| *p == "repo3").count(),
+            1
+        );
     }
 
     #[test]
     fn language_preference_round_trips() {
         let json = r#"{"language":"zh-CN"}"#;
-        let config: AppConfig = serde_json::from_str(json).unwrap();
+        let raw: RawAppConfig = serde_json::from_str(json).unwrap();
+        let config = AppConfig::from(raw);
         assert_eq!(config.language, LanguagePreference::SimplifiedChinese);
 
         let serialized = serde_json::to_string(&AppConfig::default()).unwrap();
@@ -158,14 +223,40 @@ mod tests {
     #[test]
     fn accepts_language_alias() {
         let json = r#"{"language":"zh"}"#;
-        let config: AppConfig = serde_json::from_str(json).unwrap();
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
         assert_eq!(config.language, LanguagePreference::SimplifiedChinese);
     }
 
     #[test]
-    fn missing_language_field_defaults_to_system() {
-        let json = r#"{"repo":{"path":""}}"#;
-        let config: AppConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(config.language, LanguagePreference::System);
+    fn migrates_legacy_single_repository() {
+        let json = r#"{"repo":{"path":"D:\\repo-a"}}"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(config.open_tabs.len(), 1);
+        assert_eq!(config.open_tabs[0].path, r"D:\repo-a");
+        assert_eq!(config.active_tab_path.as_deref(), Some(r"D:\repo-a"));
+    }
+
+    #[test]
+    fn normalizes_duplicate_tabs_and_active_path() {
+        let json = r#"{
+            "open_tabs":[{"path":"repo-a"},{"path":"repo-a"},{"path":"repo-b"}],
+            "active_tab_path":"missing"
+        }"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(
+            config
+                .open_tabs
+                .iter()
+                .map(|tab| tab.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["repo-a", "repo-b"]
+        );
+        assert_eq!(config.active_tab_path.as_deref(), Some("repo-a"));
     }
 }

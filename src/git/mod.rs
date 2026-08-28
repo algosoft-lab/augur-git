@@ -85,7 +85,9 @@ impl GitView {
         // 工作线程事件轮询（20ms，镜像 augur-com 的 poll_serial）
         cx.spawn(async move |this, cx| {
             loop {
-                let _ = this.update(cx, |view, cx| view.poll_events(cx));
+                if this.update(cx, |view, cx| view.poll_events(cx)).is_err() {
+                    break;
+                }
                 cx.background_executor()
                     .timer(Duration::from_millis(20))
                     .await;
@@ -179,11 +181,6 @@ impl GitView {
         if let Some(handle) = &self.handle {
             handle.commit_file_diff(oid, path);
         }
-    }
-
-    /// 是否已打开仓库
-    pub fn connected(&self) -> bool {
-        matches!(self.status, GitStatus::Ready(_))
     }
 
     fn set_status(&mut self, status: GitStatus, cx: &mut Context<Self>) {
