@@ -17,6 +17,12 @@ use std::time::Duration;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+#[allow(unused_imports)]
+pub use crate::core::diff::{
+    DiffLine, DiffLineKind, FileChange, FileChangeStatus, parse_diff,
+    stat_blocks,
+};
+use crate::core::diff::{merge_numstat, parse_numstat, parse_raw_records};
 use crate::core::graph::LogRow;
 
 #[cfg(windows)]
@@ -80,11 +86,13 @@ pub enum GitEvent {
     Refs(RefsInfo),
     /// 提交的逐文件增删统计（git show --numstat，选中提交时查询）
     CommitFiles { oid: String, files: Vec<FileChange> },
-    /// 提交内单文件 diff 文本（git show --format= <oid> -- <path>）
+    /// Structured single-file commit diff payload.
     CommitFileDiff {
         oid: String,
-        path: String,
-        diff: String,
+        file: FileChange,
+        patch: String,
+        old_source: Option<String>,
+        new_source: Option<String>,
     },
     /// 通用命令执行结果（fetch/pull/push/commit/show…）
     CommandDone {
@@ -94,162 +102,6 @@ pub enum GitEvent {
     },
     /// 命令执行出错（key 为 i18n 键，展示侧本地化）
     Error(GitError),
-}
-
-/// 单文件的提交增删统计（git show --numstat 解析）
-#[derive(Clone, Debug)]
-pub struct FileChange {
-    /// 文件路径（重命名时为 "old => new" 原样）
-    pub path: String,
-    /// 新增行数（None = 二进制）
-    pub added: Option<usize>,
-    /// 删除行数（None = 二进制）
-    pub deleted: Option<usize>,
-}
-
-impl FileChange {
-    pub fn is_binary(&self) -> bool {
-        self.added.is_none()
-    }
-}
-
-/// 解析 `git show --numstat --format= <oid>` 输出
-///
-/// 每行结构：`<added>\t<deleted>\t<path>`；二进制文件为 `-\t-\t<path>`
-fn parse_numstat(text: &str) -> Vec<FileChange> {
-    text.lines()
-        .filter_map(|line| {
-            let (added, rest) = line.split_once('\t')?;
-            let (deleted, path) = rest.split_once('\t')?;
-            Some(FileChange {
-                path: path.to_string(),
-                added: added.parse().ok(),
-                deleted: deleted.parse().ok(),
-            })
-        })
-        .collect()
-}
-
-/// 文件行右侧色块条的分块数（镜像 rgitui DiffStat：共 5 块，
-/// 绿 = ⌈added×5/total⌉，红 = 其余；total = 0 时全灰 (0,0)）
-pub fn stat_blocks(added: usize, deleted: usize) -> (usize, usize) {
-    const TOTAL_BLOCKS: usize = 5;
-    let total = added + deleted;
-    if total == 0 {
-        return (0, 0);
-    }
-    let green = (added * TOTAL_BLOCKS).div_ceil(total).min(TOTAL_BLOCKS);
-    (green, TOTAL_BLOCKS - green)
-}
-
-/// unified diff 单行的渲染类别（diff_view 染色用）
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DiffLineKind {
-    /// 元信息行（diff --git / index / +++ --- / rename 等）
-    Meta,
-    /// hunk 头（@@ -a,b +c,d @@）
-    Hunk,
-    Add,
-    Del,
-    Context,
-}
-
-/// unified diff 解析后的单行：类别 + 双列行号（None = 该列空）
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DiffLine {
-    pub kind: DiffLineKind,
-    pub old_no: Option<u32>,
-    pub new_no: Option<u32>,
-    pub text: String,
-}
-
-/// 解析 `git diff` 输出为带行号的行序列（纯函数，供 diff 分栏渲染）。
-/// 跟踪 @@ 头中的起始行号递增计数；无法识别的行一律归为 Meta。
-pub fn parse_diff(text: &str) -> Vec<DiffLine> {
-    let mut out = Vec::new();
-    // 当前 hunk 内的旧行号/新行号游标
-    let (mut old, mut new): (u32, u32) = (0, 0);
-    for line in text.lines() {
-        if let Some(rest) = line.strip_prefix("@@ ") {
-            // 形如 "@@ -12,3 +12,4 @@ ctx"；兼容省略计数的 "@@ -1 +1 @@"
-            let old_start = rest
-                .split_whitespace()
-                .next()
-                .and_then(|tok| tok.strip_prefix('-'))
-                .and_then(|s| s.split(',').next())
-                .and_then(|s| s.parse().ok());
-            let new_start = rest
-                .split_whitespace()
-                .nth(1)
-                .and_then(|tok| tok.strip_prefix('+'))
-                .and_then(|s| s.split(',').next())
-                .and_then(|s| s.parse().ok());
-            match (old_start, new_start) {
-                (Some(o), Some(n)) => {
-                    old = o;
-                    new = n;
-                    out.push(DiffLine {
-                        kind: DiffLineKind::Hunk,
-                        old_no: None,
-                        new_no: None,
-                        text: line.to_string(),
-                    });
-                    continue;
-                }
-                // 头格式异常则按普通行处理（落入下方 Meta）
-                _ => {}
-            }
-        }
-        let mut chars = line.chars();
-        // ---/+++ 文件头出现在首个 hunk 之前，优先于增删行判断（否则会被计成 -0/+0）
-        if line.starts_with("--- ") || line.starts_with("+++ ") {
-            out.push(DiffLine {
-                kind: DiffLineKind::Meta,
-                old_no: None,
-                new_no: None,
-                text: line.to_string(),
-            });
-            continue;
-        }
-        match chars.next() {
-            Some('+') => {
-                out.push(DiffLine {
-                    kind: DiffLineKind::Add,
-                    old_no: None,
-                    new_no: Some(new),
-                    text: line.to_string(),
-                });
-                new += 1;
-            }
-            Some('-') => {
-                out.push(DiffLine {
-                    kind: DiffLineKind::Del,
-                    old_no: Some(old),
-                    new_no: None,
-                    text: line.to_string(),
-                });
-                old += 1;
-            }
-            // 空行按上下文处理（部分工具会剥掉空上下文行的前导空格）
-            Some(' ') | None => {
-                out.push(DiffLine {
-                    kind: DiffLineKind::Context,
-                    old_no: Some(old),
-                    new_no: Some(new),
-                    text: line.to_string(),
-                });
-                old += 1;
-                new += 1;
-            }
-            _ => out.push(DiffLine {
-                kind: DiffLineKind::Meta,
-                old_no: None,
-                new_no: None,
-                text: line.to_string(),
-            }),
-        }
-    }
-    out
 }
 
 /// 单个文件变更（git status --porcelain 解析）
@@ -295,8 +147,8 @@ pub enum GitCommand {
     Run { label: String, args: Vec<String> },
     /// 查询提交的逐文件增删统计（git show --numstat）
     CommitNumstat { oid: String },
-    /// 查询提交内单文件 diff（git show --format= -- <path>）
-    CommitFileDiff { oid: String, path: String },
+    /// Query a structured single-file commit diff.
+    CommitFileDiff { oid: String, file: FileChange },
     /// 关闭工作线程
     Close,
 }
@@ -325,9 +177,9 @@ impl GitHandle {
         let _ = self.cmd_tx.send(GitCommand::CommitNumstat { oid });
     }
 
-    /// 查询提交内单文件 diff
-    pub fn commit_file_diff(&self, oid: String, path: String) {
-        let _ = self.cmd_tx.send(GitCommand::CommitFileDiff { oid, path });
+    /// Query a structured single-file commit diff.
+    pub fn commit_file_diff(&self, oid: String, file: FileChange) {
+        let _ = self.cmd_tx.send(GitCommand::CommitFileDiff { oid, file });
     }
 
     /// 请求关闭工作线程
@@ -377,8 +229,8 @@ fn worker_loop(
             Ok(GitCommand::CommitNumstat { oid }) => {
                 run_numstat(&repo_path, &oid, &event_tx);
             }
-            Ok(GitCommand::CommitFileDiff { oid, path }) => {
-                run_file_diff(&repo_path, &oid, &path, &event_tx);
+            Ok(GitCommand::CommitFileDiff { oid, file }) => {
+                run_file_diff(&repo_path, &oid, &file, &event_tx);
             }
             Ok(GitCommand::Close) | Err(RecvTimeoutError::Disconnected) => {
                 break;
@@ -429,49 +281,172 @@ fn run_git(
     let _ = event_tx.send(event);
 }
 
-/// 查询提交的逐文件增删统计（真合并提交输出为空，展示侧按空清单处理）
+/// Query structured file metadata for a commit.
 fn run_numstat(repo_path: &str, oid: &str, event_tx: &Sender<GitEvent>) {
-    let output = git_command()
-        .args(["-C", repo_path, "show", "--numstat", "--format=", oid])
+    let raw = git_command()
+        .args([
+            "--no-pager",
+            "-c",
+            "core.quotePath=false",
+            "-C",
+            repo_path,
+            "diff-tree",
+            "--root",
+            "--no-commit-id",
+            "-r",
+            "-M",
+            "--raw",
+            "--no-color",
+            "--no-ext-diff",
+            "-z",
+            oid,
+        ])
         .output();
-    match output {
-        Ok(output) if output.status.success() => {
-            let text = String::from_utf8_lossy(&output.stdout);
+    let stats = git_command()
+        .args([
+            "--no-pager",
+            "-c",
+            "core.quotePath=false",
+            "-C",
+            repo_path,
+            "show",
+            "--numstat",
+            "--format=",
+            "--no-color",
+            "--no-ext-diff",
+            "--find-renames",
+            oid,
+        ])
+        .output();
+
+    match (raw, stats) {
+        (Ok(raw), Ok(stats))
+            if raw.status.success() && stats.status.success() =>
+        {
+            let raw_files = parse_raw_records(&raw.stdout);
+            let stat_files =
+                parse_numstat(&String::from_utf8_lossy(&stats.stdout));
+            let files = if is_merge_commit(repo_path, oid) {
+                Vec::new()
+            } else if raw_files.is_empty() {
+                stat_files
+            } else {
+                merge_numstat(raw_files, stat_files)
+            };
+            log::debug!(
+                "[git_diff] loaded commit file metadata: oid={}, files={}",
+                oid,
+                files.len()
+            );
             let _ = event_tx.send(GitEvent::CommitFiles {
                 oid: oid.to_string(),
-                files: parse_numstat(&text),
+                files,
             });
         }
-        Ok(output) => {
-            let msg = String::from_utf8_lossy(&output.stderr);
+        (Ok(raw), Ok(stats)) => {
+            let detail = if !raw.status.success() {
+                String::from_utf8_lossy(&raw.stderr).into_owned()
+            } else {
+                String::from_utf8_lossy(&stats.stderr).into_owned()
+            };
             let _ = event_tx
-                .send(GitEvent::Error(GitError::new("err-numstat", msg)));
+                .send(GitEvent::Error(GitError::new("err-numstat", detail)));
         }
-        Err(e) => {
+        (Err(error), _) | (_, Err(error)) => {
             let _ = event_tx.send(GitEvent::Error(GitError::new(
                 "err-git-run",
-                e.to_string(),
+                error.to_string(),
             )));
         }
     }
 }
 
-/// 查询提交内单文件 diff（--format= 去掉提交头，只留 diff 体；根提交同样可用）
+fn is_merge_commit(repo_path: &str, oid: &str) -> bool {
+    let output = git_command()
+        .args([
+            "--no-pager",
+            "-C",
+            repo_path,
+            "rev-list",
+            "--parents",
+            "-n",
+            "1",
+            oid,
+        ])
+        .output();
+    output
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| {
+            is_merge_commit_parent_line(&String::from_utf8_lossy(
+                &output.stdout,
+            ))
+        })
+        .unwrap_or(false)
+}
+
+fn is_merge_commit_parent_line(text: &str) -> bool {
+    text.lines()
+        .next()
+        .is_some_and(|line| line.split_whitespace().count() > 2)
+}
+
+const MAX_BLOB_SIZE: usize = 10 * 1024 * 1024;
+
+/// Query a single file patch and, when possible, its complete old/new blobs.
 fn run_file_diff(
     repo_path: &str,
     oid: &str,
-    path: &str,
+    file: &FileChange,
     event_tx: &Sender<GitEvent>,
 ) {
-    let output = git_command()
-        .args(["-C", repo_path, "show", "--format=", oid, "--", path])
-        .output();
+    let path = if matches!(file.status, FileChangeStatus::Deleted) {
+        file.old_path.as_deref().unwrap_or(&file.new_path)
+    } else {
+        &file.new_path
+    };
+    let mut args = vec![
+        "--no-pager".to_string(),
+        "-C".to_string(),
+        repo_path.to_string(),
+        "show".to_string(),
+        "--format=".to_string(),
+        "--no-color".to_string(),
+        "--no-ext-diff".to_string(),
+        "--find-renames".to_string(),
+        oid.to_string(),
+        "--".to_string(),
+    ];
+    if file.status.is_rename() {
+        if let Some(old_path) = file.old_path.as_deref() {
+            args.push(old_path.to_string());
+        }
+    }
+    args.push(path.to_string());
+    let output = git_command().args(&args).output();
     match output {
         Ok(output) if output.status.success() => {
+            let patch = String::from_utf8_lossy(&output.stdout).into_owned();
+            let (old_source, new_source) = if file.is_binary() {
+                (None, None)
+            } else {
+                (
+                    read_blob(repo_path, file.old_blob.as_deref()),
+                    read_blob(repo_path, file.new_blob.as_deref()),
+                )
+            };
+            log::debug!(
+                "[git_diff] loaded file diff: oid={}, binary={}, patch_bytes={}",
+                oid,
+                file.is_binary(),
+                patch.len()
+            );
             let _ = event_tx.send(GitEvent::CommitFileDiff {
                 oid: oid.to_string(),
-                path: path.to_string(),
-                diff: String::from_utf8_lossy(&output.stdout).into_owned(),
+                file: file.clone(),
+                patch,
+                old_source,
+                new_source,
             });
         }
         Ok(output) => {
@@ -486,6 +461,18 @@ fn run_file_diff(
             )));
         }
     }
+}
+
+fn read_blob(repo_path: &str, oid: Option<&str>) -> Option<String> {
+    let oid = oid?;
+    let output = git_command()
+        .args(["--no-pager", "-C", repo_path, "cat-file", "blob", oid])
+        .output()
+        .ok()?;
+    if !output.status.success() || output.stdout.len() > MAX_BLOB_SIZE {
+        return None;
+    }
+    String::from_utf8(output.stdout).ok()
 }
 
 /// 执行 git status，返回 (分支, 变更文件, ahead, behind)
@@ -737,6 +724,15 @@ mod tests {
         // 空/畸形行跳过
         assert!(parse_numstat("").is_empty());
         assert!(parse_numstat("garbage\n12\t3\n").is_empty());
+    }
+
+    #[test]
+    fn merge_parent_line_detection_preserves_merge_empty_diff() {
+        assert!(!is_merge_commit_parent_line("abc123\n"));
+        assert!(is_merge_commit_parent_line(
+            "abc123 parent-one parent-two\n"
+        ));
+        assert!(!is_merge_commit_parent_line(""));
     }
 
     #[test]

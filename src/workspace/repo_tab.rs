@@ -236,9 +236,9 @@ impl RepoTab {
         .detach();
 
         cx.subscribe(&bottom, |tab, _event, event, cx| match event {
-            BottomPanelEvent::ShowFileDiff { oid, path } => {
+            BottomPanelEvent::ShowFileDiff { oid, file } => {
                 tab.git_view.update(cx, |view, _| {
-                    view.file_diff(oid.clone(), path.clone());
+                    view.file_diff(oid.clone(), file.clone());
                 });
             }
         })
@@ -306,9 +306,22 @@ impl RepoTab {
                     bottom.set_files(oid, files.clone(), cx);
                 });
             }
-            GitUiEvent::FileDiffChanged { oid, path, diff } => {
+            GitUiEvent::FileDiffChanged {
+                oid,
+                file,
+                patch,
+                old_source,
+                new_source,
+            } => {
                 tab.bottom.update(cx, |bottom, cx| {
-                    bottom.set_diff(oid, path, diff.clone(), cx);
+                    bottom.set_diff(
+                        oid,
+                        file,
+                        patch.clone(),
+                        old_source.clone(),
+                        new_source.clone(),
+                        cx,
+                    );
                 });
             }
             GitUiEvent::CommandDone {

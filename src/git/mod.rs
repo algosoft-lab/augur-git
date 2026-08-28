@@ -5,6 +5,8 @@
 //! - 快照数据（分支/变更/日志）经 GitUiEvent 事件链分发给各面板
 //! - 面板交互事件由 Workspace 汇总后经 GitCommand 下发工作线程
 
+pub mod bottom_panel;
+pub mod diff_view;
 pub mod graph;
 pub mod panel;
 pub mod sidebar;
@@ -15,8 +17,9 @@ use std::time::Duration;
 
 use gpui::{Context, EventEmitter, SharedString, Task};
 
+use crate::core::diff::FileChange;
 use crate::core::git::{
-    self, BranchInfo, FileChange, FileStatus, GitError, GitEvent, RefsInfo,
+    self, BranchInfo, FileStatus, GitError, GitEvent, RefsInfo,
 };
 use crate::core::graph::LogRow;
 use crate::core::i18n::{self, Locale};
@@ -38,11 +41,13 @@ pub enum GitUiEvent {
     RefsChanged(RefsInfo),
     /// 选中提交的逐文件增删统计快照
     CommitFilesChanged { oid: String, files: Vec<FileChange> },
-    /// 选中提交内单文件 diff 文本
+    /// Structured selected-file commit diff.
     FileDiffChanged {
         oid: String,
-        path: String,
-        diff: String,
+        file: FileChange,
+        patch: String,
+        old_source: Option<String>,
+        new_source: Option<String>,
     },
     /// 通用命令执行结果（fetch/pull/push/commit/show…）
     CommandDone {
@@ -210,9 +215,9 @@ impl GitView {
     }
 
     /// 查询选中提交内单文件 diff（底部面板右栏）
-    pub fn file_diff(&self, oid: String, path: String) {
+    pub fn file_diff(&self, oid: String, file: FileChange) {
         if let Some(handle) = &self.handle {
-            handle.commit_file_diff(oid, path);
+            handle.commit_file_diff(oid, file);
         }
     }
 
@@ -286,12 +291,24 @@ impl GitView {
                     );
                     cx.emit(GitUiEvent::CommitFilesChanged { oid, files });
                 }
-                GitEvent::CommitFileDiff { oid, path, diff } => {
+                GitEvent::CommitFileDiff {
+                    oid,
+                    file,
+                    patch,
+                    old_source,
+                    new_source,
+                } => {
                     log::info!(
                         "[git_view] commit file diff received: oid={oid}, lines={}",
-                        diff.lines().count()
+                        patch.lines().count()
                     );
-                    cx.emit(GitUiEvent::FileDiffChanged { oid, path, diff });
+                    cx.emit(GitUiEvent::FileDiffChanged {
+                        oid,
+                        file,
+                        patch,
+                        old_source,
+                        new_source,
+                    });
                 }
                 GitEvent::CommandDone {
                     label,

@@ -88,8 +88,10 @@ commit-hint-none = 无暂存变更（暂存功能 M2）
 bottom-no-commit = 未选择提交
 bottom-merge-empty = 合并提交无逐文件统计
 bottom-no-file = 点击左侧文件查看 diff
-bottom-bin = BIN
+bottom-bin = 二进制
 diff-no-output = (无输出)
+diff-layout-inline = 内联
+diff-layout-side-by-side = 并排
 
 # ===== 设置弹层 =====
 settings-title = 设置

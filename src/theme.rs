@@ -1,6 +1,5 @@
-//! Embedded theme registry, runtime switching, and theme-dependent accent
-//! colors (commit-graph lanes, diff hunk header) that have no gpui-component
-//! token counterpart.
+//! Embedded theme registry, runtime switching, and theme-dependent commit-graph
+//! lane colors that have no gpui-component token counterpart.
 //!
 //! Lives outside `core/` because it is presentation-layer: it wires gpui and
 //! gpui-component globals rather than pure domain logic.
@@ -64,17 +63,6 @@ pub fn active_preference(cx: &App) -> ThemePreference {
 /// Commit-graph lane palette for the active theme.
 pub fn lane_colors(cx: &App) -> [Hsla; 10] {
     lanes(active_preference(cx))
-}
-
-/// Diff hunk-header color for the active theme (Mauve for Catppuccin flavors).
-pub fn diff_purple(cx: &App) -> Hsla {
-    match active_preference(cx) {
-        ThemePreference::CatppuccinLatte => Hsla::from(rgb(0x8839EF)),
-        ThemePreference::CatppuccinFrappe => Hsla::from(rgb(0xCA9EE6)),
-        ThemePreference::CatppuccinMacchiato => Hsla::from(rgb(0xC6A0F6)),
-        ThemePreference::CatppuccinMocha => Hsla::from(rgb(0xCBA6F7)),
-        ThemePreference::GitHubDark => Hsla::from(rgb(0xBC8CFF)),
-    }
 }
 
 /// Normalize rgitui-style `hsl(h°, s%, l%)` values: this gpui fork takes
