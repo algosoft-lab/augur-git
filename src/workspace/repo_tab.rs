@@ -241,6 +241,11 @@ impl RepoTab {
                     view.file_diff(oid.clone(), file.clone());
                 });
             }
+            BottomPanelEvent::ShowAllFileDiffs { oid, files } => {
+                tab.git_view.update(cx, |view, _| {
+                    view.file_diffs(oid.clone(), files.clone());
+                });
+            }
         })
         .detach();
 

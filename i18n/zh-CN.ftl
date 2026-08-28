@@ -89,6 +89,7 @@ bottom-no-commit = 未选择提交
 bottom-merge-empty = 合并提交无逐文件统计
 bottom-no-file = 点击左侧文件查看 diff
 bottom-bin = 二进制
+diff-all-files = 全部变更文件
 diff-no-output = (无输出)
 diff-layout-inline = 内联
 diff-layout-side-by-side = 并排

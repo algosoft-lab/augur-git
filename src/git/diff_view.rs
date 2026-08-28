@@ -42,6 +42,7 @@ pub struct DiffViewCache {
     /// commit or renamed path.
     pub source_key: String,
     pub theme: Arc<HighlightTheme>,
+    pub binary: bool,
     pub inline_rows: Arc<Vec<DiffRow>>,
     pub side_rows: Arc<Vec<DiffRow>>,
     pub old_syntax: Vec<Vec<(Range<usize>, HighlightStyle)>>,
@@ -74,6 +75,7 @@ impl DiffViewCache {
         Self {
             source_key: source_key.into(),
             theme,
+            binary: document.binary,
             inline_width_row: widest_row_index(&inline_rows, false),
             side_width_row: widest_row_index(&side_rows, true),
             inline_rows: Arc::new(inline_rows),
@@ -317,6 +319,181 @@ pub fn render_document(
         .min_h_0()
         .child(list)
         .into_any_element()
+}
+
+/// A file section used by the aggregate commit diff view.
+#[derive(Clone)]
+pub struct DiffViewSection {
+    pub path: String,
+    pub cache: Arc<DiffViewCache>,
+}
+
+#[derive(Clone, Copy)]
+enum DiffListItem {
+    FileHeader(usize),
+    Binary,
+    Empty,
+    Row { section: usize, row: usize },
+}
+
+/// Render multiple file diffs in one virtualized list.
+///
+/// Every file gets a compact header so the aggregate view remains navigable,
+/// while all rows share one list and therefore retain the same large-diff
+/// virtualization and horizontal scrolling behavior as the single-file view.
+pub fn render_documents(
+    sections: Vec<DiffViewSection>,
+    layout: DiffLayoutMode,
+    colors: &ThemeColor,
+    mono: &SharedString,
+    binary_label: SharedString,
+    empty_label: SharedString,
+) -> AnyElement {
+    let sections = Arc::new(sections);
+    let mut items = Vec::new();
+    let mut width_item = 0;
+    let mut width_score = 0;
+    for (section_index, section) in sections.iter().enumerate() {
+        items.push(DiffListItem::FileHeader(section_index));
+        let rows = if layout == DiffLayoutMode::SideBySide {
+            section.cache.side_rows.as_ref()
+        } else {
+            section.cache.inline_rows.as_ref()
+        };
+        if section.cache.binary {
+            items.push(DiffListItem::Binary);
+            continue;
+        }
+        if rows.is_empty() {
+            items.push(DiffListItem::Empty);
+            continue;
+        }
+        for (row_index, row) in rows.iter().enumerate() {
+            let score = row
+                .old_text
+                .as_deref()
+                .map_or(0, str::len)
+                .max(row.new_text.as_deref().map_or(0, str::len));
+            if score > width_score {
+                width_score = score;
+                width_item = items.len();
+            }
+            items.push(DiffListItem::Row {
+                section: section_index,
+                row: row_index,
+            });
+        }
+    }
+    let items = Arc::new(items);
+    let colors = colors.clone();
+    let mono = mono.clone();
+    let binary_label = binary_label.clone();
+    let empty_label = empty_label.clone();
+    let row_count = items.len();
+    let list = uniform_list(
+        SharedString::from("commit-diff-documents"),
+        row_count,
+        move |range, _window, _cx| {
+            range
+                .filter_map(|index| {
+                    items.get(index).copied().map(|item| (index, item))
+                })
+                .map(|(index, item)| match item {
+                    DiffListItem::FileHeader(section) => render_section_header(
+                        index,
+                        &sections[section].path,
+                        &colors,
+                        &mono,
+                    )
+                    .into_any_element(),
+                    DiffListItem::Binary => div()
+                        .id(SharedString::from(format!(
+                            "commit-diff-binary-{index}"
+                        )))
+                        .min_w_full()
+                        .h(px(22.))
+                        .flex_shrink_0()
+                        .items_center()
+                        .px_2()
+                        .text_size(px(11.))
+                        .text_color(colors.muted_foreground)
+                        .child(binary_label.clone())
+                        .into_any_element(),
+                    DiffListItem::Empty => div()
+                        .id(SharedString::from(format!(
+                            "commit-diff-empty-{index}"
+                        )))
+                        .min_w_full()
+                        .h(px(22.))
+                        .flex_shrink_0()
+                        .items_center()
+                        .px_2()
+                        .text_size(px(11.))
+                        .text_color(colors.muted_foreground)
+                        .child(empty_label.clone())
+                        .into_any_element(),
+                    DiffListItem::Row { section, row } => {
+                        let cache = &sections[section].cache;
+                        let rows = if layout == DiffLayoutMode::SideBySide {
+                            &cache.side_rows
+                        } else {
+                            &cache.inline_rows
+                        };
+                        rows.get(row)
+                            .map(|row| {
+                                render_row(
+                                    row, index, layout, cache, &colors, &mono,
+                                )
+                                .into_any_element()
+                            })
+                            .unwrap_or_else(|| {
+                                div().h(px(22.)).into_any_element()
+                            })
+                    }
+                })
+                .collect::<Vec<_>>()
+        },
+    )
+    .with_width_from_item(Some(width_item))
+    .with_horizontal_sizing_behavior(
+        ListHorizontalSizingBehavior::Unconstrained,
+    )
+    .w_full()
+    .h_full()
+    .flex_1()
+    .min_h_0();
+
+    div()
+        .id("commit-diff-documents")
+        .w_full()
+        .flex_1()
+        .min_w_0()
+        .min_h_0()
+        .child(list)
+        .into_any_element()
+}
+
+fn render_section_header(
+    index: usize,
+    path: &str,
+    colors: &ThemeColor,
+    mono: &SharedString,
+) -> Stateful<Div> {
+    h_flex()
+        .id(SharedString::from(format!("commit-diff-file-{index}")))
+        .min_w_full()
+        .h(px(22.))
+        .flex_shrink_0()
+        .items_center()
+        .px_2()
+        .bg(colors.tab_bar)
+        .border_b_1()
+        .border_color(colors.border)
+        .font_family(mono.clone())
+        .text_size(px(11.))
+        .text_color(colors.muted_foreground)
+        .whitespace_nowrap()
+        .child(SharedString::from(path.to_string()))
 }
 
 fn render_row(

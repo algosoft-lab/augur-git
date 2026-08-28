@@ -221,6 +221,15 @@ impl GitView {
         }
     }
 
+    /// Query each changed file in a commit for the aggregate diff view.
+    pub fn file_diffs(&self, oid: String, files: Vec<FileChange>) {
+        if let Some(handle) = &self.handle {
+            for file in files {
+                handle.commit_file_diff(oid.clone(), file);
+            }
+        }
+    }
+
     fn set_status(&mut self, status: GitStatus, cx: &mut Context<Self>) {
         if let GitStatus::Error(msg) = &status {
             cx.emit(GitUiEvent::Error(msg.clone()));

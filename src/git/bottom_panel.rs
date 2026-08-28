@@ -43,6 +43,8 @@ fn bottom_empty_state(
 pub enum BottomPanelEvent {
     /// Select a file and load its commit diff through the Git worker.
     ShowFileDiff { oid: String, file: FileChange },
+    /// Load every changed file when a commit has no explicit file selection.
+    ShowAllFileDiffs { oid: String, files: Vec<FileChange> },
 }
 
 #[derive(Clone, Debug)]
@@ -66,10 +68,19 @@ pub struct BottomPanel {
     selected: Option<usize>,
     diff: Option<DiffDocument>,
     diff_cache: Option<Arc<DiffViewCache>>,
+    all_diffs: Vec<AllDiffDocument>,
+    show_all_files: bool,
+    all_diff_loading: bool,
     diff_layout: DiffLayoutMode,
     diff_loading: bool,
     content_width: f32,
     file_list_ratio: f32,
+}
+
+struct AllDiffDocument {
+    file: FileChange,
+    document: DiffDocument,
+    cache: Arc<DiffViewCache>,
 }
 
 impl EventEmitter<BottomPanelEvent> for BottomPanel {}
@@ -83,6 +94,9 @@ impl BottomPanel {
             selected: None,
             diff: None,
             diff_cache: None,
+            all_diffs: Vec::new(),
+            show_all_files: false,
+            all_diff_loading: false,
             diff_layout: DiffLayoutMode::Inline,
             diff_loading: false,
             content_width: f32::INFINITY,
@@ -108,6 +122,9 @@ impl BottomPanel {
         self.selected = None;
         self.diff = None;
         self.diff_cache = None;
+        self.all_diffs.clear();
+        self.show_all_files = false;
+        self.all_diff_loading = false;
         self.diff_loading = false;
         cx.notify();
     }
@@ -129,7 +146,16 @@ impl BottomPanel {
         self.selected = None;
         self.diff = None;
         self.diff_cache = None;
+        self.all_diffs.clear();
+        self.show_all_files = !self.files.is_empty();
+        self.all_diff_loading = self.show_all_files;
         self.diff_loading = false;
+        if self.show_all_files {
+            cx.emit(BottomPanelEvent::ShowAllFileDiffs {
+                oid: oid.to_string(),
+                files: self.files.clone(),
+            });
+        }
         cx.notify();
     }
 
@@ -142,11 +168,57 @@ impl BottomPanel {
         new_source: Option<String>,
         cx: &mut Context<Self>,
     ) {
+        let file_identity = file.identity();
+        if self.show_all_files {
+            let current_oid_matches = self
+                .commit
+                .as_ref()
+                .is_some_and(|(current, _, _)| current == oid);
+            let belongs_to_commit = self
+                .files
+                .iter()
+                .any(|candidate| candidate.identity() == file_identity);
+            if !current_oid_matches
+                || self.selected.is_some()
+                || !belongs_to_commit
+                || self
+                    .all_diffs
+                    .iter()
+                    .any(|entry| entry.file.identity() == file_identity)
+            {
+                return;
+            }
+            let mut document = DiffDocument::from_patch(
+                file.path.clone(),
+                &patch,
+                old_source,
+                new_source,
+            );
+            document.binary |= file.is_binary();
+            let source_key = format!(
+                "{oid}:{}:{}",
+                file.identity(),
+                document.language.as_deref().unwrap_or("text")
+            );
+            let cache = Arc::new(DiffViewCache::build_for(
+                source_key,
+                &document,
+                cx.theme().highlight_theme.clone(),
+            ));
+            self.all_diffs.push(AllDiffDocument {
+                file: file.clone(),
+                document,
+                cache,
+            });
+            self.all_diff_loading = self.all_diffs.len() < self.files.len();
+            cx.notify();
+            return;
+        }
+
         let selected_identity = self
             .selected
             .and_then(|index| self.files.get(index))
             .map(FileChange::identity);
-        let file_identity = file.identity();
         let stale = self
             .commit
             .as_ref()
@@ -190,6 +262,9 @@ impl BottomPanel {
         self.selected = Some(index);
         self.diff = None;
         self.diff_cache = None;
+        self.all_diffs.clear();
+        self.show_all_files = false;
+        self.all_diff_loading = false;
         self.diff_loading = true;
         cx.emit(BottomPanelEvent::ShowFileDiff {
             oid,
@@ -199,18 +274,159 @@ impl BottomPanel {
     }
 
     fn copy_diff(&self, cx: &mut Context<Self>) {
-        let Some(document) = self.diff.as_ref() else {
+        let text = if let Some(document) = self.diff.as_ref() {
+            document.copy_text()
+        } else if self.show_all_files {
+            self.all_diffs
+                .iter()
+                .map(|entry| {
+                    let mut text = format!("diff -- {}\n", entry.document.path);
+                    text.push_str(&entry.document.copy_text());
+                    text
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
             return;
         };
-        let text = document.copy_text();
         if text.is_empty() {
             return;
         }
         cx.write_to_clipboard(ClipboardItem::new_string(text));
         log::debug!(
-            "[git_diff] copied current document: rows={}",
-            document.rows.len()
+            "[git_diff] copied current document: files={}, rows={}",
+            if self.show_all_files {
+                self.all_diffs.len()
+            } else {
+                1
+            },
+            self.diff
+                .as_ref()
+                .map(|document| document.rows.len())
+                .unwrap_or_else(|| {
+                    self.all_diffs
+                        .iter()
+                        .map(|entry| entry.document.rows.len())
+                        .sum()
+                })
         );
+    }
+
+    fn all_diff_view(
+        &mut self,
+        colors: &ThemeColor,
+        cx: &Context<Self>,
+        width: f32,
+    ) -> AnyElement {
+        if self.all_diffs.is_empty() {
+            let body = if self.all_diff_loading {
+                div()
+                    .text_size(px(11.))
+                    .text_color(colors.muted_foreground)
+                    .child(shared("…"))
+                    .into_any_element()
+            } else {
+                bottom_empty_state(
+                    "bottom-diff-all-empty",
+                    colors,
+                    Icon::new(IconName::File).into_any_element(),
+                    i18n::text(self.locale, "diff-no-output"),
+                )
+                .into_any_element()
+            };
+            return div()
+                .id("bottom-diff")
+                .flex_1()
+                .min_w_0()
+                .h_full()
+                .child(body)
+                .into_any_element();
+        }
+
+        let theme = cx.theme().highlight_theme.clone();
+        for entry in &mut self.all_diffs {
+            if entry.cache.theme.as_ref() != theme.as_ref() {
+                entry.cache = Arc::new(DiffViewCache::build_for(
+                    entry.cache.source_key.clone(),
+                    &entry.document,
+                    theme.clone(),
+                ));
+            }
+        }
+        let layout = if width < 900. {
+            DiffLayoutMode::Inline
+        } else {
+            self.diff_layout
+        };
+        let sections = self
+            .all_diffs
+            .iter()
+            .map(|entry| diff_view::DiffViewSection {
+                path: entry.document.path.clone(),
+                cache: Arc::clone(&entry.cache),
+            })
+            .collect();
+        let document_view = diff_view::render_documents(
+            sections,
+            layout,
+            colors,
+            &cx.theme().mono_font_family,
+            shared(i18n::text(self.locale, "bottom-bin")),
+            shared(i18n::text(self.locale, "diff-no-output")),
+        );
+        let copy_entity = cx.entity();
+        let key_entity = cx.entity();
+        let file_header = h_flex()
+            .id("bottom-diff-all-file-header")
+            .w_full()
+            .h(px(22.))
+            .flex_shrink_0()
+            .px_2()
+            .items_center()
+            .border_b_1()
+            .border_color(colors.border)
+            .font_family(cx.theme().mono_font_family.clone())
+            .text_size(px(11.))
+            .text_color(colors.muted_foreground)
+            .child(
+                div()
+                    .flex_1()
+                    .child(shared(i18n::text(self.locale, "diff-all-files"))),
+            )
+            .child(
+                div()
+                    .id("bottom-diff-all-copy")
+                    .w(px(22.))
+                    .h(px(20.))
+                    .flex_shrink_0()
+                    .items_center()
+                    .justify_center()
+                    .rounded_sm()
+                    .text_color(colors.muted_foreground)
+                    .hover(|this| this.bg(colors.list_hover))
+                    .child(Icon::new(IconName::Copy).size(px(13.)))
+                    .on_click(move |_event, _window, cx| {
+                        copy_entity.update(cx, |panel, cx| panel.copy_diff(cx));
+                    }),
+            );
+        div()
+            .id("bottom-diff")
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .flex()
+            .flex_col()
+            .focusable()
+            .on_key_down(move |event, _window, cx| {
+                if event.keystroke.key.eq_ignore_ascii_case("c")
+                    && event.keystroke.modifiers.secondary()
+                {
+                    key_entity.update(cx, |panel, cx| panel.copy_diff(cx));
+                }
+            })
+            .child(file_header)
+            .child(document_view)
+            .into_any_element()
     }
 
     fn file_list(
@@ -310,6 +526,9 @@ impl BottomPanel {
         cx: &Context<Self>,
         width: f32,
     ) -> AnyElement {
+        if self.show_all_files {
+            return self.all_diff_view(colors, cx, width);
+        }
         let Some(document) = self.diff.as_ref() else {
             let body = if self.selected.is_some() && self.diff_loading {
                 div()
@@ -482,10 +701,16 @@ impl Render for BottomPanel {
             window_width
         };
         let diff_width = panel_width * (1.0 - self.file_list_ratio);
-        let show_layout_controls = diff_width >= 900.
-            && self.diff.as_ref().is_some_and(|document| {
+        let has_diff_content = if self.show_all_files {
+            self.all_diffs.iter().any(|entry| {
+                !entry.document.binary && !entry.document.rows.is_empty()
+            })
+        } else {
+            self.diff.as_ref().is_some_and(|document| {
                 !document.binary && !document.rows.is_empty()
-            });
+            })
+        };
+        let show_layout_controls = diff_width >= 900. && has_diff_content;
         let layout_controls = {
             let inline = cx.entity();
             let side_by_side = inline.clone();
