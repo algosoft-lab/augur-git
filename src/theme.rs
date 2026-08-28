@@ -80,10 +80,11 @@ fn hsla(h: f32, s: f32, l: f32, a: f32) -> Hsla {
 /// Pure per-theme lane tables, testable without an `App`.
 fn lanes(preference: ThemePreference) -> [Hsla; 10] {
     match preference {
-        // Original rgitui-tuned palette, moved verbatim from src/git/graph.rs.
+        // Keep the primary lane blue, matching the Git graph accent used by
+        // VS Code, while retaining the existing theme-specific palette.
         ThemePreference::GitHubDark => [
-            hsla(267.0, 84.0, 75.0, 1.0),
             hsla(217.0, 92.0, 65.0, 1.0),
+            hsla(267.0, 84.0, 75.0, 1.0),
             hsla(115.0, 60.0, 65.0, 1.0),
             hsla(23.0, 92.0, 65.0, 1.0),
             hsla(343.0, 81.0, 65.0, 1.0),
@@ -94,26 +95,26 @@ fn lanes(preference: ThemePreference) -> [Hsla; 10] {
             hsla(10.0, 70.0, 75.0, 1.0),
         ],
         ThemePreference::CatppuccinLatte => accent_lanes([
-            0x8839EF, 0x1E66F5, 0x40A02B, 0xFE640B, 0xD20F39, 0x179299,
+            0x1E66F5, 0x8839EF, 0x40A02B, 0xFE640B, 0xD20F39, 0x179299,
             0xDF8E1D, 0x04A5E5, 0xEA76CB, 0xE64553,
         ]),
         ThemePreference::CatppuccinFrappe => accent_lanes([
-            0xCA9EE6, 0x8CAAEE, 0xA6D189, 0xEF9F76, 0xE78284, 0x81C8BE,
+            0x8CAAEE, 0xCA9EE6, 0xA6D189, 0xEF9F76, 0xE78284, 0x81C8BE,
             0xE5C890, 0x99D1DB, 0xF4B8E4, 0xEA999C,
         ]),
         ThemePreference::CatppuccinMacchiato => accent_lanes([
-            0xC6A0F6, 0x8AADF4, 0xA6DA95, 0xF5A97F, 0xED8796, 0x8BD5CA,
+            0x8AADF4, 0xC6A0F6, 0xA6DA95, 0xF5A97F, 0xED8796, 0x8BD5CA,
             0xEED49F, 0x91D7E3, 0xF5BDE6, 0xEE99A0,
         ]),
         ThemePreference::CatppuccinMocha => accent_lanes([
-            0xCBA6F7, 0x89B4FA, 0xA6E3A1, 0xFAB387, 0xF38BA8, 0x94E2D5,
+            0x89B4FA, 0xCBA6F7, 0xA6E3A1, 0xFAB387, 0xF38BA8, 0x94E2D5,
             0xF9E2AF, 0x89DCEB, 0xF5C2E7, 0xEBA0AC,
         ]),
     }
 }
 
 /// Catppuccin lane rotation:
-/// [mauve, blue, green, peach, red, teal, yellow, sky, pink, maroon].
+/// [blue, mauve, green, peach, red, teal, yellow, sky, pink, maroon].
 fn accent_lanes(accent: [u32; 10]) -> [Hsla; 10] {
     std::array::from_fn(|i| Hsla::from(rgb(accent[i])))
 }
@@ -223,6 +224,24 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn primary_lane_is_blue_per_theme() {
+        for preference in [
+            ThemePreference::GitHubDark,
+            ThemePreference::CatppuccinLatte,
+            ThemePreference::CatppuccinFrappe,
+            ThemePreference::CatppuccinMacchiato,
+            ThemePreference::CatppuccinMocha,
+        ] {
+            let primary = lanes(preference)[0];
+            assert!(
+                (0.5..0.7).contains(&primary.h),
+                "primary lane is not blue for {preference:?}: hue={}",
+                primary.h
+            );
         }
     }
 }
