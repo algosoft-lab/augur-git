@@ -5,6 +5,7 @@
 # ===== App / Welcome =====
 app-tagline = Desktop Git client
 welcome-open = Open
+welcome-drop-hint = or drop a repository folder here
 tab-new = New Tab
 recent-repos = Recent repositories
 repo-folder-prompt = Choose a Git repository folder

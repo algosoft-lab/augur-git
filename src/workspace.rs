@@ -14,6 +14,7 @@ mod tabs;
 mod welcome;
 mod window_state;
 
+use std::path::PathBuf;
 use std::time::Instant;
 
 use gpui::prelude::*;
@@ -785,6 +786,27 @@ impl Workspace {
             return;
         }
         self.add_repo_tab(requested_path, restored, true, window, cx);
+    }
+
+    /// Open the first dropped folder as a repository tab. A drop that contains
+    /// no directory is ignored so an accidental file drop cannot create an
+    /// invalid repository tab.
+    pub(super) fn open_dropped_paths(
+        &mut self,
+        paths: &[PathBuf],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(path) = paths.iter().find(|path| path.is_dir()) else {
+            log::info!(
+                "[workspace_drop] ignored drop of {} path(s); no directory present",
+                paths.len()
+            );
+            return;
+        };
+        let path = path.to_string_lossy().into_owned();
+        log::info!("[workspace_drop] opening dropped folder");
+        self.open_repo_path(path, false, window, cx);
     }
 
     fn pick_repo_folder(

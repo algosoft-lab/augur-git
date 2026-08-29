@@ -77,12 +77,26 @@ pub(super) fn render_welcome(
         })
         .collect::<Vec<_>>();
 
+    // Accept a folder dropped from the OS file manager anywhere on the page.
+    let this = cx.entity();
     v_flex()
         .id("welcome")
         .size_full()
         .items_center()
         .justify_center()
         .gap_3()
+        // The border is always reserved so the drag-over highlight cannot
+        // shift the layout; it only becomes visible while paths hover the page.
+        .border_1()
+        .border_color(transparent_black())
+        .drag_over::<ExternalPaths>(|style, _paths, _window, cx| {
+            style.border_color(cx.theme().colors.blue)
+        })
+        .on_drop(move |paths: &ExternalPaths, window, cx| {
+            this.update(cx, |workspace, cx| {
+                workspace.open_dropped_paths(paths.paths(), window, cx);
+            });
+        })
         .child(
             div()
                 .flex()
@@ -113,6 +127,15 @@ pub(super) fn render_welcome(
         )
         // Single action: pick a repository folder and open it.
         .child(open_btn)
+        .child(
+            div()
+                .text_size(px(11.))
+                .text_color(colors.muted_foreground)
+                .child(shared(i18n::text(
+                    workspace.locale,
+                    "welcome-drop-hint",
+                ))),
+        )
         .when(!recents.is_empty(), |w| {
             w.child(
                 v_flex()
