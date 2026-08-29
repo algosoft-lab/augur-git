@@ -307,6 +307,9 @@ impl SettingsPanel {
     ) -> impl IntoElement {
         let selected = self.section == section;
         let this = cx.entity();
+        // Selected rows use the same accent pair as hovered menu rows so the
+        // label stays readable and inverted on every theme; list_active keeps
+        // the theme foreground, which never flips on light accent blues.
         div()
             .id(id)
             .w_full()
@@ -315,16 +318,24 @@ impl SettingsPanel {
             .rounded_md()
             .text_size(px(12.))
             .text_color(if selected {
-                cx.theme().colors.foreground
+                cx.theme().accent_foreground
             } else {
                 cx.theme().colors.muted_foreground
             })
             .bg(if selected {
-                cx.theme().colors.list_active
+                cx.theme().tokens.accent.color
             } else {
                 cx.theme().transparent
             })
-            .hover(|element| element.bg(cx.theme().colors.list_hover))
+            .hover(|element| {
+                if selected {
+                    // Keep the accent pairing while hovered; the list hover
+                    // background would hide the inverted label.
+                    element.bg(cx.theme().tokens.accent.color)
+                } else {
+                    element.bg(cx.theme().colors.list_hover)
+                }
+            })
             .on_click(move |_event, _window, cx| {
                 this.update(cx, |panel, cx| panel.select_section(section, cx));
             })

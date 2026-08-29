@@ -193,6 +193,16 @@ mod tests {
                 "missing background for {}",
                 preference.registry_name()
             );
+            // Every theme hovers menus and lists on an accent background; the
+            // label stays readable only if the accent foreground is paired
+            // with it explicitly (the upstream fallback is the theme
+            // foreground, which clashes on both light and dark accents).
+            assert!(
+                theme["colors"]["accent.background"].is_string()
+                    && theme["colors"]["accent.foreground"].is_string(),
+                "missing accent color pair for {}",
+                preference.registry_name()
+            );
         }
     }
 
@@ -222,6 +232,11 @@ mod tests {
             ("table.head.foreground", "#8B949E"),
             ("base.blue", "#2F81F7"),
             ("accent.background", "#2F81F7"),
+            // Menu and list rows hover with an accent background but keep the
+            // theme foreground unless this is set, so the label becomes
+            // unreadable on dark themes (white-on-blue) and light themes
+            // (dark-on-dark-blue). Pair it with the theme background instead.
+            ("accent.foreground", "#0D1117"),
             ("base.green", "#3FB950"),
             ("base.red", "#F85149"),
             ("warning.background", "#D29922"),
