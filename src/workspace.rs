@@ -845,6 +845,10 @@ impl Render for Workspace {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
+        // Modals registered via `window.open_dialog` are drawn by the app:
+        // Root::render does not include the dialog layer (checkout
+        // confirmation, commit message viewer, ...).
+        let dialog_layer = Root::render_dialog_layer(window, cx);
         let content = if let Some(tab) = self.active_tab_entity() {
             tab.into_any_element()
         } else {
@@ -870,6 +874,7 @@ impl Render for Workspace {
             .when(self.show_settings, |element| {
                 element.child(self.settings_overlay())
             })
+            .children(dialog_layer)
     }
 }
 
