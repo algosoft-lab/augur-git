@@ -4,7 +4,7 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
     ActiveTheme, Disableable, IconName, Sizable,
-    button::{Button, ButtonVariants},
+    button::{Button, ButtonRounded, ButtonVariants},
     h_flex,
     input::{InputEvent, Textarea, TextareaState},
     menu::{DropdownMenu, PopupMenuItem},
@@ -166,6 +166,7 @@ impl Render for CommitPanel {
             .label(commit_button_label)
             .primary()
             .compact()
+            .rounded(ButtonRounded::None)
             .flex_1()
             .disabled(!can_commit)
             .when(can_commit, |button| {
@@ -184,9 +185,10 @@ impl Render for CommitPanel {
             .primary()
             .xsmall()
             .h_8()
+            .rounded(ButtonRounded::None)
             .disabled(self.busy)
             .dropdown_menu_with_anchor(
-                Anchor::BottomRight,
+                Anchor::TopRight,
                 move |menu, _window, _cx| {
                     let commit_panel = mode_panel.clone();
                     let amend_panel = mode_panel.clone();
@@ -227,6 +229,15 @@ impl Render for CommitPanel {
                             .items_center()
                             .gap_0()
                             .child(commit_btn)
+                            // Square split-button divider between the commit
+                            // action and its mode selector.
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .w(px(1.))
+                                    .h_5()
+                                    .bg(colors.border),
+                            )
                             .child(commit_mode_menu),
                     ),
             )
