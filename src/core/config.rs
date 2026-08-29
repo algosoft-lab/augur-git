@@ -142,7 +142,6 @@ pub struct LayoutSettings {
     pub right_panel_width: f32,
     pub diff_height: Option<f32>,
     pub file_list_ratio: f32,
-    pub sidebar_collapsed: bool,
 }
 
 impl Default for LayoutSettings {
@@ -152,7 +151,6 @@ impl Default for LayoutSettings {
             right_panel_width: 320.0,
             diff_height: None,
             file_list_ratio: DEFAULT_FILE_LIST_RATIO,
-            sidebar_collapsed: false,
         }
     }
 }
@@ -759,7 +757,6 @@ mod tests {
                 right_panel_width: 100.0,
                 diff_height: Some(10.0),
                 file_list_ratio: 0.9,
-                sidebar_collapsed: true,
             },
         };
         state.normalize();
@@ -772,6 +769,5 @@ mod tests {
         assert_eq!(back.layout.right_panel_width, MIN_RIGHT_PANEL_WIDTH);
         assert_eq!(back.layout.diff_height, Some(MIN_DIFF_HEIGHT));
         assert_eq!(back.layout.file_list_ratio, MAX_FILE_LIST_RATIO);
-        assert!(back.layout.sidebar_collapsed);
     }
 }

@@ -127,11 +127,6 @@ impl RepoTab {
         });
 
         cx.subscribe(&sidebar, |tab, _event, event, cx| match event {
-            SidebarEvent::ToggleCollapse => {
-                tab.layout.sidebar_collapsed = !tab.layout.sidebar_collapsed;
-                cx.emit(RepoTabEvent::LayoutChanged(tab.layout.clone()));
-                cx.notify();
-            }
             SidebarEvent::BranchSelected(name) => {
                 tab.status_message = Some(i18n::text_args(
                     tab.locale,

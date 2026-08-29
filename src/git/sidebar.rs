@@ -22,8 +22,6 @@ use crate::git::shared;
 
 /// Sidebar events routed to Workspace.
 pub enum SidebarEvent {
-    /// Collapse or expand the sidebar.
-    ToggleCollapse,
     /// Select a branch in the repository navigator.
     BranchSelected(String),
     /// Check out a branch, tag, or commit target.
@@ -159,36 +157,32 @@ impl Sidebar {
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
 
-        // Collapse button.
-        let btn_collapse = cx.entity();
-        let collapse_btn = div()
-            .id("btn-collapse")
-            .p_1()
-            .rounded_md()
-            .hover(|this| this.bg(colors.input))
-            .text_size(px(12.))
-            .text_color(colors.muted_foreground)
-            .child(Icon::new(IconName::PanelLeftClose))
-            .on_click(move |_e, _w, cx| {
-                btn_collapse.update(cx, |_sidebar, cx| {
-                    cx.emit(SidebarEvent::ToggleCollapse)
-                });
-            });
-
+        // Panel title header, styled after the right panel headers.
         v_flex()
             .id("sidebar")
             .w_full()
             .h_full()
             .bg(colors.background)
-            // Keep only the collapse button in this compact top row.
             .child(
-                v_flex().w_full().p_1().child(
-                    h_flex()
-                        .w_full()
-                        .items_center()
-                        .child(div().flex_1())
-                        .child(collapse_btn),
-                ),
+                h_flex()
+                    .id("sidebar-header")
+                    .w_full()
+                    .h(px(30.))
+                    .flex_shrink_0()
+                    .px_3()
+                    .items_center()
+                    .bg(colors.tab_bar)
+                    .border_b_1()
+                    .border_color(colors.border)
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(colors.foreground)
+                            .child(shared(i18n::text(
+                                self.locale,
+                                "sidebar-repo",
+                            ))),
+                    ),
             )
             .child(
                 v_flex()

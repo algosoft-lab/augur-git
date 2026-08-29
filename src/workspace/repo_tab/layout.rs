@@ -1,5 +1,5 @@
 use gpui::*;
-use gpui_component::{ActiveTheme, Icon, IconName, h_flex, v_flex};
+use gpui_component::{ActiveTheme, h_flex, v_flex};
 
 use crate::core::config::{
     MAX_DIFF_HEIGHT, MAX_RIGHT_PANEL_WIDTH, MAX_SIDEBAR_WIDTH, MIN_DIFF_HEIGHT,
@@ -12,37 +12,6 @@ use super::{
 };
 
 impl RepoTab {
-    fn collapsed_rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let this = cx.entity();
-        v_flex()
-            .id("sidebar-rail")
-            .w(px(28.))
-            .h_full()
-            .flex_shrink_0()
-            .bg(cx.theme().colors.background)
-            .items_center()
-            .pt_2()
-            .child(
-                div()
-                    .id("btn-expand")
-                    .p_1()
-                    .rounded_md()
-                    .hover(|element| element.bg(cx.theme().colors.input))
-                    .text_size(px(12.))
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child(Icon::new(IconName::PanelLeftOpen))
-                    .on_click(move |_event, _window, cx| {
-                        this.update(cx, |tab, cx| {
-                            tab.layout.sidebar_collapsed = false;
-                            cx.emit(RepoTabEvent::LayoutChanged(
-                                tab.layout.clone(),
-                            ));
-                            cx.notify();
-                        });
-                    }),
-            )
-    }
-
     pub(super) fn main_content(
         &self,
         window: &mut Window,
@@ -129,11 +98,7 @@ impl RepoTab {
                     .flex_shrink_0()
                     .border_r_1()
                     .border_color(colors.border)
-                    .child(if self.layout.sidebar_collapsed {
-                        self.collapsed_rail(cx).into_any_element()
-                    } else {
-                        self.sidebar.clone().into_any_element()
-                    })
+                    .child(self.sidebar.clone())
                     .child(
                         div()
                             .id("sidebar-resize-handle")
