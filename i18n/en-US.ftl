@@ -43,6 +43,7 @@ context-copy-branch = Copy branch name
 context-copy-tag = Copy tag name
 context-copy-commit = Copy commit hash
 context-copy-commit-message = Copy commit message
+context-show-commit-message = Show full commit message
 context-copied = Copied { $name }
 context-copied-commit-message = Copied commit message
 context-copy-commit-message-failed = Failed to copy commit message: { $error }
@@ -117,6 +118,7 @@ status-unknown = ?
 
 # ===== Commit message preview =====
 commit-message-preview = Commit message
+commit-message-dialog-title = Full commit message
 commit-message-loading = Loading full commit message…
 commit-author = Author { $author }
 commit-date = Date { $date }

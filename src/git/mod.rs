@@ -7,6 +7,7 @@
 
 pub mod bottom_panel;
 pub mod changes_panel;
+pub mod commit_message_dialog;
 pub mod commit_preview;
 pub mod diff_view;
 pub mod graph;

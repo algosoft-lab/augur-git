@@ -5,11 +5,12 @@ use std::ops::Range;
 use std::time::Duration;
 
 use crate::core::git::{CheckoutTarget, CommitMessage};
+use crate::git::commit_message_dialog::CommitMessageDialog;
 use crate::git::commit_preview::CommitHoverPreview;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, IconName, h_flex,
+    ActiveTheme, IconName, WindowExt, h_flex,
     menu::{ContextMenuExt, PopupMenuItem},
     theme::ThemeColor,
     tooltip::Tooltip,
@@ -40,8 +41,8 @@ pub enum GraphEvent {
         short: String,
         subject: String,
     },
-    /// Request the full message for a commit whose row stayed hovered.
-    CommitHovered(String),
+    /// Request the full message for a hovered commit or the message dialog.
+    CommitMessageRequested(String),
     /// Check out the selected commit.
     CheckoutRef(CheckoutTarget),
     /// Copy the selected commit OID to the system clipboard.
@@ -58,6 +59,8 @@ pub struct GraphView {
     commit_messages: HashMap<String, CommitMessage>,
     /// Commit preview entity shared by every graph-row tooltip.
     hover_preview: Entity<CommitHoverPreview>,
+    /// Content view of the "show full commit message" dialog.
+    message_dialog: Entity<CommitMessageDialog>,
     /// OID currently under the pointer, if any.
     hovered_oid: Option<String>,
     /// UI locale synchronized by Workspace.
@@ -87,12 +90,14 @@ impl EventEmitter<GraphEvent> for GraphView {}
 impl GraphView {
     pub fn new(tab_id: u64, locale: Locale, cx: &mut Context<Self>) -> Self {
         let hover_preview = cx.new(|_| CommitHoverPreview::new(locale));
+        let message_dialog = cx.new(|_| CommitMessageDialog::new(locale));
         Self {
             rows: Vec::new(),
             layout: Vec::new(),
             selected: None,
             commit_messages: HashMap::new(),
             hover_preview,
+            message_dialog,
             hovered_oid: None,
             locale,
             busy: false,
@@ -107,6 +112,9 @@ impl GraphView {
         self.locale = locale;
         self.hover_preview.update(cx, |preview, cx| {
             preview.set_locale(locale, cx);
+        });
+        self.message_dialog.update(cx, |dialog, cx| {
+            dialog.set_locale(locale, cx);
         });
         cx.notify();
     }
@@ -143,7 +151,8 @@ impl GraphView {
         cx.notify();
     }
 
-    /// Cache an asynchronous message response and update the active preview.
+    /// Cache an asynchronous message response and update the active preview
+    /// and the message dialog.
     pub fn set_commit_message(
         &mut self,
         oid: &str,
@@ -154,9 +163,55 @@ impl GraphView {
             .insert(oid.to_string(), message.clone());
         if self.hovered_oid.as_deref() == Some(oid) {
             self.hover_preview.update(cx, |preview, cx| {
-                preview.set_message(oid, message, cx);
+                preview.set_message(oid, message.clone(), cx);
             });
         }
+        self.message_dialog.update(cx, |dialog, cx| {
+            dialog.set_message(oid, message, cx);
+        });
+    }
+
+    /// Open the modal dialog presenting a commit's complete message.
+    ///
+    /// The dialog reuses a single content entity: while it is already open,
+    /// selecting another commit updates the visible content in place instead
+    /// of stacking another dialog layer.
+    pub fn open_commit_message_dialog(
+        &mut self,
+        row: &LogRow,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let cached = self.commit_messages.get(&row.oid).cloned();
+        log::info!(
+            "[commit_message_dialog] open requested: oid={}, cached={}",
+            row.oid,
+            cached.is_some()
+        );
+        self.message_dialog.update(cx, |dialog, cx| {
+            dialog.set_commit(row, cached, cx);
+        });
+        if !self.commit_messages.contains_key(&row.oid) {
+            log::debug!(
+                "[commit_message_dialog] requesting dialog commit message"
+            );
+            cx.emit(GraphEvent::CommitMessageRequested(row.oid.clone()));
+        }
+        if window.has_active_dialog(cx) {
+            log::info!(
+                "[commit_message_dialog] skip open: another dialog is active"
+            );
+            return;
+        }
+        let view = self.message_dialog.clone();
+        let title = i18n::text(self.locale, "commit-message-dialog-title");
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            dialog
+                .title(title.clone())
+                .width(px(560.))
+                .max_h(px(520.))
+                .child(view.clone())
+        });
     }
 
     fn set_hovered(
@@ -182,7 +237,7 @@ impl GraphView {
                     log::debug!(
                         "[commit_preview] requesting hovered commit message"
                     );
-                    cx.emit(GraphEvent::CommitHovered(row.oid));
+                    cx.emit(GraphEvent::CommitMessageRequested(row.oid));
                 }
             }
         } else if self.hovered_oid.as_deref() == Some(row.oid.as_str()) {
@@ -310,6 +365,8 @@ impl GraphView {
         let Some(graph_row) = self.layout.get(index).cloned() else {
             return div().into_any_element();
         };
+        // Snapshot for the context menu before row fields move into children.
+        let show_message_row = row.clone();
         let graph = cx.entity();
         let selected = self.selected == Some(index);
         let colors = options.colors;
@@ -336,6 +393,8 @@ impl GraphView {
         let copy_label = i18n::text(self.locale, "context-copy-commit");
         let copy_message_label =
             i18n::text(self.locale, "context-copy-commit-message");
+        let show_message_label =
+            i18n::text(self.locale, "context-show-commit-message");
         let commit_target = CheckoutTarget::Commit(row.oid.clone());
         let copy_value = row.oid.clone();
         let copy_message_value = row.oid.clone();
@@ -473,6 +532,7 @@ impl GraphView {
                 let graph_for_checkout = graph.clone();
                 let graph_for_copy = graph.clone();
                 let graph_for_copy_message = graph.clone();
+                let graph_for_show_message = graph.clone();
                 let commit_target = commit_target.clone();
                 let copy_value = copy_value.clone();
                 let copy_message_value = copy_message_value.clone();
@@ -512,6 +572,20 @@ impl GraphView {
                             });
                         }),
                 )
+                .item({
+                    // The menu builder is `Fn`, so clone the snapshot per
+                    // construction and hand the clone to the click handler.
+                    let row = show_message_row.clone();
+                    PopupMenuItem::new(show_message_label.clone())
+                        .icon(IconName::Eye)
+                        .on_click(move |_event, window, cx| {
+                            graph_for_show_message.update(cx, |graph, cx| {
+                                graph.open_commit_message_dialog(
+                                    &row, window, cx,
+                                );
+                            });
+                        })
+                })
             })
             .into_any_element()
     }

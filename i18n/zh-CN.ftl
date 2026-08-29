@@ -42,6 +42,7 @@ context-copy-branch = 复制分支名称
 context-copy-tag = 复制标签名称
 context-copy-commit = 复制提交哈希
 context-copy-commit-message = 复制提交信息
+context-show-commit-message = 查看完整提交信息
 context-copied = 已复制 { $name }
 context-copied-commit-message = 已复制提交信息
 context-copy-commit-message-failed = 复制提交信息失败：{ $error }
@@ -116,6 +117,7 @@ status-unknown = ?
 
 # ===== 提交信息悬停预览 =====
 commit-message-preview = 提交信息
+commit-message-dialog-title = 完整提交信息
 commit-message-loading = 正在加载完整提交信息…
 commit-author = 作者 { $author }
 commit-date = 时间 { $date }

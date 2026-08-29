@@ -228,7 +228,7 @@ impl RepoTab {
                     view.commit_message(oid.clone());
                 });
             }
-            GraphEvent::CommitHovered(oid) => {
+            GraphEvent::CommitMessageRequested(oid) => {
                 tab.git_view.update(cx, |view, _| {
                     view.commit_message(oid.clone());
                 });
