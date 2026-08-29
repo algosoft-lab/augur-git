@@ -5,6 +5,7 @@
 
 mod about;
 mod app_menu;
+mod focus_refresh;
 mod persistence;
 mod preferences;
 mod repo_tab;
@@ -12,6 +13,8 @@ mod settings;
 mod tabs;
 mod welcome;
 mod window_state;
+
+use std::time::Instant;
 
 use gpui::prelude::*;
 use gpui::*;
@@ -187,6 +190,7 @@ pub struct Workspace {
     show_settings: bool,
     about_window: Option<WindowHandle<about::AboutWindow>>,
     restoring: bool,
+    last_focus_refresh: Option<Instant>,
 }
 
 impl Workspace {
@@ -229,6 +233,9 @@ impl Workspace {
                 }
                 SettingsPanelEvent::LanguageChanged(preference) => {
                     workspace.set_language(*preference, window, cx);
+                }
+                SettingsPanelEvent::AutoRefreshOnFocusChanged(enabled) => {
+                    workspace.set_auto_refresh_on_focus(*enabled, cx);
                 }
                 SettingsPanelEvent::ThemeChanged(preference) => {
                     workspace.set_theme(*preference, cx);
@@ -275,6 +282,10 @@ impl Workspace {
             show_settings: false,
             about_window: None,
             restoring: true,
+            // The startup load starts here (restore_tabs -> open), so the
+            // activation delivered right after window creation must not
+            // trigger a duplicate refresh.
+            last_focus_refresh: Some(Instant::now()),
         };
         workspace.restore_tabs(window, cx);
         workspace.restore_active_tab();
@@ -289,6 +300,10 @@ impl Workspace {
                 &mut workspace.ui_state,
                 window,
             );
+        })
+        .detach();
+        cx.observe_window_activation(window, |workspace, window, cx| {
+            workspace.handle_window_activation(window, cx);
         })
         .detach();
         cx.on_app_quit(|workspace, cx| workspace.persist_on_quit(cx))

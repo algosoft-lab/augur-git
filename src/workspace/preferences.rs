@@ -143,4 +143,21 @@ impl Workspace {
         log::info!("[workspace] diff layout preference: {preference:?}");
         cx.notify();
     }
+
+    /// Enable or disable the focus-triggered repository refresh: persists
+    /// the choice. The flag is read whenever the window is activated, so no
+    /// fan-out to open tabs is needed.
+    pub(super) fn set_auto_refresh_on_focus(
+        &mut self,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.config.view.auto_refresh_on_focus == enabled {
+            return;
+        }
+        self.config.view.auto_refresh_on_focus = enabled;
+        self.config_saver.schedule(&self.config);
+        log::info!("[workspace] auto refresh on focus: {enabled}");
+        cx.notify();
+    }
 }

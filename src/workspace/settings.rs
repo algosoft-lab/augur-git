@@ -20,6 +20,7 @@ use crate::git::shared;
 pub enum SettingsPanelEvent {
     Close,
     LanguageChanged(LanguagePreference),
+    AutoRefreshOnFocusChanged(bool),
     ThemeChanged(ThemePreference),
     DiffLayoutChanged(DiffLayoutPreference),
     UiFontChanged(Option<String>),
@@ -64,6 +65,7 @@ pub struct SettingsPanel {
     locale: Locale,
     section: SettingsSection,
     language: LanguagePreference,
+    auto_refresh_on_focus: bool,
     theme: ThemePreference,
     diff_layout: DiffLayoutPreference,
     ui_font: Option<String>,
@@ -71,6 +73,7 @@ pub struct SettingsPanel {
     font_families: Vec<String>,
     language_state:
         Entity<SelectState<Vec<SettingsOption<LanguagePreference>>>>,
+    auto_refresh_state: Entity<SelectState<Vec<SettingsOption<bool>>>>,
     theme_state: Entity<SelectState<Vec<SettingsOption<ThemePreference>>>>,
     diff_layout_state:
         Entity<SelectState<Vec<SettingsOption<DiffLayoutPreference>>>>,
@@ -91,6 +94,7 @@ impl SettingsPanel {
     ) -> Self {
         let locale = i18n::resolve(&config.language);
         let language = config.language;
+        let auto_refresh_on_focus = config.view.auto_refresh_on_focus;
         let theme = config.theme;
         let diff_layout = config.view.diff_layout;
         let ui_font = config.typography.ui_font_family.clone();
@@ -100,6 +104,17 @@ impl SettingsPanel {
             SelectState::new(
                 language_options(locale),
                 selected_index(&language_options(locale), &language),
+                window,
+                cx,
+            )
+        });
+        let auto_refresh_state = cx.new(|cx| {
+            SelectState::new(
+                auto_refresh_options(locale),
+                selected_index(
+                    &auto_refresh_options(locale),
+                    &auto_refresh_on_focus,
+                ),
                 window,
                 cx,
             )
@@ -145,12 +160,14 @@ impl SettingsPanel {
             locale,
             section: SettingsSection::General,
             language,
+            auto_refresh_on_focus,
             theme,
             diff_layout,
             ui_font,
             mono_font,
             font_families,
             language_state,
+            auto_refresh_state,
             theme_state,
             diff_layout_state,
             ui_font_state,
@@ -164,6 +181,16 @@ impl SettingsPanel {
             };
             panel.language = *value;
             cx.emit(SettingsPanelEvent::LanguageChanged(*value));
+        })
+        .detach();
+
+        let auto_refresh_state_for_events = panel.auto_refresh_state.clone();
+        cx.subscribe(&auto_refresh_state_for_events, |panel, _, event, cx| {
+            let SelectEvent::Confirm(Some(value)) = event else {
+                return;
+            };
+            panel.auto_refresh_on_focus = *value;
+            cx.emit(SettingsPanelEvent::AutoRefreshOnFocusChanged(*value));
         })
         .detach();
 
@@ -218,6 +245,7 @@ impl SettingsPanel {
     ) {
         self.locale = locale;
         let language = self.language;
+        let auto_refresh_on_focus = self.auto_refresh_on_focus;
         let theme = self.theme;
         let diff_layout = self.diff_layout;
         let ui_font = self.ui_font.clone();
@@ -228,6 +256,11 @@ impl SettingsPanel {
             let options = language_options(locale);
             state.set_items(options, window, cx);
             state.set_selected_value(&language, window, cx);
+        });
+        self.auto_refresh_state.update(cx, |state, cx| {
+            let options = auto_refresh_options(locale);
+            state.set_items(options, window, cx);
+            state.set_selected_value(&auto_refresh_on_focus, window, cx);
         });
         self.theme_state.update(cx, |state, cx| {
             let options = theme_options(locale);
@@ -335,6 +368,13 @@ impl SettingsPanel {
                 .child(Self::field(
                     i18n::text(self.locale, "language-title"),
                     Select::new(&self.language_state)
+                        .w_full()
+                        .into_any_element(),
+                    colors.foreground,
+                ))
+                .child(Self::field(
+                    i18n::text(self.locale, "auto-refresh-on-focus-title"),
+                    Select::new(&self.auto_refresh_state)
                         .w_full()
                         .into_any_element(),
                     colors.foreground,
@@ -610,6 +650,13 @@ fn diff_layout_options(
             DiffLayoutPreference::SideBySide,
             i18n::text(locale, "diff-layout-side-by-side"),
         ),
+    ]
+}
+
+fn auto_refresh_options(locale: Locale) -> Vec<SettingsOption<bool>> {
+    vec![
+        SettingsOption::new(true, i18n::text(locale, "setting-enabled")),
+        SettingsOption::new(false, i18n::text(locale, "setting-disabled")),
     ]
 }
 

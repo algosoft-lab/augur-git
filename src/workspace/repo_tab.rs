@@ -602,6 +602,16 @@ impl RepoTab {
         }
     }
 
+    /// Refresh this tab's data after the window regained activation.
+    /// Returns whether a refresh was actually requested.
+    pub(super) fn refresh_on_focus(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.opened || self.operation_busy {
+            return false;
+        }
+        self.refresh_repository(cx);
+        true
+    }
+
     fn refresh_repository(&mut self, cx: &mut Context<Self>) {
         let refresh_working_diff = self.bottom.read(cx).has_working_tree_diff();
         self.changes.update(cx, |changes, _cx| {

@@ -82,12 +82,20 @@ impl Default for DiffLayoutPreference {
     }
 }
 
+/// Serde default for `ViewSettings::auto_refresh_on_focus`: config files
+/// written before the field existed keep the feature enabled.
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ViewSettings {
     pub show_untracked: bool,
     pub auto_follow: bool,
     #[serde(default)]
     pub diff_layout: DiffLayoutPreference,
+    #[serde(default = "default_true")]
+    pub auto_refresh_on_focus: bool,
 }
 
 impl Default for ViewSettings {
@@ -96,6 +104,7 @@ impl Default for ViewSettings {
             show_untracked: true,
             auto_follow: true,
             diff_layout: DiffLayoutPreference::Inline,
+            auto_refresh_on_focus: true,
         }
     }
 }
@@ -701,6 +710,27 @@ mod tests {
             serde_json::from_str::<RawAppConfig>(json).unwrap(),
         );
         assert_eq!(config.view.diff_layout, DiffLayoutPreference::Inline);
+    }
+
+    #[test]
+    fn missing_auto_refresh_on_focus_defaults_to_enabled() {
+        let json = r#"{"view":{"show_untracked":false,"auto_follow":true}}"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert!(config.view.auto_refresh_on_focus);
+    }
+
+    #[test]
+    fn auto_refresh_on_focus_round_trips() {
+        let json = r#"{"view":{"show_untracked":true,"auto_follow":true,"auto_refresh_on_focus":false}}"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert!(!config.view.auto_refresh_on_focus);
+
+        let serialized = serde_json::to_string(&AppConfig::default()).unwrap();
+        assert!(serialized.contains(r#""auto_refresh_on_focus":true"#));
     }
 
     #[test]
