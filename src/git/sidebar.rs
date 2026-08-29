@@ -8,8 +8,11 @@ use std::time::{Duration, Instant};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Icon, IconName, h_flex,
+    ActiveTheme, Icon, IconName, WindowExt,
+    dialog::DialogButtonProps,
+    h_flex,
     menu::{ContextMenuExt, PopupMenuItem},
+    theme::ThemeColor,
     v_flex,
 };
 
@@ -193,6 +196,8 @@ impl Sidebar {
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
+                    .gap_1()
+                    .pb_2()
                     .child(self.branch_section(cx))
                     .child(self.list_section(
                         cx,
@@ -228,6 +233,7 @@ impl Sidebar {
             .map(|until| Instant::now() < until)
             .unwrap_or(false);
         let sidebar = cx.entity();
+        let locale = self.locale;
         let rows = self
             .branches
             .iter()
@@ -236,47 +242,35 @@ impl Sidebar {
                 let name = b.name.clone();
                 let is_head = b.is_head;
                 let sidebar_for_click = sidebar.clone();
-                let row = h_flex()
-                    .id(SharedString::from(format!("branch-{name}")))
-                    .w_full()
-                    .h(px(22.))
-                    .flex_shrink_0()
-                    .px_2()
-                    .gap_1()
-                    .items_center()
-                    .rounded_sm()
-                    .hover(|this| this.bg(colors.list_hover))
-                    .on_click(move |_e, _w, cx| {
-                        sidebar_for_click.update(cx, |sidebar, cx| {
-                            sidebar.select_branch(i, cx)
-                        });
-                    })
-                    .child(
-                        div()
-                            .w(px(14.))
-                            .text_size(px(12.))
-                            .text_color(if is_head {
-                                colors.green
-                            } else {
-                                colors.muted_foreground
-                            })
-                            .child(if is_head { "●" } else { "○" }),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_size(px(12.))
-                            .text_color(if is_head {
-                                colors.foreground
-                            } else {
-                                colors.muted_foreground
-                            })
-                            .child(shared(name.clone())),
-                    );
+                let name_for_click = name.clone();
+                let row = ref_row(
+                    &colors,
+                    SharedString::from(format!("branch-{name}")),
+                )
+                .child(ref_marker(&colors, is_head))
+                .child(ref_label(&colors, name.clone(), is_head))
+                .on_click(move |event, window, cx| {
+                    if event.click_count() >= 2 {
+                        if !is_head {
+                            request_checkout(
+                                &sidebar_for_click,
+                                locale,
+                                CheckoutTarget::LocalBranch(
+                                    name_for_click.clone(),
+                                ),
+                                window,
+                                cx,
+                            );
+                        }
+                        return;
+                    }
+                    sidebar_for_click
+                        .update(cx, |sidebar, cx| sidebar.select_branch(i, cx));
+                });
 
                 ref_context_menu(
                     row,
-                    self.locale,
+                    locale,
                     sidebar.clone(),
                     CheckoutTarget::LocalBranch(name.clone()),
                     name,
@@ -290,7 +284,7 @@ impl Sidebar {
             .id("branch-section")
             .w_full()
             .gap_0p5()
-            .p_2()
+            .px_2()
             .child(section_header(
                 cx,
                 "section-branches",
@@ -313,23 +307,9 @@ impl Sidebar {
         let rows = items
             .iter()
             .map(|item| {
-                h_flex()
-                    .id(SharedString::from(format!("{key}-{item}")))
-                    .w_full()
-                    .h(px(22.))
-                    .flex_shrink_0()
-                    .px_2()
-                    .rounded_sm()
-                    .hover(|this| this.bg(colors.list_hover))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_size(px(12.))
-                            .text_color(colors.muted_foreground)
-                            .truncate()
-                            .child(shared(item.clone())),
-                    )
+                ref_row(&colors, SharedString::from(format!("{key}-{item}")))
+                    .child(ref_marker(&colors, false))
+                    .child(ref_label(&colors, item.clone(), false))
             })
             .collect::<Vec<_>>();
 
@@ -338,7 +318,7 @@ impl Sidebar {
             .id(SharedString::from(format!("list-{key}")))
             .w_full()
             .gap_0p5()
-            .p_2()
+            .px_2()
             .child(section_header(
                 cx,
                 key,
@@ -360,31 +340,35 @@ impl Sidebar {
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let sidebar = cx.entity();
+        let locale = self.locale;
         let rows = items
             .iter()
             .map(|item| {
                 let name = item.clone();
-                let row = h_flex()
-                    .id(SharedString::from(format!("{key}-{name}")))
-                    .w_full()
-                    .h(px(22.))
-                    .flex_shrink_0()
-                    .px_2()
-                    .rounded_sm()
-                    .hover(|this| this.bg(colors.list_hover))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_size(px(12.))
-                            .text_color(colors.muted_foreground)
-                            .truncate()
-                            .child(shared(name.clone())),
+                let sidebar_for_click = sidebar.clone();
+                let name_for_click = name.clone();
+                let row = ref_row(
+                    &colors,
+                    SharedString::from(format!("{key}-{name}")),
+                )
+                .child(ref_marker(&colors, false))
+                .child(ref_label(&colors, name.clone(), false))
+                .on_click(move |event, window, cx| {
+                    if event.click_count() < 2 {
+                        return;
+                    }
+                    request_checkout(
+                        &sidebar_for_click,
+                        locale,
+                        kind.target(name_for_click.clone()),
+                        window,
+                        cx,
                     );
+                });
 
                 ref_context_menu(
                     row,
-                    self.locale,
+                    locale,
                     sidebar.clone(),
                     kind.target(name.clone()),
                     name,
@@ -399,7 +383,7 @@ impl Sidebar {
             .id(SharedString::from(format!("list-{key}")))
             .w_full()
             .gap_0p5()
-            .p_2()
+            .px_2()
             .child(section_header(
                 cx,
                 key,
@@ -452,6 +436,119 @@ where
                     });
                 }),
         )
+    })
+}
+
+/// Shared frame for every sidebar list row.
+fn ref_row(colors: &ThemeColor, id: SharedString) -> Stateful<Div> {
+    let hover = colors.list_hover;
+    h_flex()
+        .id(id)
+        .w_full()
+        .h(px(22.))
+        .flex_shrink_0()
+        .px_2()
+        .gap_1()
+        .items_center()
+        .rounded_sm()
+        .hover(move |this| this.bg(hover))
+}
+
+/// Leading status marker for a ref row: a filled dot for the checked-out
+/// ref, a hollow ring otherwise.
+fn ref_marker(colors: &ThemeColor, is_head: bool) -> Div {
+    let dot = div()
+        .size(px(8.))
+        .flex_shrink_0()
+        .rounded_full()
+        .map(|dot| {
+            if is_head {
+                dot.bg(colors.green)
+            } else {
+                dot.border_1().border_color(colors.foreground)
+            }
+        });
+    h_flex()
+        .w(px(14.))
+        .flex_shrink_0()
+        .justify_center()
+        .child(dot)
+}
+
+/// Truncated row label; the checked-out row uses the app-wide SEMIBOLD
+/// emphasis.
+fn ref_label(colors: &ThemeColor, text: String, is_head: bool) -> Div {
+    div()
+        .flex_1()
+        .min_w_0()
+        .text_size(px(12.))
+        .text_color(colors.foreground)
+        .map(|label| {
+            if is_head {
+                label.font_weight(FontWeight::SEMIBOLD)
+            } else {
+                label
+            }
+        })
+        .truncate()
+        .child(shared(text))
+}
+
+fn checkout_display_name(target: &CheckoutTarget) -> &str {
+    match target {
+        CheckoutTarget::LocalBranch(name)
+        | CheckoutTarget::RemoteBranch(name)
+        | CheckoutTarget::Tag(name)
+        | CheckoutTarget::Commit(name) => name,
+    }
+}
+
+/// Ask for confirmation before checking out `target`.
+///
+/// The checkout event is emitted only from the dialog's OK action (button or
+/// Enter), so cancelling leaves the repository untouched.
+fn request_checkout(
+    sidebar: &Entity<Sidebar>,
+    locale: Locale,
+    target: CheckoutTarget,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if window.has_active_dialog(cx) || sidebar.read(cx).busy {
+        return;
+    }
+
+    let name = checkout_display_name(&target);
+    let title = i18n::text_args(locale, "checkout-title", &[("name", name)]);
+    let description =
+        i18n::text_args(locale, "checkout-description", &[("name", name)]);
+    let ok_label = i18n::text(locale, "context-checkout");
+    let cancel_label = i18n::text(locale, "checkout-cancel");
+    let sidebar = sidebar.downgrade();
+
+    window.open_alert_dialog(cx, move |alert, _window, _cx| {
+        // The dialog builder is `Fn`, so clone the captures per invocation.
+        let sidebar = sidebar.clone();
+        let target = target.clone();
+        alert
+            .title(title.clone())
+            .description(description.clone())
+            .button_props(
+                DialogButtonProps::default()
+                    .ok_text(ok_label.clone())
+                    .cancel_text(cancel_label.clone())
+                    .show_cancel(true)
+                    .on_ok(move |_event, _window, cx| {
+                        if let Some(sidebar) = sidebar.upgrade() {
+                            sidebar.update(cx, |_sidebar, cx| {
+                                cx.emit(SidebarEvent::CheckoutRef(
+                                    target.clone(),
+                                ))
+                            });
+                        }
+                        true
+                    }),
+            )
     })
 }
 
