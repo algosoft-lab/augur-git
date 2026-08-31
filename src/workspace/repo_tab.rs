@@ -1,6 +1,6 @@
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::{ActiveTheme, h_flex, v_flex};
+use gpui_component::v_flex;
 
 use crate::core::config::{GraphHistoryPreference, LayoutSettings};
 use crate::core::git::{
@@ -21,6 +21,7 @@ use crate::git::{GitStatus, GitUiEvent, GitView};
 use super::tabs::{TabId, TabState, TabSummary};
 
 mod branch_compare;
+mod branch_ops;
 mod dialogs;
 mod layout;
 
@@ -48,36 +49,6 @@ pub struct RightPanelResize;
 #[derive(Clone, Debug)]
 pub struct DiffViewerResize;
 
-impl Render for SidebarResize {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        div()
-    }
-}
-
-impl Render for RightPanelResize {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        div()
-    }
-}
-
-impl Render for DiffViewerResize {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        div()
-    }
-}
-
 pub(super) const MIN_COMMIT_HEIGHT: f32 = 120.0;
 pub(super) const DIFF_RESIZE_HANDLE_HEIGHT: f32 = 3.0;
 
@@ -86,6 +57,12 @@ pub struct RepoTab {
     repo_path: String,
     opened: bool,
     branch: String,
+    /// Non-head local branch names (merge/rebase source candidates).
+    local_branches: Vec<String>,
+    /// Stash record count from the latest refs snapshot.
+    stash_count: usize,
+    /// Files with stashable (tracked) changes in the latest status snapshot.
+    local_change_count: usize,
     git_view: Entity<GitView>,
     sidebar: Entity<Sidebar>,
     graph: Entity<GraphView>,
@@ -102,6 +79,7 @@ pub struct RepoTab {
     operation_busy: bool,
     layout: LayoutSettings,
     confirmation: Option<PendingConfirmation>,
+    dialogs: branch_ops::BranchDialogs,
     locale: Locale,
 }
 
@@ -199,10 +177,38 @@ impl RepoTab {
                     cx.notify();
                 }
             }
-            ToolbarEvent::Branch => {
-                tab.sidebar.update(cx, |sidebar, cx| {
-                    sidebar.flash_branches(cx);
-                });
+            ToolbarEvent::BranchNew => {
+                tab.open_branch_dialog(
+                    branch_ops::PendingBranchDialog::NewBranch,
+                    cx,
+                );
+            }
+            ToolbarEvent::BranchRename => {
+                tab.open_branch_dialog(
+                    branch_ops::PendingBranchDialog::Rename,
+                    cx,
+                );
+            }
+            ToolbarEvent::Stash => {
+                tab.open_branch_dialog(
+                    branch_ops::PendingBranchDialog::Stash,
+                    cx,
+                );
+            }
+            ToolbarEvent::StashPop => {
+                tab.start_stash_pop(cx);
+            }
+            ToolbarEvent::Merge { no_ff } => {
+                tab.open_branch_dialog(
+                    branch_ops::PendingBranchDialog::Merge { no_ff: *no_ff },
+                    cx,
+                );
+            }
+            ToolbarEvent::Rebase => {
+                tab.open_branch_dialog(
+                    branch_ops::PendingBranchDialog::Rebase,
+                    cx,
+                );
             }
             ToolbarEvent::Compare => branch_compare::open(tab, cx),
             ToolbarEvent::Refresh => {
@@ -365,6 +371,19 @@ impl RepoTab {
                 let unstaged_text = unstaged_count.to_string();
 
                 tab.branch = branch_name;
+                tab.local_branches = branches
+                    .iter()
+                    .filter(|info| !info.is_head)
+                    .map(|info| info.name.clone())
+                    .collect();
+                tab.local_change_count = files
+                    .iter()
+                    .filter(|file| {
+                        file.has_staged_changes()
+                            || file.has_worktree_changes()
+                            || file.is_conflicted()
+                    })
+                    .count();
                 tab.graph.update(cx, |graph, cx| {
                     graph.set_history_context(
                         branch.clone(),
@@ -395,6 +414,7 @@ impl RepoTab {
                 tab.toolbar.update(cx, |toolbar, cx| {
                     toolbar.set_ahead_behind(*ahead, *behind, cx);
                 });
+                tab.sync_branch_menu_context(cx);
                 tab.commit.update(cx, |commit, cx| {
                     commit.set_has_staged(has_staged, cx);
                 });
@@ -407,6 +427,8 @@ impl RepoTab {
                 });
             }
             GitUiEvent::RefsChanged(refs) => {
+                tab.stash_count = refs.stashes.len();
+                tab.sync_branch_menu_context(cx);
                 tab.sidebar.update(cx, |sidebar, cx| {
                     sidebar.set_refs(refs.clone(), cx);
                 });
@@ -549,6 +571,13 @@ impl RepoTab {
                             | "pull --rebase"
                             | "push"
                             | "push --force"
+                            | "switch"
+                            | "branch -m"
+                            | "stash"
+                            | "stash pop"
+                            | "merge"
+                            | "merge --no-ff"
+                            | "rebase"
                     );
                     tab.status_message = Some(if *success {
                         i18n::text_args(
@@ -598,6 +627,9 @@ impl RepoTab {
             repo_path,
             opened: false,
             branch: String::new(),
+            local_branches: Vec::new(),
+            stash_count: 0,
+            local_change_count: 0,
             git_view,
             sidebar,
             graph,
@@ -614,6 +646,7 @@ impl RepoTab {
             operation_busy: false,
             layout,
             confirmation: None,
+            dialogs: branch_ops::BranchDialogs::default(),
             locale,
         }
     }
@@ -867,61 +900,6 @@ impl RepoTab {
     fn emit_summary(&self, cx: &mut Context<Self>) {
         cx.emit(RepoTabEvent::SummaryChanged(self.summary()));
     }
-
-    fn status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let colors = cx.theme().colors.clone();
-        let (text, color) = match &self.status {
-            GitStatus::None => (
-                i18n::text(self.locale, "no-repo-open"),
-                colors.muted_foreground,
-            ),
-            GitStatus::Scanning => {
-                (i18n::text(self.locale, "status-scanning"), colors.warning)
-            }
-            GitStatus::Ready(label) => (format!("● {label}"), colors.green),
-            GitStatus::Error(message) => (format!("✗ {message}"), colors.red),
-        };
-        let msg = self.status_message.clone();
-        let msg_color = match self.status_message_ok {
-            Some(true) => colors.green,
-            Some(false) => colors.red,
-            None => colors.muted_foreground,
-        };
-
-        h_flex()
-            .id("status-bar")
-            .w_full()
-            .h_6()
-            .flex_shrink_0()
-            .border_t_1()
-            .border_color(colors.border)
-            .bg(colors.background)
-            .px_3()
-            .items_center()
-            .justify_between()
-            .child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(colors.muted_foreground)
-                    .truncate()
-                    .child(SharedString::from(self.repo_path.clone())),
-            )
-            .child(
-                h_flex()
-                    .gap_3()
-                    .when_some(msg, |row, message| {
-                        row.child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(msg_color)
-                                .child(SharedString::from(message)),
-                        )
-                    })
-                    .child(
-                        div().text_size(px(11.)).text_color(color).child(text),
-                    ),
-            )
-    }
 }
 
 impl Render for RepoTab {
@@ -940,6 +918,10 @@ impl Render for RepoTab {
             .child(self.status_bar(cx))
             .when(self.confirmation.is_some(), |element| {
                 element.child(self.confirmation_overlay(cx))
+            })
+            .when(self.dialogs.pending.is_some(), |element| {
+                element
+                    .children(RepoTab::render_branch_dialog(self, window, cx))
             })
     }
 }

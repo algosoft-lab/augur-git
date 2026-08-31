@@ -1,3 +1,4 @@
+use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{ActiveTheme, h_flex, v_flex};
 
@@ -5,13 +6,107 @@ use crate::core::config::{
     MAX_DIFF_HEIGHT, MAX_RIGHT_PANEL_WIDTH, MAX_SIDEBAR_WIDTH, MIN_DIFF_HEIGHT,
     MIN_RIGHT_PANEL_WIDTH, MIN_SIDEBAR_WIDTH,
 };
+use crate::core::i18n;
+use crate::git::GitStatus;
 
 use super::{
     DIFF_RESIZE_HANDLE_HEIGHT, DiffViewerResize, MIN_COMMIT_HEIGHT, RepoTab,
     RepoTabEvent, RightPanelResize, SidebarResize,
 };
 
+/// Drag payloads for the resize handles; their render output is empty and
+/// only serves as the drag marker type.
+impl Render for SidebarResize {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+    }
+}
+
+impl Render for RightPanelResize {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+    }
+}
+
+impl Render for DiffViewerResize {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+    }
+}
+
 impl RepoTab {
+    /// Bottom status bar: repository path, last operation message, and the
+    /// repository connection state.
+    pub(super) fn status_bar(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let colors = cx.theme().colors.clone();
+        let (text, color) = match &self.status {
+            GitStatus::None => (
+                i18n::text(self.locale, "no-repo-open"),
+                colors.muted_foreground,
+            ),
+            GitStatus::Scanning => {
+                (i18n::text(self.locale, "status-scanning"), colors.warning)
+            }
+            GitStatus::Ready(label) => (format!("● {label}"), colors.green),
+            GitStatus::Error(message) => (format!("✗ {message}"), colors.red),
+        };
+        let msg = self.status_message.clone();
+        let msg_color = match self.status_message_ok {
+            Some(true) => colors.green,
+            Some(false) => colors.red,
+            None => colors.muted_foreground,
+        };
+
+        h_flex()
+            .id("status-bar")
+            .w_full()
+            .h_6()
+            .flex_shrink_0()
+            .border_t_1()
+            .border_color(colors.border)
+            .bg(colors.background)
+            .px_3()
+            .items_center()
+            .justify_between()
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(colors.muted_foreground)
+                    .truncate()
+                    .child(SharedString::from(self.repo_path.clone())),
+            )
+            .child(
+                h_flex()
+                    .gap_3()
+                    .when_some(msg, |row, message| {
+                        row.child(
+                            div()
+                                .text_size(px(11.))
+                                .text_color(msg_color)
+                                .child(SharedString::from(message)),
+                        )
+                    })
+                    .child(
+                        div().text_size(px(11.)).text_color(color).child(text),
+                    ),
+            )
+    }
+
     pub(super) fn main_content(
         &self,
         window: &mut Window,

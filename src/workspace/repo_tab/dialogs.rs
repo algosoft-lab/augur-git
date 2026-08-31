@@ -74,6 +74,16 @@ impl RepoTab {
         }
     }
 
+    /// Close whichever overlay is currently open, preferring the branch
+    /// operations dialog over the destructive-action confirmations.
+    pub(super) fn cancel_topmost(&mut self, cx: &mut Context<Self>) {
+        if self.dialogs.close() {
+            cx.notify();
+            return;
+        }
+        self.cancel_confirmation(cx);
+    }
+
     pub(super) fn confirmation_overlay(
         &self,
         cx: &mut Context<Self>,
@@ -241,7 +251,9 @@ impl RepoTab {
         .into_any_element()
     }
 
-    fn overlay_card<T, W, F>(
+    /// Shared card for confirmation and branch-operation overlays. Clicking
+    /// the dimmed backdrop closes the topmost overlay.
+    pub(super) fn overlay_card<T, W, F>(
         &self,
         cx: &Context<Self>,
         overlay_id: &'static str,
@@ -269,7 +281,7 @@ impl RepoTab {
             .items_center()
             .justify_center()
             .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
-                this.update(cx, |tab, cx| tab.cancel_confirmation(cx));
+                this.update(cx, |tab, cx| tab.cancel_topmost(cx));
             })
             .child(
                 v_flex()

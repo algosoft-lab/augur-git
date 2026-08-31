@@ -168,6 +168,32 @@ branch-compare-select-hint = Choose two revisions and compare them
 branch-compare-select-file = Select a file to view its diff
 branch-compare-error = Unable to load revision comparison
 
+# ===== Branch operations (toolbar Branch menu) =====
+menu-branch-new = New Branch…
+menu-branch-rename = Rename Branch…
+menu-stash = Stash…
+menu-stash-pop = Stash Pop
+menu-merge = Merge…
+menu-merge-no-ff = Merge (--no-ff)…
+menu-rebase = Rebase…
+branch-new-title = Create New Branch
+branch-rename-title = Rename Branch
+branch-name-label = Branch name
+branch-new-hint = Creates and checks out a new branch based on { $branch }.
+branch-rename-hint = Renames the current branch { $branch }.
+branch-name-invalid = Invalid branch name: no spaces or ~ ^ : ? * [ \ characters, no "..", no leading "-", and no ".lock", "/" or "." suffix.
+branch-name-exists = Branch "{ $name }" already exists.
+merge-title = Merge into { $branch }
+merge-source-label = Branch to merge
+merge-no-ff-label = Create a merge commit even if a fast-forward is possible (--no-ff)
+rebase-title = Rebase { $branch } onto
+rebase-warning = Rebasing rewrites the history of { $branch }. Do not rebase branches that were already pushed and shared.
+stash-title = Stash Changes
+stash-message-label = Message (optional)
+stash-hint = { $count } changed files will be stashed.
+dialog-cancel = Cancel
+dialog-confirm = Confirm
+
 # ===== Destructive working-tree actions =====
 discard-title = Discard changes?
 discard-file-warning = Discard changes in { $path }? Staged changes will be kept. This action cannot be undone.

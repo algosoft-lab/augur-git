@@ -167,6 +167,32 @@ branch-compare-select-hint = 选择两个版本后开始比较
 branch-compare-select-file = 选择文件查看 diff
 branch-compare-error = 无法加载版本比较
 
+# ===== 分支操作（工具栏 Branch 菜单） =====
+menu-branch-new = 新建分支…
+menu-branch-rename = 重命名分支…
+menu-stash = 贮藏…
+menu-stash-pop = 弹出贮藏
+menu-merge = 合并…
+menu-merge-no-ff = 合并（--no-ff）…
+menu-rebase = 变基…
+branch-new-title = 新建分支
+branch-rename-title = 重命名分支
+branch-name-label = 分支名称
+branch-new-hint = 将基于 { $branch } 创建并切换到新分支。
+branch-rename-hint = 将重命名当前分支 { $branch }。
+branch-name-invalid = 分支名称不合法：不能含空格或 ~ ^ : ? * [ \ 等字符，不能有 ".."、以 "-" 开头、以 ".lock"、"/" 或 "." 结尾。
+branch-name-exists = 分支“{ $name }”已存在。
+merge-title = 合并到 { $branch }
+merge-source-label = 要合并的分支
+merge-no-ff-label = 即使可以快进也生成合并提交（--no-ff）
+rebase-title = 将 { $branch } 变基到
+rebase-warning = 变基会改写 { $branch } 的提交历史，请勿对已推送共享的分支执行变基。
+stash-title = 贮藏更改
+stash-message-label = 备注（可选）
+stash-hint = 将贮藏 { $count } 个有改动的文件。
+dialog-cancel = 取消
+dialog-confirm = 确认
+
 # ===== 危险工作区操作 =====
 discard-title = 丢弃变更？
 discard-file-warning = 确定要丢弃 { $path } 的变更吗？已暂存内容会保留。此操作无法撤销。
