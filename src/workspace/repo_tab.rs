@@ -300,11 +300,6 @@ impl RepoTab {
                     );
                 }
             }
-            ChangesPanelEvent::RefreshRequested => {
-                if !tab.operation_busy {
-                    tab.refresh_repository(cx);
-                }
-            }
         })
         .detach();
 

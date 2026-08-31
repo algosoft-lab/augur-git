@@ -6,14 +6,14 @@ use gpui_component::{
     ActiveTheme, Disableable, Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
     h_flex,
-    menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
+    menu::{ContextMenuExt, PopupMenuItem},
     spinner::Spinner,
     v_flex,
 };
 
 use crate::core::git::{FileStatus, WorkingTreeAction, WorkingTreeScope};
 use crate::core::i18n::{self, Locale};
-use crate::git::{lucide, shared};
+use crate::git::shared;
 
 /// ChangesPanel → RepoTab events.
 #[derive(Clone, Debug)]
@@ -25,8 +25,6 @@ pub enum ChangesPanelEvent {
         action: WorkingTreeAction,
         scope: WorkingTreeScope,
     },
-    /// Request a fresh repository status snapshot.
-    RefreshRequested,
 }
 
 pub struct ChangesPanel {
@@ -595,106 +593,6 @@ impl ChangesPanel {
         total: usize,
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
-        let this = cx.entity();
-        let refresh = Button::new("changes-refresh")
-            .icon(lucide("refresh-cw"))
-            .ghost()
-            .compact()
-            .xsmall()
-            .tooltip(i18n::text(self.locale, "changes-refresh"))
-            .disabled(self.busy)
-            .on_click(move |_event, _window, cx| {
-                this.update(cx, |panel, cx| {
-                    panel.refresh_selected = true;
-                    cx.emit(ChangesPanelEvent::RefreshRequested);
-                });
-            });
-
-        let staged = self.staged.clone();
-        let unstaged = self.unstaged.clone();
-        let has_conflicts = self.has_conflicts;
-        let busy = self.busy;
-        let this = cx.entity();
-        let locale = self.locale;
-        let more = Button::new("changes-more")
-            .icon(IconName::Ellipsis)
-            .ghost()
-            .compact()
-            .xsmall()
-            .tooltip(i18n::text(locale, "changes-more"))
-            .disabled(busy)
-            .dropdown_menu_with_anchor(
-                Anchor::BottomRight,
-                move |menu, _window, _cx| {
-                    let stage_panel = this.clone();
-                    let unstage_panel = this.clone();
-                    let discard_panel = this.clone();
-                    let stage_files = unstaged.clone();
-                    let unstage_files = staged.clone();
-                    let discard_files = unstaged.clone();
-                    menu.item(
-                        PopupMenuItem::new(i18n::text(
-                            locale,
-                            "changes-stage-all",
-                        ))
-                        .icon(IconName::Plus)
-                        .disabled(unstaged.is_empty() || has_conflicts)
-                        .on_click(
-                            move |_event, _window, cx| {
-                                stage_panel.update(cx, |panel, cx| {
-                                    panel.request_group_operation(
-                                        WorkingTreeAction::Stage,
-                                        false,
-                                        &stage_files,
-                                        cx,
-                                    );
-                                });
-                            },
-                        ),
-                    )
-                    .item(
-                        PopupMenuItem::new(i18n::text(
-                            locale,
-                            "changes-unstage-all",
-                        ))
-                        .icon(IconName::Minus)
-                        .disabled(staged.is_empty())
-                        .on_click(
-                            move |_event, _window, cx| {
-                                unstage_panel.update(cx, |panel, cx| {
-                                    panel.request_group_operation(
-                                        WorkingTreeAction::Unstage,
-                                        true,
-                                        &unstage_files,
-                                        cx,
-                                    );
-                                });
-                            },
-                        ),
-                    )
-                    .separator()
-                    .item(
-                        PopupMenuItem::new(i18n::text(
-                            locale,
-                            "changes-discard-all",
-                        ))
-                        .icon(IconName::Undo)
-                        .disabled(unstaged.is_empty() || has_conflicts)
-                        .on_click(
-                            move |_event, _window, cx| {
-                                discard_panel.update(cx, |panel, cx| {
-                                    panel.request_group_operation(
-                                        WorkingTreeAction::Discard,
-                                        false,
-                                        &discard_files,
-                                        cx,
-                                    );
-                                });
-                            },
-                        ),
-                    )
-                },
-            );
 
         h_flex()
             .id("changes-panel-header")
@@ -723,8 +621,6 @@ impl ChangesPanel {
                     .text_color(colors.muted_foreground)
                     .child(total.to_string()),
             )
-            .child(refresh)
-            .child(more)
     }
 }
 
