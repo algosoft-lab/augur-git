@@ -626,6 +626,8 @@ impl BranchCompareView {
         } else {
             i18n::text(self.locale, "branch-compare-run")
         };
+        let base_manual = !self.base_sha.trim().is_empty();
+        let target_manual = !self.target_sha.trim().is_empty();
         let (total_added, total_deleted) =
             self.files.iter().fold((0, 0), |(added, deleted), file| {
                 (
@@ -707,19 +709,22 @@ impl BranchCompareView {
                         &base_label,
                         v_flex()
                             .gap_1()
-                            .child(
-                                Select::new(&self.base_state)
-                                    .w(px(230.))
-                                    .search_placeholder(i18n::text(
-                                        self.locale,
-                                        "branch-compare-search",
-                                    ))
-                                    .menu_width(px(360.)),
-                            )
+                            .when(!base_manual, |column| {
+                                column.child(
+                                    Select::new(&self.base_state)
+                                        .w(px(230.))
+                                        .search_placeholder(i18n::text(
+                                            self.locale,
+                                            "branch-compare-search",
+                                        ))
+                                        .menu_width(px(360.)),
+                                )
+                            })
                             .child(
                                 Input::new(&self.base_sha_state)
                                     .w(px(230.))
-                                    .h(px(26.)),
+                                    .h(px(26.))
+                                    .cleanable(true),
                             ),
                         colors.muted_foreground,
                     ))
@@ -745,19 +750,22 @@ impl BranchCompareView {
                         &target_label,
                         v_flex()
                             .gap_1()
-                            .child(
-                                Select::new(&self.target_state)
-                                    .w(px(230.))
-                                    .search_placeholder(i18n::text(
-                                        self.locale,
-                                        "branch-compare-search",
-                                    ))
-                                    .menu_width(px(360.)),
-                            )
+                            .when(!target_manual, |column| {
+                                column.child(
+                                    Select::new(&self.target_state)
+                                        .w(px(230.))
+                                        .search_placeholder(i18n::text(
+                                            self.locale,
+                                            "branch-compare-search",
+                                        ))
+                                        .menu_width(px(360.)),
+                                )
+                            })
                             .child(
                                 Input::new(&self.target_sha_state)
                                     .w(px(230.))
-                                    .h(px(26.)),
+                                    .h(px(26.))
+                                    .cleanable(true),
                             ),
                         colors.muted_foreground,
                     ))

@@ -22,8 +22,11 @@ tip-to-tip diff; there is no merge-base mode.
 The revision selectors contain local and remote-tracking refs, tags, and the
 latest commit-log snapshot. The graph currently loads a bounded history
 window, so older commits may be selected by entering their 7–64 character
-hexadecimal SHA. SHA input is resolved only against the repository's existing
-object database; the comparison never performs an implicit fetch.
+hexadecimal SHA. A non-empty SHA input becomes the complete endpoint value and
+hides that endpoint's catalog selector; clearing it restores the previous
+branch, tag, or loaded-commit selection. SHA input is resolved only against the
+repository's existing object database; the comparison never performs an
+implicit fetch.
 
 The comparison engine lives in `src/core/git/branch_compare.rs`. The existing
 Git worker only carries the request, generation token, and event forwarding.
