@@ -1,7 +1,7 @@
 # augur-git
 
 <p align="center">
-  <img src="assets/augur-git-logo-lockup.svg" alt="augur-git logo" width="360">
+  <img src="assets/augur-git-logo-lockup.svg" alt="augur-git logo" width="100%" style="max-width: 640px; height: auto;">
 </p>
 
 augur-git is a cross-platform desktop Git GUI client built with Rust and
