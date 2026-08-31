@@ -160,6 +160,7 @@ branch-compare-run = 比较
 branch-compare-refresh = 刷新
 branch-compare-loading = 正在加载比较…
 branch-compare-revision-placeholder = Branch、Tag、Commit 或 SHA
+branch-compare-manual-input = 手动输入
 branch-compare-branches = 分支
 branch-compare-tags = 标签
 branch-compare-commits = 提交

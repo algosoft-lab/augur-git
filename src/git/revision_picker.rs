@@ -7,7 +7,8 @@ use gpui_component::list::{List, ListDelegate, ListEvent, ListState};
 use gpui_component::popover::Popover;
 use gpui_component::searchable_list::SearchableListItemElement;
 use gpui_component::{
-    ActiveTheme, Icon, IconName, IndexPath, StyledExt, v_flex,
+    ActiveTheme, Icon, IconName, IndexPath, Sizable, StyledExt,
+    checkbox::Checkbox, h_flex, v_flex,
 };
 
 use crate::core::git::{CompareRevision, CompareRevisionKind};
@@ -25,6 +26,7 @@ const SECTION_COUNT: usize = 3;
 pub(crate) struct RevisionPickerValue {
     pub input: String,
     pub selected: Option<CompareRevision>,
+    pub manual_input: bool,
 }
 
 pub(crate) use super::revision_picker_logic::{
@@ -256,6 +258,7 @@ pub(crate) struct RevisionPicker {
     input: String,
     dirty: bool,
     open: bool,
+    manual_input: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -296,28 +299,36 @@ impl RevisionPicker {
                     let text = input_for_sub.read(cx).value().to_string();
                     picker.input = text.clone();
                     picker.dirty = true;
-                    picker.open = true;
-                    list_for_input.update(cx, |list, cx| {
-                        list.set_query(text.trim(), window, cx);
-                        let first = list.delegate().first_index();
-                        list.set_selected_index(first, window, cx);
-                    });
-                    cx.emit(RevisionPickerEvent::Changed);
-                    cx.notify();
-                }
-                InputEvent::Focus => {
-                    picker.open = true;
-                    if !picker.dirty {
+                    picker.open = !picker.manual_input;
+                    if !picker.manual_input {
                         list_for_input.update(cx, |list, cx| {
-                            list.set_query("", window, cx);
+                            list.set_query(text.trim(), window, cx);
                             let first = list.delegate().first_index();
                             list.set_selected_index(first, window, cx);
                         });
                     }
+                    cx.emit(RevisionPickerEvent::Changed);
+                    cx.notify();
+                }
+                InputEvent::Focus => {
+                    if picker.manual_input {
+                        picker.open = false;
+                    } else {
+                        picker.open = true;
+                        if !picker.dirty {
+                            list_for_input.update(cx, |list, cx| {
+                                list.set_query("", window, cx);
+                                let first = list.delegate().first_index();
+                                list.set_selected_index(first, window, cx);
+                            });
+                        }
+                    }
                     cx.notify();
                 }
                 InputEvent::PressEnter { .. } => {
-                    if picker.open {
+                    if picker.manual_input {
+                        picker.open = false;
+                    } else if picker.open {
                         picker.commit_selected(window, cx);
                     } else {
                         picker.open = true;
@@ -354,6 +365,7 @@ impl RevisionPicker {
             input: String::new(),
             dirty: false,
             open: false,
+            manual_input: false,
             _subscriptions: subscriptions,
         }
     }
@@ -366,6 +378,7 @@ impl RevisionPicker {
         RevisionPickerValue {
             input: self.input.clone(),
             selected: self.selected.clone(),
+            manual_input: self.manual_input,
         }
     }
 
@@ -457,6 +470,7 @@ impl RevisionPicker {
         self.selected = value.selected;
         self.input = value.input;
         self.unavailable = false;
+        self.manual_input = value.manual_input;
         self.dirty = match self.selected.as_ref() {
             Some(selected) => {
                 let input = self.input.trim();
@@ -472,11 +486,31 @@ impl RevisionPicker {
             }
         });
         self.list_state.update(cx, |list, cx| {
-            let query = if self.selected.is_some() {
+            let query = if self.manual_input || self.selected.is_some() {
                 ""
             } else {
                 self.input.trim()
             };
+            list.set_query(query, window, cx);
+            let first = list.delegate().first_index();
+            list.set_selected_index(first, window, cx);
+        });
+        cx.notify();
+    }
+
+    fn set_manual_input(
+        &mut self,
+        manual_input: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.manual_input == manual_input {
+            return;
+        }
+        self.manual_input = manual_input;
+        self.open = false;
+        self.list_state.update(cx, |list, cx| {
+            let query = if manual_input { "" } else { self.input.trim() };
             list.set_query(query, window, cx);
             let first = list.delegate().first_index();
             list.set_selected_index(first, window, cx);
@@ -540,6 +574,13 @@ impl RevisionPicker {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.manual_input {
+            if event.keystroke.key.eq_ignore_ascii_case("escape") {
+                self.open = false;
+                cx.notify();
+            }
+            return;
+        }
         let key = event.keystroke.key.to_ascii_lowercase();
         match key.as_str() {
             "up" | "arrowup" => {
@@ -610,7 +651,8 @@ impl Render for RevisionPicker {
         let this = cx.entity();
         let input_state = self.input_state.clone();
         let list_state = self.list_state.clone();
-        let open = self.open;
+        let open = self.open && !self.manual_input;
+        let manual_input = self.manual_input;
         let validation = match self.candidate() {
             RevisionPickerInput::Invalid(_) => {
                 Some(i18n::text(self.locale, "branch-compare-invalid-revision"))
@@ -637,7 +679,7 @@ impl Render for RevisionPicker {
             let this = this.clone();
             move |open, _window, cx| {
                 this.update(cx, |picker, cx| {
-                    picker.open = *open;
+                    picker.open = *open && !picker.manual_input;
                     cx.notify();
                 });
             }
@@ -648,7 +690,9 @@ impl Render for RevisionPicker {
                 .w(px(230.))
                 .h(px(26.))
                 .cleanable(true)
-                .suffix(Icon::new(IconName::ChevronDown).size(px(13.))),
+                .when(!manual_input, |input| {
+                    input.suffix(Icon::new(IconName::ChevronDown).size(px(13.)))
+                }),
         )
         .content(move |_state, _window, _cx| {
             List::new(&list_state)
@@ -662,7 +706,7 @@ impl Render for RevisionPicker {
                 "revision-picker-field:{}",
                 self.id
             )))
-            .w(px(230.))
+            .w(px(330.))
             .gap_0p5()
             .capture_key_down({
                 let this = this.clone();
@@ -679,7 +723,28 @@ impl Render for RevisionPicker {
                     }
                 }
             })
-            .child(popover)
+            .child(
+                h_flex().items_center().gap_1().child(popover).child(
+                    Checkbox::new(SharedString::from(format!(
+                        "revision-picker-manual:{}",
+                        self.id
+                    )))
+                    .label(i18n::text(
+                        self.locale,
+                        "branch-compare-manual-input",
+                    ))
+                    .small()
+                    .checked(manual_input)
+                    .on_click({
+                        let this = this.clone();
+                        move |checked, window, cx| {
+                            this.update(cx, |picker, cx| {
+                                picker.set_manual_input(*checked, window, cx);
+                            });
+                        }
+                    }),
+                ),
+            )
             .when_some(validation, |view, message| {
                 view.child(
                     div()

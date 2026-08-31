@@ -161,6 +161,7 @@ branch-compare-run = Compare
 branch-compare-refresh = Refresh
 branch-compare-loading = Loading comparison…
 branch-compare-revision-placeholder = Branch, tag, commit, or SHA
+branch-compare-manual-input = Manual input
 branch-compare-branches = Branches
 branch-compare-tags = Tags
 branch-compare-commits = Commits

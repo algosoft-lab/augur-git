@@ -27,7 +27,9 @@ bounded history window, so older commits can still be selected by pasting their
 7–64 character hexadecimal SHA; a **Use commit SHA** action is offered when that
 SHA is not in the visible list. The SHA is resolved only against the
 repository's existing object database, so the comparison never performs an
-implicit fetch.
+implicit fetch. Enable **Manual input** beside either field when pasting or
+typing a revision without opening the candidate popup; unchecking it restores
+the searchable suggestions.
 
 Empty or malformed text leaves the endpoint invalid and disables Compare until
 it is corrected. Editing either field only changes the pending endpoints;
