@@ -23,8 +23,8 @@ use gpui::{Context, EventEmitter, SharedString, Task};
 
 use crate::core::diff::FileChange;
 use crate::core::git::{
-    self, BranchCompareMode, BranchInfo, BranchRefInfo, CheckoutTarget,
-    CommitMessage, FileStatus, GitError, GitEvent, RefsInfo, WorkingTreeAction,
+    self, BranchInfo, CheckoutTarget, CommitMessage, CompareRevision,
+    FileStatus, GitError, GitEvent, RefsInfo, WorkingTreeAction,
     WorkingTreeDiffKind, WorkingTreeScope, WorkingTreeScopeKind,
 };
 use crate::core::graph::LogRow;
@@ -351,26 +351,25 @@ impl GitView {
         }
     }
 
-    /// Request a read-only comparison of two branch references.
+    /// Request a read-only comparison of two revisions.
     pub fn branch_compare(
         &self,
         request_id: u64,
-        base: BranchRefInfo,
-        target: BranchRefInfo,
-        mode: BranchCompareMode,
+        base: CompareRevision,
+        target: CompareRevision,
     ) {
         log::info!(
-            "[git_compare] requested: request_id={}, base={}, target={}, mode={mode:?}",
+            "[git_compare] requested: request_id={}, base={}, target={}",
             request_id,
             base.name,
             target.name
         );
         if let Some(handle) = &self.handle {
-            handle.branch_compare(request_id, base, target, mode);
+            handle.branch_compare(request_id, base, target);
         }
     }
 
-    /// Cancel an in-flight branch comparison.
+    /// Cancel an in-flight revision comparison.
     pub fn cancel_branch_compare(&self) {
         if let Some(handle) = &self.handle {
             handle.cancel_branch_compare();
@@ -452,10 +451,10 @@ impl GitView {
                 }
                 GitEvent::Refs(refs) => {
                     log::info!(
-                        "[git_view] refs refreshed: remotes={}, remote_branches={}, comparison_branches={}, tags={}, stashes={}",
+                        "[git_view] refs refreshed: remotes={}, remote_branches={}, comparison_revisions={}, tags={}, stashes={}",
                         refs.remotes.len(),
                         refs.remote_branches.len(),
-                        refs.comparison_branches.len(),
+                        refs.comparison_revisions.len(),
                         refs.tags.len(),
                         refs.stashes.len()
                     );

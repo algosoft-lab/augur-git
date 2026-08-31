@@ -1,4 +1,4 @@
-//! Read-only comparison of two local or remote-tracking branches.
+//! Read-only comparison of two local or remote-tracking revisions.
 
 use std::collections::HashSet;
 use std::process::Output;
@@ -11,27 +11,12 @@ use crate::core::diff::{
 };
 
 use super::{
-    BranchRefInfo, BranchRefKind, GitEvent, MAX_BLOB_SIZE, git_command,
+    CompareRevision, CompareRevisionKind, GitEvent, MAX_BLOB_SIZE, git_command,
     read_blob_spec,
 };
 
-/// Selects the two Git snapshots used by a branch comparison.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BranchCompareMode {
-    /// Compare the selected branch tips directly.
-    Direct,
-    /// Compare the target tip with the merge base of the two branches.
-    MergeBase,
-}
-
-impl BranchCompareMode {
-    pub fn is_merge_base(self) -> bool {
-        matches!(self, Self::MergeBase)
-    }
-}
-
-/// Build the structured ref query used by the branch comparison selector.
-pub(super) fn branch_ref_args(repo_path: &str) -> Vec<String> {
+/// Build the structured ref query used by the revision comparison selector.
+pub(super) fn comparison_ref_args(repo_path: &str) -> Vec<String> {
     vec![
         "-C".to_string(),
         repo_path.to_string(),
@@ -39,11 +24,12 @@ pub(super) fn branch_ref_args(repo_path: &str) -> Vec<String> {
         "--format=%(refname)%00%(refname:short)%00%(symref)".to_string(),
         "refs/heads".to_string(),
         "refs/remotes".to_string(),
+        "refs/tags".to_string(),
     ]
 }
 
-/// Parse `for-each-ref` records into safe, fully-qualified branch refs.
-pub(super) fn parse_branch_refs(text: &str) -> Vec<BranchRefInfo> {
+/// Parse `for-each-ref` records into safe, fully-qualified comparison refs.
+pub(super) fn parse_comparison_refs(text: &str) -> Vec<CompareRevision> {
     let mut refs = Vec::new();
     let mut seen = HashSet::new();
     for record in text.lines() {
@@ -59,17 +45,20 @@ pub(super) fn parse_branch_refs(text: &str) -> Vec<BranchRefInfo> {
         if !symref.is_empty()
             || short_name.is_empty()
             || (!full_name.starts_with("refs/heads/")
-                && !full_name.starts_with("refs/remotes/"))
+                && !full_name.starts_with("refs/remotes/")
+                && !full_name.starts_with("refs/tags/"))
             || !seen.insert(full_name.to_string())
         {
             continue;
         }
         let kind = if full_name.starts_with("refs/heads/") {
-            BranchRefKind::Local
+            CompareRevisionKind::Local
+        } else if full_name.starts_with("refs/remotes/") {
+            CompareRevisionKind::Remote
         } else {
-            BranchRefKind::Remote
+            CompareRevisionKind::Tag
         };
-        refs.push(BranchRefInfo {
+        refs.push(CompareRevision {
             name: short_name.to_string(),
             full_name: full_name.to_string(),
             kind,
@@ -87,9 +76,8 @@ pub(super) fn parse_branch_refs(text: &str) -> Vec<BranchRefInfo> {
 pub(super) fn spawn_comparison(
     repo_path: String,
     request_id: u64,
-    base: BranchRefInfo,
-    target: BranchRefInfo,
-    mode: BranchCompareMode,
+    base: CompareRevision,
+    target: CompareRevision,
     event_tx: Sender<GitEvent>,
     generation: Arc<AtomicU64>,
 ) {
@@ -99,7 +87,6 @@ pub(super) fn spawn_comparison(
             request_id,
             &base,
             &target,
-            mode,
             &event_tx,
             &generation,
         );
@@ -189,16 +176,15 @@ pub(super) fn file_diff_args(
 fn run_comparison(
     repo_path: &str,
     request_id: u64,
-    base: &BranchRefInfo,
-    target: &BranchRefInfo,
-    mode: BranchCompareMode,
+    base: &CompareRevision,
+    target: &CompareRevision,
     event_tx: &Sender<GitEvent>,
     generation: &AtomicU64,
 ) {
     if !is_current(generation, request_id) {
         return;
     }
-    let base_oid = match resolve_commit(repo_path, &base.full_name) {
+    let base_oid = match resolve_revision(repo_path, base) {
         Ok(oid) => oid,
         Err(detail) => {
             send_error(event_tx, request_id, None, detail);
@@ -206,7 +192,7 @@ fn run_comparison(
             return;
         }
     };
-    let target_oid = match resolve_commit(repo_path, &target.full_name) {
+    let target_oid = match resolve_revision(repo_path, target) {
         Ok(oid) => oid,
         Err(detail) => {
             send_error(event_tx, request_id, None, detail);
@@ -214,18 +200,7 @@ fn run_comparison(
             return;
         }
     };
-    let old_oid = if mode.is_merge_base() {
-        match resolve_merge_base(repo_path, &base_oid, &target_oid) {
-            Ok(oid) => oid,
-            Err(detail) => {
-                send_error(event_tx, request_id, None, detail);
-                send_finished(event_tx, request_id);
-                return;
-            }
-        }
-    } else {
-        base_oid
-    };
+    let old_oid = base_oid;
 
     if !is_current(generation, request_id) {
         return;
@@ -267,7 +242,7 @@ fn run_comparison(
     };
 
     log::info!(
-        "[git_compare] metadata loaded: request_id={}, mode={mode:?}, files={}, with_stats={}, binary_files={}",
+        "[git_compare] metadata loaded: request_id={}, files={}, with_stats={}, binary_files={}",
         request_id,
         files.len(),
         files
@@ -337,11 +312,27 @@ fn run_comparison(
     send_finished(event_tx, request_id);
 }
 
-fn resolve_commit(repo_path: &str, reference: &str) -> Result<String, String> {
-    if !is_supported_branch_ref(reference) {
-        return Err("Unsupported branch reference".to_string());
+fn resolve_revision(
+    repo_path: &str,
+    revision: &CompareRevision,
+) -> Result<String, String> {
+    match revision.kind {
+        CompareRevisionKind::Commit => {
+            if !is_supported_commit_id(&revision.full_name) {
+                return Err(
+                    "Commit ID must be 7-64 hexadecimal characters".to_string()
+                );
+            }
+        }
+        CompareRevisionKind::Local
+        | CompareRevisionKind::Remote
+        | CompareRevisionKind::Tag => {
+            if !is_supported_ref(&revision.full_name) {
+                return Err("Unsupported comparison reference".to_string());
+            }
+        }
     }
-    let spec = format!("{reference}^{{commit}}");
+    let spec = format!("{}^{{commit}}", revision.full_name);
     let output = git_command()
         .args([
             "--no-pager",
@@ -358,38 +349,23 @@ fn resolve_commit(repo_path: &str, reference: &str) -> Result<String, String> {
         return Err(output_detail(&output, "git rev-parse"));
     }
     parse_object_id(&String::from_utf8_lossy(&output.stdout))
-        .ok_or_else(|| "Git returned an invalid branch commit id".to_string())
+        .ok_or_else(|| "Git returned an invalid commit id".to_string())
 }
 
-fn is_supported_branch_ref(reference: &str) -> bool {
+fn is_supported_ref(reference: &str) -> bool {
     let has_name = reference
         .strip_prefix("refs/heads/")
         .or_else(|| reference.strip_prefix("refs/remotes/"))
+        .or_else(|| reference.strip_prefix("refs/tags/"))
         .is_some_and(|name| !name.is_empty());
-    has_name && !reference.bytes().any(|byte| byte.is_ascii_control())
+    has_name
+        && !reference.bytes().any(|byte| byte.is_ascii_control())
+        && !reference.bytes().any(|byte| byte.is_ascii_whitespace())
 }
 
-fn resolve_merge_base(
-    repo_path: &str,
-    base_oid: &str,
-    target_oid: &str,
-) -> Result<String, String> {
-    let output = git_command()
-        .args([
-            "--no-pager",
-            "-C",
-            repo_path,
-            "merge-base",
-            base_oid,
-            target_oid,
-        ])
-        .output()
-        .map_err(|error| error.to_string())?;
-    if !output.status.success() {
-        return Err(output_detail(&output, "git merge-base"));
-    }
-    parse_object_id(&String::from_utf8_lossy(&output.stdout))
-        .ok_or_else(|| "Git returned no common ancestor".to_string())
+fn is_supported_commit_id(value: &str) -> bool {
+    matches!(value.len(), 7..=64)
+        && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn parse_object_id(text: &str) -> Option<String> {
@@ -451,15 +427,22 @@ mod tests {
     use crate::core::diff::FileChangeStatus;
 
     #[test]
-    fn branch_ref_parser_filters_symbolic_head_and_sorts_refs() {
-        let refs = parse_branch_refs(
-            "refs/remotes/origin/HEAD\0origin/HEAD\0refs/remotes/origin/main\nrefs/heads/z\0z\0\nrefs/heads/a\0a\0\nrefs/remotes/origin/main\0origin/main\0\n",
+    fn comparison_ref_parser_filters_symbolic_head_and_sorts_refs() {
+        assert!(
+            comparison_ref_args("repo")
+                .iter()
+                .any(|arg| arg == "refs/tags")
         );
-        assert_eq!(refs.len(), 3);
+        let refs = parse_comparison_refs(
+            "refs/remotes/origin/HEAD\0origin/HEAD\0refs/remotes/origin/main\nrefs/heads/z\0z\0\nrefs/tags/v1\0v1\0\nrefs/heads/a\0a\0\nrefs/remotes/origin/main\0origin/main\0\n",
+        );
+        assert_eq!(refs.len(), 4);
         assert_eq!(refs[0].name, "a");
         assert_eq!(refs[1].name, "z");
         assert_eq!(refs[2].name, "origin/main");
-        assert!(matches!(refs[0].kind, BranchRefKind::Local));
+        assert_eq!(refs[3].name, "v1");
+        assert!(matches!(refs[0].kind, CompareRevisionKind::Local));
+        assert!(matches!(refs[3].kind, CompareRevisionKind::Tag));
     }
 
     #[test]
@@ -509,12 +492,16 @@ mod tests {
     }
 
     #[test]
-    fn branch_ref_validation_only_allows_local_and_remote_refs() {
-        assert!(is_supported_branch_ref("refs/heads/main"));
-        assert!(is_supported_branch_ref("refs/remotes/origin/main"));
-        assert!(!is_supported_branch_ref("main"));
-        assert!(!is_supported_branch_ref("refs/tags/v1"));
-        assert!(!is_supported_branch_ref("refs/heads/bad\nref"));
+    fn comparison_revision_validation_accepts_refs_and_commit_ids() {
+        assert!(is_supported_ref("refs/heads/main"));
+        assert!(is_supported_ref("refs/remotes/origin/main"));
+        assert!(is_supported_ref("refs/tags/v1"));
+        assert!(!is_supported_ref("main"));
+        assert!(!is_supported_ref("refs/heads/bad\nref"));
+        assert!(is_supported_commit_id(&"a".repeat(7)));
+        assert!(is_supported_commit_id(&"a".repeat(64)));
+        assert!(!is_supported_commit_id(&"a".repeat(6)));
+        assert!(!is_supported_commit_id("abcdefg-z"));
     }
 
     #[test]
@@ -551,13 +538,7 @@ mod tests {
         let base = local_ref("feature-a");
         let target = local_ref("feature-b");
 
-        let direct_events = run_events(
-            &repo.path,
-            11,
-            &base,
-            &target,
-            BranchCompareMode::Direct,
-        );
+        let direct_events = run_events(&repo.path, 11, &base, &target);
         assert!(direct_events.iter().any(|event| {
             matches!(
                 event,
@@ -606,18 +587,12 @@ mod tests {
             file.new_path == "new name-中.txt" && patch.contains("from b")
         }));
 
-        let remote_target = BranchRefInfo {
+        let remote_target = CompareRevision {
             name: "origin/feature-b".to_string(),
             full_name: "refs/remotes/origin/feature-b".to_string(),
-            kind: BranchRefKind::Remote,
+            kind: CompareRevisionKind::Remote,
         };
-        let remote_events = run_events(
-            &repo.path,
-            13,
-            &base,
-            &remote_target,
-            BranchCompareMode::Direct,
-        );
+        let remote_events = run_events(&repo.path, 13, &base, &remote_target);
         let (remote_files, _) = inspect_events(remote_events, 13);
         assert_eq!(
             remote_files
@@ -630,20 +605,65 @@ mod tests {
                 .collect::<Vec<_>>()
         );
 
-        let merge_events = run_events(
-            &repo.path,
-            12,
-            &base,
-            &target,
-            BranchCompareMode::MergeBase,
-        );
-        let (merge_files, _) = inspect_events(merge_events, 12);
+        let target_oid = repo.git(["rev-parse", "feature-b"]);
+        let base_oid = repo.git(["rev-parse", "feature-a"]);
+        let commit_base = commit_revision(&base_oid);
+        let commit_target = commit_revision(&target_oid);
+        let commit_events = run_events(&repo.path, 12, &base, &commit_target);
+        let (commit_files, _) = inspect_events(commit_events, 12);
         assert_eq!(
-            merge_files
+            commit_files
                 .iter()
                 .map(|file| file.new_path.as_str())
                 .collect::<Vec<_>>(),
-            vec!["new name-中.txt"]
+            direct_files
+                .iter()
+                .map(|file| file.new_path.as_str())
+                .collect::<Vec<_>>()
+        );
+        let both_commit_events =
+            run_events(&repo.path, 16, &commit_base, &commit_target);
+        let (both_commit_files, _) = inspect_events(both_commit_events, 16);
+        assert_eq!(
+            both_commit_files
+                .iter()
+                .map(|file| file.new_path.as_str())
+                .collect::<Vec<_>>(),
+            direct_files
+                .iter()
+                .map(|file| file.new_path.as_str())
+                .collect::<Vec<_>>()
+        );
+        let short_target = commit_revision(&target_oid[..7]);
+        let short_events = run_events(&repo.path, 14, &base, &short_target);
+        let (short_files, _) = inspect_events(short_events, 14);
+        assert_eq!(
+            short_files
+                .iter()
+                .map(|file| file.new_path.as_str())
+                .collect::<Vec<_>>(),
+            direct_files
+                .iter()
+                .map(|file| file.new_path.as_str())
+                .collect::<Vec<_>>()
+        );
+        repo.git(["tag", "v-feature-b", "feature-b"]);
+        let tag_target = CompareRevision {
+            name: "v-feature-b".to_string(),
+            full_name: "refs/tags/v-feature-b".to_string(),
+            kind: CompareRevisionKind::Tag,
+        };
+        let tag_events = run_events(&repo.path, 15, &base, &tag_target);
+        let (tag_files, _) = inspect_events(tag_events, 15);
+        assert_eq!(
+            tag_files
+                .iter()
+                .map(|file| file.new_path.as_str())
+                .collect::<Vec<_>>(),
+            direct_files
+                .iter()
+                .map(|file| file.new_path.as_str())
+                .collect::<Vec<_>>()
         );
 
         assert_eq!(
@@ -673,7 +693,6 @@ mod tests {
             21,
             &base,
             &target,
-            BranchCompareMode::Direct,
             &tx,
             &generation,
         );
@@ -687,56 +706,48 @@ mod tests {
         repo.git(["add", "--all"]);
         repo.git(["commit", "-qm", "base"]);
 
-        let missing = BranchRefInfo {
+        let missing = CompareRevision {
             name: "missing".to_string(),
             full_name: "refs/heads/missing".to_string(),
-            kind: BranchRefKind::Local,
+            kind: CompareRevisionKind::Local,
         };
         assert_request_failure(
-            run_events(
-                &repo.path,
-                31,
-                &local_ref("main"),
-                &missing,
-                BranchCompareMode::Direct,
-            ),
+            run_events(&repo.path, 31, &local_ref("main"), &missing),
             31,
         );
 
-        let tree = repo.git(["rev-parse", "main^{tree}"]);
-        let unrelated_oid =
-            repo.git(["commit-tree", tree.as_str(), "-m", "unrelated"]);
-        repo.git([
-            "update-ref",
-            "refs/heads/unrelated",
-            unrelated_oid.as_str(),
-        ]);
         assert_request_failure(
             run_events(
                 &repo.path,
                 32,
                 &local_ref("main"),
-                &local_ref("unrelated"),
-                BranchCompareMode::MergeBase,
+                &commit_revision("not-a-commit"),
             ),
             32,
         );
     }
 
-    fn local_ref(name: &str) -> BranchRefInfo {
-        BranchRefInfo {
+    fn local_ref(name: &str) -> CompareRevision {
+        CompareRevision {
             name: name.to_string(),
             full_name: format!("refs/heads/{name}"),
-            kind: BranchRefKind::Local,
+            kind: CompareRevisionKind::Local,
+        }
+    }
+
+    fn commit_revision(oid: &str) -> CompareRevision {
+        CompareRevision {
+            name: oid.get(..7).unwrap_or(oid).to_string(),
+            full_name: oid.to_string(),
+            kind: CompareRevisionKind::Commit,
         }
     }
 
     fn run_events(
         path: &Path,
         request_id: u64,
-        base: &BranchRefInfo,
-        target: &BranchRefInfo,
-        mode: BranchCompareMode,
+        base: &CompareRevision,
+        target: &CompareRevision,
     ) -> Vec<GitEvent> {
         let (tx, rx) = mpsc::channel();
         let generation = AtomicU64::new(request_id);
@@ -745,7 +756,6 @@ mod tests {
             request_id,
             base,
             target,
-            mode,
             &tx,
             &generation,
         );

@@ -32,21 +32,23 @@ use crate::core::graph::LogRow;
 mod branch_compare;
 mod working_tree;
 
-pub use branch_compare::BranchCompareMode;
-
-/// The kind of branch reference exposed by the comparison selector.
+/// The kind of revision exposed by the comparison selector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum BranchRefKind {
+pub enum CompareRevisionKind {
     Local,
     Remote,
+    Tag,
+    Commit,
 }
 
-/// A branch reference with a stable command name and a user-facing label.
+/// A revision accepted by the read-only comparison worker.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BranchRefInfo {
+pub struct CompareRevision {
+    /// Short display value (branch name, tag name, or abbreviated SHA).
     pub name: String,
+    /// Fully qualified ref or user-entered commit SHA passed to Git.
     pub full_name: String,
-    pub kind: BranchRefKind,
+    pub kind: CompareRevisionKind,
 }
 
 #[cfg(windows)]
@@ -118,8 +120,8 @@ pub struct RefsInfo {
     pub tags: Vec<String>,
     /// stash 描述（"stash@{n}: " 前缀已剥除）
     pub stashes: Vec<String>,
-    /// Local and remote-tracking branches available to branch comparison.
-    pub comparison_branches: Vec<BranchRefInfo>,
+    /// Local/remote branches and tags available to revision comparison.
+    pub comparison_revisions: Vec<CompareRevision>,
 }
 
 /// 后台 → UI 事件
@@ -376,12 +378,11 @@ pub enum GitCommand {
         kind: WorkingTreeDiffKind,
         file: FileStatus,
     },
-    /// Compare two local or remote-tracking branch references without checkout.
+    /// Compare two revisions without checkout.
     BranchCompare {
         request_id: u64,
-        base: BranchRefInfo,
-        target: BranchRefInfo,
-        mode: BranchCompareMode,
+        base: CompareRevision,
+        target: CompareRevision,
     },
     /// Apply a staged/working-tree mutation to a captured file snapshot.
     WorkingTreeOperation {
@@ -466,13 +467,12 @@ impl GitHandle {
         });
     }
 
-    /// Start a read-only branch comparison and cancel the previous request.
+    /// Start a read-only revision comparison and cancel the previous request.
     pub fn branch_compare(
         &self,
         request_id: u64,
-        base: BranchRefInfo,
-        target: BranchRefInfo,
-        mode: BranchCompareMode,
+        base: CompareRevision,
+        target: CompareRevision,
     ) {
         self.compare_generation
             .store(request_id, std::sync::atomic::Ordering::Release);
@@ -480,11 +480,10 @@ impl GitHandle {
             request_id,
             base,
             target,
-            mode,
         });
     }
 
-    /// Cancel an in-flight branch comparison at the next file boundary.
+    /// Cancel an in-flight revision comparison at the next file boundary.
     pub fn cancel_branch_compare(&self) {
         self.compare_generation
             .store(0, std::sync::atomic::Ordering::Release);
@@ -590,7 +589,6 @@ fn worker_loop(
                 request_id,
                 base,
                 target,
-                mode,
             }) => {
                 if compare_generation.load(std::sync::atomic::Ordering::Acquire)
                     == request_id
@@ -600,7 +598,6 @@ fn worker_loop(
                         request_id,
                         base,
                         target,
-                        mode,
                         event_tx.clone(),
                         compare_generation.clone(),
                     );
@@ -1230,13 +1227,13 @@ fn run_refs(repo_path: &str, event_tx: &Sender<GitEvent>) {
             _ => String::new(),
         }
     };
-    let comparison_branches = git_command()
-        .args(branch_compare::branch_ref_args(repo_path))
+    let comparison_revisions = git_command()
+        .args(branch_compare::comparison_ref_args(repo_path))
         .output()
         .ok()
         .filter(|output| output.status.success())
         .map(|output| {
-            branch_compare::parse_branch_refs(&String::from_utf8_lossy(
+            branch_compare::parse_comparison_refs(&String::from_utf8_lossy(
                 &output.stdout,
             ))
         })
@@ -1250,7 +1247,7 @@ fn run_refs(repo_path: &str, event_tx: &Sender<GitEvent>) {
         ])),
         tags: non_empty_lines(&out(&["tag", "--sort=-creatordate"])),
         stashes: parse_stashes(&out(&["stash", "list"])),
-        comparison_branches,
+        comparison_revisions,
     };
     let _ = event_tx.send(GitEvent::Refs(refs));
 }

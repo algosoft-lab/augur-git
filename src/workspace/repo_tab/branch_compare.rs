@@ -1,4 +1,4 @@
-//! Repository-tab coordination for the dedicated branch comparison view.
+//! Repository-tab coordination for the dedicated revision comparison view.
 
 use gpui::prelude::*;
 use gpui::*;
@@ -32,15 +32,9 @@ pub(super) fn subscribe(
             request_id,
             base,
             target,
-            mode,
         } => {
             tab.git_view.update(cx, |view, _| {
-                view.branch_compare(
-                    *request_id,
-                    base.clone(),
-                    target.clone(),
-                    *mode,
-                );
+                view.branch_compare(*request_id, base.clone(), target.clone());
             });
         }
     })
@@ -57,6 +51,12 @@ pub(super) fn handle_git_event(
         GitUiEvent::StatusChanged { branch, .. } => {
             tab.compare.update(cx, |view, cx| {
                 view.set_current_branch(branch.clone(), cx);
+            });
+            false
+        }
+        GitUiEvent::LogChanged { rows } => {
+            tab.compare.update(cx, |view, cx| {
+                view.set_log_rows(rows.clone(), cx);
             });
             false
         }

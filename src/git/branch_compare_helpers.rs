@@ -1,21 +1,20 @@
-//! Shared controls and pure helpers for the branch comparison view.
+//! Shared controls and pure helpers for the revision comparison view.
 
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::{h_flex, v_flex};
 
 use crate::core::diff::stat_blocks;
-use crate::core::git::{BranchCompareMode, BranchRefInfo, BranchRefKind};
+use crate::core::git::{CompareRevision, CompareRevisionKind};
 use crate::core::i18n::{self, Locale};
 
-use super::{BranchCompareView, lucide, shared};
+use super::{lucide, shared};
 
 pub(super) fn compare_field<T>(
     label: &str,
     control: T,
     label_color: Hsla,
-) -> impl IntoElement
+) -> AnyElement
 where
     T: IntoElement,
 {
@@ -28,43 +27,37 @@ where
                 .child(shared(label.to_string())),
         )
         .child(control)
+        .into_any_element()
 }
 
-pub(super) fn mode_button(
-    id: &'static str,
-    label: String,
-    selected: bool,
-    entity: Entity<BranchCompareView>,
-    mode: BranchCompareMode,
-) -> impl IntoElement {
-    let button = Button::new(id).label(label).compact();
-    if selected {
-        button.primary().on_click(move |_event, _window, cx| {
-            entity.update(cx, |view, cx| view.set_mode(mode, cx));
-        })
-    } else {
-        button.ghost().on_click(move |_event, _window, cx| {
-            entity.update(cx, |view, cx| view.set_mode(mode, cx));
-        })
+pub(super) fn format_revision_label(
+    locale: Locale,
+    reference: &CompareRevision,
+    subject: Option<&str>,
+) -> String {
+    let prefix = match reference.kind {
+        CompareRevisionKind::Local => {
+            i18n::text(locale, "branch-compare-local")
+        }
+        CompareRevisionKind::Remote => {
+            i18n::text(locale, "branch-compare-remote")
+        }
+        CompareRevisionKind::Tag => i18n::text(locale, "branch-compare-tag"),
+        CompareRevisionKind::Commit => {
+            i18n::text(locale, "branch-compare-commit")
+        }
+    };
+    match subject.filter(|subject| !subject.is_empty()) {
+        Some(subject) => format!("{prefix} · {} · {subject}", reference.name),
+        None => format!("{prefix} · {}", reference.name),
     }
 }
 
-pub(super) fn format_branch_label(
-    locale: Locale,
-    reference: &BranchRefInfo,
-) -> String {
-    let prefix = match reference.kind {
-        BranchRefKind::Local => i18n::text(locale, "branch-compare-local"),
-        BranchRefKind::Remote => i18n::text(locale, "branch-compare-remote"),
-    };
-    format!("{prefix} · {}", reference.name)
-}
-
 pub(super) fn choose_selection(
-    current: &Option<BranchRefInfo>,
-    values: &[BranchRefInfo],
+    current: &Option<CompareRevision>,
+    values: &[CompareRevision],
     current_branch: &str,
-) -> Option<BranchRefInfo> {
+) -> Option<CompareRevision> {
     current
         .as_ref()
         .and_then(|value| {
@@ -74,7 +67,7 @@ pub(super) fn choose_selection(
             values
                 .iter()
                 .find(|value| {
-                    value.kind == BranchRefKind::Local
+                    value.kind == CompareRevisionKind::Local
                         && value.name == current_branch
                 })
                 .cloned()
@@ -83,10 +76,10 @@ pub(super) fn choose_selection(
 }
 
 pub(super) fn choose_target(
-    current: &Option<BranchRefInfo>,
-    values: &[BranchRefInfo],
-    base: Option<&BranchRefInfo>,
-) -> Option<BranchRefInfo> {
+    current: &Option<CompareRevision>,
+    values: &[CompareRevision],
+    base: Option<&CompareRevision>,
+) -> Option<CompareRevision> {
     current
         .as_ref()
         .and_then(|value| {

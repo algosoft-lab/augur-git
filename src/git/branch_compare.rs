@@ -1,4 +1,4 @@
-//! Dedicated branch comparison view.
+//! Dedicated revision comparison view.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -6,6 +6,7 @@ use std::sync::Arc;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::searchable_list::{SearchableListItem, SearchableVec};
 use gpui_component::select::{Select, SelectEvent, SelectState};
 use gpui_component::spinner::Spinner;
@@ -14,7 +15,8 @@ use gpui_component::{
 };
 
 use crate::core::diff::{DiffDocument, FileChange};
-use crate::core::git::{BranchCompareMode, BranchRefInfo, RefsInfo};
+use crate::core::git::{CompareRevision, CompareRevisionKind, RefsInfo};
+use crate::core::graph::LogRow;
 use crate::core::i18n::{self, Locale};
 
 use super::diff_view::{self, DiffLayoutMode, DiffViewCache};
@@ -24,7 +26,7 @@ use super::{lucide, shared};
 mod helpers;
 use helpers::{
     choose_selection, choose_target, compare_field, empty_state, first_line,
-    format_branch_label, mode_button, stat_bar, stat_summary,
+    format_revision_label, stat_bar, stat_summary,
 };
 
 /// Events emitted by the branch comparison view.
@@ -34,20 +36,19 @@ pub enum BranchCompareEvent {
     Cancel,
     Compare {
         request_id: u64,
-        base: BranchRefInfo,
-        target: BranchRefInfo,
-        mode: BranchCompareMode,
+        base: CompareRevision,
+        target: CompareRevision,
     },
 }
 
 #[derive(Clone, Debug)]
-struct BranchOption {
-    value: BranchRefInfo,
+struct RevisionOption {
+    value: CompareRevision,
     label: SharedString,
 }
 
-impl SearchableListItem for BranchOption {
-    type Value = BranchRefInfo;
+impl SearchableListItem for RevisionOption {
+    type Value = CompareRevision;
 
     fn title(&self) -> SharedString {
         self.label.clone()
@@ -63,20 +64,33 @@ struct CompareDocument {
     cache: Arc<DiffViewCache>,
 }
 
-/// Full-screen read-only branch comparison state and renderer.
+fn manual_revision(value: &str) -> Option<CompareRevision> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| CompareRevision {
+        name: value.to_string(),
+        full_name: value.to_string(),
+        kind: CompareRevisionKind::Commit,
+    })
+}
+
+/// Full-screen read-only revision comparison state and renderer.
 pub struct BranchCompareView {
     locale: Locale,
     diff_layout: DiffLayoutMode,
     opened: bool,
-    branches: Vec<BranchRefInfo>,
+    refs: Vec<CompareRevision>,
+    commits: Vec<LogRow>,
     current_branch: String,
-    branch_revision: u64,
+    revision: u64,
     synced_revision: u64,
-    base_state: Entity<SelectState<SearchableVec<BranchOption>>>,
-    target_state: Entity<SelectState<SearchableVec<BranchOption>>>,
-    base: Option<BranchRefInfo>,
-    target: Option<BranchRefInfo>,
-    mode: BranchCompareMode,
+    base_state: Entity<SelectState<SearchableVec<RevisionOption>>>,
+    target_state: Entity<SelectState<SearchableVec<RevisionOption>>>,
+    base_sha_state: Entity<InputState>,
+    target_sha_state: Entity<InputState>,
+    base: Option<CompareRevision>,
+    target: Option<CompareRevision>,
+    base_sha: String,
+    target_sha: String,
     request_id: u64,
     loading: bool,
     finished: bool,
@@ -97,12 +111,28 @@ impl BranchCompareView {
         locale: Locale,
         diff_layout: DiffLayoutMode,
     ) -> Self {
-        let empty = SearchableVec::from(Vec::<BranchOption>::new());
+        let empty = SearchableVec::from(Vec::<RevisionOption>::new());
         let base_state = cx.new(|cx| {
             SelectState::new(empty.clone(), None, window, cx).searchable(true)
         });
         let target_state = cx.new(|cx| {
             SelectState::new(empty, None, window, cx).searchable(true)
+        });
+        let base_sha_state = cx.new(|cx| {
+            InputState::new(window, cx)
+                .submit_on_enter(true)
+                .placeholder(i18n::text(
+                    locale,
+                    "branch-compare-commit-placeholder",
+                ))
+        });
+        let target_sha_state = cx.new(|cx| {
+            InputState::new(window, cx)
+                .submit_on_enter(true)
+                .placeholder(i18n::text(
+                    locale,
+                    "branch-compare-commit-placeholder",
+                ))
         });
 
         let base_entity = base_state.clone();
@@ -111,6 +141,8 @@ impl BranchCompareView {
                 return;
             };
             view.base = Some(value.clone());
+            view.base_sha.clear();
+            view.revision = view.revision.wrapping_add(1).max(1);
             view.invalidate_compare(cx);
             cx.notify();
         })
@@ -121,6 +153,32 @@ impl BranchCompareView {
                 return;
             };
             view.target = Some(value.clone());
+            view.target_sha.clear();
+            view.revision = view.revision.wrapping_add(1).max(1);
+            view.invalidate_compare(cx);
+            cx.notify();
+        })
+        .detach();
+
+        let base_sha_entity = base_sha_state.clone();
+        let base_sha_for_callback = base_sha_entity.clone();
+        cx.subscribe(&base_sha_entity, move |view, _, event, cx| {
+            if !matches!(event, InputEvent::Change) {
+                return;
+            }
+            view.base_sha = base_sha_for_callback.read(cx).value().to_string();
+            view.invalidate_compare(cx);
+            cx.notify();
+        })
+        .detach();
+        let target_sha_entity = target_sha_state.clone();
+        let target_sha_for_callback = target_sha_entity.clone();
+        cx.subscribe(&target_sha_entity, move |view, _, event, cx| {
+            if !matches!(event, InputEvent::Change) {
+                return;
+            }
+            view.target_sha =
+                target_sha_for_callback.read(cx).value().to_string();
             view.invalidate_compare(cx);
             cx.notify();
         })
@@ -130,15 +188,19 @@ impl BranchCompareView {
             locale,
             diff_layout,
             opened: false,
-            branches: Vec::new(),
+            refs: Vec::new(),
+            commits: Vec::new(),
             current_branch: String::new(),
-            branch_revision: 1,
+            revision: 1,
             synced_revision: 0,
             base_state,
             target_state,
+            base_sha_state,
+            target_sha_state,
             base: None,
             target: None,
-            mode: BranchCompareMode::Direct,
+            base_sha: String::new(),
+            target_sha: String::new(),
             request_id: 0,
             loading: false,
             finished: false,
@@ -154,7 +216,7 @@ impl BranchCompareView {
     pub fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
         if self.locale != locale {
             self.locale = locale;
-            self.branch_revision = self.branch_revision.wrapping_add(1).max(1);
+            self.revision = self.revision.wrapping_add(1).max(1);
             cx.notify();
         }
     }
@@ -188,16 +250,22 @@ impl BranchCompareView {
     }
 
     pub fn set_refs(&mut self, refs: RefsInfo, cx: &mut Context<Self>) {
-        if self.branches != refs.comparison_branches {
-            let next_branches = refs.comparison_branches;
-            let selections_changed =
-                self.base.as_ref().is_some_and(|base| {
-                    !next_branches.iter().any(|candidate| candidate == base)
-                }) || self.target.as_ref().is_some_and(|target| {
-                    !next_branches.iter().any(|candidate| candidate == target)
-                });
-            self.branches = next_branches;
-            self.branch_revision = self.branch_revision.wrapping_add(1).max(1);
+        if self.refs != refs.comparison_revisions {
+            let next_refs = refs.comparison_revisions;
+            let selections_changed = self.base_sha.is_empty()
+                && self.base.as_ref().is_some_and(|base| {
+                    base.kind != CompareRevisionKind::Commit
+                        && !next_refs.iter().any(|candidate| candidate == base)
+                })
+                || self.target_sha.is_empty()
+                    && self.target.as_ref().is_some_and(|target| {
+                        target.kind != CompareRevisionKind::Commit
+                            && !next_refs
+                                .iter()
+                                .any(|candidate| candidate == target)
+                    });
+            self.refs = next_refs;
+            self.revision = self.revision.wrapping_add(1).max(1);
             if selections_changed
                 && (self.loading
                     || self.finished
@@ -210,6 +278,13 @@ impl BranchCompareView {
         }
     }
 
+    /// Update the commit options shown by the revision selectors.
+    pub fn set_log_rows(&mut self, rows: Vec<LogRow>, cx: &mut Context<Self>) {
+        self.commits = rows;
+        self.revision = self.revision.wrapping_add(1).max(1);
+        cx.notify();
+    }
+
     pub fn set_current_branch(
         &mut self,
         branch: String,
@@ -217,7 +292,7 @@ impl BranchCompareView {
     ) {
         if self.current_branch != branch {
             self.current_branch = branch;
-            self.branch_revision = self.branch_revision.wrapping_add(1).max(1);
+            self.revision = self.revision.wrapping_add(1).max(1);
             cx.notify();
         }
     }
@@ -355,7 +430,7 @@ impl BranchCompareView {
 
     pub fn start_compare(&mut self, cx: &mut Context<Self>) {
         let (Some(base), Some(target)) =
-            (self.base.clone(), self.target.clone())
+            (self.effective_base(), self.effective_target())
         else {
             return;
         };
@@ -375,7 +450,6 @@ impl BranchCompareView {
             request_id: self.request_id,
             base,
             target,
-            mode: self.mode,
         });
         cx.notify();
     }
@@ -402,18 +476,12 @@ impl BranchCompareView {
         cx.emit(BranchCompareEvent::Cancel);
     }
 
-    fn set_mode(&mut self, mode: BranchCompareMode, cx: &mut Context<Self>) {
-        if self.mode != mode {
-            self.mode = mode;
-            self.invalidate_compare(cx);
-            cx.notify();
-        }
-    }
-
-    fn swap(&mut self, cx: &mut Context<Self>) {
+    fn swap(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         std::mem::swap(&mut self.base, &mut self.target);
-        self.branch_revision = self.branch_revision.wrapping_add(1).max(1);
+        std::mem::swap(&mut self.base_sha, &mut self.target_sha);
+        self.revision = self.revision.wrapping_add(1).max(1);
         self.invalidate_compare(cx);
+        self.sync_sha_inputs(window, cx);
         cx.notify();
     }
 
@@ -447,21 +515,38 @@ impl BranchCompareView {
     }
 
     fn sync_selectors(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.branch_revision == self.synced_revision {
+        if self.revision == self.synced_revision {
             return;
         }
-        let options = self
-            .branches
-            .iter()
-            .cloned()
-            .map(|value| BranchOption {
-                label: SharedString::from(format_branch_label(
-                    self.locale,
-                    &value,
-                )),
-                value,
-            })
-            .collect::<Vec<_>>();
+        let mut options = Vec::with_capacity(
+            self.refs.len().saturating_add(self.commits.len()),
+        );
+        options.extend(self.refs.iter().cloned().map(|value| RevisionOption {
+            label: SharedString::from(format_revision_label(
+                self.locale,
+                &value,
+                None,
+            )),
+            value,
+        }));
+        let mut seen_commits = HashMap::new();
+        for row in &self.commits {
+            if seen_commits.insert(row.oid.clone(), ()).is_none() {
+                let value = CompareRevision {
+                    name: row.short.clone(),
+                    full_name: row.oid.clone(),
+                    kind: CompareRevisionKind::Commit,
+                };
+                options.push(RevisionOption {
+                    label: SharedString::from(format_revision_label(
+                        self.locale,
+                        &value,
+                        Some(&row.subject),
+                    )),
+                    value,
+                });
+            }
+        }
         let values = options
             .iter()
             .map(|option| option.value.clone())
@@ -483,13 +568,47 @@ impl BranchCompareView {
                 state.set_selected_value(value, window, cx);
             }
         });
-        self.synced_revision = self.branch_revision;
+        self.sync_sha_inputs(window, cx);
+        self.synced_revision = self.revision;
+    }
+
+    fn sync_sha_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let base_sha = self.base_sha.clone();
+        self.base_sha_state.update(cx, |state, cx| {
+            if state.value().to_string() != base_sha {
+                state.set_value(base_sha, window, cx);
+            }
+            state.set_placeholder(
+                i18n::text(self.locale, "branch-compare-commit-placeholder"),
+                window,
+                cx,
+            );
+        });
+        let target_sha = self.target_sha.clone();
+        self.target_sha_state.update(cx, |state, cx| {
+            if state.value().to_string() != target_sha {
+                state.set_value(target_sha, window, cx);
+            }
+            state.set_placeholder(
+                i18n::text(self.locale, "branch-compare-commit-placeholder"),
+                window,
+                cx,
+            );
+        });
+    }
+
+    fn effective_base(&self) -> Option<CompareRevision> {
+        manual_revision(&self.base_sha).or_else(|| self.base.clone())
+    }
+
+    fn effective_target(&self) -> Option<CompareRevision> {
+        manual_revision(&self.target_sha).or_else(|| self.target.clone())
     }
 
     fn can_compare(&self) -> bool {
-        self.base
+        self.effective_base()
             .as_ref()
-            .zip(self.target.as_ref())
+            .zip(self.effective_target().as_ref())
             .is_some_and(|(base, target)| base.full_name != target.full_name)
     }
 
@@ -497,14 +616,11 @@ impl BranchCompareView {
         &self,
         colors: &gpui_component::theme::ThemeColor,
         cx: &Context<Self>,
-    ) -> impl IntoElement {
+    ) -> AnyElement {
         let this = cx.entity();
         let compare_enabled = self.can_compare();
-        let mode = self.mode;
         let base_label = i18n::text(self.locale, "branch-compare-base");
         let target_label = i18n::text(self.locale, "branch-compare-target");
-        let direct_label = i18n::text(self.locale, "branch-compare-direct");
-        let merge_label = i18n::text(self.locale, "branch-compare-merge-base");
         let run_label = if self.finished {
             i18n::text(self.locale, "branch-compare-refresh")
         } else {
@@ -589,13 +705,22 @@ impl BranchCompareView {
                     .gap_2()
                     .child(compare_field(
                         &base_label,
-                        Select::new(&self.base_state)
-                            .w(px(230.))
-                            .search_placeholder(i18n::text(
-                                self.locale,
-                                "branch-compare-search",
-                            ))
-                            .menu_width(px(300.)),
+                        v_flex()
+                            .gap_1()
+                            .child(
+                                Select::new(&self.base_state)
+                                    .w(px(230.))
+                                    .search_placeholder(i18n::text(
+                                        self.locale,
+                                        "branch-compare-search",
+                                    ))
+                                    .menu_width(px(360.)),
+                            )
+                            .child(
+                                Input::new(&self.base_sha_state)
+                                    .w(px(230.))
+                                    .h(px(26.)),
+                            ),
                         colors.muted_foreground,
                     ))
                     .child(
@@ -604,39 +729,37 @@ impl BranchCompareView {
                             .ghost()
                             .compact()
                             .disabled(
-                                self.base.is_none() || self.target.is_none(),
+                                self.effective_base().is_none()
+                                    || self.effective_target().is_none(),
                             )
                             .on_click({
                                 let this = this.clone();
-                                move |_event, _window, cx| {
-                                    this.update(cx, |view, cx| view.swap(cx));
+                                move |_event, window, cx| {
+                                    this.update(cx, |view, cx| {
+                                        view.swap(window, cx)
+                                    });
                                 }
                             }),
                     )
                     .child(compare_field(
                         &target_label,
-                        Select::new(&self.target_state)
-                            .w(px(230.))
-                            .search_placeholder(i18n::text(
-                                self.locale,
-                                "branch-compare-search",
-                            ))
-                            .menu_width(px(300.)),
+                        v_flex()
+                            .gap_1()
+                            .child(
+                                Select::new(&self.target_state)
+                                    .w(px(230.))
+                                    .search_placeholder(i18n::text(
+                                        self.locale,
+                                        "branch-compare-search",
+                                    ))
+                                    .menu_width(px(360.)),
+                            )
+                            .child(
+                                Input::new(&self.target_sha_state)
+                                    .w(px(230.))
+                                    .h(px(26.)),
+                            ),
                         colors.muted_foreground,
-                    ))
-                    .child(mode_button(
-                        "branch-compare-direct",
-                        direct_label,
-                        mode == BranchCompareMode::Direct,
-                        this.clone(),
-                        BranchCompareMode::Direct,
-                    ))
-                    .child(mode_button(
-                        "branch-compare-merge-base",
-                        merge_label,
-                        mode == BranchCompareMode::MergeBase,
-                        this.clone(),
-                        BranchCompareMode::MergeBase,
                     ))
                     .child(
                         Button::new("branch-compare-run")
@@ -660,6 +783,7 @@ impl BranchCompareView {
                         .child(shared(error)),
                 )
             })
+            .into_any_element()
     }
 
     fn file_list(

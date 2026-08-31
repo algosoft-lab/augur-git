@@ -148,24 +148,25 @@ diff-working-tree-changes = Changes
 diff-working-tree-loading = Loading working-tree diff…
 diff-working-tree-error = Unable to load working-tree diff
 
-# ===== Branch comparison =====
-branch-compare-title = Branch comparison
+# ===== Revision comparison =====
+branch-compare-title = Revision comparison
 branch-compare-back = Back to repository
 branch-compare-base = Base
 branch-compare-target = Target
 branch-compare-local = local
 branch-compare-remote = remote
-branch-compare-direct = Compare tips
-branch-compare-merge-base = Since common ancestor
+branch-compare-tag = tag
+branch-compare-commit = commit
 branch-compare-run = Compare
 branch-compare-refresh = Refresh
 branch-compare-loading = Loading comparison…
-branch-compare-search = Search branches…
+branch-compare-search = Search revisions…
+branch-compare-commit-placeholder = Short or full commit SHA
 branch-compare-all-files = All changed files
-branch-compare-no-changes = The selected branches have no file changes
-branch-compare-select-hint = Choose two branches and compare them
+branch-compare-no-changes = The selected revisions have no file changes
+branch-compare-select-hint = Choose two revisions and compare them
 branch-compare-select-file = Select a file to view its diff
-branch-compare-error = Unable to load branch comparison
+branch-compare-error = Unable to load revision comparison
 
 # ===== Destructive working-tree actions =====
 discard-title = Discard changes?
