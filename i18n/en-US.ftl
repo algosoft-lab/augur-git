@@ -180,7 +180,7 @@ branch-new-title = Create New Branch
 branch-rename-title = Rename Branch
 branch-name-label = Branch name
 branch-new-hint = Creates and checks out a new branch based on { $branch }.
-branch-rename-hint = Renames the current branch { $branch }.
+branch-rename-hint = Renames branch { $branch }.
 branch-name-invalid = Invalid branch name: no spaces or ~ ^ : ? * [ \ characters, no "..", no leading "-", and no ".lock", "/" or "." suffix.
 branch-name-exists = Branch "{ $name }" already exists.
 merge-title = Merge into { $branch }
@@ -193,6 +193,17 @@ stash-message-label = Message (optional)
 stash-hint = { $count } changed files will be stashed.
 dialog-cancel = Cancel
 dialog-confirm = Confirm
+
+# ===== Sidebar ref actions =====
+context-rename = Rename…
+context-delete = Delete…
+context-merge-into-current = Merge into Current Branch
+context-merge-no-ff-into-current = Merge into Current Branch (--no-ff)
+delete-branch-title = Delete Branch
+delete-tag-title = Delete Tag
+delete-branch-warning = Branch { $name } will be removed from this repository. Commits only reachable from it may become unreachable.
+delete-tag-warning = Tag { $name } will be removed from this repository.
+delete-force-label = Force delete, even if it has unmerged commits (-D)
 
 # ===== Destructive working-tree actions =====
 discard-title = Discard changes?

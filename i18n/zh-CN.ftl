@@ -179,7 +179,7 @@ branch-new-title = 新建分支
 branch-rename-title = 重命名分支
 branch-name-label = 分支名称
 branch-new-hint = 将基于 { $branch } 创建并切换到新分支。
-branch-rename-hint = 将重命名当前分支 { $branch }。
+branch-rename-hint = 将重命名分支 { $branch }。
 branch-name-invalid = 分支名称不合法：不能含空格或 ~ ^ : ? * [ \ 等字符，不能有 ".."、以 "-" 开头、以 ".lock"、"/" 或 "." 结尾。
 branch-name-exists = 分支“{ $name }”已存在。
 merge-title = 合并到 { $branch }
@@ -192,6 +192,17 @@ stash-message-label = 备注（可选）
 stash-hint = 将贮藏 { $count } 个有改动的文件。
 dialog-cancel = 取消
 dialog-confirm = 确认
+
+# ===== 侧栏引用操作 =====
+context-rename = 重命名…
+context-delete = 删除…
+context-merge-into-current = 合并到当前分支
+context-merge-no-ff-into-current = 合并到当前分支（--no-ff）
+delete-branch-title = 删除分支
+delete-tag-title = 删除标签
+delete-branch-warning = 将从仓库中删除分支 { $name }。仅被该分支引用的提交可能因此无法访问。
+delete-tag-warning = 将从仓库中删除标签 { $name }。
+delete-force-label = 强制删除，即使存在未合并的提交（-D）
 
 # ===== 危险工作区操作 =====
 discard-title = 丢弃变更？

@@ -14,7 +14,7 @@ use crate::git::graph::{GraphEvent, GraphView};
 use crate::git::panel::{
     BottomPanel, BottomPanelEvent, CommitPanel, CommitPanelEvent,
 };
-use crate::git::sidebar::{Sidebar, SidebarEvent};
+use crate::git::sidebar::Sidebar;
 use crate::git::toolbar::{Toolbar, ToolbarEvent};
 use crate::git::{GitStatus, GitUiEvent, GitView};
 
@@ -109,21 +109,8 @@ impl RepoTab {
         let compare = branch_compare::new_view(window, cx, locale, diff_layout);
         branch_compare::subscribe(&compare, cx);
 
-        cx.subscribe(&sidebar, |tab, _event, event, cx| match event {
-            SidebarEvent::BranchSelected(name) => {
-                tab.status_message = Some(i18n::text_args(
-                    tab.locale,
-                    "branch-selected",
-                    &[("name", name)],
-                ));
-                cx.notify();
-            }
-            SidebarEvent::CheckoutRef(target) => {
-                tab.start_checkout(target.clone(), cx);
-            }
-            SidebarEvent::CopyRef(value) => {
-                tab.copy_ref(value, cx);
-            }
+        cx.subscribe(&sidebar, |tab, _event, event, cx| {
+            branch_ops::handle_sidebar_event(tab, event, cx);
         })
         .detach();
 
@@ -183,12 +170,12 @@ impl RepoTab {
                     cx,
                 );
             }
-            ToolbarEvent::BranchRename => {
-                tab.open_branch_dialog(
-                    branch_ops::PendingBranchDialog::Rename,
-                    cx,
-                );
-            }
+            ToolbarEvent::BranchRename => tab.open_branch_dialog(
+                branch_ops::PendingBranchDialog::Rename {
+                    old: tab.branch.clone(),
+                },
+                cx,
+            ),
             ToolbarEvent::Stash => {
                 tab.open_branch_dialog(
                     branch_ops::PendingBranchDialog::Stash,
@@ -573,6 +560,9 @@ impl RepoTab {
                             | "push --force"
                             | "switch"
                             | "branch -m"
+                            | "branch -d"
+                            | "branch -D"
+                            | "tag -d"
                             | "stash"
                             | "stash pop"
                             | "merge"

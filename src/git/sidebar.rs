@@ -28,6 +28,14 @@ pub enum SidebarEvent {
     CheckoutRef(CheckoutTarget),
     /// Copy a displayed ref name to the system clipboard.
     CopyRef(String),
+    /// Rename a local branch (its current name is carried as payload).
+    RenameBranch(String),
+    /// Delete a local branch.
+    DeleteBranch(String),
+    /// Delete a tag.
+    DeleteTag(String),
+    /// Merge a local branch into the current branch.
+    MergeIntoCurrent { name: String, no_ff: bool },
 }
 
 pub struct Sidebar {
@@ -66,6 +74,28 @@ impl CheckoutableRefKind {
             Self::RemoteBranch => "context-copy-branch",
             Self::Tag => "context-copy-tag",
         }
+    }
+
+    fn actions(self) -> RefActions {
+        match self {
+            Self::RemoteBranch => RefActions::RemoteBranch,
+            Self::Tag => RefActions::Tag,
+        }
+    }
+}
+
+/// Extra context-menu actions offered per ref type. Local branches support
+/// rename, delete, and merging into the current branch; tags support delete.
+#[derive(Clone, Copy)]
+enum RefActions {
+    LocalBranch { is_head: bool },
+    Tag,
+    RemoteBranch,
+}
+
+impl RefActions {
+    fn is_head(self) -> bool {
+        matches!(self, Self::LocalBranch { is_head: true })
     }
 }
 
@@ -267,9 +297,10 @@ impl Sidebar {
                     locale,
                     sidebar.clone(),
                     CheckoutTarget::LocalBranch(name.clone()),
-                    name,
+                    name.clone(),
                     "context-copy-branch",
-                    self.busy || is_head,
+                    self.busy,
+                    RefActions::LocalBranch { is_head },
                 )
             })
             .collect::<Vec<_>>();
@@ -368,6 +399,7 @@ impl Sidebar {
                     name,
                     kind.copy_label_key(),
                     self.busy,
+                    kind.actions(),
                 )
             })
             .collect::<Vec<_>>();
@@ -390,6 +422,7 @@ impl Sidebar {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ref_context_menu<E>(
     element: E,
     locale: Locale,
@@ -397,39 +430,158 @@ fn ref_context_menu<E>(
     target: CheckoutTarget,
     copy_value: String,
     copy_label_key: &'static str,
-    checkout_disabled: bool,
+    busy: bool,
+    actions: RefActions,
 ) -> impl IntoElement
 where
     E: InteractiveElement + ParentElement + Styled + IntoElement + 'static,
 {
     let checkout_label = i18n::text(locale, "context-checkout");
     let copy_label = i18n::text(locale, copy_label_key);
+    let checkout_disabled = busy || actions.is_head();
 
     element.context_menu(move |menu, _window, _cx| {
         let sidebar_for_checkout = sidebar.clone();
         let sidebar_for_copy = sidebar.clone();
         let target = target.clone();
-        let copy_value = copy_value.clone();
+        let copy_value_for_copy = copy_value.clone();
 
-        menu.item(
-            PopupMenuItem::new(checkout_label.clone())
-                .icon(crate::git::lucide("git-branch"))
-                .disabled(checkout_disabled)
-                .on_click(move |_event, _window, cx| {
-                    sidebar_for_checkout.update(cx, |_sidebar, cx| {
-                        cx.emit(SidebarEvent::CheckoutRef(target.clone()));
-                    });
-                }),
-        )
-        .item(
-            PopupMenuItem::new(copy_label.clone())
-                .icon(IconName::Copy)
-                .on_click(move |_event, _window, cx| {
-                    sidebar_for_copy.update(cx, |_sidebar, cx| {
-                        cx.emit(SidebarEvent::CopyRef(copy_value.clone()));
-                    });
-                }),
-        )
+        let menu = menu
+            .item(
+                PopupMenuItem::new(checkout_label.clone())
+                    .icon(crate::git::lucide("git-branch"))
+                    .disabled(checkout_disabled)
+                    .on_click(move |_event, _window, cx| {
+                        sidebar_for_checkout.update(cx, |_sidebar, cx| {
+                            cx.emit(SidebarEvent::CheckoutRef(target.clone()));
+                        });
+                    }),
+            )
+            .item(
+                PopupMenuItem::new(copy_label.clone())
+                    .icon(IconName::Copy)
+                    .on_click(move |_event, _window, cx| {
+                        sidebar_for_copy.update(cx, |_sidebar, cx| {
+                            cx.emit(SidebarEvent::CopyRef(
+                                copy_value_for_copy.clone(),
+                            ));
+                        });
+                    }),
+            );
+
+        match actions {
+            RefActions::LocalBranch { is_head } => {
+                let sidebar_for_rename = sidebar.clone();
+                let sidebar_for_delete = sidebar.clone();
+                let sidebar_for_merge = sidebar.clone();
+                let sidebar_for_merge_no_ff = sidebar.clone();
+                let rename_value = copy_value.clone();
+                let delete_value = copy_value.clone();
+                let merge_value = copy_value.clone();
+                let merge_no_ff_value = copy_value.clone();
+
+                menu.separator()
+                    .item(
+                        PopupMenuItem::new(i18n::text(
+                            locale,
+                            "context-rename",
+                        ))
+                        .icon(crate::git::lucide("pencil"))
+                        .disabled(busy)
+                        .on_click(
+                            move |_event, _window, cx| {
+                                sidebar_for_rename.update(
+                                    cx,
+                                    |_sidebar, cx| {
+                                        cx.emit(SidebarEvent::RenameBranch(
+                                            rename_value.clone(),
+                                        ));
+                                    },
+                                );
+                            },
+                        ),
+                    )
+                    .item(
+                        PopupMenuItem::new(i18n::text(
+                            locale,
+                            "context-delete",
+                        ))
+                        .icon(crate::git::lucide("trash-2"))
+                        .disabled(busy || is_head)
+                        .on_click(
+                            move |_event, _window, cx| {
+                                sidebar_for_delete.update(
+                                    cx,
+                                    |_sidebar, cx| {
+                                        cx.emit(SidebarEvent::DeleteBranch(
+                                            delete_value.clone(),
+                                        ));
+                                    },
+                                );
+                            },
+                        ),
+                    )
+                    .separator()
+                    .item(
+                        PopupMenuItem::new(i18n::text(
+                            locale,
+                            "context-merge-into-current",
+                        ))
+                        .icon(crate::git::lucide("git-merge"))
+                        .disabled(busy || is_head)
+                        .on_click(
+                            move |_event, _window, cx| {
+                                sidebar_for_merge.update(cx, |_sidebar, cx| {
+                                    cx.emit(SidebarEvent::MergeIntoCurrent {
+                                        name: merge_value.clone(),
+                                        no_ff: false,
+                                    });
+                                });
+                            },
+                        ),
+                    )
+                    .item(
+                        PopupMenuItem::new(i18n::text(
+                            locale,
+                            "context-merge-no-ff-into-current",
+                        ))
+                        .icon(crate::git::lucide("git-merge"))
+                        .disabled(busy || is_head)
+                        .on_click(
+                            move |_event, _window, cx| {
+                                sidebar_for_merge_no_ff.update(
+                                    cx,
+                                    |_sidebar, cx| {
+                                        cx.emit(
+                                            SidebarEvent::MergeIntoCurrent {
+                                                name: merge_no_ff_value.clone(),
+                                                no_ff: true,
+                                            },
+                                        );
+                                    },
+                                );
+                            },
+                        ),
+                    )
+            }
+            RefActions::Tag => {
+                let sidebar_for_delete = sidebar.clone();
+                let delete_value = copy_value.clone();
+                menu.separator().item(
+                    PopupMenuItem::new(i18n::text(locale, "context-delete"))
+                        .icon(crate::git::lucide("trash-2"))
+                        .disabled(busy)
+                        .on_click(move |_event, _window, cx| {
+                            sidebar_for_delete.update(cx, |_sidebar, cx| {
+                                cx.emit(SidebarEvent::DeleteTag(
+                                    delete_value.clone(),
+                                ));
+                            });
+                        }),
+                )
+            }
+            RefActions::RemoteBranch => menu,
+        }
     })
 }
 
