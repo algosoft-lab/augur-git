@@ -702,12 +702,12 @@ fn diff_layout_options(
 ) -> Vec<SettingsOption<DiffLayoutPreference>> {
     vec![
         SettingsOption::new(
-            DiffLayoutPreference::Inline,
-            i18n::text(locale, "diff-layout-inline"),
-        ),
-        SettingsOption::new(
             DiffLayoutPreference::SideBySide,
             i18n::text(locale, "diff-layout-side-by-side"),
+        ),
+        SettingsOption::new(
+            DiffLayoutPreference::Inline,
+            i18n::text(locale, "diff-layout-inline"),
         ),
     ]
 }

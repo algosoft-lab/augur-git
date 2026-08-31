@@ -103,8 +103,9 @@ Coding agent or editor
   run explicit fetch, pull, push, checkout, branch, and commit operations.
 - **Multiple repositories** — keep several repositories open as tabs and return
   to recently opened repositories.
-- **Cross-platform interface** — use GitHub Dark or a Catppuccin theme on
-  Windows, macOS, or Linux, with English and Simplified Chinese localization.
+- **Cross-platform interface** — use Catppuccin Mocha by default or switch to
+  another Catppuccin variant or GitHub Dark on Windows, macOS, or Linux, with
+  English and Simplified Chinese localization.
 
 The system `git` executable is the only runtime dependency for repository
 operations; Augur Git does not embed or emulate a separate Git implementation.

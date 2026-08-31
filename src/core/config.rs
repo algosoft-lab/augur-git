@@ -44,7 +44,7 @@ pub enum ThemePreference {
 
 impl Default for ThemePreference {
     fn default() -> Self {
-        Self::GitHubDark
+        Self::CatppuccinMocha
     }
 }
 
@@ -78,7 +78,7 @@ pub enum DiffLayoutPreference {
 
 impl Default for DiffLayoutPreference {
     fn default() -> Self {
-        Self::Inline
+        Self::SideBySide
     }
 }
 
@@ -122,7 +122,7 @@ impl Default for ViewSettings {
         Self {
             show_untracked: true,
             auto_follow: true,
-            diff_layout: DiffLayoutPreference::Inline,
+            diff_layout: DiffLayoutPreference::SideBySide,
             graph_history: GraphHistoryPreference::AllBranches,
             auto_refresh_on_focus: true,
         }
@@ -246,7 +246,7 @@ fn finite_or(value: f32, fallback: f32) -> f32 {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct AppConfig {
-    /// UI theme; missing field falls back to GitHub Dark (the original look).
+    /// UI theme; missing field falls back to Catppuccin Mocha.
     #[serde(default)]
     pub theme: ThemePreference,
     #[serde(default)]
@@ -688,16 +688,16 @@ mod tests {
         assert_eq!(config.theme.registry_name(), "Catppuccin Latte");
 
         let serialized = serde_json::to_string(&AppConfig::default()).unwrap();
-        assert!(serialized.contains(r#""theme":"github-dark""#));
+        assert!(serialized.contains(r#""theme":"catppuccin-mocha""#));
     }
 
     #[test]
-    fn missing_theme_field_defaults_to_github_dark() {
+    fn missing_theme_field_defaults_to_catppuccin_mocha() {
         let json = r#"{}"#;
         let config = AppConfig::from(
             serde_json::from_str::<RawAppConfig>(json).unwrap(),
         );
-        assert_eq!(config.theme, ThemePreference::GitHubDark);
+        assert_eq!(config.theme, ThemePreference::CatppuccinMocha);
     }
 
     #[test]
@@ -718,7 +718,7 @@ mod tests {
         assert_eq!(config.view.diff_layout, DiffLayoutPreference::SideBySide);
 
         let serialized = serde_json::to_string(&AppConfig::default()).unwrap();
-        assert!(serialized.contains(r#""diff_layout":"inline""#));
+        assert!(serialized.contains(r#""diff_layout":"side-by-side""#));
     }
 
     #[test]
@@ -749,12 +749,12 @@ mod tests {
     }
 
     #[test]
-    fn missing_diff_layout_defaults_to_inline() {
+    fn missing_diff_layout_defaults_to_side_by_side() {
         let json = r#"{"view":{"show_untracked":false,"auto_follow":true}}"#;
         let config = AppConfig::from(
             serde_json::from_str::<RawAppConfig>(json).unwrap(),
         );
-        assert_eq!(config.view.diff_layout, DiffLayoutPreference::Inline);
+        assert_eq!(config.view.diff_layout, DiffLayoutPreference::SideBySide);
     }
 
     #[test]
