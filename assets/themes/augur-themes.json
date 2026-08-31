@@ -23,7 +23,9 @@
         "warning.background": "#D29922",
         "drag.border": "#388BFD",
         "primary.background": "#2F81F7",
-        "primary.foreground": "#FFFFFF"
+        "primary.foreground": "#FFFFFF",
+        "switch.background": "#3D444D",
+        "switch.thumb.background": "#FFFFFF"
       }
     },
     {
@@ -48,7 +50,9 @@
         "warning.background": "#df8e1d",
         "drag.border": "#1e66f5",
         "primary.background": "#1e66f5",
-        "primary.foreground": "#ffffff"
+        "primary.foreground": "#ffffff",
+        "switch.background": "#ccd0da",
+        "switch.thumb.background": "#ffffff"
       }
     },
     {
@@ -73,7 +77,9 @@
         "warning.background": "#e5c890",
         "drag.border": "#8caaee",
         "primary.background": "#8caaee",
-        "primary.foreground": "#303446"
+        "primary.foreground": "#303446",
+        "switch.background": "#737994",
+        "switch.thumb.background": "#c6d0f5"
       }
     },
     {
@@ -98,7 +104,9 @@
         "warning.background": "#eed49f",
         "drag.border": "#8aadf4",
         "primary.background": "#8aadf4",
-        "primary.foreground": "#24273a"
+        "primary.foreground": "#24273a",
+        "switch.background": "#6e738d",
+        "switch.thumb.background": "#cad3f5"
       }
     },
     {
@@ -123,7 +131,9 @@
         "warning.background": "#f9e2af",
         "drag.border": "#89b4fa",
         "primary.background": "#89b4fa",
-        "primary.foreground": "#1e1e2e"
+        "primary.foreground": "#1e1e2e",
+        "switch.background": "#6c7086",
+        "switch.thumb.background": "#cdd6f4"
       }
     }
   ]

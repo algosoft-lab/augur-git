@@ -246,6 +246,11 @@ mod tests {
             // primary buttons as white-on-white.
             ("primary.background", "#2F81F7"),
             ("primary.foreground", "#FFFFFF"),
+            // The switch tokens default to secondary_active / background,
+            // which on dark themes blend into the surrounding panel and make
+            // the revision-picker toggle invisible.
+            ("switch.background", "#3D444D"),
+            ("switch.thumb.background", "#FFFFFF"),
         ];
         assert_eq!(
             colors.len(),

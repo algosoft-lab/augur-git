@@ -7,8 +7,8 @@ use gpui_component::list::{List, ListDelegate, ListEvent, ListState};
 use gpui_component::popover::Popover;
 use gpui_component::searchable_list::SearchableListItemElement;
 use gpui_component::{
-    ActiveTheme, Icon, IconName, IndexPath, Sizable, StyledExt,
-    checkbox::Checkbox, v_flex,
+    ActiveTheme, Icon, IconName, IndexPath, Sizable, StyledExt, switch::Switch,
+    v_flex,
 };
 
 use crate::core::git::{CompareRevision, CompareRevisionKind};
@@ -781,7 +781,7 @@ impl Render for RevisionPicker {
             })
             .child(
                 v_flex().w_full().min_w_0().gap_1().child(popover).child(
-                    Checkbox::new(SharedString::from(format!(
+                    Switch::new(SharedString::from(format!(
                         "revision-picker-manual:{}",
                         self.id
                     )))
