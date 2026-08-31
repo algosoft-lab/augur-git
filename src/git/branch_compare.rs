@@ -229,8 +229,18 @@ impl BranchCompareView {
         cx: &mut Context<Self>,
     ) {
         if request_id != self.request_id {
+            log::warn!(
+                "[git_compare] UI dropped metadata: event_request_id={}, current_request_id={}",
+                request_id,
+                self.request_id
+            );
             return;
         }
+        log::info!(
+            "[git_compare] UI accepted metadata: request_id={}, files={}",
+            request_id,
+            files.len()
+        );
         self.files = files;
         self.documents.clear();
         self.file_errors.clear();
@@ -250,15 +260,30 @@ impl BranchCompareView {
         new_source: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        if request_id != self.request_id
-            || !self
-                .files
-                .iter()
-                .any(|candidate| candidate.identity() == file.identity())
+        if request_id != self.request_id {
+            log::warn!(
+                "[git_compare] UI dropped file event: event_request_id={}, current_request_id={}, path={}",
+                request_id,
+                self.request_id,
+                file.path
+            );
+            return;
+        }
+        if !self
+            .files
+            .iter()
+            .any(|candidate| candidate.identity() == file.identity())
         {
+            log::warn!(
+                "[git_compare] UI dropped unknown file event: request_id={}, path={}",
+                request_id,
+                file.path
+            );
             return;
         }
         let identity = file.identity();
+        let old_source_bytes = old_source.as_ref().map_or(0, String::len);
+        let new_source_bytes = new_source.as_ref().map_or(0, String::len);
         let mut document = DiffDocument::from_patch(
             file.path.clone(),
             &patch,
@@ -266,6 +291,8 @@ impl BranchCompareView {
             new_source,
         );
         document.binary |= file.is_binary();
+        let row_count = document.rows.len();
+        let document_binary = document.binary;
         let source_key = format!(
             "compare:{request_id}:{}:{}",
             identity,
@@ -278,6 +305,16 @@ impl BranchCompareView {
         ));
         self.documents
             .insert(identity, CompareDocument { document, cache });
+        log::info!(
+            "[git_compare] UI accepted file: request_id={}, path={}, patch_bytes={}, rows={}, old_source_bytes={}, new_source_bytes={}, binary={}",
+            request_id,
+            file.path,
+            patch.len(),
+            row_count,
+            old_source_bytes,
+            new_source_bytes,
+            document_binary
+        );
         cx.notify();
     }
 
@@ -305,6 +342,13 @@ impl BranchCompareView {
         if request_id == self.request_id {
             self.loading = false;
             self.finished = true;
+            log::info!(
+                "[git_compare] UI finished: request_id={}, files={}, documents={}, file_errors={}",
+                request_id,
+                self.files.len(),
+                self.documents.len(),
+                self.file_errors.len()
+            );
             cx.notify();
         }
     }
@@ -778,6 +822,23 @@ impl BranchCompareView {
                     cache: Arc::clone(&entry.cache),
                 })
                 .collect::<Vec<_>>();
+            let total_rows = sections
+                .iter()
+                .map(|section| {
+                    if layout == DiffLayoutMode::SideBySide {
+                        section.cache.side_rows.len()
+                    } else {
+                        section.cache.inline_rows.len()
+                    }
+                })
+                .sum::<usize>();
+            log::info!(
+                "[git_compare] render aggregate: request_id={}, layout={layout:?}, sections={}, documents={}, total_rows={}",
+                self.request_id,
+                sections.len(),
+                self.documents.len(),
+                total_rows
+            );
             let body = if sections.is_empty() && self.loading {
                 empty_state(
                     "branch-compare-loading-body",
@@ -932,6 +993,10 @@ impl Render for BranchCompareView {
                             .child(
                                 div()
                                     .flex_1()
+                                    // h_flex defaults to items_center, so the
+                                    // diff pane needs an explicit cross-axis
+                                    // height to keep its virtualized list visible.
+                                    .h_full()
                                     .min_w_0()
                                     .min_h_0()
                                     .child(self.diff_view(&colors, layout, cx)),

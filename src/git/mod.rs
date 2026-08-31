@@ -561,10 +561,13 @@ impl GitView {
                     old_source,
                     new_source,
                 } => {
-                    log::debug!(
-                        "[git_view] branch comparison file received: request_id={}, path={}",
+                    log::info!(
+                        "[git_view] branch comparison file received: request_id={}, path={}, patch_bytes={}, old_source_bytes={}, new_source_bytes={}",
                         request_id,
-                        file.path
+                        file.path,
+                        patch.len(),
+                        old_source.as_ref().map_or(0, String::len),
+                        new_source.as_ref().map_or(0, String::len)
                     );
                     cx.emit(GitUiEvent::BranchCompareFileDiff {
                         request_id,

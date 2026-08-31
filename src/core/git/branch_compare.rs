@@ -121,6 +121,10 @@ pub(super) fn raw_diff_args(
         "diff".to_string(),
         "--raw".to_string(),
         "-z".to_string(),
+        // Raw diff records otherwise use Git's abbreviated object IDs. The
+        // comparison worker reads the old/new blobs after parsing these
+        // records, so request stable full-width IDs explicitly.
+        "--abbrev=64".to_string(),
         "--no-color".to_string(),
         "--no-ext-diff".to_string(),
         "--find-renames".to_string(),
@@ -263,9 +267,14 @@ fn run_comparison(
     };
 
     log::info!(
-        "[git_compare] metadata loaded: request_id={}, mode={mode:?}, files={}",
+        "[git_compare] metadata loaded: request_id={}, mode={mode:?}, files={}, with_stats={}, binary_files={}",
         request_id,
-        files.len()
+        files.len(),
+        files
+            .iter()
+            .filter(|file| file.added.is_some() && file.deleted.is_some())
+            .count(),
+        files.iter().filter(|file| file.is_binary()).count()
     );
     let _ = event_tx.send(GitEvent::BranchCompareFiles {
         request_id,
@@ -295,11 +304,14 @@ fn run_comparison(
                             .and_then(|oid| read_blob_limited(repo_path, oid)),
                     )
                 };
-                log::debug!(
-                    "[git_compare] file loaded: request_id={}, path={}, patch_bytes={}",
+                log::info!(
+                    "[git_compare] file loaded: request_id={}, path={}, patch_bytes={}, old_source_bytes={}, new_source_bytes={}, binary={}",
                     request_id,
                     file.path,
-                    patch.len()
+                    patch.len(),
+                    old_source.as_ref().map_or(0, String::len),
+                    new_source.as_ref().map_or(0, String::len),
+                    file.is_binary()
                 );
                 let _ = event_tx.send(GitEvent::BranchCompareFileDiff {
                     request_id,
@@ -480,6 +492,11 @@ mod tests {
             numstat_args("repo", "a", "b").last(),
             Some(&"b".to_string())
         );
+        assert!(
+            raw_diff_args("repo", "a", "b")
+                .iter()
+                .any(|arg| arg == "--abbrev=64")
+        );
     }
 
     #[test]
@@ -541,6 +558,16 @@ mod tests {
             &target,
             BranchCompareMode::Direct,
         );
+        assert!(direct_events.iter().any(|event| {
+            matches!(
+                event,
+                GitEvent::BranchCompareFileDiff {
+                    old_source: Some(source),
+                    new_source: Some(_),
+                    ..
+                } if !source.is_empty()
+            )
+        }));
         let (direct_files, direct_diffs) = inspect_events(direct_events, 11);
         let direct_paths = direct_files
             .iter()
