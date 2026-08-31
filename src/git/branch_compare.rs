@@ -498,6 +498,7 @@ impl BranchCompareView {
             .flex_shrink_0()
             .gap_2()
             .p_3()
+            .text_size(crate::theme::scaled_text_size(11.))
             .bg(colors.tab_bar)
             .border_b_1()
             .border_color(colors.border)
@@ -576,7 +577,6 @@ impl BranchCompareView {
                     ))
                     .child(compare_field_action(
                         Button::new("branch-compare-run")
-                            .label(run_label)
                             .primary()
                             .compact()
                             .flex_shrink_0()
@@ -585,7 +585,14 @@ impl BranchCompareView {
                                 this.update(cx, |view, cx| {
                                     view.start_compare(cx)
                                 });
-                            }),
+                            })
+                            .child(
+                                div()
+                                    .text_size(crate::theme::scaled_text_size(
+                                        12.,
+                                    ))
+                                    .child(shared(run_label)),
+                            ),
                     )),
             )
             .when_some(self.request_error.clone(), |header, error| {
@@ -699,6 +706,7 @@ impl BranchCompareView {
             .flex_shrink_0()
             .gap_1()
             .p_2()
+            .text_size(crate::theme::scaled_text_size(11.))
             .overflow_y_scroll()
             .border_r_1()
             .border_color(colors.border)
@@ -816,7 +824,10 @@ impl BranchCompareView {
                         .items_center()
                         .px_2()
                         .gap_2()
-                        .text_size(diff_font_size)
+                        .text_size(crate::theme::scaled_diff_text_size(
+                            11.,
+                            diff_font_size,
+                        ))
                         .border_b_1()
                         .border_color(colors.border)
                         .child(shared(i18n::text(
@@ -892,7 +903,10 @@ impl BranchCompareView {
                     .flex_shrink_0()
                     .items_center()
                     .px_2()
-                    .text_size(diff_font_size)
+                    .text_size(crate::theme::scaled_diff_text_size(
+                        11.,
+                        diff_font_size,
+                    ))
                     .child(shared(entry.document.path.clone()))
                     .child(div().flex_1())
                     .child(
@@ -940,6 +954,7 @@ impl Render for BranchCompareWindow {
             .id("branch-compare-window")
             .size_full()
             .min_h_0()
+            .text_size(crate::theme::scaled_text_size(11.))
             .bg(colors.background)
             .child(
                 TitleBar::new().child(

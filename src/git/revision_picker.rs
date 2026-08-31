@@ -7,8 +7,8 @@ use gpui_component::list::{List, ListDelegate, ListEvent, ListState};
 use gpui_component::popover::Popover;
 use gpui_component::searchable_list::SearchableListItemElement;
 use gpui_component::{
-    ActiveTheme, Icon, IconName, IndexPath, Sizable, StyledExt, switch::Switch,
-    v_flex,
+    ActiveTheme, Icon, IconName, IndexPath, Sizable, StyledExt, h_flex,
+    switch::Switch, v_flex,
 };
 
 use crate::core::git::{CompareRevision, CompareRevisionKind};
@@ -724,6 +724,23 @@ impl Render for RevisionPicker {
             _ => None,
         };
         let input_focus = input_state.read(cx).focus_handle(cx);
+        let manual_label =
+            i18n::text(self.locale, "branch-compare-manual-input");
+        let manual_switch = Switch::new(SharedString::from(format!(
+            "revision-picker-manual:{}",
+            self.id
+        )))
+        .small()
+        .flex_shrink_0()
+        .checked(manual_input)
+        .on_click({
+            let this = this.clone();
+            move |checked, window, cx| {
+                this.update(cx, |picker, cx| {
+                    picker.set_manual_input(*checked, window, cx);
+                });
+            }
+        });
         let popover = Popover::new(SharedString::from(format!(
             "revision-picker-popover:{}",
             self.id
@@ -744,6 +761,7 @@ impl Render for RevisionPicker {
             Input::new(&input_state)
                 .w(px(230.))
                 .h(px(26.))
+                .text_size(crate::theme::scaled_text_size(11.))
                 .cleanable(true)
                 .when(!manual_input, |input| {
                     input.suffix(Icon::new(IconName::ChevronDown).size(px(13.)))
@@ -781,25 +799,27 @@ impl Render for RevisionPicker {
             })
             .child(
                 v_flex().w_full().min_w_0().gap_1().child(popover).child(
-                    Switch::new(SharedString::from(format!(
-                        "revision-picker-manual:{}",
-                        self.id
-                    )))
-                    .label(i18n::text(
-                        self.locale,
-                        "branch-compare-manual-input",
-                    ))
-                    .small()
-                    .flex_shrink_0()
-                    .checked(manual_input)
-                    .on_click({
-                        let this = this.clone();
-                        move |checked, window, cx| {
-                            this.update(cx, |picker, cx| {
-                                picker.set_manual_input(*checked, window, cx);
-                            });
-                        }
-                    }),
+                    h_flex().items_center().gap_2().child(manual_switch).child(
+                        div()
+                            .id(SharedString::from(format!(
+                                "revision-picker-manual-label:{}",
+                                self.id
+                            )))
+                            .text_size(crate::theme::scaled_text_size(11.))
+                            .child(shared(manual_label))
+                            .on_click({
+                                let this = this.clone();
+                                move |_event, window, cx| {
+                                    this.update(cx, |picker, cx| {
+                                        picker.set_manual_input(
+                                            !picker.manual_input,
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                }
+                            }),
+                    ),
                 ),
             )
             .when_some(validation, |view, message| {

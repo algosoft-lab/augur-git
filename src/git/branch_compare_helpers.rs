@@ -139,7 +139,7 @@ pub(super) fn empty_state(
     id: &'static str,
     colors: &gpui_component::theme::ThemeColor,
     message: String,
-    font_size: Pixels,
+    diff_font_size: Pixels,
 ) -> Stateful<Div> {
     v_flex()
         .id(id)
@@ -147,7 +147,7 @@ pub(super) fn empty_state(
         .items_center()
         .justify_center()
         .gap_2()
-        .text_size(font_size)
+        .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
         .text_color(colors.muted_foreground)
         .child(lucide("git-branch"))
         .child(shared(message))
