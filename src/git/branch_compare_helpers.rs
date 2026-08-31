@@ -20,15 +20,30 @@ where
     T: IntoElement,
 {
     v_flex()
-        .flex_1()
         .min_w_0()
         .gap_0p5()
         .child(
             div()
+                .h(px(14.))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
                 .text_size(px(10.))
                 .text_color(label_color)
                 .child(shared(label.to_string())),
         )
+        .child(control)
+        .into_any_element()
+}
+
+/// Wraps an action control with the same label-row offset as `compare_field`
+/// so buttons share the row with the input controls.
+pub(super) fn compare_field_action<T: IntoElement>(control: T) -> AnyElement {
+    v_flex()
+        .min_w_0()
+        .flex_shrink_0()
+        .gap_0p5()
+        .child(div().h(px(14.)).flex_shrink_0())
         .child(control)
         .into_any_element()
 }

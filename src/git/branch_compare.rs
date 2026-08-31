@@ -25,9 +25,9 @@ use super::{lucide, shared};
 #[path = "branch_compare_helpers.rs"]
 mod helpers;
 use helpers::{
-    choose_selection, choose_target, compare_field, empty_state, first_line,
-    format_commit_revision_label, format_revision_label, stat_bar,
-    stat_summary,
+    choose_selection, choose_target, compare_field, compare_field_action,
+    empty_state, first_line, format_commit_revision_label,
+    format_revision_label, stat_bar, stat_summary,
 };
 
 /// Events emitted by the branch comparison view.
@@ -541,12 +541,11 @@ impl BranchCompareView {
                         self.base_picker.clone(),
                         colors.muted_foreground,
                     ))
-                    .child(
+                    .child(compare_field_action(
                         Button::new("branch-compare-swap")
                             .icon(lucide("refresh-cw"))
                             .ghost()
                             .compact()
-                            .mt(px(14.))
                             .flex_shrink_0()
                             .disabled(
                                 self.base_picker
@@ -569,18 +568,17 @@ impl BranchCompareView {
                                     });
                                 }
                             }),
-                    )
+                    ))
                     .child(compare_field(
                         &target_label,
                         self.target_picker.clone(),
                         colors.muted_foreground,
                     ))
-                    .child(
+                    .child(compare_field_action(
                         Button::new("branch-compare-run")
                             .label(run_label)
                             .primary()
                             .compact()
-                            .mt(px(14.))
                             .flex_shrink_0()
                             .disabled(!compare_enabled)
                             .on_click(move |_event, _window, cx| {
@@ -588,7 +586,7 @@ impl BranchCompareView {
                                     view.start_compare(cx)
                                 });
                             }),
-                    ),
+                    )),
             )
             .when_some(self.request_error.clone(), |header, error| {
                 header.child(
