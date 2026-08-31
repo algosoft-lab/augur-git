@@ -136,7 +136,7 @@ impl Toolbar {
             .rounded_md()
             .opacity(if enabled { 1.0 } else { 0.45 })
             .hover(|this| this.bg(colors.list_hover))
-            .text_size(px(12.))
+            .text_size(crate::theme::scaled_text_size(12.))
             .text_color(colors.foreground)
             .child(
                 h_flex()
@@ -144,7 +144,7 @@ impl Toolbar {
                     .items_center()
                     .child(
                         div()
-                            .text_size(px(14.))
+                            .text_size(crate::theme::scaled_text_size(14.))
                             .text_color(colors.muted_foreground)
                             .child(icon),
                     )
@@ -177,11 +177,15 @@ impl Toolbar {
             .disabled(self.busy)
             .child(
                 div()
-                    .text_size(px(14.))
+                    .text_size(crate::theme::scaled_text_size(14.))
                     .text_color(colors.muted_foreground)
                     .child(lucide("git-branch")),
             )
-            .child(div().text_size(px(12.)).child(shared(label)))
+            .child(
+                div()
+                    .text_size(crate::theme::scaled_text_size(12.))
+                    .child(shared(label)),
+            )
             .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
                 let this = this.clone();
                 let new_item = this.clone();
@@ -288,9 +292,13 @@ impl Toolbar {
                 h_flex()
                     .gap_0p5()
                     .items_center()
-                    .text_size(px(11.))
+                    .text_size(crate::theme::scaled_text_size(11.))
                     .text_color(color)
-                    .child(div().text_size(px(11.)).child(Icon::new(icon)))
+                    .child(
+                        div()
+                            .text_size(crate::theme::scaled_text_size(11.))
+                            .child(Icon::new(icon)),
+                    )
                     .child(shared(format!("{n}"))),
             )
     }

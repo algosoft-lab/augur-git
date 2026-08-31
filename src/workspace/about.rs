@@ -74,9 +74,10 @@ pub(super) fn open_about_window(
 impl Render for AboutWindow {
     fn render(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        window.set_rem_size(cx.theme().font_size);
         let colors = cx.theme().colors.clone();
         let locale = self.locale;
 
@@ -87,7 +88,7 @@ impl Render for AboutWindow {
             .child(
                 TitleBar::new().child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(crate::theme::scaled_text_size(12.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(colors.foreground)
                         .child(i18n::text(locale, "menu-about")),
@@ -117,21 +118,21 @@ fn render_about_content(
                 .child(img("augur-git-logo.svg").size(px(72.)))
                 .child(
                     div()
-                        .text_size(px(13.))
+                        .text_size(crate::theme::scaled_text_size(13.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(colors.muted_foreground)
                         .child(i18n::text(locale, "about-title")),
                 )
                 .child(
                     div()
-                        .text_size(px(20.))
+                        .text_size(crate::theme::scaled_text_size(20.))
                         .font_weight(FontWeight::BOLD)
                         .text_color(colors.foreground)
                         .child(build_info::APP_NAME),
                 )
                 .child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(crate::theme::scaled_text_size(12.))
                         .text_color(colors.muted_foreground)
                         .child(i18n::text(locale, "about-tagline")),
                 ),
@@ -172,7 +173,7 @@ fn metadata_row(
             div()
                 .w(px(76.))
                 .flex_shrink_0()
-                .text_size(px(12.))
+                .text_size(crate::theme::scaled_text_size(12.))
                 .text_color(colors.muted_foreground)
                 .child(label),
         )
@@ -180,7 +181,7 @@ fn metadata_row(
             div()
                 .flex_1()
                 .min_w_0()
-                .text_size(px(12.))
+                .text_size(crate::theme::scaled_text_size(12.))
                 .text_color(colors.foreground)
                 .child(value),
         )

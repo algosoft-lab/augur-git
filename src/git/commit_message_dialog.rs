@@ -95,7 +95,7 @@ impl Render for CommitMessageDialog {
         let Some(commit) = self.commit.as_ref() else {
             return v_flex().child(
                 div()
-                    .text_size(px(12.))
+                    .text_size(crate::theme::scaled_text_size(12.))
                     .text_color(colors.muted_foreground)
                     .child(shared(i18n::text(
                         self.locale,
@@ -125,14 +125,14 @@ impl Render for CommitMessageDialog {
                             .rounded_md()
                             .bg(colors.input)
                             .font_family(mono)
-                            .text_size(px(11.))
+                            .text_size(crate::theme::scaled_text_size(11.))
                             .text_color(colors.accent)
                             .child(shared(commit.short.clone())),
                     )
                     .when(!commit.decorations.is_empty(), |row| {
                         row.child(
                             div()
-                                .text_size(px(10.))
+                                .text_size(crate::theme::scaled_text_size(10.))
                                 .text_color(colors.muted_foreground)
                                 .truncate()
                                 .child(shared(commit.decorations.clone())),
@@ -142,7 +142,7 @@ impl Render for CommitMessageDialog {
             .child(
                 div()
                     .w_full()
-                    .text_size(px(13.))
+                    .text_size(crate::theme::scaled_text_size(13.))
                     .text_color(colors.foreground)
                     .child(shared(subject)),
             );
@@ -153,7 +153,7 @@ impl Render for CommitMessageDialog {
                     content = content.child(
                         div()
                             .w_full()
-                            .text_size(px(12.))
+                            .text_size(crate::theme::scaled_text_size(12.))
                             .text_color(colors.foreground)
                             .child(shared(message.body.clone())),
                     );
@@ -165,7 +165,9 @@ impl Render for CommitMessageDialog {
                             .gap_0p5()
                             .child(
                                 div()
-                                    .text_size(px(11.))
+                                    .text_size(crate::theme::scaled_text_size(
+                                        11.,
+                                    ))
                                     .text_color(colors.muted_foreground)
                                     .child(shared(i18n::text(
                                         self.locale,
@@ -175,7 +177,9 @@ impl Render for CommitMessageDialog {
                             .children(message.co_authors.iter().map(
                                 |co_author| {
                                     div()
-                                        .text_size(px(11.))
+                                        .text_size(
+                                            crate::theme::scaled_text_size(11.),
+                                        )
                                         .text_color(colors.foreground)
                                         .child(shared(co_author.display()))
                                 },
@@ -186,7 +190,7 @@ impl Render for CommitMessageDialog {
             None => {
                 content = content.child(
                     div()
-                        .text_size(px(11.))
+                        .text_size(crate::theme::scaled_text_size(11.))
                         .text_color(colors.muted_foreground)
                         .child(shared(i18n::text(
                             self.locale,
@@ -201,7 +205,7 @@ impl Render for CommitMessageDialog {
                 .gap_3()
                 .child(
                     div()
-                        .text_size(px(11.))
+                        .text_size(crate::theme::scaled_text_size(11.))
                         .text_color(colors.muted_foreground)
                         .child(shared(i18n::text_args(
                             self.locale,
@@ -211,7 +215,7 @@ impl Render for CommitMessageDialog {
                 )
                 .child(
                     div()
-                        .text_size(px(11.))
+                        .text_size(crate::theme::scaled_text_size(11.))
                         .text_color(colors.muted_foreground)
                         .child(shared(i18n::text_args(
                             self.locale,

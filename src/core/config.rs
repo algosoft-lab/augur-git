@@ -129,14 +129,63 @@ impl Default for ViewSettings {
     }
 }
 
-/// User-selected font families. `None` keeps the active theme/platform
-/// default and avoids serializing GPUI-specific types into application config.
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub const DEFAULT_UI_FONT_SIZE: f32 = 16.0;
+pub const MIN_UI_FONT_SIZE: f32 = 12.0;
+pub const MAX_UI_FONT_SIZE: f32 = 20.0;
+pub const DEFAULT_DIFF_FONT_SIZE: f32 = 16.0;
+pub const MIN_DIFF_FONT_SIZE: f32 = 12.0;
+pub const MAX_DIFF_FONT_SIZE: f32 = 20.0;
+
+/// Keep user-selected UI font sizes within the range supported by the layout.
+pub fn normalized_ui_font_size(value: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE)
+    } else {
+        DEFAULT_UI_FONT_SIZE
+    }
+}
+
+/// Keep user-selected Diff font sizes within the range supported by the layout.
+pub fn normalized_diff_font_size(value: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(MIN_DIFF_FONT_SIZE, MAX_DIFF_FONT_SIZE)
+    } else {
+        DEFAULT_DIFF_FONT_SIZE
+    }
+}
+
+/// User-selected font families and base UI/Diff font sizes. `None` keeps the
+/// active theme/platform default and avoids serializing GPUI-specific types
+/// into application config.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TypographySettings {
     #[serde(default)]
     pub ui_font_family: Option<String>,
     #[serde(default)]
     pub mono_font_family: Option<String>,
+    #[serde(default = "default_ui_font_size")]
+    pub ui_font_size: f32,
+    #[serde(default = "default_diff_font_size")]
+    pub diff_font_size: f32,
+}
+
+fn default_ui_font_size() -> f32 {
+    DEFAULT_UI_FONT_SIZE
+}
+
+fn default_diff_font_size() -> f32 {
+    DEFAULT_DIFF_FONT_SIZE
+}
+
+impl Default for TypographySettings {
+    fn default() -> Self {
+        Self {
+            ui_font_family: None,
+            mono_font_family: None,
+            ui_font_size: DEFAULT_UI_FONT_SIZE,
+            diff_font_size: DEFAULT_DIFF_FONT_SIZE,
+        }
+    }
 }
 
 pub const DEFAULT_WINDOW_WIDTH: u32 = 1280;
@@ -591,6 +640,8 @@ mod tests {
         config.view.show_untracked = false;
         config.typography.ui_font_family = Some("Inter".into());
         config.typography.mono_font_family = Some("JetBrains Mono".into());
+        config.typography.ui_font_size = 18.0;
+        config.typography.diff_font_size = 14.0;
 
         let text = serde_json::to_string(&config).unwrap();
         let back: AppConfig = serde_json::from_str(&text).unwrap();
@@ -607,6 +658,8 @@ mod tests {
         assert!(config.open_tabs.is_empty());
         assert!(config.recent_repos.is_empty());
         assert_eq!(config.typography, TypographySettings::default());
+        assert_eq!(config.typography.ui_font_size, DEFAULT_UI_FONT_SIZE);
+        assert_eq!(config.typography.diff_font_size, DEFAULT_DIFF_FONT_SIZE);
     }
 
     #[test]
@@ -707,6 +760,45 @@ mod tests {
             serde_json::from_str::<RawAppConfig>(json).unwrap(),
         );
         assert_eq!(config.typography, TypographySettings::default());
+    }
+
+    #[test]
+    fn legacy_typography_config_defaults_ui_font_size() {
+        let json = r#"{"typography":{"ui_font_family":"Inter"}}"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(config.typography.ui_font_family.as_deref(), Some("Inter"));
+        assert_eq!(config.typography.ui_font_size, DEFAULT_UI_FONT_SIZE);
+        assert_eq!(config.typography.diff_font_size, DEFAULT_DIFF_FONT_SIZE);
+    }
+
+    #[test]
+    fn normalizes_ui_font_size_to_supported_range() {
+        assert_eq!(normalized_ui_font_size(f32::NAN), DEFAULT_UI_FONT_SIZE);
+        assert_eq!(
+            normalized_ui_font_size(MIN_UI_FONT_SIZE - 1.0),
+            MIN_UI_FONT_SIZE
+        );
+        assert_eq!(
+            normalized_ui_font_size(MAX_UI_FONT_SIZE + 1.0),
+            MAX_UI_FONT_SIZE
+        );
+        assert_eq!(normalized_ui_font_size(18.0), 18.0);
+    }
+
+    #[test]
+    fn normalizes_diff_font_size_to_supported_range() {
+        assert_eq!(normalized_diff_font_size(f32::NAN), DEFAULT_DIFF_FONT_SIZE);
+        assert_eq!(
+            normalized_diff_font_size(MIN_DIFF_FONT_SIZE - 1.0),
+            MIN_DIFF_FONT_SIZE
+        );
+        assert_eq!(
+            normalized_diff_font_size(MAX_DIFF_FONT_SIZE + 1.0),
+            MAX_DIFF_FONT_SIZE
+        );
+        assert_eq!(normalized_diff_font_size(18.0), 18.0);
     }
 
     #[test]

@@ -253,6 +253,12 @@ impl Workspace {
                 SettingsPanelEvent::MonoFontChanged(font) => {
                     workspace.set_mono_font(font.clone(), cx);
                 }
+                SettingsPanelEvent::UiFontSizeChanged(size) => {
+                    workspace.set_ui_font_size(*size, cx);
+                }
+                SettingsPanelEvent::DiffFontSizeChanged(size) => {
+                    workspace.set_diff_font_size(*size, cx);
+                }
             },
         )
         .detach();
@@ -681,11 +687,11 @@ impl Workspace {
                 .bg(colors.input)
                 .hover(|element| element.bg(colors.list_hover))
                 .cursor(CursorStyle::PointingHand)
-                .text_size(px(11.))
+                .text_size(crate::theme::scaled_text_size(11.))
                 .text_color(colors.blue)
                 .child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(crate::theme::scaled_text_size(12.))
                         .text_color(colors.blue)
                         .child(crate::git::lucide("git-branch")),
                 )
@@ -723,12 +729,12 @@ impl Workspace {
                         .text_color(colors.blue)
                         .child(
                             div()
-                                .text_size(px(16.))
+                                .text_size(crate::theme::scaled_text_size(16.))
                                 .child(crate::git::lucide("git-branch")),
                         )
                         .child(
                             div()
-                                .text_size(px(12.))
+                                .text_size(crate::theme::scaled_text_size(12.))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(colors.foreground)
                                 .child("augur-git"),
@@ -953,7 +959,7 @@ impl Workspace {
             .items_center()
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(crate::theme::scaled_text_size(11.))
                     .text_color(colors.muted_foreground)
                     .child(i18n::text(self.locale, "status-no-repo-selected")),
             )

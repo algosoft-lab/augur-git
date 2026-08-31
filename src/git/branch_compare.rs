@@ -592,7 +592,7 @@ impl BranchCompareView {
                 header.child(
                     div()
                         .w_full()
-                        .text_size(px(11.))
+                        .text_size(crate::theme::scaled_text_size(11.))
                         .text_color(colors.red)
                         .child(shared(error)),
                 )
@@ -631,7 +631,7 @@ impl BranchCompareView {
             .child(
                 div()
                     .flex_1()
-                    .text_size(px(11.))
+                    .text_size(crate::theme::scaled_text_size(11.))
                     .text_color(colors.foreground)
                     .child(shared(i18n::text(
                         self.locale,
@@ -671,7 +671,7 @@ impl BranchCompareView {
                         .flex_1()
                         .min_w_0()
                         .font_family(cx.theme().mono_font_family.clone())
-                        .text_size(px(11.))
+                        .text_size(crate::theme::scaled_text_size(11.))
                         .text_color(colors.foreground)
                         .truncate()
                         .child(shared(file.path.clone())),
@@ -679,7 +679,7 @@ impl BranchCompareView {
                 .when_some(error, |row, error| {
                     row.child(
                         div()
-                            .text_size(px(10.))
+                            .text_size(crate::theme::scaled_text_size(10.))
                             .text_color(colors.red)
                             .child(shared(first_line(&error).to_string())),
                     )
@@ -722,6 +722,7 @@ impl BranchCompareView {
         cx: &Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme().highlight_theme.clone();
+        let diff_font_size = cx.theme().mono_font_size;
         for entry in self.documents.values_mut() {
             if entry.cache.theme.as_ref() != theme.as_ref() {
                 entry.cache = Arc::new(DiffViewCache::build_for(
@@ -736,6 +737,7 @@ impl BranchCompareView {
                 "branch-compare-error",
                 colors,
                 i18n::text(self.locale, "branch-compare-error"),
+                diff_font_size,
             )
             .into_any_element();
         }
@@ -747,8 +749,13 @@ impl BranchCompareView {
             } else {
                 i18n::text(self.locale, "branch-compare-select-hint")
             };
-            return empty_state("branch-compare-empty", colors, message)
-                .into_any_element();
+            return empty_state(
+                "branch-compare-empty",
+                colors,
+                message,
+                diff_font_size,
+            )
+            .into_any_element();
         }
         if self.show_all {
             let sections = self
@@ -782,6 +789,7 @@ impl BranchCompareView {
                     "branch-compare-loading-body",
                     colors,
                     i18n::text(self.locale, "branch-compare-loading"),
+                    diff_font_size,
                 )
                 .into_any_element()
             } else {
@@ -790,6 +798,7 @@ impl BranchCompareView {
                     layout,
                     colors,
                     &cx.theme().mono_font_family,
+                    diff_font_size,
                     shared(i18n::text(self.locale, "bottom-bin")),
                     shared(i18n::text(self.locale, "diff-no-output")),
                 )
@@ -807,6 +816,7 @@ impl BranchCompareView {
                         .items_center()
                         .px_2()
                         .gap_2()
+                        .text_size(diff_font_size)
                         .border_b_1()
                         .border_color(colors.border)
                         .child(shared(i18n::text(
@@ -844,6 +854,7 @@ impl BranchCompareView {
                 "branch-compare-no-file",
                 colors,
                 i18n::text(self.locale, "branch-compare-select-file"),
+                diff_font_size,
             )
             .into_any_element();
         };
@@ -852,14 +863,20 @@ impl BranchCompareView {
                 self.file_errors.get(&identity).cloned().unwrap_or_else(|| {
                     i18n::text(self.locale, "branch-compare-loading")
                 });
-            return empty_state("branch-compare-file-loading", colors, message)
-                .into_any_element();
+            return empty_state(
+                "branch-compare-file-loading",
+                colors,
+                message,
+                diff_font_size,
+            )
+            .into_any_element();
         };
         if entry.document.binary {
             return empty_state(
                 "branch-compare-binary",
                 colors,
                 i18n::text(self.locale, "bottom-bin"),
+                diff_font_size,
             )
             .into_any_element();
         }
@@ -875,6 +892,7 @@ impl BranchCompareView {
                     .flex_shrink_0()
                     .items_center()
                     .px_2()
+                    .text_size(diff_font_size)
                     .child(shared(entry.document.path.clone()))
                     .child(div().flex_1())
                     .child(
@@ -893,6 +911,7 @@ impl BranchCompareView {
                 layout,
                 colors,
                 &cx.theme().mono_font_family,
+                diff_font_size,
             ))
             .into_any_element()
     }
@@ -925,7 +944,7 @@ impl Render for BranchCompareWindow {
             .child(
                 TitleBar::new().child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(crate::theme::scaled_text_size(12.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(colors.foreground)
                         .child(shared(i18n::text(

@@ -14,7 +14,7 @@ use crate::core::i18n::{self, Locale};
 use crate::git::diff_view::{self, DiffLayoutMode, DiffViewCache};
 use crate::git::shared;
 
-use super::{BottomPanel, bottom_empty_state};
+use super::{BottomPanel, bottom_empty_state, diff_empty_state};
 
 pub(super) struct WorkingTreeDiffState {
     request_id: u64,
@@ -205,6 +205,7 @@ impl BottomPanel {
         let diff_layout = self.diff_layout;
         let content_width = self.content_width;
         let mono_font = cx.theme().mono_font_family.clone();
+        let diff_font_size = cx.theme().mono_font_size;
         let Some(state) = self.working_tree.as_mut() else {
             return bottom_empty_state(
                 "bottom-no-commit",
@@ -221,11 +222,12 @@ impl BottomPanel {
             f32::from(window.bounds().size.width)
         };
         let body = if state.loading {
-            bottom_empty_state(
+            diff_empty_state(
                 "bottom-working-diff-loading",
                 colors,
                 Icon::new(IconName::Info).into_any_element(),
                 i18n::text(locale, "diff-working-tree-loading"),
+                diff_font_size,
             )
             .into_any_element()
         } else if let Some(error) = state.error.as_deref() {
@@ -234,24 +236,37 @@ impl BottomPanel {
                 .items_center()
                 .justify_center()
                 .gap_1()
-                .child(div().text_size(px(11.)).text_color(colors.red).child(
-                    shared(i18n::text(locale, "diff-working-tree-error")),
-                ))
+                .child(
+                    div()
+                        .text_size(crate::theme::scaled_diff_text_size(
+                            11.,
+                            diff_font_size,
+                        ))
+                        .text_color(colors.red)
+                        .child(shared(i18n::text(
+                            locale,
+                            "diff-working-tree-error",
+                        ))),
+                )
                 .child(
                     div()
                         .max_w(px(600.))
-                        .text_size(px(11.))
+                        .text_size(crate::theme::scaled_diff_text_size(
+                            11.,
+                            diff_font_size,
+                        ))
                         .text_color(colors.muted_foreground)
                         .child(shared(error.to_string())),
                 )
                 .into_any_element()
         } else {
             let Some(document) = state.document.as_ref() else {
-                return bottom_empty_state(
+                return diff_empty_state(
                     "bottom-working-diff-empty",
                     colors,
                     Icon::new(IconName::File).into_any_element(),
                     i18n::text(locale, "diff-no-output"),
+                    diff_font_size,
                 )
                 .into_any_element();
             };
@@ -275,16 +290,20 @@ impl BottomPanel {
                     .size_full()
                     .items_center()
                     .justify_center()
-                    .text_size(px(11.))
+                    .text_size(crate::theme::scaled_diff_text_size(
+                        11.,
+                        diff_font_size,
+                    ))
                     .text_color(colors.muted_foreground)
                     .child(shared(i18n::text(locale, "bottom-bin")))
                     .into_any_element()
             } else if document.rows.is_empty() {
-                bottom_empty_state(
+                diff_empty_state(
                     "bottom-working-diff-empty",
                     colors,
                     Icon::new(IconName::File).into_any_element(),
                     i18n::text(locale, "diff-no-output"),
+                    diff_font_size,
                 )
                 .into_any_element()
             } else if let Some(cache) = state.cache.as_ref() {
@@ -293,13 +312,20 @@ impl BottomPanel {
                 } else {
                     diff_layout
                 };
-                diff_view::render_document(cache, layout, colors, &mono_font)
+                diff_view::render_document(
+                    cache,
+                    layout,
+                    colors,
+                    &mono_font,
+                    diff_font_size,
+                )
             } else {
-                bottom_empty_state(
+                diff_empty_state(
                     "bottom-working-diff-empty",
                     colors,
                     Icon::new(IconName::File).into_any_element(),
                     i18n::text(locale, "diff-no-output"),
+                    diff_font_size,
                 )
                 .into_any_element()
             }
@@ -317,7 +343,7 @@ impl BottomPanel {
             .border_b_1()
             .border_color(colors.border)
             .font_family(cx.theme().mono_font_family.clone())
-            .text_size(px(11.))
+            .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
             .text_color(colors.muted_foreground)
             .child(
                 div()

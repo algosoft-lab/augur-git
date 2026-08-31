@@ -28,7 +28,7 @@ where
                 .flex_shrink_0()
                 .flex()
                 .items_center()
-                .text_size(px(10.))
+                .text_size(crate::theme::scaled_text_size(10.))
                 .text_color(label_color)
                 .child(shared(label.to_string())),
         )
@@ -139,6 +139,7 @@ pub(super) fn empty_state(
     id: &'static str,
     colors: &gpui_component::theme::ThemeColor,
     message: String,
+    font_size: Pixels,
 ) -> Stateful<Div> {
     v_flex()
         .id(id)
@@ -146,6 +147,7 @@ pub(super) fn empty_state(
         .items_center()
         .justify_center()
         .gap_2()
+        .text_size(font_size)
         .text_color(colors.muted_foreground)
         .child(lucide("git-branch"))
         .child(shared(message))
@@ -172,7 +174,7 @@ pub(super) fn stat_bar(
         .gap_1()
         .items_center()
         .flex_shrink_0()
-        .text_size(px(10.))
+        .text_size(crate::theme::scaled_text_size(10.))
         .child(
             div()
                 .text_color(colors.green)
@@ -194,7 +196,7 @@ pub(super) fn stat_summary(
     h_flex()
         .gap_1()
         .items_center()
-        .text_size(px(11.))
+        .text_size(crate::theme::scaled_text_size(11.))
         .child(
             div()
                 .text_color(colors.green)

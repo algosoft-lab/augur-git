@@ -112,13 +112,13 @@ impl RepoTab {
             .gap_2()
             .child(
                 div()
-                    .text_size(px(16.))
+                    .text_size(crate::theme::scaled_text_size(16.))
                     .text_color(colors.red)
                     .child(Icon::new(IconName::TriangleAlert)),
             )
             .child(
                 div()
-                    .text_size(px(14.))
+                    .text_size(crate::theme::scaled_text_size(14.))
                     .font_weight(FontWeight::BOLD)
                     .text_color(colors.foreground)
                     .child(shared(i18n::text(locale, "push-force-title"))),
@@ -151,7 +151,7 @@ impl RepoTab {
             "force-push-card",
             title_row,
             div()
-                .text_size(px(12.))
+                .text_size(crate::theme::scaled_text_size(12.))
                 .text_color(colors.muted_foreground)
                 .child(shared(i18n::text_args(
                     locale,
@@ -202,13 +202,13 @@ impl RepoTab {
             .gap_2()
             .child(
                 div()
-                    .text_size(px(16.))
+                    .text_size(crate::theme::scaled_text_size(16.))
                     .text_color(colors.red)
                     .child(Icon::new(IconName::TriangleAlert)),
             )
             .child(
                 div()
-                    .text_size(px(14.))
+                    .text_size(crate::theme::scaled_text_size(14.))
                     .font_weight(FontWeight::BOLD)
                     .text_color(colors.foreground)
                     .child(shared(i18n::text(locale, "discard-title"))),
@@ -239,7 +239,7 @@ impl RepoTab {
             "discard-card",
             title_row,
             div()
-                .text_size(px(12.))
+                .text_size(crate::theme::scaled_text_size(12.))
                 .text_color(colors.muted_foreground)
                 .child(shared(warning)),
             h_flex()

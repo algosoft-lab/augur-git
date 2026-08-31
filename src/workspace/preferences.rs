@@ -2,7 +2,7 @@ use gpui::*;
 
 use crate::core::config::{
     DiffLayoutPreference, GraphHistoryPreference, LanguagePreference,
-    ThemePreference,
+    ThemePreference, normalized_diff_font_size, normalized_ui_font_size,
 };
 use crate::core::i18n;
 use crate::git::diff_view::DiffLayoutMode;
@@ -120,6 +120,39 @@ impl Workspace {
         theme::apply(self.config.theme, &self.config.typography, cx);
         self.config_saver.schedule(&self.config);
         log::info!("[settings] mono font preference changed");
+        cx.notify();
+    }
+
+    pub(super) fn set_ui_font_size(
+        &mut self,
+        size: f32,
+        cx: &mut Context<Self>,
+    ) {
+        let size = normalized_ui_font_size(size);
+        if (self.config.typography.ui_font_size - size).abs() <= f32::EPSILON {
+            return;
+        }
+        self.config.typography.ui_font_size = size;
+        theme::apply(self.config.theme, &self.config.typography, cx);
+        self.config_saver.schedule(&self.config);
+        log::info!("[settings] UI font size preference changed: {size}px");
+        cx.notify();
+    }
+
+    pub(super) fn set_diff_font_size(
+        &mut self,
+        size: f32,
+        cx: &mut Context<Self>,
+    ) {
+        let size = normalized_diff_font_size(size);
+        if (self.config.typography.diff_font_size - size).abs() <= f32::EPSILON
+        {
+            return;
+        }
+        self.config.typography.diff_font_size = size;
+        theme::apply(self.config.theme, &self.config.typography, cx);
+        self.config_saver.schedule(&self.config);
+        log::info!("[settings] Diff font size preference changed: {size}px");
         cx.notify();
     }
 

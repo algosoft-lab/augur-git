@@ -361,7 +361,7 @@ impl Render for GraphView {
                 )
                 .child(
                     div()
-                        .text_size(px(11.))
+                        .text_size(crate::theme::scaled_text_size(11.))
                         .text_color(colors.muted_foreground)
                         .child(shared(i18n::text(self.locale, "graph-empty"))),
                 )
@@ -573,7 +573,7 @@ impl GraphView {
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .text_size(px(13.))
+                                .text_size(crate::theme::scaled_text_size(13.))
                                 .text_color(initials_color)
                                 .child(shared(letters)),
                         )
@@ -584,7 +584,7 @@ impl GraphView {
                     .w(px(HASH_COL_WIDTH))
                     .flex_shrink_0()
                     .font_family(options.mono.clone())
-                    .text_size(px(12.))
+                    .text_size(crate::theme::scaled_text_size(12.))
                     .text_color(colors.blue)
                     .child(shared(row.short)),
             )
@@ -595,7 +595,7 @@ impl GraphView {
                         .flex_1()
                         .min_w_0()
                         .truncate()
-                        .text_size(px(12.))
+                        .text_size(crate::theme::scaled_text_size(12.))
                         .text_color(colors.foreground)
                         .child(shared(row.subject.clone())),
                 )
@@ -609,7 +609,7 @@ impl GraphView {
                         .w(px(AUTHOR_COL_WIDTH))
                         .flex_shrink_0()
                         .truncate()
-                        .text_size(px(12.))
+                        .text_size(crate::theme::scaled_text_size(12.))
                         .text_color(colors.foreground)
                         .child(shared(row.author)),
                 )
@@ -619,7 +619,7 @@ impl GraphView {
                 div()
                     .w(px(DATE_COL_WIDTH))
                     .flex_shrink_0()
-                    .text_size(px(12.))
+                    .text_size(crate::theme::scaled_text_size(12.))
                     .text_color(colors.muted_foreground)
                     .child(shared(format_relative_time(
                         row.timestamp,
@@ -703,7 +703,7 @@ impl GraphView {
     ) -> impl IntoElement {
         let label = |text: &str| {
             div()
-                .text_size(px(11.))
+                .text_size(crate::theme::scaled_text_size(11.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.muted_foreground)
                 .child(shared(text))
@@ -811,7 +811,7 @@ fn ref_label_chip(label: &RefLabel, colors: ThemeColor) -> AnyElement {
         .border_1()
         .border_color(Hsla { a: 0.35, ..color })
         .bg(Hsla { a: 0.14, ..color })
-        .text_size(px(10.))
+        .text_size(crate::theme::scaled_text_size(10.))
         .text_color(color)
         .child(shared(label.name.clone()))
         .into_any_element()

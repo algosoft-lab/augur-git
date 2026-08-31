@@ -24,7 +24,7 @@ pub(super) fn render_welcome(
         .rounded_md()
         .bg(colors.blue)
         .text_color(colors.primary_foreground)
-        .text_size(px(12.))
+        .text_size(crate::theme::scaled_text_size(12.))
         .child(shared(i18n::text(workspace.locale, "welcome-open")))
         .on_click(move |_event, window, cx| {
             btn_open.update(cx, |ws, cx| {
@@ -51,7 +51,7 @@ pub(super) fn render_welcome(
                 .items_center()
                 .child(
                     div()
-                        .text_size(px(14.))
+                        .text_size(crate::theme::scaled_text_size(14.))
                         .text_color(colors.muted_foreground)
                         .child(Icon::new(IconName::Folder)),
                 )
@@ -60,7 +60,7 @@ pub(super) fn render_welcome(
                         .flex_1()
                         .min_w_0()
                         .truncate()
-                        .text_size(px(12.))
+                        .text_size(crate::theme::scaled_text_size(12.))
                         .text_color(colors.muted_foreground)
                         .child(SharedString::from(path.clone())),
                 )
@@ -108,20 +108,20 @@ pub(super) fn render_welcome(
                 .bg(colors.tab_bar)
                 .border_1()
                 .border_color(colors.border)
-                .text_size(px(24.))
+                .text_size(crate::theme::scaled_text_size(24.))
                 .text_color(colors.blue)
                 .child(crate::git::lucide("git-branch")),
         )
         .child(
             div()
-                .text_size(px(20.))
+                .text_size(crate::theme::scaled_text_size(20.))
                 .font_weight(FontWeight::BOLD)
                 .text_color(colors.foreground)
                 .child("augur-git"),
         )
         .child(
             div()
-                .text_size(px(12.))
+                .text_size(crate::theme::scaled_text_size(12.))
                 .text_color(colors.muted_foreground)
                 .child(shared(i18n::text(workspace.locale, "app-tagline"))),
         )
@@ -129,7 +129,7 @@ pub(super) fn render_welcome(
         .child(open_btn)
         .child(
             div()
-                .text_size(px(11.))
+                .text_size(crate::theme::scaled_text_size(11.))
                 .text_color(colors.muted_foreground)
                 .child(shared(i18n::text(
                     workspace.locale,
@@ -145,7 +145,7 @@ pub(super) fn render_welcome(
                     .child(
                         div()
                             .px_2()
-                            .text_size(px(11.))
+                            .text_size(crate::theme::scaled_text_size(11.))
                             .text_color(colors.muted_foreground)
                             .child(shared(i18n::text(
                                 workspace.locale,

@@ -85,7 +85,7 @@ impl RepoTab {
             .justify_between()
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(crate::theme::scaled_text_size(11.))
                     .text_color(colors.muted_foreground)
                     .truncate()
                     .child(SharedString::from(self.repo_path.clone())),
@@ -96,13 +96,16 @@ impl RepoTab {
                     .when_some(msg, |row, message| {
                         row.child(
                             div()
-                                .text_size(px(11.))
+                                .text_size(crate::theme::scaled_text_size(11.))
                                 .text_color(msg_color)
                                 .child(SharedString::from(message)),
                         )
                     })
                     .child(
-                        div().text_size(px(11.)).text_color(color).child(text),
+                        div()
+                            .text_size(crate::theme::scaled_text_size(11.))
+                            .text_color(color)
+                            .child(text),
                     ),
             )
     }

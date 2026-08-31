@@ -11,7 +11,7 @@ use std::time::Duration;
 use gpui::prelude::*;
 use gpui::{
     AnyElement, Div, HighlightStyle, Hsla, ListHorizontalSizingBehavior,
-    SharedString, Stateful, StyledText, div, px, uniform_list,
+    Pixels, SharedString, Stateful, StyledText, div, px, uniform_list,
 };
 use gpui_component::highlighter::{HighlightTheme, SyntaxHighlighter};
 use gpui_component::input::Rope;
@@ -310,6 +310,7 @@ pub fn render_document(
     layout: DiffLayoutMode,
     colors: &ThemeColor,
     mono: &SharedString,
+    diff_font_size: Pixels,
 ) -> AnyElement {
     let rows = if layout == DiffLayoutMode::SideBySide {
         Arc::clone(&cache.side_rows)
@@ -332,7 +333,15 @@ pub fn render_document(
             range
                 .filter_map(|index| rows.get(index).map(|row| (index, row)))
                 .map(|(index, row)| {
-                    render_row(row, index, layout, &cache, &colors, &mono)
+                    render_row(
+                        row,
+                        index,
+                        layout,
+                        &cache,
+                        &colors,
+                        &mono,
+                        diff_font_size,
+                    )
                 })
                 .collect::<Vec<_>>()
         },
@@ -381,6 +390,7 @@ pub fn render_documents(
     layout: DiffLayoutMode,
     colors: &ThemeColor,
     mono: &SharedString,
+    diff_font_size: Pixels,
     binary_label: SharedString,
     empty_label: SharedString,
 ) -> AnyElement {
@@ -440,6 +450,7 @@ pub fn render_documents(
                         &sections[section].path,
                         &colors,
                         &mono,
+                        diff_font_size,
                     )
                     .into_any_element(),
                     DiffListItem::Binary => div()
@@ -451,7 +462,10 @@ pub fn render_documents(
                         .flex_shrink_0()
                         .items_center()
                         .px_2()
-                        .text_size(px(11.))
+                        .text_size(crate::theme::scaled_diff_text_size(
+                            11.,
+                            diff_font_size,
+                        ))
                         .text_color(colors.muted_foreground)
                         .child(binary_label.clone())
                         .into_any_element(),
@@ -464,7 +478,10 @@ pub fn render_documents(
                         .flex_shrink_0()
                         .items_center()
                         .px_2()
-                        .text_size(px(11.))
+                        .text_size(crate::theme::scaled_diff_text_size(
+                            11.,
+                            diff_font_size,
+                        ))
                         .text_color(colors.muted_foreground)
                         .child(empty_label.clone())
                         .into_any_element(),
@@ -478,7 +495,13 @@ pub fn render_documents(
                         rows.get(row)
                             .map(|row| {
                                 render_row(
-                                    row, index, layout, cache, &colors, &mono,
+                                    row,
+                                    index,
+                                    layout,
+                                    cache,
+                                    &colors,
+                                    &mono,
+                                    diff_font_size,
                                 )
                                 .into_any_element()
                             })
@@ -514,6 +537,7 @@ fn render_section_header(
     path: &str,
     colors: &ThemeColor,
     mono: &SharedString,
+    diff_font_size: Pixels,
 ) -> Stateful<Div> {
     h_flex()
         .id(SharedString::from(format!("commit-diff-file-{index}")))
@@ -526,7 +550,7 @@ fn render_section_header(
         .border_b_1()
         .border_color(colors.border)
         .font_family(mono.clone())
-        .text_size(px(11.))
+        .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
         .text_color(colors.muted_foreground)
         .whitespace_nowrap()
         .child(SharedString::from(path.to_string()))
@@ -539,6 +563,7 @@ fn render_row(
     cache: &DiffViewCache,
     colors: &ThemeColor,
     mono: &SharedString,
+    diff_font_size: Pixels,
 ) -> AnyElement {
     if row.kind == DiffLineKind::Hunk {
         return h_flex()
@@ -551,7 +576,7 @@ fn render_row(
             .bg(colors.blue.opacity(0.10))
             .text_color(colors.blue)
             .font_family(mono.clone())
-            .text_size(px(11.))
+            .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
             .whitespace_nowrap()
             .child(SharedString::from(
                 row.hunk_header.clone().unwrap_or_default(),
@@ -560,13 +585,18 @@ fn render_row(
     }
     match layout {
         DiffLayoutMode::Inline => {
-            render_inline_row(row, index, cache, colors, mono)
+            render_inline_row(row, index, cache, colors, mono, diff_font_size)
                 .into_any_element()
         }
-        DiffLayoutMode::SideBySide => {
-            render_side_by_side_row(row, index, cache, colors, mono)
-                .into_any_element()
-        }
+        DiffLayoutMode::SideBySide => render_side_by_side_row(
+            row,
+            index,
+            cache,
+            colors,
+            mono,
+            diff_font_size,
+        )
+        .into_any_element(),
     }
 }
 
@@ -576,6 +606,7 @@ fn render_inline_row(
     cache: &DiffViewCache,
     colors: &ThemeColor,
     mono: &SharedString,
+    diff_font_size: Pixels,
 ) -> Stateful<Div> {
     let (row_color, marker, marker_color) = match row.kind {
         DiffLineKind::Add => (colors.green, "+", colors.green),
@@ -600,14 +631,17 @@ fn render_inline_row(
         .flex_shrink_0()
         .items_center()
         .when_some(background, |this, bg| this.bg(bg))
-        .child(number_gutter(row.old_no, colors, mono))
-        .child(number_gutter(row.new_no, colors, mono))
+        .child(number_gutter(row.old_no, colors, mono, diff_font_size))
+        .child(number_gutter(row.new_no, colors, mono, diff_font_size))
         .child(
             div()
                 .w(px(18.))
                 .flex_shrink_0()
                 .font_family(mono.clone())
-                .text_size(px(12.))
+                .text_size(crate::theme::scaled_diff_text_size(
+                    12.,
+                    diff_font_size,
+                ))
                 .text_color(marker_color)
                 .text_center()
                 .child(SharedString::from(marker)),
@@ -622,6 +656,7 @@ fn render_inline_row(
             row_color,
             inline_color,
             mono,
+            diff_font_size,
         ))
 }
 
@@ -631,6 +666,7 @@ fn render_side_by_side_row(
     cache: &DiffViewCache,
     colors: &ThemeColor,
     mono: &SharedString,
+    diff_font_size: Pixels,
 ) -> Stateful<Div> {
     let changed_pair = row.kind != DiffLineKind::Context
         || row.old_text.as_deref() != row.new_text.as_deref();
@@ -676,6 +712,7 @@ fn render_side_by_side_row(
             old_background,
             colors,
             mono,
+            diff_font_size,
         ))
         .child(div().w(px(1.)).flex_shrink_0().bg(colors.border))
         .child(side_cell(
@@ -687,6 +724,7 @@ fn render_side_by_side_row(
             new_background,
             colors,
             mono,
+            diff_font_size,
         ))
 }
 
@@ -699,6 +737,7 @@ fn side_cell(
     background: Option<Hsla>,
     colors: &ThemeColor,
     mono: &SharedString,
+    diff_font_size: Pixels,
 ) -> Div {
     let text = text.unwrap_or("");
     let syntax = if new_side {
@@ -727,13 +766,16 @@ fn side_cell(
         .overflow_hidden()
         .items_center()
         .when_some(background, |this, bg| this.bg(bg))
-        .child(number_gutter(line_number, colors, mono))
+        .child(number_gutter(line_number, colors, mono, diff_font_size))
         .child(
             div()
                 .w(px(18.))
                 .flex_shrink_0()
                 .font_family(mono.clone())
-                .text_size(px(12.))
+                .text_size(crate::theme::scaled_diff_text_size(
+                    12.,
+                    diff_font_size,
+                ))
                 .text_center()
                 .text_color(if new_side { colors.green } else { colors.red })
                 .child(SharedString::from(marker)),
@@ -745,6 +787,7 @@ fn side_cell(
             colors.foreground,
             inline_color,
             mono,
+            diff_font_size,
         ))
 }
 
@@ -752,13 +795,14 @@ fn number_gutter(
     number: Option<u32>,
     colors: &ThemeColor,
     mono: &SharedString,
+    diff_font_size: Pixels,
 ) -> Div {
     div()
         .w(px(42.))
         .flex_shrink_0()
         .px_1()
         .font_family(mono.clone())
-        .text_size(px(11.))
+        .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
         .text_color(colors.muted_foreground.opacity(0.72))
         .text_right()
         .whitespace_nowrap()
@@ -808,6 +852,7 @@ fn code_cell(
     row_color: Hsla,
     inline_color: Hsla,
     mono: &SharedString,
+    diff_font_size: Pixels,
 ) -> Div {
     let text = if text.is_empty() { " " } else { text };
     let highlights = merged_highlights(
@@ -823,7 +868,7 @@ fn code_cell(
         .flex_1()
         .flex_shrink_0()
         .font_family(mono.clone())
-        .text_size(px(12.))
+        .text_size(crate::theme::scaled_diff_text_size(12., diff_font_size))
         .text_color(row_color)
         .whitespace_nowrap()
         .child(styled_text)

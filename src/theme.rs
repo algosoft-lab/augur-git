@@ -4,10 +4,13 @@
 //! Lives outside `core/` because it is presentation-layer: it wires gpui and
 //! gpui-component globals rather than pure domain logic.
 
-use gpui::{App, Hsla, Rgba, SharedString, rgb};
+use gpui::{App, Hsla, Rems, Rgba, SharedString, rems, rgb};
 use gpui_component::theme::{Theme, ThemeRegistry};
 
-use crate::core::config::{ThemePreference, TypographySettings};
+use crate::core::config::{
+    DEFAULT_DIFF_FONT_SIZE, DEFAULT_UI_FONT_SIZE, ThemePreference,
+    TypographySettings, normalized_diff_font_size, normalized_ui_font_size,
+};
 
 const THEMES_JSON: &str = include_str!("../assets/themes/augur-themes.json");
 
@@ -57,8 +60,28 @@ pub fn apply(
         theme.light_theme = config.into();
     }
     Theme::change(mode, None, cx);
+    let theme = Theme::global_mut(cx);
+    theme.font_size =
+        gpui::px(normalized_ui_font_size(typography.ui_font_size));
+    theme.mono_font_size =
+        gpui::px(normalized_diff_font_size(typography.diff_font_size));
     cx.refresh_windows();
     log::info!("[theme] applied theme: {}", preference.registry_name());
+}
+
+/// Express a design-time text size in rems so the configured UI font size
+/// scales it while preserving the existing relative hierarchy.
+pub fn scaled_text_size(size: f32) -> Rems {
+    rems(size / DEFAULT_UI_FONT_SIZE)
+}
+
+/// Express a Diff design-time text size in pixels relative to the configured
+/// monospace base size, independently of the UI root rem size.
+pub fn scaled_diff_text_size(
+    size: f32,
+    diff_font_size: gpui::Pixels,
+) -> gpui::Pixels {
+    gpui::px(size * diff_font_size.as_f32() / DEFAULT_DIFF_FONT_SIZE)
 }
 
 /// Preference matching the currently active theme (unknown names fall back to
@@ -310,6 +333,24 @@ mod tests {
         assert_eq!(
             initials_text_color(Hsla::from(rgb(0x000000))),
             Hsla::from(rgb(0xFFFFFF))
+        );
+    }
+
+    #[test]
+    fn scaled_text_size_uses_the_default_font_size_as_one_rem() {
+        assert_eq!(scaled_text_size(DEFAULT_UI_FONT_SIZE), rems(1.0));
+        assert_eq!(scaled_text_size(DEFAULT_UI_FONT_SIZE / 2.0), rems(0.5));
+    }
+
+    #[test]
+    fn scaled_diff_text_size_uses_the_configured_base_size() {
+        assert_eq!(
+            scaled_diff_text_size(DEFAULT_DIFF_FONT_SIZE, gpui::px(16.)),
+            gpui::px(16.)
+        );
+        assert_eq!(
+            scaled_diff_text_size(DEFAULT_DIFF_FONT_SIZE / 2.0, gpui::px(16.)),
+            gpui::px(8.)
         );
     }
 

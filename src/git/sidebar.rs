@@ -181,7 +181,7 @@ impl Sidebar {
                     .border_color(colors.border)
                     .child(
                         div()
-                            .text_size(px(12.))
+                            .text_size(crate::theme::scaled_text_size(12.))
                             .text_color(colors.foreground)
                             .child(shared(i18n::text(
                                 self.locale,
@@ -402,7 +402,9 @@ impl Sidebar {
                             })
                             .child(
                                 div()
-                                    .text_size(px(12.))
+                                    .text_size(crate::theme::scaled_text_size(
+                                        12.,
+                                    ))
                                     .text_color(colors.muted_foreground)
                                     .child(if group_collapsed {
                                         Icon::new(IconName::ChevronRight)
@@ -412,7 +414,9 @@ impl Sidebar {
                             )
                             .child(
                                 div()
-                                    .text_size(px(12.))
+                                    .text_size(crate::theme::scaled_text_size(
+                                        12.,
+                                    ))
                                     .text_color(colors.muted_foreground)
                                     .child(crate::git::lucide("git-branch")),
                             )
@@ -420,14 +424,18 @@ impl Sidebar {
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .text_size(px(12.))
+                                    .text_size(crate::theme::scaled_text_size(
+                                        12.,
+                                    ))
                                     .text_color(colors.foreground)
                                     .truncate()
                                     .child(shared(group.remote.clone())),
                             )
                             .child(
                                 div()
-                                    .text_size(px(10.))
+                                    .text_size(crate::theme::scaled_text_size(
+                                        10.,
+                                    ))
                                     .text_color(colors.muted_foreground)
                                     .child(group.branches.len().to_string()),
                             ),
@@ -722,7 +730,7 @@ fn ref_label(colors: &ThemeColor, text: String, is_head: bool) -> Div {
     div()
         .flex_1()
         .min_w_0()
-        .text_size(px(12.))
+        .text_size(crate::theme::scaled_text_size(12.))
         .text_color(colors.foreground)
         .map(|label| {
             if is_head {
@@ -796,7 +804,7 @@ fn section_header(
         })
         .child(
             div()
-                .text_size(px(12.))
+                .text_size(crate::theme::scaled_text_size(12.))
                 .text_color(colors.muted_foreground)
                 .child(if collapsed {
                     Icon::new(IconName::ChevronRight)
@@ -807,14 +815,14 @@ fn section_header(
         .child(
             div()
                 .flex_1()
-                .text_size(px(13.))
+                .text_size(crate::theme::scaled_text_size(13.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.foreground)
                 .child(shared(title)),
         )
         .child(
             div()
-                .text_size(px(10.))
+                .text_size(crate::theme::scaled_text_size(10.))
                 .text_color(colors.muted_foreground)
                 .child(count.to_string()),
         )

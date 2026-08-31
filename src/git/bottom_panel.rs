@@ -22,6 +22,38 @@ fn bottom_empty_state(
     icon: AnyElement,
     hint: String,
 ) -> Stateful<Div> {
+    bottom_empty_state_with_size(
+        id,
+        colors,
+        icon,
+        hint,
+        crate::theme::scaled_text_size(11.),
+    )
+}
+
+pub(super) fn diff_empty_state(
+    id: &'static str,
+    colors: &ThemeColor,
+    icon: AnyElement,
+    hint: String,
+    diff_font_size: Pixels,
+) -> Stateful<Div> {
+    bottom_empty_state_with_size(
+        id,
+        colors,
+        icon,
+        hint,
+        crate::theme::scaled_diff_text_size(11., diff_font_size),
+    )
+}
+
+fn bottom_empty_state_with_size(
+    id: &'static str,
+    colors: &ThemeColor,
+    icon: AnyElement,
+    hint: String,
+    text_size: impl Into<AbsoluteLength>,
+) -> Stateful<Div> {
     v_flex()
         .id(id)
         .size_full()
@@ -36,7 +68,7 @@ fn bottom_empty_state(
         )
         .child(
             div()
-                .text_size(px(11.))
+                .text_size(text_size)
                 .text_color(colors.muted_foreground)
                 .child(shared(hint)),
         )
@@ -386,16 +418,20 @@ impl BottomPanel {
         if self.all_diffs.is_empty() {
             let body = if self.all_diff_loading {
                 div()
-                    .text_size(px(11.))
+                    .text_size(crate::theme::scaled_diff_text_size(
+                        11.,
+                        cx.theme().mono_font_size,
+                    ))
                     .text_color(colors.muted_foreground)
                     .child(shared("…"))
                     .into_any_element()
             } else {
-                bottom_empty_state(
+                diff_empty_state(
                     "bottom-diff-all-empty",
                     colors,
                     Icon::new(IconName::File).into_any_element(),
                     i18n::text(self.locale, "diff-no-output"),
+                    cx.theme().mono_font_size,
                 )
                 .into_any_element()
             };
@@ -409,6 +445,7 @@ impl BottomPanel {
         }
 
         let theme = cx.theme().highlight_theme.clone();
+        let diff_font_size = cx.theme().mono_font_size;
         for entry in &mut self.all_diffs {
             if entry.cache.theme.as_ref() != theme.as_ref() {
                 entry.cache = Arc::new(DiffViewCache::build_for(
@@ -436,6 +473,7 @@ impl BottomPanel {
             layout,
             colors,
             &cx.theme().mono_font_family,
+            diff_font_size,
             shared(i18n::text(self.locale, "bottom-bin")),
             shared(i18n::text(self.locale, "diff-no-output")),
         );
@@ -451,7 +489,7 @@ impl BottomPanel {
             .border_b_1()
             .border_color(colors.border)
             .font_family(cx.theme().mono_font_family.clone())
-            .text_size(px(11.))
+            .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
             .text_color(colors.muted_foreground)
             .child(
                 div()
@@ -462,7 +500,10 @@ impl BottomPanel {
                 header.child(
                     div()
                         .mr_1()
-                        .text_size(px(10.))
+                        .text_size(crate::theme::scaled_diff_text_size(
+                            10.,
+                            diff_font_size,
+                        ))
                         .text_color(colors.muted_foreground)
                         .child(shared(i18n::text(
                             self.locale,
@@ -543,7 +584,7 @@ impl BottomPanel {
                 let selected = self.selected == Some(index);
                 let stat = if file.is_binary() {
                     div()
-                        .text_size(px(10.))
+                        .text_size(crate::theme::scaled_text_size(10.))
                         .text_color(colors.muted_foreground)
                         .child(shared(i18n::text(self.locale, "bottom-bin")))
                         .into_any_element()
@@ -586,7 +627,7 @@ impl BottomPanel {
                             .flex_1()
                             .min_w_0()
                             .font_family(mono.clone())
-                            .text_size(px(11.))
+                            .text_size(crate::theme::scaled_text_size(11.))
                             .text_color(colors.foreground)
                             .truncate()
                             .child(shared(file.path.clone())),
@@ -612,39 +653,46 @@ impl BottomPanel {
         cx: &Context<Self>,
         width: f32,
     ) -> AnyElement {
+        let diff_font_size = cx.theme().mono_font_size;
         if self.show_all_files {
             return self.all_diff_view(colors, cx, width);
         }
         if self.files.is_empty() {
-            return bottom_empty_state(
+            return diff_empty_state(
                 "bottom-diff-no-changes",
                 colors,
                 Icon::new(IconName::File).into_any_element(),
                 self.no_changes_message(),
+                diff_font_size,
             )
             .into_any_element();
         }
         let Some(document) = self.diff.as_ref() else {
             let body = if self.selected.is_some() && self.diff_loading {
                 div()
-                    .text_size(px(11.))
+                    .text_size(crate::theme::scaled_diff_text_size(
+                        11.,
+                        diff_font_size,
+                    ))
                     .text_color(colors.muted_foreground)
                     .child(shared("…"))
                     .into_any_element()
             } else if self.selected.is_some() {
-                bottom_empty_state(
+                diff_empty_state(
                     "bottom-diff-empty",
                     colors,
                     Icon::new(IconName::File).into_any_element(),
                     i18n::text(self.locale, "diff-no-output"),
+                    diff_font_size,
                 )
                 .into_any_element()
             } else {
-                bottom_empty_state(
+                diff_empty_state(
                     "bottom-diff-none",
                     colors,
                     Icon::new(IconName::File).into_any_element(),
                     i18n::text(self.locale, "bottom-no-file"),
+                    diff_font_size,
                 )
                 .into_any_element()
             };
@@ -680,17 +728,21 @@ impl BottomPanel {
                 .h_full()
                 .items_center()
                 .justify_center()
-                .text_size(px(11.))
+                .text_size(crate::theme::scaled_diff_text_size(
+                    11.,
+                    diff_font_size,
+                ))
                 .text_color(colors.muted_foreground)
                 .child(shared(i18n::text(self.locale, "bottom-bin")))
                 .into_any_element();
         }
         if document.rows.is_empty() {
-            return bottom_empty_state(
+            return diff_empty_state(
                 "bottom-diff-empty",
                 colors,
                 Icon::new(IconName::File).into_any_element(),
                 i18n::text(self.locale, "diff-no-output"),
+                diff_font_size,
             )
             .into_any_element();
         }
@@ -707,6 +759,7 @@ impl BottomPanel {
             layout,
             colors,
             &cx.theme().mono_font_family,
+            diff_font_size,
         );
         let file_header = h_flex()
             .id("bottom-diff-file-header")
@@ -718,7 +771,7 @@ impl BottomPanel {
             .border_b_1()
             .border_color(colors.border)
             .font_family(cx.theme().mono_font_family.clone())
-            .text_size(px(11.))
+            .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
             .text_color(colors.muted_foreground)
             .child(
                 div()
@@ -816,7 +869,7 @@ impl Render for BottomPanel {
                     .rounded_sm()
                     .bg(colors.input)
                     .font_family(cx.theme().mono_font_family.clone())
-                    .text_size(px(11.))
+                    .text_size(crate::theme::scaled_text_size(11.))
                     .text_color(colors.accent)
                     .child(shared(short.clone())),
             )
@@ -824,7 +877,7 @@ impl Render for BottomPanel {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .text_size(px(11.))
+                    .text_size(crate::theme::scaled_text_size(11.))
                     .text_color(colors.muted_foreground)
                     .truncate()
                     .child(shared(subject.clone())),
@@ -928,13 +981,13 @@ fn stat_bar(colors: &ThemeColor, added: usize, deleted: usize) -> Div {
         .flex_shrink_0()
         .child(
             div()
-                .text_size(px(10.))
+                .text_size(crate::theme::scaled_text_size(10.))
                 .text_color(colors.green)
                 .child(shared(format!("+{added}"))),
         )
         .child(
             div()
-                .text_size(px(10.))
+                .text_size(crate::theme::scaled_text_size(10.))
                 .text_color(colors.red)
                 .child(shared(format!("-{deleted}"))),
         )

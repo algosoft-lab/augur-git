@@ -320,13 +320,14 @@ impl RepoTab {
                 let mut body = v_flex().w_full().gap_2();
                 if pending == PendingBranchDialog::Rebase {
                     body = body.child(
-                        div().text_size(px(12.)).text_color(colors.red).child(
-                            shared(i18n::text_args(
+                        div()
+                            .text_size(crate::theme::scaled_text_size(12.))
+                            .text_color(colors.red)
+                            .child(shared(i18n::text_args(
                                 locale,
                                 "rebase-warning",
                                 &[("branch", &tab.branch)],
-                            )),
-                        ),
+                            ))),
                     );
                 }
                 body = body.child(
@@ -336,7 +337,7 @@ impl RepoTab {
                         .gap_2()
                         .child(
                             div()
-                                .text_size(px(12.))
+                                .text_size(crate::theme::scaled_text_size(12.))
                                 .text_color(colors.muted_foreground)
                                 .child(shared(i18n::text(
                                     locale,
@@ -358,7 +359,7 @@ impl RepoTab {
                 };
                 let mut body = v_flex().w_full().gap_2().child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(crate::theme::scaled_text_size(12.))
                         .text_color(colors.muted_foreground)
                         .child(shared(i18n::text_args(
                             locale,
@@ -423,13 +424,13 @@ impl RepoTab {
             .gap_2()
             .child(
                 div()
-                    .text_size(px(16.))
+                    .text_size(crate::theme::scaled_text_size(16.))
                     .text_color(colors.muted_foreground)
                     .child(title_icon),
             )
             .child(
                 div()
-                    .text_size(px(14.))
+                    .text_size(crate::theme::scaled_text_size(14.))
                     .font_weight(FontWeight::BOLD)
                     .text_color(colors.foreground)
                     .child(shared(title_text)),
@@ -595,7 +596,7 @@ fn named_input_body(
 ) -> AnyElement {
     let mut body = v_flex().w_full().gap_2().child(
         div()
-            .text_size(px(12.))
+            .text_size(crate::theme::scaled_text_size(12.))
             .text_color(colors.muted_foreground)
             .child(shared(i18n::text(locale, label_key))),
     );
@@ -604,14 +605,14 @@ fn named_input_body(
     }
     body = body.child(
         div()
-            .text_size(px(12.))
+            .text_size(crate::theme::scaled_text_size(12.))
             .text_color(colors.muted_foreground)
             .child(shared(i18n::text_args(locale, hint_key, hint_args))),
     );
     if let Some(error) = error_text {
         body = body.child(
             div()
-                .text_size(px(12.))
+                .text_size(crate::theme::scaled_text_size(12.))
                 .text_color(colors.red)
                 .child(shared(error)),
         );

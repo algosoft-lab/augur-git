@@ -7,12 +7,14 @@ use gpui_component::{
     scroll::ScrollableElement,
     searchable_list::{SearchableListItem, SearchableVec},
     select::{Select, SelectEvent, SelectState},
+    slider::{Slider, SliderEvent, SliderState},
     v_flex,
 };
 
 use crate::core::config::{
     AppConfig, DiffLayoutPreference, GraphHistoryPreference,
-    LanguagePreference, ThemePreference,
+    LanguagePreference, MAX_DIFF_FONT_SIZE, MAX_UI_FONT_SIZE,
+    MIN_DIFF_FONT_SIZE, MIN_UI_FONT_SIZE, ThemePreference,
 };
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
@@ -27,6 +29,8 @@ pub enum SettingsPanelEvent {
     GraphHistoryChanged(GraphHistoryPreference),
     UiFontChanged(Option<String>),
     MonoFontChanged(Option<String>),
+    UiFontSizeChanged(f32),
+    DiffFontSizeChanged(f32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,6 +77,8 @@ pub struct SettingsPanel {
     graph_history: GraphHistoryPreference,
     ui_font: Option<String>,
     mono_font: Option<String>,
+    ui_font_size: f32,
+    diff_font_size: f32,
     font_families: Vec<String>,
     language_state:
         Entity<SelectState<Vec<SettingsOption<LanguagePreference>>>>,
@@ -86,6 +92,8 @@ pub struct SettingsPanel {
         Entity<SelectState<SearchableVec<SettingsOption<Option<String>>>>>,
     mono_font_state:
         Entity<SelectState<SearchableVec<SettingsOption<Option<String>>>>>,
+    ui_font_size_state: Entity<SliderState>,
+    diff_font_size_state: Entity<SliderState>,
 }
 
 impl EventEmitter<SettingsPanelEvent> for SettingsPanel {}
@@ -105,6 +113,8 @@ impl SettingsPanel {
         let graph_history = config.view.graph_history;
         let ui_font = config.typography.ui_font_family.clone();
         let mono_font = config.typography.mono_font_family.clone();
+        let ui_font_size = config.typography.ui_font_size;
+        let diff_font_size = config.typography.diff_font_size;
 
         let language_state = cx.new(|cx| {
             SelectState::new(
@@ -169,6 +179,20 @@ impl SettingsPanel {
             )
             .searchable(true)
         });
+        let ui_font_size_state = cx.new(|_| {
+            SliderState::new()
+                .min(MIN_UI_FONT_SIZE)
+                .max(MAX_UI_FONT_SIZE)
+                .step(1.0)
+                .default_value(ui_font_size)
+        });
+        let diff_font_size_state = cx.new(|_| {
+            SliderState::new()
+                .min(MIN_DIFF_FONT_SIZE)
+                .max(MAX_DIFF_FONT_SIZE)
+                .step(1.0)
+                .default_value(diff_font_size)
+        });
 
         let panel = Self {
             locale,
@@ -180,6 +204,8 @@ impl SettingsPanel {
             graph_history,
             ui_font,
             mono_font,
+            ui_font_size,
+            diff_font_size,
             font_families,
             language_state,
             auto_refresh_state,
@@ -188,6 +214,8 @@ impl SettingsPanel {
             graph_history_state,
             ui_font_state,
             mono_font_state,
+            ui_font_size_state,
+            diff_font_size_state,
         };
 
         let language_state_for_events = panel.language_state.clone();
@@ -258,6 +286,43 @@ impl SettingsPanel {
             panel.mono_font = value.clone();
             cx.emit(SettingsPanelEvent::MonoFontChanged(value.clone()));
         })
+        .detach();
+
+        let ui_font_size_state_for_events = panel.ui_font_size_state.clone();
+        cx.subscribe(
+            &ui_font_size_state_for_events,
+            |panel, _, event: &SliderEvent, cx| {
+                let SliderEvent::Change(value) = event else {
+                    return;
+                };
+                let size = value.start();
+                if (panel.ui_font_size - size).abs() <= f32::EPSILON {
+                    return;
+                }
+                panel.ui_font_size = size;
+                cx.emit(SettingsPanelEvent::UiFontSizeChanged(size));
+                cx.notify();
+            },
+        )
+        .detach();
+
+        let diff_font_size_state_for_events =
+            panel.diff_font_size_state.clone();
+        cx.subscribe(
+            &diff_font_size_state_for_events,
+            |panel, _, event: &SliderEvent, cx| {
+                let SliderEvent::Change(value) = event else {
+                    return;
+                };
+                let size = value.start();
+                if (panel.diff_font_size - size).abs() <= f32::EPSILON {
+                    return;
+                }
+                panel.diff_font_size = size;
+                cx.emit(SettingsPanelEvent::DiffFontSizeChanged(size));
+                cx.notify();
+            },
+        )
         .detach();
 
         panel
@@ -348,7 +413,7 @@ impl SettingsPanel {
             .px_3()
             .py_2()
             .rounded_md()
-            .text_size(px(12.))
+            .text_size(crate::theme::scaled_text_size(12.))
             .text_color(if selected {
                 cx.theme().accent_foreground
             } else {
@@ -384,7 +449,7 @@ impl SettingsPanel {
             .gap_1()
             .child(
                 div()
-                    .text_size(px(12.))
+                    .text_size(crate::theme::scaled_text_size(12.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(foreground)
                     .child(shared(label)),
@@ -394,13 +459,37 @@ impl SettingsPanel {
 
     fn section_content(&self, cx: &mut Context<Self>) -> AnyElement {
         let colors = cx.theme().colors.clone();
+        let ui_font_size_control = h_flex()
+            .w_full()
+            .items_center()
+            .gap_3()
+            .child(Slider::new(&self.ui_font_size_state).flex_1())
+            .child(
+                div()
+                    .w(px(52.))
+                    .text_size(crate::theme::scaled_text_size(12.))
+                    .text_color(colors.muted_foreground)
+                    .child(shared(format!("{:.0} px", self.ui_font_size))),
+            );
+        let diff_font_size_control = h_flex()
+            .w_full()
+            .items_center()
+            .gap_3()
+            .child(Slider::new(&self.diff_font_size_state).flex_1())
+            .child(
+                div()
+                    .w(px(52.))
+                    .text_size(crate::theme::scaled_text_size(12.))
+                    .text_color(colors.muted_foreground)
+                    .child(shared(format!("{:.0} px", self.diff_font_size))),
+            );
         match self.section {
             SettingsSection::General => v_flex()
                 .w_full()
                 .gap_4()
                 .child(
                     div()
-                        .text_size(px(20.))
+                        .text_size(crate::theme::scaled_text_size(20.))
                         .font_weight(FontWeight::BOLD)
                         .text_color(colors.foreground)
                         .child(shared(i18n::text(
@@ -428,7 +517,7 @@ impl SettingsPanel {
                 .gap_4()
                 .child(
                     div()
-                        .text_size(px(20.))
+                        .text_size(crate::theme::scaled_text_size(20.))
                         .font_weight(FontWeight::BOLD)
                         .text_color(colors.foreground)
                         .child(shared(i18n::text(
@@ -465,13 +554,41 @@ impl SettingsPanel {
                         .into_any_element(),
                     colors.foreground,
                 ))
+                .child(Self::field(
+                    i18n::text(self.locale, "ui-font-size-title"),
+                    ui_font_size_control.into_any_element(),
+                    colors.foreground,
+                ))
+                .child(
+                    div()
+                        .text_size(crate::theme::scaled_text_size(12.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text(
+                            self.locale,
+                            "ui-font-size-description",
+                        ))),
+                )
+                .child(Self::field(
+                    i18n::text(self.locale, "diff-font-size-title"),
+                    diff_font_size_control.into_any_element(),
+                    colors.foreground,
+                ))
+                .child(
+                    div()
+                        .text_size(crate::theme::scaled_text_size(12.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text(
+                            self.locale,
+                            "diff-font-size-description",
+                        ))),
+                )
                 .into_any_element(),
             SettingsSection::Layout => v_flex()
                 .w_full()
                 .gap_4()
                 .child(
                     div()
-                        .text_size(px(20.))
+                        .text_size(crate::theme::scaled_text_size(20.))
                         .font_weight(FontWeight::BOLD)
                         .text_color(colors.foreground)
                         .child(shared(i18n::text(
@@ -495,7 +612,7 @@ impl SettingsPanel {
                 ))
                 .child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(crate::theme::scaled_text_size(12.))
                         .text_color(colors.muted_foreground)
                         .child(shared(i18n::text(
                             self.locale,
@@ -504,7 +621,7 @@ impl SettingsPanel {
                 )
                 .child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(crate::theme::scaled_text_size(12.))
                         .text_color(colors.muted_foreground)
                         .child(shared(i18n::text(
                             self.locale,
@@ -553,7 +670,7 @@ impl Render for SettingsPanel {
                         div()
                             .px_2()
                             .py_2()
-                            .text_size(px(15.))
+                            .text_size(crate::theme::scaled_text_size(15.))
                             .font_weight(FontWeight::BOLD)
                             .text_color(colors.foreground)
                             .child(shared(i18n::text(
@@ -596,7 +713,9 @@ impl Render for SettingsPanel {
                             .border_color(colors.border)
                             .child(
                                 div()
-                                    .text_size(px(13.))
+                                    .text_size(crate::theme::scaled_text_size(
+                                        13.,
+                                    ))
                                     .text_color(colors.muted_foreground)
                                     .child(shared(i18n::text(
                                         self.locale,

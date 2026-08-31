@@ -2,7 +2,10 @@ use std::path::Path;
 
 use gpui::{App, AppContext, Context, Task};
 
-use crate::core::config::{self, AppConfig, OpenTabConfig};
+use crate::core::config::{
+    self, AppConfig, OpenTabConfig, normalized_diff_font_size,
+    normalized_ui_font_size,
+};
 
 use super::Workspace;
 use super::tabs::TabId;
@@ -118,11 +121,16 @@ pub(super) fn normalize_typography(
             *font = None;
         }
     }
+    config.typography.ui_font_size =
+        normalized_ui_font_size(config.typography.ui_font_size);
+    config.typography.diff_font_size =
+        normalized_diff_font_size(config.typography.diff_font_size);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::config::{MAX_DIFF_FONT_SIZE, MAX_UI_FONT_SIZE};
 
     #[test]
     fn unavailable_fonts_are_reset_to_system_defaults() {
@@ -133,5 +141,25 @@ mod tests {
         normalize_typography(&mut config, &["Inter".into()]);
 
         assert_eq!(config.typography, Default::default());
+    }
+
+    #[test]
+    fn ui_font_size_is_clamped_during_startup_normalization() {
+        let mut config = AppConfig::default();
+        config.typography.ui_font_size = 100.0;
+
+        normalize_typography(&mut config, &[]);
+
+        assert_eq!(config.typography.ui_font_size, MAX_UI_FONT_SIZE);
+    }
+
+    #[test]
+    fn diff_font_size_is_clamped_during_startup_normalization() {
+        let mut config = AppConfig::default();
+        config.typography.diff_font_size = 100.0;
+
+        normalize_typography(&mut config, &[]);
+
+        assert_eq!(config.typography.diff_font_size, MAX_DIFF_FONT_SIZE);
     }
 }

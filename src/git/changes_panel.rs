@@ -275,7 +275,7 @@ impl ChangesPanel {
             })
             .child(
                 div()
-                    .text_size(px(12.))
+                    .text_size(crate::theme::scaled_text_size(12.))
                     .text_color(colors.muted_foreground)
                     .child(if collapsed {
                         Icon::new(IconName::ChevronRight)
@@ -286,14 +286,14 @@ impl ChangesPanel {
             .child(
                 div()
                     .flex_1()
-                    .text_size(px(12.))
+                    .text_size(crate::theme::scaled_text_size(12.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(colors.foreground)
                     .child(shared(i18n::text(self.locale, key))),
             )
             .child(
                 div()
-                    .text_size(px(10.))
+                    .text_size(crate::theme::scaled_text_size(10.))
                     .text_color(colors.muted_foreground)
                     .child(files.len().to_string()),
             );
@@ -421,7 +421,7 @@ impl ChangesPanel {
                 div()
                     .w(px(22.))
                     .flex_shrink_0()
-                    .text_size(px(11.))
+                    .text_size(crate::theme::scaled_text_size(11.))
                     .text_color(status_color)
                     .child(shared(status_label)),
             )
@@ -429,7 +429,7 @@ impl ChangesPanel {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .text_size(px(12.))
+                    .text_size(crate::theme::scaled_text_size(12.))
                     .text_color(colors.foreground)
                     .truncate()
                     .child(shared(file.path.clone())),
@@ -606,7 +606,7 @@ impl ChangesPanel {
             .child(
                 div()
                     .flex_1()
-                    .text_size(px(12.))
+                    .text_size(crate::theme::scaled_text_size(12.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(colors.foreground)
                     .child(shared(i18n::text(self.locale, "changes-title"))),
@@ -617,7 +617,7 @@ impl ChangesPanel {
             })
             .child(
                 div()
-                    .text_size(px(10.))
+                    .text_size(crate::theme::scaled_text_size(10.))
                     .text_color(colors.muted_foreground)
                     .child(total.to_string()),
             )
@@ -665,7 +665,7 @@ impl Render for ChangesPanel {
                     )
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(crate::theme::scaled_text_size(11.))
                             .text_color(colors.muted_foreground)
                             .child(shared(i18n::text(
                                 self.locale,

@@ -155,7 +155,7 @@ impl RepoTabBar {
                     .min_w_0()
                     .flex_1()
                     .truncate()
-                    .text_size(px(12.))
+                    .text_size(crate::theme::scaled_text_size(12.))
                     .text_color(if active {
                         colors.foreground
                     } else {
@@ -195,7 +195,7 @@ impl Render for RepoTabBar {
             .items_center()
             .justify_center()
             .cursor(CursorStyle::PointingHand)
-            .text_size(px(17.))
+            .text_size(crate::theme::scaled_text_size(17.))
             .text_color(colors.muted_foreground)
             .hover(|el| el.bg(colors.list_hover))
             .on_mouse_down(MouseButton::Left, |_, window, cx| {

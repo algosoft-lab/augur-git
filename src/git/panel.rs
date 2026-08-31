@@ -147,7 +147,7 @@ impl Render for CommitPanel {
             .border_color(colors.border)
             .child(
                 div()
-                    .text_size(px(12.))
+                    .text_size(crate::theme::scaled_text_size(12.))
                     .text_color(colors.foreground)
                     .child(shared(i18n::text(self.locale, "commit-title"))),
             );

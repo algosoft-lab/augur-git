@@ -201,7 +201,7 @@ impl ListDelegate for RevisionPickerDelegate {
             div()
                 .px_2()
                 .py_1()
-                .text_size(px(10.))
+                .text_size(crate::theme::scaled_text_size(10.))
                 .text_color(_cx.theme().muted_foreground)
                 .child(shared(i18n::text(self.locale, key))),
         )
@@ -216,7 +216,7 @@ impl ListDelegate for RevisionPickerDelegate {
             .w_full()
             .py_3()
             .px_2()
-            .text_size(px(11.))
+            .text_size(crate::theme::scaled_text_size(11.))
             .text_color(_cx.theme().muted_foreground)
             .child(shared(i18n::text(self.locale, "branch-compare-no-matches")))
     }
@@ -805,7 +805,7 @@ impl Render for RevisionPicker {
             .when_some(validation, |view, message| {
                 view.child(
                     div()
-                        .text_size(px(10.))
+                        .text_size(crate::theme::scaled_text_size(10.))
                         .text_color(cx.theme().colors.red)
                         .child(shared(message)),
                 )
