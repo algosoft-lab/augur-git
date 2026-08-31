@@ -606,9 +606,22 @@ impl RepoTab {
         }
     }
 
-    /// Refresh this tab's data after the window regained activation.
+    /// Refresh this tab after the window regained activation.
     /// Returns whether a refresh was actually requested.
     pub(super) fn refresh_on_focus(&mut self, cx: &mut Context<Self>) -> bool {
+        self.refresh_if_ready(cx)
+    }
+
+    /// Refresh this tab after it becomes active through a tab switch.
+    /// Returns whether a refresh was actually requested.
+    pub(super) fn refresh_on_tab_switch(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.refresh_if_ready(cx)
+    }
+
+    fn refresh_if_ready(&mut self, cx: &mut Context<Self>) -> bool {
         if !self.opened || self.operation_busy {
             return false;
         }
@@ -733,10 +746,13 @@ impl RepoTab {
     }
 
     /// Make this repository the active UI tab and start consuming its events.
-    pub fn activate(&mut self, cx: &mut Context<Self>) {
+    /// Returns whether the repository was already opened before activation.
+    pub fn activate(&mut self, cx: &mut Context<Self>) -> bool {
+        let was_opened = self.opened;
         self.open(cx);
         self.git_view
             .update(cx, |view, cx| view.set_active(true, cx));
+        was_opened
     }
 
     /// Stop consuming events while retaining the repository state and worker.

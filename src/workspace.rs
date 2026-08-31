@@ -37,7 +37,7 @@ use self::repo_tab::{RepoTab, RepoTabEvent};
 use self::settings::{SettingsPanel, SettingsPanelEvent};
 use self::tabs::{
     RepoTabBar, RepoTabBarEvent, TabId, TabState, TabSummary,
-    fallback_after_close,
+    fallback_after_close, should_refresh_after_switch,
 };
 use crate::theme;
 
@@ -598,7 +598,24 @@ impl Workspace {
         }
 
         if let Some(next_tab) = next_tab {
-            next_tab.update(cx, |tab, cx| tab.activate(cx));
+            let was_opened = next_tab.update(cx, |tab, cx| tab.activate(cx));
+            if should_refresh_after_switch(changed, was_opened) {
+                let refresh_requested = next_tab
+                    .update(cx, |tab, cx| tab.refresh_on_tab_switch(cx));
+                if refresh_requested {
+                    log::info!(
+                        "[tab_switch_refresh] refresh requested for tab {id}"
+                    );
+                } else {
+                    log::debug!(
+                        "[tab_switch_refresh] refresh skipped for tab {id}: tab busy"
+                    );
+                }
+            } else if changed {
+                log::debug!(
+                    "[tab_switch_refresh] refresh skipped for tab {id}: initial load"
+                );
+            }
         }
         if changed {
             log::info!("[workspace_tabs] tab activated");
@@ -615,6 +632,10 @@ impl Workspace {
         let entry = self.tabs.remove(index);
         if let TabContent::Repo(tab) = &entry.content {
             tab.update(cx, |tab, cx| tab.close(cx));
+        }
+        let was_active = self.active_tab == Some(id);
+        if was_active {
+            self.active_tab = None;
         }
         self.active_tab = fallback;
         if let Some(active) = fallback {

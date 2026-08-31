@@ -25,6 +25,13 @@ pub fn fallback_after_close(
         .or_else(|| index.checked_sub(1).and_then(|i| order.get(i).copied()))
 }
 
+pub fn should_refresh_after_switch(
+    changed: bool,
+    target_was_opened: bool,
+) -> bool {
+    changed && target_was_opened
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TabState {
     Loading,
@@ -230,7 +237,7 @@ impl Render for RepoTabBar {
 
 #[cfg(test)]
 mod tests {
-    use super::fallback_after_close;
+    use super::{fallback_after_close, should_refresh_after_switch};
 
     #[test]
     fn active_close_prefers_the_tab_to_the_right() {
@@ -245,5 +252,20 @@ mod tests {
     #[test]
     fn closing_an_inactive_tab_keeps_the_active_tab() {
         assert_eq!(fallback_after_close(&[1, 2, 3], Some(1), 3), Some(1));
+    }
+
+    #[test]
+    fn switching_to_an_opened_tab_requests_a_refresh() {
+        assert!(should_refresh_after_switch(true, true));
+    }
+
+    #[test]
+    fn first_activation_uses_the_initial_load() {
+        assert!(!should_refresh_after_switch(true, false));
+    }
+
+    #[test]
+    fn activating_the_current_tab_does_not_refresh() {
+        assert!(!should_refresh_after_switch(false, true));
     }
 }
