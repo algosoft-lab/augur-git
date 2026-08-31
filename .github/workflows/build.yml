@@ -253,9 +253,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          tag_ref="repos/${REPOSITORY}/git/ref/tags/nightly"
-          if gh api "${tag_ref}" >/dev/null 2>&1; then
-            gh api --method PATCH "${tag_ref}" \
+          tag_lookup_ref="repos/${REPOSITORY}/git/ref/tags/nightly"
+          tag_update_ref="repos/${REPOSITORY}/git/refs/tags/nightly"
+          if gh api "${tag_lookup_ref}" >/dev/null 2>&1; then
+            gh api --method PATCH "${tag_update_ref}" \
               -f "sha=${COMMIT_SHA}" \
               -F force=true >/dev/null
           else
