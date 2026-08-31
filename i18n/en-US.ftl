@@ -150,7 +150,6 @@ diff-working-tree-error = Unable to load working-tree diff
 
 # ===== Revision comparison =====
 branch-compare-title = Revision comparison
-branch-compare-back = Back to repository
 branch-compare-base = Base
 branch-compare-target = Target
 branch-compare-local = local

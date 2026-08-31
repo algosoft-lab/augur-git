@@ -8,7 +8,7 @@ use gpui_component::popover::Popover;
 use gpui_component::searchable_list::SearchableListItemElement;
 use gpui_component::{
     ActiveTheme, Icon, IconName, IndexPath, Sizable, StyledExt,
-    checkbox::Checkbox, h_flex, v_flex,
+    checkbox::Checkbox, v_flex,
 };
 
 use crate::core::git::{CompareRevision, CompareRevisionKind};
@@ -289,6 +289,75 @@ impl RevisionPicker {
             ListState::new(RevisionPickerDelegate::new(locale), window, cx)
         });
 
+        let mut picker = Self {
+            id: id.into(),
+            locale,
+            input_state,
+            list_state,
+            catalog: Vec::new(),
+            selected: None,
+            unavailable: false,
+            input: String::new(),
+            dirty: false,
+            open: false,
+            manual_input: false,
+            _subscriptions: Vec::new(),
+        };
+        picker.install_subscriptions(window, cx);
+        picker
+    }
+
+    /// Recreate the window-bound input and list state for the window that now renders this picker.
+    ///
+    /// InputState installs focus and activation observers for its construction
+    /// window, so moving the same picker entity requires fresh state objects in
+    /// addition to fresh `subscribe_in` registrations.
+    pub(crate) fn attach_window(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self._subscriptions.clear();
+
+        let input_value = self.input.clone();
+        let catalog = self.catalog.clone();
+        let query = if self.manual_input || self.selected.is_some() {
+            String::new()
+        } else {
+            input_value.trim().to_string()
+        };
+        let input_state = cx.new(|cx| {
+            InputState::new(window, cx)
+                .submit_on_enter(true)
+                .placeholder(i18n::text(
+                    self.locale,
+                    "branch-compare-revision-placeholder",
+                ))
+        });
+        input_state.update(cx, |input, cx| {
+            input.set_value(input_value, window, cx);
+        });
+        let list_state = cx.new(|cx| {
+            ListState::new(RevisionPickerDelegate::new(self.locale), window, cx)
+        });
+        list_state.update(cx, |list, cx| {
+            list.delegate_mut().replace_options(catalog);
+            list.set_query(&query, window, cx);
+            let first = list.delegate().first_index();
+            list.set_selected_index(first, window, cx);
+        });
+        self.input_state = input_state;
+        self.list_state = list_state;
+        self.install_subscriptions(window, cx);
+    }
+
+    fn install_subscriptions(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input_state = self.input_state.clone();
+        let list_state = self.list_state.clone();
         let input_for_sub = input_state.clone();
         let list_for_input = list_state.clone();
         let mut subscriptions = vec![cx.subscribe_in(
@@ -353,21 +422,7 @@ impl RevisionPicker {
                 ListEvent::Select(_) => {}
             },
         ));
-
-        Self {
-            id: id.into(),
-            locale,
-            input_state,
-            list_state,
-            catalog: Vec::new(),
-            selected: None,
-            unavailable: false,
-            input: String::new(),
-            dirty: false,
-            open: false,
-            manual_input: false,
-            _subscriptions: subscriptions,
-        }
+        self._subscriptions = subscriptions;
     }
 
     pub(crate) fn selected(&self) -> Option<CompareRevision> {
@@ -706,7 +761,8 @@ impl Render for RevisionPicker {
                 "revision-picker-field:{}",
                 self.id
             )))
-            .w(px(330.))
+            .w_full()
+            .min_w_0()
             .gap_0p5()
             .capture_key_down({
                 let this = this.clone();
@@ -724,7 +780,7 @@ impl Render for RevisionPicker {
                 }
             })
             .child(
-                h_flex().items_center().gap_1().child(popover).child(
+                v_flex().w_full().min_w_0().gap_1().child(popover).child(
                     Checkbox::new(SharedString::from(format!(
                         "revision-picker-manual:{}",
                         self.id
@@ -734,6 +790,7 @@ impl Render for RevisionPicker {
                         "branch-compare-manual-input",
                     ))
                     .small()
+                    .flex_shrink_0()
                     .checked(manual_input)
                     .on_click({
                         let this = this.clone();

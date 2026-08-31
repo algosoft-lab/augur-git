@@ -6,6 +6,10 @@ from the loaded history, or a short/full commit SHA entered manually.
 Comparing revisions never checks out a ref, fetches from a remote, or changes
 `HEAD`, the index, or the working tree.
 
+Selecting Compare opens the comparison in a separate native application window.
+The repository window stays available, so revisions or commit IDs can be copied
+from the main view and pasted into either comparison field.
+
 ## Comparison semantics
 
 Every comparison has an explicit direction:
@@ -27,7 +31,7 @@ bounded history window, so older commits can still be selected by pasting their
 7–64 character hexadecimal SHA; a **Use commit SHA** action is offered when that
 SHA is not in the visible list. The SHA is resolved only against the
 repository's existing object database, so the comparison never performs an
-implicit fetch. Enable **Manual input** beside either field when pasting or
+implicit fetch. Enable **Manual input** below either field when pasting or
 typing a revision without opening the candidate popup; unchecking it restores
 the searchable suggestions.
 
@@ -74,4 +78,4 @@ comparison-level errors without stopping the repository Git worker.
 6. Try an invalid SHA and a non-commit object; verify that a comparison-level
    error is shown and the repository view remains usable.
 7. Switch between all-files and single-file views, copy the diff, change the
-   configured diff layout, and return to the repository workspace.
+   configured diff layout, and close the comparison window.

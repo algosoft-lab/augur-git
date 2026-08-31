@@ -149,7 +149,6 @@ diff-working-tree-error = 无法加载工作区 diff
 
 # ===== 版本比较 =====
 branch-compare-title = 版本比较
-branch-compare-back = 返回仓库
 branch-compare-base = 基准
 branch-compare-target = 目标
 branch-compare-local = 本地

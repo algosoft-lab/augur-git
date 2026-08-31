@@ -8,7 +8,7 @@ use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::spinner::Spinner;
 use gpui_component::{
-    ActiveTheme, Disableable, Icon, IconName, Sizable, h_flex, v_flex,
+    ActiveTheme, Disableable, Icon, IconName, Sizable, TitleBar, h_flex, v_flex,
 };
 
 use crate::core::diff::{DiffDocument, FileChange};
@@ -33,7 +33,6 @@ use helpers::{
 /// Events emitted by the branch comparison view.
 #[derive(Clone, Debug)]
 pub enum BranchCompareEvent {
-    Back,
     Cancel,
     Compare {
         request_id: u64,
@@ -51,7 +50,6 @@ struct CompareDocument {
 pub struct BranchCompareView {
     locale: Locale,
     diff_layout: DiffLayoutMode,
-    opened: bool,
     refs: Vec<CompareRevision>,
     commits: Vec<LogRow>,
     current_branch: String,
@@ -102,7 +100,6 @@ impl BranchCompareView {
         Self {
             locale,
             diff_layout,
-            opened: false,
             refs: Vec::new(),
             commits: Vec::new(),
             current_branch: String::new(),
@@ -122,6 +119,21 @@ impl BranchCompareView {
         }
     }
 
+    /// Rebind window-scoped picker subscriptions when the view moves to a
+    /// standalone native window.
+    pub fn attach_window(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.base_picker.update(cx, |picker, cx| {
+            picker.attach_window(window, cx);
+        });
+        self.target_picker.update(cx, |picker, cx| {
+            picker.attach_window(window, cx);
+        });
+    }
+
     pub fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
         if self.locale != locale {
             self.locale = locale;
@@ -131,20 +143,14 @@ impl BranchCompareView {
     }
 
     pub fn open(&mut self, cx: &mut Context<Self>) {
-        self.opened = true;
         self.show_all = true;
         cx.notify();
     }
 
     pub fn close(&mut self, cx: &mut Context<Self>) {
         self.invalidate_request_id();
-        self.opened = false;
         self.loading = false;
         cx.notify();
-    }
-
-    pub fn is_open(&self) -> bool {
-        self.opened
     }
 
     pub fn set_diff_layout(
@@ -343,12 +349,6 @@ impl BranchCompareView {
         cx.notify();
     }
 
-    pub fn cancel(&mut self, cx: &mut Context<Self>) {
-        self.invalidate_request_id();
-        self.loading = false;
-        cx.notify();
-    }
-
     fn invalidate_request_id(&mut self) {
         self.request_id = self.request_id.wrapping_add(1).max(1);
     }
@@ -501,65 +501,40 @@ impl BranchCompareView {
             .bg(colors.tab_bar)
             .border_b_1()
             .border_color(colors.border)
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        Button::new("branch-compare-back")
-                            .icon(IconName::ArrowLeft)
-                            .label(i18n::text(
-                                self.locale,
-                                "branch-compare-back",
+            .when(self.loading || !self.files.is_empty(), |header| {
+                header.child(
+                    h_flex()
+                        .w_full()
+                        .items_center()
+                        .gap_2()
+                        .child(div().flex_1())
+                        .when(self.loading, |row| {
+                            row.child(
+                                Spinner::new()
+                                    .with_size(px(14.))
+                                    .color(colors.blue),
+                            )
+                            .child(shared(
+                                format!(
+                                    "{} / {}",
+                                    self.documents.len(),
+                                    self.files.len()
+                                ),
                             ))
-                            .ghost()
-                            .compact()
-                            .on_click({
-                                let this = this.clone();
-                                move |_event, _window, cx| {
-                                    this.update(cx, |view, cx| {
-                                        view.cancel(cx);
-                                        cx.emit(BranchCompareEvent::Back);
-                                    });
-                                }
-                            }),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_size(px(15.))
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(colors.foreground)
-                            .child(shared(i18n::text(
-                                self.locale,
-                                "branch-compare-title",
-                            ))),
-                    )
-                    .when(self.loading, |row| {
-                        row.child(
-                            Spinner::new()
-                                .with_size(px(14.))
-                                .color(colors.blue),
-                        )
-                        .child(shared(format!(
-                            "{} / {}",
-                            self.documents.len(),
-                            self.files.len()
-                        )))
-                    })
-                    .when(!self.files.is_empty(), |row| {
-                        row.child(stat_summary(
-                            colors,
-                            total_added,
-                            total_deleted,
-                        ))
-                    }),
-            )
+                        })
+                        .when(!self.files.is_empty(), |row| {
+                            row.child(stat_summary(
+                                colors,
+                                total_added,
+                                total_deleted,
+                            ))
+                        }),
+                )
+            })
             .child(
                 h_flex()
                     .w_full()
-                    .items_center()
+                    .items_start()
                     .gap_2()
                     .child(compare_field(
                         &base_label,
@@ -571,6 +546,8 @@ impl BranchCompareView {
                             .icon(lucide("refresh-cw"))
                             .ghost()
                             .compact()
+                            .mt(px(14.))
+                            .flex_shrink_0()
                             .disabled(
                                 self.base_picker
                                     .read(cx)
@@ -603,6 +580,8 @@ impl BranchCompareView {
                             .label(run_label)
                             .primary()
                             .compact()
+                            .mt(px(14.))
+                            .flex_shrink_0()
                             .disabled(!compare_enabled)
                             .on_click(move |_event, _window, cx| {
                                 this.update(cx, |view, cx| {
@@ -918,6 +897,46 @@ impl BranchCompareView {
                 &cx.theme().mono_font_family,
             ))
             .into_any_element()
+    }
+}
+
+/// Native-window root for a revision comparison.
+pub struct BranchCompareWindow {
+    compare: Entity<BranchCompareView>,
+}
+
+impl BranchCompareWindow {
+    pub fn new(compare: Entity<BranchCompareView>) -> Self {
+        Self { compare }
+    }
+}
+
+impl Render for BranchCompareWindow {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let colors = cx.theme().colors.clone();
+        let locale = self.compare.read(cx).locale;
+        v_flex()
+            .id("branch-compare-window")
+            .size_full()
+            .min_h_0()
+            .bg(colors.background)
+            .child(
+                TitleBar::new().child(
+                    div()
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(colors.foreground)
+                        .child(shared(i18n::text(
+                            locale,
+                            "branch-compare-title",
+                        ))),
+                ),
+            )
+            .child(div().flex_1().min_h_0().child(self.compare.clone()))
     }
 }
 

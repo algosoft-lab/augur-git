@@ -71,6 +71,8 @@ pub struct RepoTab {
     changes: Entity<ChangesPanel>,
     bottom: Entity<BottomPanel>,
     compare: Entity<crate::git::branch_compare::BranchCompareView>,
+    compare_window: Option<AnyWindowHandle>,
+    compare_window_closed: Option<Subscription>,
     status: GitStatus,
     status_message: Option<String>,
     status_message_ok: Option<bool>,
@@ -628,6 +630,8 @@ impl RepoTab {
             changes,
             bottom,
             compare,
+            compare_window: None,
+            compare_window_closed: None,
             status: GitStatus::None,
             status_message: None,
             status_message_ok: None,
@@ -797,6 +801,7 @@ impl RepoTab {
     }
 
     pub fn close(&mut self, cx: &mut Context<Self>) {
+        branch_compare::close(self, cx);
         self.git_view.update(cx, |view, _| view.close_repo());
         self.opened = false;
     }
