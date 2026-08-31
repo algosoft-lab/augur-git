@@ -1,35 +1,113 @@
-# augur-git
+# Augur Git
 
 <p align="center">
   <img src="assets/augur-git-logo-lockup.svg" alt="augur-git logo" width="360">
 </p>
 
-augur-git is a cross-platform desktop Git GUI client built with Rust and
-[GPUI](https://github.com/zed-industries/zed). It opens local Git repositories
-and presents repository status, branches, history, a commit graph, and diffs,
-and runs user-requested Git operations such as fetch, pull, push, checkout,
-and commit.
+> Review the change. Decide what becomes history.
+
+Augur Git is an open-source, local-first, review-first desktop Git client for
+developers working with coding agents. It turns local repository changes into
+clear, navigable diffs so that a human can understand, select, and approve what
+will become part of the project's history.
+
+It is designed to sit beside a terminal, an editor such as Neovim, and a coding
+agent. It does not try to replace any of them. The terminal runs the project,
+the editor handles focused changes, the agent produces larger changes, and
+Augur Git provides the visual review surface between those changes and the next
+commit.
+
+## Why Augur Git exists
+
+AI-assisted development has made producing code much faster, but understanding
+and accepting code still requires human judgment. A coding agent can change
+many files in a few minutes; the developer remains responsible for deciding
+whether those changes are correct, coherent, and safe to keep.
+
+Augur Git grew out of a practical workflow:
+
+1. Run the application and development tools in a terminal.
+2. Use a coding agent for substantial implementation work.
+3. Make small, precise corrections in an editor.
+4. Inspect the resulting Git changes before staging, committing, or pushing.
+
+The missing piece was a fast, focused Git interface where review is the primary
+activity rather than a secondary view hidden among repository-management
+features.
+
+The name reflects that idea. An augur reads signs to understand what may come
+next. In Git, the commit graph records the past, the working tree contains a
+possible future, and the developer decides which changes become history.
+
+## Product definition
+
+Augur Git is a **review-first Git client for local, AI-assisted development**.
+
+Its primary job is to help a developer answer four questions:
+
+- What changed?
+- Why does the change matter?
+- Which parts should be kept, revised, or discarded?
+- Is the repository ready for the next commit or push?
+
+Augur Git is not a coding agent, a code editor, a hosted pull-request platform,
+or an automated judge of code quality. It complements those tools by providing
+a dedicated local review layer:
+
+```text
+Coding agent or editor
+          |
+          v
+   Working tree changes
+          |
+          v
+      Augur Git review
+          |
+          +----> Return issues to the editor or agent
+          |
+          v
+   Stage, commit, and push
+```
+
+## Design principles
+
+- **Review comes first** — diffs, changed files, and repository context are the
+  center of the experience, not an afterthought.
+- **Complement the existing workflow** — Augur Git should work naturally beside
+  terminals, editors, and coding agents instead of absorbing their roles.
+- **Keep the human in control** — repository-changing operations require an
+  explicit user action and surface their result or error.
+- **Stay local by default** — repository inspection runs through the system
+  `git` executable. Augur Git has no account requirement and does not need a
+  hosted service to review local changes.
+- **Make large changes understandable** — navigation, layout, syntax-aware
+  rendering, and responsive performance should make multi-file agent changes
+  practical to review.
+- **Build in the open** — the application, its design decisions, and its
+  development process are available for users to inspect and improve.
+
+## Current capabilities
+
+- **Working-tree review** — inspect staged, unstaged, and untracked files with
+  per-file diffs. Stage or unstage individual files or groups of files; discard
+  always requires confirmation, and untracked files are permanently deleted
+  only when explicitly selected.
+- **Native diff experience** — review one file or all changed files with inline
+  or side-by-side layouts, syntax-aware rendering, and character-level change
+  highlighting.
+- **Commit history** — browse a lane-based commit graph with hashes, messages,
+  authors, relative dates, changed-file lists, and commit diffs.
+- **Revision comparison** — compare branches, tags, commits, or manually entered
+  revisions in a dedicated comparison window.
+- **Repository operations** — browse branches, remotes, tags, and stashes, and
+  run explicit fetch, pull, push, checkout, branch, and commit operations.
+- **Multiple repositories** — keep several repositories open as tabs and return
+  to recently opened repositories.
+- **Cross-platform interface** — use GitHub Dark or a Catppuccin theme on
+  Windows, macOS, or Linux, with English and Simplified Chinese localization.
 
 The system `git` executable is the only runtime dependency for repository
-operations; augur-git does not embed a Git implementation.
-
-## Features
-
-- **Repository status** — current branch, ahead/behind counts, and staged and
-  unstaged changes, with per-file diffs for staged, unstaged, and untracked
-  files plus commit for staged changes. Changes and Staged support per-file
-  and group Stage/Unstage actions; Discard always asks for confirmation and
-  permanently removes only explicitly confirmed untracked files.
-- **Commit graph** — lane-based history graph with hash, message, author, and
-  relative dates; select a commit to inspect its file list and per-file diffs.
-- **Branches, remotes, tags, and stashes** — browsable sidebar sections, with
-  fetch, pull, and push controls in the toolbar.
-- **Multiple repositories** — open several repositories as tabs; recent
-  repositories are remembered.
-- **Themes** — GitHub Dark plus Catppuccin Latte, Frappé, Macchiato, and Mocha,
-  switchable at runtime and persisted.
-- **Bilingual UI** — English and Simplified Chinese (Fluent-based
-  localization), with automatic system-locale detection.
+operations; Augur Git does not embed or emulate a separate Git implementation.
 
 ## Supported platforms
 
@@ -57,9 +135,9 @@ Building requires a recent stable Rust toolchain (edition 2024).
   `augur-git/config.json` under the platform's standard user config directory
   (for example `~/.config/augur-git/config.json` on Linux). Window geometry
   and global panel layout are stored alongside it in `augur-git/ui-state.json`.
-- Debug builds append application logs to `debug.log` in the working
-  directory; release builds do not write a log file. `RUST_LOG` can optionally
-  override the log level.
+- Debug builds append application logs to `debug.log` in the working directory;
+  release builds do not write a log file. `RUST_LOG` can optionally override
+  the log level.
 
 ### Packaging
 
@@ -71,56 +149,33 @@ installer, a macOS `.app` and `.dmg`, or a Linux AppImage respectively.
 
 Dependencies flow from UI and rendering toward application state and domain
 services. UI code never invokes Git processes or parses raw Git output
-directly; a background Git worker communicates with the UI through explicit
+directly. A background Git worker communicates with the UI through explicit
 message-passing boundaries, so blocking Git and filesystem work never runs on
 the UI thread.
 
 ```text
 src/
 ├── main.rs          # Process startup, assets, window setup, application entry
-├── workspace.rs     # Top-level GPUI state, layout, routing, event coordination
-├── theme.rs         # Embedded themes and runtime theme switching
-├── workspace/
-│   ├── tabs.rs      # Repository tab bar
-│   ├── repo_tab.rs  # Per-repository tab state
-│   ├── repo_tab/
-│   │   └── dialogs.rs # Force-push and discard confirmations
-│   ├── settings.rs  # Categorized settings panel
-│   ├── window_state.rs # Window geometry persistence
-│   └── welcome.rs   # Welcome page
-├── core/
-│   ├── commit_diff.rs # Commit diff context and Git argument builders
-│   ├── config.rs    # Persisted application and repository settings
-│   ├── git.rs       # Git worker, command execution, events, output parsers
-│   ├── git/
-│   │   └── working_tree.rs # Path-safe Stage/Unstage/Discard operations
-│   ├── graph.rs     # Pure commit-graph layout and time formatting
-│   └── i18n.rs      # Locale selection and translation lookup
-└── git/
-    ├── mod.rs       # GitView bridge between the worker and UI panels
-    ├── graph.rs     # Commit-graph presentation
-    ├── panel.rs     # Commit details and commit input presentation
-    ├── bottom_panel.rs # Commit and working-tree diff presentation
-    ├── changes_panel.rs # Staged/working-tree file lists and Git actions
-    ├── sidebar.rs   # Repository, branch, staging, working-tree sections
-    └── toolbar.rs   # Git operation controls and status indicators
-i18n/               # English and Simplified Chinese translations (Fluent)
-assets/             # Logos, interface icons, and theme definitions
+├── workspace.rs     # Top-level state, layout, routing, and event coordination
+├── workspace/       # Tabs, repository state, dialogs, settings, and windows
+├── core/            # Configuration, Git worker, parsers, graph, diff, and i18n
+├── git/             # GPUI presentation for Git history, changes, and diffs
+└── theme.rs         # Embedded themes and runtime theme switching
+i18n/                # English and Simplified Chinese translations
+assets/              # Logos, interface icons, and theme definitions
+packaging/           # Cross-platform native packaging scripts
 ```
 
-`src/core/graph.rs` keeps commit-graph layout as pure, unit-tested logic
-without rendering concerns. Diff context and Git argument construction live in
-`src/core/commit_diff.rs`, while the status, log, and diff output parsers are
-exercised by unit tests without a GUI or live repository.
-
-Repository operations that can change user data are only initiated by explicit
-user actions, and their results or errors are surfaced in the UI.
+Parser and transformation logic stays pure where possible so it can be tested
+without a GUI or a live repository. Repository operations that can change user
+data are only initiated by explicit user actions, and their results or errors
+are surfaced in the UI.
 
 ## Development
 
 ```bash
-cargo fmt --all          # required before every commit
-cargo test               # unit tests for parsers, graph layout, config, i18n
+cargo fmt --all
+cargo test
 cargo check --all-targets
 ```
 
@@ -135,3 +190,12 @@ rg "\[(git_view|workspace|git_command|git_worktree)\]" debug.log > git-debug.log
 Engineering policy, architecture rules, and validation requirements are
 described in [AGENTS.md](AGENTS.md). Design documents and feature plans belong
 in dedicated documents under `docs/` when needed.
+
+## Open source
+
+Augur Git is licensed under the [Apache License 2.0](LICENSE). Contributions,
+bug reports, design discussions, and workflow feedback are welcome.
+
+Augur Git is part of the [AlgoSoft](https://algosoft.cc) family of open-source
+developer tools. Each project can have its own identity while sharing the same
+commitment to speed, transparency, local workflows, and user control.
