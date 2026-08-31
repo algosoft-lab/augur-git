@@ -157,20 +157,31 @@ impl Toolbar {
             })
     }
 
-    /// Branch 下拉菜单按钮（工具栏第一位）：
-    /// 新建/重命名分支、贮藏/弹出贮藏、合并/合并 --no-ff/变基
+    /// Branch dropdown button (first position in the toolbar):
+    /// new/rename branch, stash/stash pop, merge/merge --no-ff, rebase.
+    ///
+    /// The icon and label are passed as children styled like `tool_button`
+    /// (14px muted icon, 12px foreground label). The built-in `icon`/`label`
+    /// accessors would render a 14px label with full-strength foreground,
+    /// which looks larger and bolder than the surrounding tool buttons.
     fn branch_menu_button(&self, cx: &Context<Self>) -> impl IntoElement {
         let locale = self.locale;
         let ctx = self.branch_ctx;
         let this = cx.entity();
+        let colors = cx.theme().colors.clone();
         let label = i18n::text(locale, "toolbar-branch");
 
         Button::new("tb-branch")
             .ghost()
             .small()
-            .icon(lucide("git-branch"))
-            .label(label)
             .disabled(self.busy)
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .text_color(colors.muted_foreground)
+                    .child(lucide("git-branch")),
+            )
+            .child(div().text_size(px(12.)).child(shared(label)))
             .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
                 let this = this.clone();
                 let new_item = this.clone();
