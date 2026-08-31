@@ -1,6 +1,6 @@
 //! Build-time application metadata embedded in the executable.
 
-pub const APP_NAME: &str = env!("CARGO_PKG_NAME");
+pub const APP_NAME: &str = "Augur Git";
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APP_AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 
