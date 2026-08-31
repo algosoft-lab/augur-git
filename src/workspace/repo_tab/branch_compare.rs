@@ -56,12 +56,6 @@ pub(super) fn handle_git_event(
             });
             false
         }
-        GitUiEvent::LogChanged { rows } => {
-            tab.compare.update(cx, |view, cx| {
-                view.set_log_rows(rows.clone(), cx);
-            });
-            false
-        }
         GitUiEvent::RefsChanged(refs) => {
             tab.compare.update(cx, |view, cx| {
                 view.set_refs(refs.clone(), cx);

@@ -26,7 +26,7 @@ use gpui::{Context, EventEmitter, SharedString, Task};
 use crate::core::diff::FileChange;
 use crate::core::git::{
     self, BranchInfo, CheckoutTarget, CommitMessage, CompareRevision,
-    FileStatus, GitError, GitEvent, RefsInfo, WorkingTreeAction,
+    FileStatus, GitError, GitEvent, LogScope, RefsInfo, WorkingTreeAction,
     WorkingTreeDiffKind, WorkingTreeScope, WorkingTreeScopeKind,
 };
 use crate::core::graph::LogRow;
@@ -44,8 +44,12 @@ pub enum GitUiEvent {
         files: Vec<FileStatus>,
         branches: Vec<BranchInfo>,
     },
-    /// Commit log snapshot.
-    LogChanged { rows: Vec<LogRow> },
+    /// One commit-graph log page; `replace` restarts the list.
+    LogPageChanged {
+        rows: Vec<LogRow>,
+        replace: bool,
+        has_more: bool,
+    },
     /// 引用快照（侧栏 remotes/远程分支/标签/stash 分区）
     RefsChanged(RefsInfo),
     /// 选中提交的逐文件增删统计快照
@@ -262,6 +266,20 @@ impl GitView {
         }
     }
 
+    /// Set the commit-graph history scope and reload the first page.
+    pub fn set_log_scope(&self, scope: LogScope) {
+        if let Some(handle) = &self.handle {
+            handle.log_query(scope);
+        }
+    }
+
+    /// Request the next commit-graph page for the current scope.
+    pub fn request_more_log_page(&self) {
+        if let Some(handle) = &self.handle {
+            handle.more_log_page();
+        }
+    }
+
     /// 执行任意 git 命令（fetch/pull/push/commit/checkout/show…）
     pub fn run(&self, label: impl Into<String>, args: Vec<String>) {
         if let Some(handle) = &self.handle {
@@ -447,9 +465,20 @@ impl GitView {
                         branches,
                     });
                 }
-                GitEvent::Log { rows } => {
-                    log::info!("[git_view] log refreshed: {} rows", rows.len());
-                    cx.emit(GitUiEvent::LogChanged { rows });
+                GitEvent::LogPage {
+                    rows,
+                    replace,
+                    has_more,
+                } => {
+                    log::info!(
+                        "[git_view] log page received: {} rows, replace={replace}, has_more={has_more}",
+                        rows.len()
+                    );
+                    cx.emit(GitUiEvent::LogPageChanged {
+                        rows,
+                        replace,
+                        has_more,
+                    });
                 }
                 GitEvent::Refs(refs) => {
                     log::info!(

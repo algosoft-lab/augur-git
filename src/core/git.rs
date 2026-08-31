@@ -30,7 +30,10 @@ use crate::core::diff::{merge_numstat, parse_numstat, parse_raw_records};
 use crate::core::graph::LogRow;
 
 mod branch_compare;
+mod commit_log;
 mod working_tree;
+
+pub use commit_log::LogScope;
 
 /// The kind of revision exposed by the comparison selector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -161,8 +164,13 @@ pub enum GitEvent {
         /// 落后上游提交数
         behind: usize,
     },
-    /// Commit log rows with parents for active-lane layout.
-    Log { rows: Vec<LogRow> },
+    /// One page of commit log rows with parents for active-lane layout.
+    /// `replace` restarts the graph list; otherwise the page appends.
+    LogPage {
+        rows: Vec<LogRow>,
+        replace: bool,
+        has_more: bool,
+    },
     /// 引用快照（侧栏 remotes/远程分支/标签/stash 分区）
     Refs(RefsInfo),
     /// Commit file metadata and line counts for the selected commit.
@@ -382,6 +390,10 @@ pub enum CheckoutTarget {
 pub enum GitCommand {
     /// 刷新仓库快照（status → branch → log 顺序执行，各发事件）
     Refresh,
+    /// Set the commit-graph history scope and reload the first log page.
+    LogQuery { scope: LogScope },
+    /// Fetch the next commit-graph page for the current log scope.
+    MoreLogPage,
     /// 执行任意 git 命令（label 供 UI 显示；args 不含 "git" 本身）
     Run { label: String, args: Vec<String> },
     /// Query file metadata and line counts for the selected commit.
@@ -426,6 +438,16 @@ impl GitHandle {
     /// 请求刷新仓库快照（std mpsc 无界通道，send 即返回）
     pub fn refresh(&self) {
         let _ = self.cmd_tx.send(GitCommand::Refresh);
+    }
+
+    /// Set the commit-graph history scope and reload the first page.
+    pub fn log_query(&self, scope: LogScope) {
+        let _ = self.cmd_tx.send(GitCommand::LogQuery { scope });
+    }
+
+    /// Request the next commit-graph page for the current scope.
+    pub fn more_log_page(&self) {
+        let _ = self.cmd_tx.send(GitCommand::MoreLogPage);
     }
 
     /// 执行任意 git 命令
@@ -571,11 +593,25 @@ fn worker_loop(
     compare_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
 ) {
     // 打开即刷新一次
-    refresh_all(&repo_path, &event_tx);
+    let mut log_state = commit_log::LogState::default();
+    refresh_all(&repo_path, &event_tx, &mut log_state);
 
     loop {
         match cmd_rx.recv_timeout(Duration::from_millis(20)) {
-            Ok(GitCommand::Refresh) => refresh_all(&repo_path, &event_tx),
+            Ok(GitCommand::Refresh) => {
+                refresh_all(&repo_path, &event_tx, &mut log_state)
+            }
+            Ok(GitCommand::LogQuery { scope }) => {
+                commit_log::set_scope(
+                    &repo_path,
+                    &mut log_state,
+                    scope,
+                    &event_tx,
+                );
+            }
+            Ok(GitCommand::MoreLogPage) => {
+                commit_log::request_more(&repo_path, &mut log_state, &event_tx);
+            }
             Ok(GitCommand::Run { label, args }) => {
                 run_git(&repo_path, &label, &args, &event_tx);
             }
@@ -662,9 +698,13 @@ fn worker_loop(
 }
 
 /// 仓库快照刷新：status + branch 合并为一个 Status 事件，log 独立事件
-fn refresh_all(repo_path: &str, event_tx: &Sender<GitEvent>) {
+fn refresh_all(
+    repo_path: &str,
+    event_tx: &Sender<GitEvent>,
+    log_state: &mut commit_log::LogState,
+) {
     refresh_status(repo_path, event_tx);
-    run_log(repo_path, event_tx);
+    commit_log::run_page(repo_path, log_state, true, event_tx);
     run_refs(repo_path, event_tx);
 }
 
@@ -1293,83 +1333,6 @@ fn parse_stashes(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Execute git log in the topological order used by the active-lane layout.
-fn run_log(repo_path: &str, event_tx: &Sender<GitEvent>) {
-    let output = git_command().args(log_args(repo_path)).output();
-    match output {
-        Ok(output) if output.status.success() => {
-            let text = String::from_utf8_lossy(&output.stdout).into_owned();
-            let rows = parse_log(&text);
-            let _ = event_tx.send(GitEvent::Log { rows });
-        }
-        Ok(output) => {
-            let msg = String::from_utf8_lossy(&output.stderr);
-            let _ = event_tx
-                .send(GitEvent::Error(GitError::new("err-git-log", msg)));
-        }
-        Err(e) => {
-            let _ = event_tx.send(GitEvent::Error(GitError::new(
-                "err-git-run",
-                e.to_string(),
-            )));
-        }
-    }
-}
-
-fn log_args(repo_path: &str) -> Vec<String> {
-    vec![
-        "-C".into(),
-        repo_path.into(),
-        "log".into(),
-        "--all".into(),
-        "--topo-order".into(),
-        "--max-count=200".into(),
-        "--date=format:%Y-%m-%d %H:%M".into(),
-        "--pretty=format:%H%x00%h%x00%an%x00%ai%x00%at%x00%s%x00%D%x00%P"
-            .into(),
-    ]
-}
-
-/// Parse structured `git log --pretty=format:...` output.
-///
-/// Each line starts with a 40-character hexadecimal object id followed by
-/// NUL-separated commit fields. Malformed records are ignored defensively.
-fn parse_log(text: &str) -> Vec<LogRow> {
-    let mut rows = Vec::new();
-    for line in text.lines() {
-        let fields: Vec<&str> = line.split('\0').collect();
-        let Some(oid) = fields.first().copied() else {
-            continue;
-        };
-        if oid.len() != 40 || !oid.bytes().all(|b| b.is_ascii_hexdigit()) {
-            continue;
-        }
-        if fields.len() < 6 {
-            continue;
-        }
-        let parents = fields
-            .get(7)
-            .copied()
-            .unwrap_or("")
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect();
-        // `%at` is the author timestamp used for relative-time display.
-        let timestamp = fields.get(4).and_then(|s| s.parse().ok()).unwrap_or(0);
-        rows.push(LogRow {
-            oid: oid.to_string(),
-            short: fields[1].to_string(),
-            author: fields[2].to_string(),
-            date: fields[3].to_string(),
-            timestamp,
-            subject: fields[5].to_string(),
-            decorations: fields.get(6).copied().unwrap_or("").to_string(),
-            parents,
-        });
-    }
-    rows
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1634,51 +1597,6 @@ mod tests {
             assert!(file.is_conflicted(), "{index}{worktree}");
             assert!(!file.has_staged_changes(), "{index}{worktree}");
         }
-    }
-
-    #[test]
-    fn parse_log_plain() {
-        let text = "0123456789abcdef0123456789abcdef01234567\0short\0Lionel Fung\02026-08-13 20:00\01756123456\0M0 框架\0HEAD -> main\0\n";
-        let rows = parse_log(text);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].oid, "0123456789abcdef0123456789abcdef01234567");
-        assert_eq!(rows[0].subject, "M0 框架");
-        assert_eq!(rows[0].decorations, "HEAD -> main");
-        assert_eq!(rows[0].timestamp, 17_561_234_56);
-        assert!(rows[0].parents.is_empty());
-    }
-
-    #[test]
-    fn parse_log_with_parents() {
-        let text = "0123456789abcdef0123456789abcdef01234567\0s\0a\0d\01756123456\0merge 分支\0HEAD -> main\089abcdef0123456789abcdef0123456789abcdef ffff0123456789abcdef0123456789abcdef01\n";
-        let rows = parse_log(text);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].oid, "0123456789abcdef0123456789abcdef01234567");
-        assert_eq!(rows[0].subject, "merge 分支");
-        assert_eq!(rows[0].parents.len(), 2);
-        assert_eq!(
-            rows[0].parents[0],
-            "89abcdef0123456789abcdef0123456789abcdef"
-        );
-    }
-
-    #[test]
-    fn parse_log_skips_bad_lines() {
-        let text = "garbage\n0123456789abcdef0123456789abcdef01234567\0s\0a\0d\0提交\0\n";
-        let rows = parse_log(text);
-        assert_eq!(rows.len(), 1);
-    }
-
-    #[test]
-    fn log_args_use_topological_order_without_ascii_graph() {
-        let args = log_args("repo with spaces");
-
-        assert!(args.windows(2).any(|pair| {
-            pair == ["-C".to_string(), "repo with spaces".to_string()]
-        }));
-        assert!(args.iter().any(|arg| arg == "--all"));
-        assert!(args.iter().any(|arg| arg == "--topo-order"));
-        assert!(!args.iter().any(|arg| arg == "--graph"));
     }
 
     #[test]

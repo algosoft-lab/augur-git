@@ -4,8 +4,8 @@ use gpui_component::v_flex;
 
 use crate::core::config::{GraphHistoryPreference, LayoutSettings};
 use crate::core::git::{
-    CheckoutTarget, WorkingTreeAction, WorkingTreeDiffKind, WorkingTreeScope,
-    WorkingTreeScopeKind,
+    CheckoutTarget, LogScope, WorkingTreeAction, WorkingTreeDiffKind,
+    WorkingTreeScope, WorkingTreeScopeKind,
 };
 use crate::core::i18n::{self, Locale};
 use crate::git::changes_panel::{ChangesPanel, ChangesPanelEvent};
@@ -57,6 +57,12 @@ pub struct RepoTab {
     repo_path: String,
     opened: bool,
     branch: String,
+    /// Tracked upstream of the current branch from the latest status.
+    upstream: Option<String>,
+    /// Persisted commit-graph history scope chosen in settings.
+    graph_history: GraphHistoryPreference,
+    /// Log scope last sent to the Git worker (None until first status).
+    log_scope: Option<LogScope>,
     /// Non-head local branch names (merge/rebase source candidates).
     local_branches: Vec<String>,
     /// Stash record count from the latest refs snapshot.
@@ -101,7 +107,7 @@ impl RepoTab {
         layout.normalize();
         let git_view = cx.new(|cx| GitView::new(locale, cx));
         let sidebar = cx.new(|cx| Sidebar::new(window, cx, locale));
-        let graph = cx.new(|cx| GraphView::new(id, locale, graph_history, cx));
+        let graph = cx.new(|cx| GraphView::new(id, locale, cx));
         let toolbar = cx.new(|_cx| Toolbar::new(locale));
         let commit = cx.new(|cx| CommitPanel::new(window, cx, locale));
         let changes = cx.new(|_cx| ChangesPanel::new(locale));
@@ -238,6 +244,12 @@ impl RepoTab {
             GraphEvent::CopyCommitMessage(oid) => {
                 tab.start_copy_commit_message(oid.clone(), cx);
             }
+            GraphEvent::MoreLogPageRequested => {
+                log::debug!("[git_view] more log page requested");
+                tab.git_view.update(cx, |view, _| {
+                    view.request_more_log_page();
+                });
+            }
         })
         .detach();
 
@@ -360,6 +372,7 @@ impl RepoTab {
                 let unstaged_text = unstaged_count.to_string();
 
                 tab.branch = branch_name;
+                tab.upstream = upstream.clone();
                 tab.local_branches = branches
                     .iter()
                     .filter(|info| !info.is_head)
@@ -373,13 +386,7 @@ impl RepoTab {
                             || file.is_conflicted()
                     })
                     .count();
-                tab.graph.update(cx, |graph, cx| {
-                    graph.set_history_context(
-                        branch.clone(),
-                        upstream.clone(),
-                        cx,
-                    );
-                });
+                tab.sync_log_scope(cx);
                 tab.status = GitStatus::Ready(i18n::text_args(
                     tab.locale,
                     "status-summary",
@@ -410,14 +417,22 @@ impl RepoTab {
                 tab.emit_summary(cx);
                 cx.notify();
             }
-            GitUiEvent::LogChanged { rows } => {
+            GitUiEvent::LogPageChanged { rows, replace, has_more } => {
                 tab.graph.update(cx, |graph, cx| {
-                    graph.set_rows(rows.clone(), cx);
+                    graph.set_log_page(rows.clone(), *replace, *has_more, cx);
+                });
+                // Keep the comparison selector fed with loaded commits.
+                let loaded = tab.graph.read(cx).log_rows();
+                tab.compare.update(cx, |view, cx| {
+                    view.set_log_rows(loaded, cx);
                 });
             }
             GitUiEvent::RefsChanged(refs) => {
                 tab.stash_count = refs.stashes.len();
                 tab.sync_branch_menu_context(cx);
+                tab.graph.update(cx, |graph, cx| {
+                    graph.set_remote_names(refs.remotes.clone(), cx);
+                });
                 tab.sidebar.update(cx, |sidebar, cx| {
                     sidebar.set_refs(refs.clone(), cx);
                 });
@@ -619,6 +634,9 @@ impl RepoTab {
             repo_path,
             opened: false,
             branch: String::new(),
+            upstream: None,
+            graph_history,
+            log_scope: None,
             local_branches: Vec::new(),
             stash_count: 0,
             local_change_count: 0,
@@ -804,6 +822,9 @@ impl RepoTab {
         branch_compare::close(self, cx);
         self.git_view.update(cx, |view, _| view.close_repo());
         self.opened = false;
+        // A reopened repository starts a fresh worker on AllBranches, so the
+        // scope cache must be invalidated to force a re-sync.
+        self.log_scope = None;
     }
 
     pub fn set_locale(
@@ -854,9 +875,35 @@ impl RepoTab {
         preference: GraphHistoryPreference,
         cx: &mut Context<Self>,
     ) {
-        self.graph.update(cx, |graph, cx| {
-            graph.set_history_scope(preference, cx);
-        });
+        self.graph_history = preference;
+        self.sync_log_scope(cx);
+    }
+
+    /// Send the commit-graph log scope to the worker when it changes.
+    ///
+    /// The worker starts on `AllBranches` and reloads the first page on every
+    /// refresh, so the initial matching state needs no explicit query.
+    fn sync_log_scope(&mut self, cx: &mut Context<Self>) {
+        let scope = match self.graph_history {
+            GraphHistoryPreference::AllBranches => LogScope::AllBranches,
+            GraphHistoryPreference::CurrentBranch => LogScope::CurrentBranch {
+                upstream: self.upstream.clone(),
+            },
+        };
+        if self.log_scope == Some(scope.clone()) {
+            return;
+        }
+        if self.log_scope.is_none() && scope == LogScope::AllBranches {
+            self.log_scope = Some(scope);
+            return;
+        }
+        log::info!(
+            "[git_view] log scope changed: {scope:?}, upstream={:?}",
+            self.upstream
+        );
+        self.log_scope = Some(scope.clone());
+        self.git_view
+            .update(cx, |view, _| view.set_log_scope(scope));
     }
 
     pub fn set_layout(

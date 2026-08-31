@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::time::Duration;
 
-use crate::core::config::GraphHistoryPreference;
-use crate::core::git::{CheckoutTarget, CommitMessage};
+use crate::core::git::CheckoutTarget;
+use crate::core::git::CommitMessage;
 use crate::git::commit_message_dialog::CommitMessageDialog;
 use crate::git::commit_preview::CommitHoverPreview;
 use gpui::prelude::*;
@@ -20,7 +20,8 @@ use gpui_component::{
 
 use crate::core::graph::{
     AUTHOR_COL_WIDTH, DATE_COL_WIDTH, GraphRow, HASH_COL_WIDTH, LogRow,
-    column_visibility, compute_graph, filter_log_rows, format_relative_time,
+    RefKind, RefLabel, column_visibility, compute_graph, format_relative_time,
+    parse_ref_labels,
 };
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
@@ -36,6 +37,8 @@ pub const COL_WIDTH: f32 = 24.0;
 const NODE_RADIUS: f32 = 12.0;
 /// 树列左侧留白（首个节点圆不贴左边界）
 const GRAPH_LEFT_PAD: f32 = 12.0;
+/// Rows from the list end that trigger the next log page request.
+const LOAD_AHEAD_ROWS: usize = 30;
 
 #[derive(Clone, Debug)]
 pub enum GraphEvent {
@@ -53,15 +56,19 @@ pub enum GraphEvent {
     CopyRef(String),
     /// Copy the selected commit's complete message to the system clipboard.
     CopyCommitMessage(String),
+    /// The visible list approached the last loaded commit; fetch the next page.
+    MoreLogPageRequested,
 }
 
 pub struct GraphView {
-    all_rows: Vec<LogRow>,
     rows: Vec<LogRow>,
     layout: Vec<GraphRow>,
-    history_scope: GraphHistoryPreference,
-    current_branch: String,
-    upstream: Option<String>,
+    /// Whether the worker reported another commit page for the scope.
+    has_more: bool,
+    /// One page request is in flight; cleared when any page arrives.
+    page_in_flight: bool,
+    /// Configured remote names for classifying ref decorations.
+    remote_names: Vec<String>,
     selected: Option<usize>,
     /// Full messages cached after selection or hover requests.
     commit_messages: HashMap<String, CommitMessage>,
@@ -96,21 +103,15 @@ struct GraphRenderOptions {
 impl EventEmitter<GraphEvent> for GraphView {}
 
 impl GraphView {
-    pub fn new(
-        tab_id: u64,
-        locale: Locale,
-        history_scope: GraphHistoryPreference,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(tab_id: u64, locale: Locale, cx: &mut Context<Self>) -> Self {
         let hover_preview = cx.new(|_| CommitHoverPreview::new(locale));
         let message_dialog = cx.new(|_| CommitMessageDialog::new(locale));
         Self {
-            all_rows: Vec::new(),
             rows: Vec::new(),
             layout: Vec::new(),
-            history_scope,
-            current_branch: String::new(),
-            upstream: None,
+            has_more: false,
+            page_in_flight: false,
+            remote_names: Vec::new(),
             selected: None,
             commit_messages: HashMap::new(),
             hover_preview,
@@ -144,39 +145,48 @@ impl GraphView {
         }
     }
 
-    /// Update the current branch context used by the scoped graph.
-    pub fn set_history_context(
+    /// Update the remote names used to classify ref decorations as remote
+    /// branches (first path segment matched against this list).
+    pub fn set_remote_names(
         &mut self,
-        current_branch: String,
-        upstream: Option<String>,
+        remotes: Vec<String>,
         cx: &mut Context<Self>,
     ) {
-        if self.current_branch == current_branch && self.upstream == upstream {
-            return;
+        if self.remote_names != remotes {
+            self.remote_names = remotes;
+            cx.notify();
         }
-        self.current_branch = current_branch;
-        self.upstream = upstream;
-        self.rebuild_rows(cx);
-        cx.notify();
     }
 
-    /// Switch between the current-branch and all-branches graph histories.
-    pub fn set_history_scope(
+    /// Snapshot of the loaded commits, used by the branch comparison view.
+    pub fn log_rows(&self) -> Vec<LogRow> {
+        self.rows.clone()
+    }
+
+    /// Apply one worker log page. `replace` restarts the list after a refresh
+    /// or scope change; otherwise the page appends for lazy loading.
+    pub fn set_log_page(
         &mut self,
-        history_scope: GraphHistoryPreference,
+        mut rows: Vec<LogRow>,
+        replace: bool,
+        has_more: bool,
         cx: &mut Context<Self>,
     ) {
-        if self.history_scope == history_scope {
-            return;
+        self.page_in_flight = false;
+        self.has_more = has_more;
+        if replace {
+            self.rows = rows;
+        } else {
+            // Refs can move between page requests; skip OIDs already shown.
+            let known = self
+                .rows
+                .iter()
+                .map(|row| row.oid.as_str())
+                .collect::<std::collections::HashSet<_>>();
+            rows.retain(|row| !known.contains(row.oid.as_str()));
+            self.rows.extend(rows);
         }
-        self.history_scope = history_scope;
-        self.rebuild_rows(cx);
-        cx.notify();
-    }
-
-    pub fn set_rows(&mut self, rows: Vec<LogRow>, cx: &mut Context<Self>) {
-        self.all_rows = rows;
-        self.rebuild_rows(cx);
+        self.rebuild_layout(cx);
         log::debug!(
             "[graph_perf] graph layout cached: rows={}",
             self.layout.len()
@@ -184,17 +194,11 @@ impl GraphView {
         cx.notify();
     }
 
-    fn rebuild_rows(&mut self, cx: &mut Context<Self>) {
+    fn rebuild_layout(&mut self, cx: &mut Context<Self>) {
         let selected_oid = self
             .selected
             .and_then(|index| self.rows.get(index))
             .map(|row| row.oid.clone());
-        self.rows = filter_log_rows(
-            &self.all_rows,
-            self.history_scope,
-            &self.current_branch,
-            self.upstream.as_deref(),
-        );
         self.layout = compute_graph(&self.rows);
         self.selected = selected_oid
             .and_then(|oid| self.rows.iter().position(|row| row.oid == oid));
@@ -208,6 +212,15 @@ impl GraphView {
                 preview.clear(cx);
             });
         }
+    }
+
+    /// Request another page when the rendered range approaches the end of the
+    /// loaded history. The in-flight flag is set by the caller before emitting.
+    fn wants_more_rows(&self, rendered_end: usize) -> bool {
+        !self.rows.is_empty()
+            && self.has_more
+            && !self.page_in_flight
+            && rendered_end + LOAD_AHEAD_ROWS >= self.rows.len()
     }
 
     /// Cache an asynchronous message response and update the active preview
@@ -385,6 +398,12 @@ impl Render for GraphView {
             self.list_id.clone(),
             self.rows.len(),
             cx.processor(move |graph, range: Range<usize>, _window, cx| {
+                if graph.wants_more_rows(range.end) {
+                    // Reserve the request before emitting so repeated render
+                    // passes cannot queue the same page twice.
+                    graph.page_in_flight = true;
+                    cx.emit(GraphEvent::MoreLogPageRequested);
+                }
                 range
                     .map(|index| graph.render_row(index, &render_options, cx))
                     .collect()
@@ -447,6 +466,27 @@ impl GraphView {
             )
         } else {
             colors.foreground
+        };
+        // VS Code-style ref chips (HEAD, branches, remotes, tags) rendered
+        // right after the message column so remote-branch divergence is
+        // identifiable without opening the hover preview.
+        let ref_labels = parse_ref_labels(&row.decorations, &self.remote_names);
+        let ref_chips = if ref_labels.is_empty() {
+            None
+        } else {
+            Some(
+                div()
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .children(
+                        ref_labels
+                            .iter()
+                            .map(|label| ref_label_chip(label, colors)),
+                    )
+                    .into_any_element(),
+            )
         };
         let checkout_label = i18n::text(self.locale, "context-checkout");
         let copy_label = i18n::text(self.locale, "context-copy-commit");
@@ -560,6 +600,8 @@ impl GraphView {
                         .child(shared(row.subject.clone())),
                 )
             })
+            // Ref chips follow the subject (or the hash on narrow rows).
+            .when_some(ref_chips, |el, chips| el.child(chips))
             // Author column is fixed width and truncates long names.
             .when(options.show_author, |el| {
                 el.child(
@@ -746,6 +788,33 @@ impl GraphView {
                 true,
             ))
     }
+}
+
+/// Tint color per ref kind, mirroring the VS Code graph badge colors.
+fn ref_label_color(colors: ThemeColor, kind: RefKind) -> Hsla {
+    match kind {
+        RefKind::Head => colors.red,
+        RefKind::LocalBranch => colors.blue,
+        RefKind::RemoteBranch => colors.green,
+        RefKind::Tag => colors.yellow,
+    }
+}
+
+/// One rounded ref badge drawn in the commit row.
+fn ref_label_chip(label: &RefLabel, colors: ThemeColor) -> AnyElement {
+    let color = ref_label_color(colors, label.kind);
+    div()
+        .flex_shrink_0()
+        .px(px(5.))
+        .py(px(1.))
+        .rounded(px(4.))
+        .border_1()
+        .border_color(Hsla { a: 0.35, ..color })
+        .bg(Hsla { a: 0.14, ..color })
+        .text_size(px(10.))
+        .text_color(color)
+        .child(shared(label.name.clone()))
+        .into_any_element()
 }
 
 /// 宽度测量 canvas（w_full、0 高，不占布局）：prepaint 取自身 bounds 宽回写

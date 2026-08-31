@@ -4,10 +4,10 @@
 //! LazyGit. Each row snapshots the lanes entering the commit, then produces
 //! the lanes leaving it. This keeps the layout driven by commit topology
 //! rather than branch names or inferred ancestry.
-
-use std::collections::{HashMap, HashSet};
-
-use crate::core::config::GraphHistoryPreference;
+//!
+//! History scoping happens in the Git worker's paged log query
+//! (`crate::core::git::commit_log`), not here: every row passed to
+//! `compute_graph` is displayed.
 
 /// A commit row produced by the Git log parser.
 #[derive(Clone, Debug)]
@@ -26,6 +26,26 @@ pub struct LogRow {
     pub decorations: String,
     /// Parent object ids in Git's first-parent order.
     pub parents: Vec<String>,
+}
+
+/// The kind of ref behind a commit decoration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefKind {
+    /// The `HEAD` marker (including `HEAD -> branch`).
+    Head,
+    /// A local branch such as `main` or `feature/x`.
+    LocalBranch,
+    /// A remote-tracking branch such as `origin/main`.
+    RemoteBranch,
+    /// An annotated or lightweight tag.
+    Tag,
+}
+
+/// A single ref label displayed next to a commit in the graph.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RefLabel {
+    pub name: String,
+    pub kind: RefKind,
 }
 
 /// A commit graph lane waiting for a particular parent commit.
@@ -107,78 +127,73 @@ fn is_head_ref(reference: &str) -> bool {
     reference == "HEAD" || reference.starts_with("HEAD ->")
 }
 
-fn is_current_head_ref(reference: &str, current_branch: &str) -> bool {
-    is_head_ref(reference)
-        || (!current_branch.is_empty() && reference == current_branch)
-}
-
-fn is_target_ref(reference: &str, target: &str) -> bool {
-    reference == target
-        || reference
-            .strip_prefix("remotes/")
-            .is_some_and(|reference| reference == target)
-}
-
-/// Keep the current branch, its tracked upstream, and their reachable history.
-pub fn filter_log_rows(
-    commits: &[LogRow],
-    preference: GraphHistoryPreference,
-    current_branch: &str,
-    upstream: Option<&str>,
-) -> Vec<LogRow> {
-    if preference == GraphHistoryPreference::AllBranches {
-        return commits.to_vec();
-    }
-
-    let head_oid = commits.iter().find_map(|commit| {
-        refs_of(&commit.decorations)
-            .any(|reference| is_current_head_ref(reference, current_branch))
-            .then(|| commit.oid.clone())
-    });
-    let upstream_oid = upstream.and_then(|target| {
-        commits.iter().find_map(|commit| {
-            refs_of(&commit.decorations)
-                .any(|reference| is_target_ref(reference, target))
-                .then(|| commit.oid.clone())
-        })
-    });
-
-    let mut roots = Vec::with_capacity(2);
-    if let Some(oid) = head_oid {
-        roots.push(oid);
-    }
-    if let Some(oid) = upstream_oid {
-        if !roots.iter().any(|root| root == &oid) {
-            roots.push(oid);
-        }
-    }
-
-    // If decorations are unavailable, retain the log instead of presenting an
-    // empty history that cannot be explained to the user.
-    if roots.is_empty() {
-        return commits.to_vec();
-    }
-
-    let commits_by_oid = commits
-        .iter()
-        .map(|commit| (commit.oid.as_str(), commit))
-        .collect::<HashMap<_, _>>();
-    let mut visible = HashSet::new();
-    let mut pending = roots;
-    while let Some(oid) = pending.pop() {
-        if !visible.insert(oid.clone()) {
+/// Parse `%D` ref decorations into display labels, VS Code style.
+///
+/// `remote_names` lists configured remotes (e.g. `origin`) so a local branch
+/// whose name contains a slash is not mistaken for a remote-tracking branch.
+/// When the remote list is unavailable, any slashed name is treated as a
+/// remote-tracking branch. `origin/HEAD` alias refs are omitted because they
+/// only duplicate their symbolic target.
+pub fn parse_ref_labels(
+    decorations: &str,
+    remote_names: &[String],
+) -> Vec<RefLabel> {
+    let mut labels = Vec::new();
+    for reference in refs_of(decorations) {
+        if reference == "HEAD" {
+            labels.push(RefLabel {
+                name: "HEAD".to_string(),
+                kind: RefKind::Head,
+            });
             continue;
         }
-        if let Some(commit) = commits_by_oid.get(oid.as_str()) {
-            pending.extend(commit.parents.iter().cloned());
+        if let Some(target) = reference.strip_prefix("HEAD -> ") {
+            labels.push(RefLabel {
+                name: "HEAD".to_string(),
+                kind: RefKind::Head,
+            });
+            push_branch_label(&mut labels, target, remote_names);
+            continue;
         }
+        if let Some(tag) = reference.strip_prefix("tag: ") {
+            labels.push(RefLabel {
+                name: tag.to_string(),
+                kind: RefKind::Tag,
+            });
+            continue;
+        }
+        push_branch_label(&mut labels, reference, remote_names);
     }
+    labels
+}
 
-    commits
-        .iter()
-        .filter(|commit| visible.contains(&commit.oid))
-        .cloned()
-        .collect()
+fn push_branch_label(
+    labels: &mut Vec<RefLabel>,
+    reference: &str,
+    remote_names: &[String],
+) {
+    let name = reference.strip_prefix("remotes/").unwrap_or(reference);
+    if name.ends_with("/HEAD") {
+        return;
+    }
+    let is_remote = match name.split_once('/') {
+        Some((prefix, _)) => {
+            if remote_names.is_empty() {
+                true
+            } else {
+                remote_names.iter().any(|remote| remote == prefix)
+            }
+        }
+        None => false,
+    };
+    labels.push(RefLabel {
+        name: name.to_string(),
+        kind: if is_remote {
+            RefKind::RemoteBranch
+        } else {
+            RefKind::LocalBranch
+        },
+    });
 }
 
 struct ColorAllocator {
@@ -472,45 +487,92 @@ mod tests {
     }
 
     #[test]
-    fn current_history_includes_tracked_upstream_but_excludes_unrelated_refs() {
+    fn diverged_upstream_lane_converges_at_the_merge_base() {
+        // Local chain 6->5->2 and remote-only commit 4 (origin/main tip)
+        // share the merge base 2, matching a fetch-diverged branch.
         let commits = vec![
-            make_commit(5, &[1], "HEAD -> feature"),
-            make_commit(4, &[2], "other"),
-            make_commit(3, &[1], "origin/feature"),
-            make_commit(2, &[], ""),
+            make_commit(6, &[5], "HEAD -> main"),
+            make_commit(5, &[2], ""),
+            make_commit(4, &[2], "origin/main"),
+            make_commit(2, &[1], ""),
             make_commit(1, &[], ""),
         ];
-        let rows = filter_log_rows(
-            &commits,
-            GraphHistoryPreference::CurrentBranch,
-            "feature",
-            Some("origin/feature"),
+        let rows = compute_graph(&commits);
+
+        assert_eq!(rows[0].node_lane, 0);
+        assert_eq!(rows[2].node_lane, 1);
+        assert!(!rows[2].has_incoming);
+        assert_eq!(rows[3].node_input_lanes, vec![0, 1]);
+        assert_ne!(rows[0].node_color, rows[2].node_color);
+    }
+
+    #[test]
+    fn ref_labels_head_and_remote_are_classified() {
+        let labels = parse_ref_labels(
+            "HEAD -> main, origin/main, origin/HEAD, tag: v1.0",
+            &["origin".to_string()],
         );
 
         assert_eq!(
-            rows.iter()
-                .map(|row| row.oid[39..].to_string())
-                .collect::<Vec<_>>(),
-            vec!["5", "3", "1"]
+            labels,
+            vec![
+                RefLabel {
+                    name: "HEAD".into(),
+                    kind: RefKind::Head
+                },
+                RefLabel {
+                    name: "main".into(),
+                    kind: RefKind::LocalBranch
+                },
+                RefLabel {
+                    name: "origin/main".into(),
+                    kind: RefKind::RemoteBranch
+                },
+                RefLabel {
+                    name: "v1.0".into(),
+                    kind: RefKind::Tag
+                },
+            ]
         );
     }
 
     #[test]
-    fn all_history_preserves_unrelated_refs() {
-        let commits = vec![
-            make_commit(2, &[1], "HEAD -> main"),
-            make_commit(3, &[4], "topic"),
-            make_commit(1, &[], ""),
-            make_commit(4, &[], ""),
-        ];
-        let rows = filter_log_rows(
-            &commits,
-            GraphHistoryPreference::AllBranches,
-            "main",
-            None,
+    fn ref_labels_slashed_local_branch_is_not_mistaken_for_remote() {
+        let labels = parse_ref_labels(
+            "feature/x, remotes/origin/topic, HEAD",
+            &["origin".to_string()],
         );
 
-        assert_eq!(rows.len(), commits.len());
+        assert_eq!(
+            labels,
+            vec![
+                RefLabel {
+                    name: "feature/x".into(),
+                    kind: RefKind::LocalBranch
+                },
+                RefLabel {
+                    name: "origin/topic".into(),
+                    kind: RefKind::RemoteBranch
+                },
+                RefLabel {
+                    name: "HEAD".into(),
+                    kind: RefKind::Head
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn ref_labels_without_known_remotes_treats_slashes_as_remotes() {
+        let labels = parse_ref_labels("origin/main", &[]);
+        assert_eq!(
+            labels,
+            vec![RefLabel {
+                name: "origin/main".into(),
+                kind: RefKind::RemoteBranch
+            }]
+        );
+        assert!(parse_ref_labels("", &[]).is_empty());
     }
 
     #[test]

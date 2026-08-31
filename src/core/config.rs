@@ -93,7 +93,9 @@ pub enum GraphHistoryPreference {
 
 impl Default for GraphHistoryPreference {
     fn default() -> Self {
-        Self::CurrentBranch
+        // Match the VS Code commit graph default: show all branches,
+        // including remote-branch divergence.
+        Self::AllBranches
     }
 }
 
@@ -121,7 +123,7 @@ impl Default for ViewSettings {
             show_untracked: true,
             auto_follow: true,
             diff_layout: DiffLayoutPreference::Inline,
-            graph_history: GraphHistoryPreference::CurrentBranch,
+            graph_history: GraphHistoryPreference::AllBranches,
             auto_refresh_on_focus: true,
         }
     }
@@ -731,18 +733,18 @@ mod tests {
         );
 
         let serialized = serde_json::to_string(&AppConfig::default()).unwrap();
-        assert!(serialized.contains(r#""graph_history":"current-branch""#));
+        assert!(serialized.contains(r#""graph_history":"all-branches""#));
     }
 
     #[test]
-    fn missing_graph_history_defaults_to_current_branch() {
+    fn missing_graph_history_defaults_to_all_branches() {
         let json = r#"{"view":{"show_untracked":false,"auto_follow":true}}"#;
         let config = AppConfig::from(
             serde_json::from_str::<RawAppConfig>(json).unwrap(),
         );
         assert_eq!(
             config.view.graph_history,
-            GraphHistoryPreference::CurrentBranch
+            GraphHistoryPreference::AllBranches
         );
     }
 
