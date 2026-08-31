@@ -1,4 +1,4 @@
-# augur-git 简体中文（zh-CN）翻译
+# Augur Git 简体中文（zh-CN）翻译
 # 格式：key = value，一行一条；{ $name } 为占位符（src/core/i18n.rs::text_args 替换）。
 
 # ===== 应用 / Welcome =====
@@ -19,7 +19,7 @@ menu-no-recent-repositories = 没有最近仓库
 menu-edit = 编辑
 menu-settings = 设置
 menu-help = 帮助
-menu-about = 关于 augur-git
+menu-about = 关于 Augur Git
 menu-quit = 退出
 about-title = 关于
 about-tagline = 桌面 Git 客户端

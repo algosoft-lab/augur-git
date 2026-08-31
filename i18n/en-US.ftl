@@ -1,4 +1,4 @@
-# augur-git English (en-US) translations
+# Augur Git English (en-US) translations
 # Format: key = value, one per line; { $name } placeholders are
 # substituted by src/core/i18n.rs::text_args.
 
@@ -20,7 +20,7 @@ menu-no-recent-repositories = No Recent Repositories
 menu-edit = Edit
 menu-settings = Settings
 menu-help = Help
-menu-about = About augur-git
+menu-about = About Augur Git
 menu-quit = Quit
 about-title = About
 about-tagline = Desktop Git client
