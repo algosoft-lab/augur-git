@@ -364,8 +364,7 @@ fn is_supported_ref(reference: &str) -> bool {
 }
 
 fn is_supported_commit_id(value: &str) -> bool {
-    matches!(value.len(), 7..=64)
-        && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    CompareRevision::is_supported_commit_id(value)
 }
 
 fn parse_object_id(text: &str) -> Option<String> {

@@ -6,6 +6,7 @@ use gpui_component::{h_flex, v_flex};
 
 use crate::core::diff::stat_blocks;
 use crate::core::git::{CompareRevision, CompareRevisionKind};
+use crate::core::graph::LogRow;
 use crate::core::i18n::{self, Locale};
 
 use super::{lucide, shared};
@@ -51,6 +52,25 @@ pub(super) fn format_revision_label(
         Some(subject) => format!("{prefix} · {} · {subject}", reference.name),
         None => format!("{prefix} · {}", reference.name),
     }
+}
+
+pub(super) fn format_commit_revision_label(
+    locale: Locale,
+    reference: &CompareRevision,
+    row: &LogRow,
+) -> String {
+    let prefix = i18n::text(locale, "branch-compare-commit");
+    let mut parts = vec![prefix, reference.name.clone()];
+    if !row.subject.is_empty() {
+        parts.push(row.subject.clone());
+    }
+    if !row.date.is_empty() {
+        parts.push(row.date.clone());
+    }
+    if !row.decorations.is_empty() {
+        parts.push(row.decorations.clone());
+    }
+    parts.join(" · ")
 }
 
 pub(super) fn choose_selection(

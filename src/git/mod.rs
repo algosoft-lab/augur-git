@@ -13,6 +13,8 @@ pub mod commit_preview;
 pub mod diff_view;
 pub mod graph;
 pub mod panel;
+mod revision_picker;
+mod revision_picker_logic;
 pub mod sidebar;
 pub mod toolbar;
 

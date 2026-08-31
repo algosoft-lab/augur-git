@@ -51,6 +51,28 @@ pub struct CompareRevision {
     pub kind: CompareRevisionKind,
 }
 
+impl CompareRevision {
+    /// Construct a commit revision from a user-provided hexadecimal object id.
+    ///
+    /// The comparison worker resolves the value against the repository object
+    /// database later. This constructor only validates the format accepted by
+    /// the revision picker (7 to 64 hexadecimal characters).
+    pub fn from_commit_id(value: impl AsRef<str>) -> Option<Self> {
+        let value = value.as_ref().trim();
+        Self::is_supported_commit_id(value).then(|| Self {
+            name: value.to_string(),
+            full_name: value.to_string(),
+            kind: CompareRevisionKind::Commit,
+        })
+    }
+
+    /// Return whether a value has the supported raw commit-id format.
+    pub fn is_supported_commit_id(value: &str) -> bool {
+        matches!(value.len(), 7..=64)
+            && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    }
+}
+
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -1351,6 +1373,19 @@ fn parse_log(text: &str) -> Vec<LogRow> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn commit_revision_constructor_trims_and_validates_hex_ids() {
+        let revision =
+            CompareRevision::from_commit_id(format!("  {}  ", "a".repeat(40)))
+                .expect("valid commit id");
+        assert_eq!(revision.name, "a".repeat(40));
+        assert_eq!(revision.full_name, revision.name);
+        assert_eq!(revision.kind, CompareRevisionKind::Commit);
+        assert!(CompareRevision::from_commit_id("abcdef").is_none());
+        assert!(CompareRevision::from_commit_id("not-a-sha").is_none());
+        assert!(CompareRevision::from_commit_id("a".repeat(65)).is_none());
+    }
 
     #[test]
     fn checkout_args_preserve_target_as_one_argument() {
