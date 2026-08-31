@@ -1,9 +1,14 @@
-name: Build packages
+name: Build and publish packages
 
 on:
   push:
     branches:
       - build
+      - publish
+
+concurrency:
+  group: packaging-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -180,3 +185,129 @@ jobs:
           name: augur-git-linux-x86-64-appimage
           path: packaging/out/*.AppImage
           if-no-files-found: error
+
+  release:
+    name: Publish nightly release
+    if: github.ref == 'refs/heads/publish'
+    needs:
+      - windows
+      - macos
+      - linux
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: augur-git-windows-x86-64
+          path: staging/windows
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: augur-git-macos-arm64
+          path: staging/macos
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: augur-git-linux-x86-64-appimage
+          path: staging/linux
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          windows_installers=(staging/windows/*.exe)
+          macos_disk_images=(staging/macos/*.dmg)
+          linux_appimages=(staging/linux/*.AppImage)
+
+          if (( ${#windows_installers[@]} != 1 )); then
+            echo "Expected exactly one Windows installer."
+            exit 1
+          fi
+          if (( ${#macos_disk_images[@]} != 1 )); then
+            echo "Expected exactly one macOS disk image."
+            exit 1
+          fi
+          if (( ${#linux_appimages[@]} != 1 )); then
+            echo "Expected exactly one Linux AppImage."
+            exit 1
+          fi
+
+          mkdir -p release-assets
+          cp -- "${windows_installers[0]}" release-assets/augur-git-windows-x86-64.exe
+          cp -- "${macos_disk_images[0]}" release-assets/augur-git-macos-arm64.dmg
+          cp -- "${linux_appimages[0]}" release-assets/augur-git-linux-x86-64.AppImage
+
+      - name: Update nightly tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag_ref="repos/${REPOSITORY}/git/ref/tags/nightly"
+          if gh api "${tag_ref}" >/dev/null 2>&1; then
+            gh api --method PATCH "${tag_ref}" \
+              -f "sha=${COMMIT_SHA}" \
+              -F force=true >/dev/null
+          else
+            gh api --method POST "repos/${REPOSITORY}/git/refs" \
+              -f ref=refs/tags/nightly \
+              -f "sha=${COMMIT_SHA}" >/dev/null
+          fi
+
+      - name: Replace nightly release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          releases_api="repos/${REPOSITORY}/releases"
+          release_id=""
+          if release_id="$(gh api "${releases_api}/tags/nightly" --jq '.id' 2>/dev/null)"; then
+            gh api --method PATCH "${releases_api}/${release_id}" \
+              -f name="Augur Git Nightly" \
+              -f "body=Automated nightly build for commit ${COMMIT_SHA}." \
+              -F draft=true \
+              -F prerelease=true \
+              -f make_latest=false >/dev/null
+          else
+            release_id="$(gh api --method POST "${releases_api}" \
+              -f tag_name=nightly \
+              -f name="Augur Git Nightly" \
+              -f "body=Automated nightly build for commit ${COMMIT_SHA}." \
+              -F draft=true \
+              -F prerelease=true \
+              -f make_latest=false \
+              --jq '.id')"
+          fi
+
+          asset_ids="$(gh api --paginate "${releases_api}/${release_id}/assets?per_page=100" --jq '.[].id')"
+          while IFS= read -r asset_id; do
+            if [[ -n "${asset_id}" ]]; then
+              gh api --method DELETE "${releases_api}/assets/${asset_id}" >/dev/null
+            fi
+          done <<< "${asset_ids}"
+
+          gh release upload nightly \
+            release-assets/augur-git-windows-x86-64.exe \
+            release-assets/augur-git-macos-arm64.dmg \
+            release-assets/augur-git-linux-x86-64.AppImage \
+            --repo "${REPOSITORY}" \
+            --clobber
+
+          gh api --method PATCH "${releases_api}/${release_id}" \
+            -F draft=false \
+            -F prerelease=true \
+            -f make_latest=false >/dev/null
