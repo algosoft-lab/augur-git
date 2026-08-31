@@ -1,0 +1,182 @@
+name: Build packages
+
+on:
+  push:
+    branches:
+      - build
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  windows:
+    name: Windows x86-64 installer
+    runs-on: windows-2025
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10
+
+      - name: Cache Cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-
+
+      - name: Build Windows installer
+        run: uv run packaging/build-windows.py
+
+      - name: Verify Windows installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path packaging/out -Filter *.exe -File
+          if ($null -eq $installer) {
+            throw "No Windows installer was produced."
+          }
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: augur-git-windows-x86-64
+          path: packaging/out/*.exe
+          if-no-files-found: error
+
+  macos:
+    name: macOS arm64 app and DMG
+    runs-on: macos-15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Confirm Apple Silicon runner
+        run: test "$(uname -m)" = "arm64"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10
+
+      - name: Cache Cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-
+
+      - name: Build macOS app and DMG
+        run: |
+          cargo build --release
+          uv run packaging/build-mac-app.py
+
+      - name: Verify macOS package
+        run: |
+          test -s packaging/out/*.dmg
+          test -x "packaging/out/Augur Git.app/Contents/MacOS/augur-git"
+
+      - name: Upload macOS package
+        uses: actions/upload-artifact@v7
+        with:
+          name: augur-git-macos-arm64
+          path: packaging/out/
+          if-no-files-found: error
+
+  linux:
+    name: Linux x86-64 AppImage
+    runs-on: ubuntu-24.04
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential \
+            clang \
+            cmake \
+            libasound2-dev \
+            libfontconfig-dev \
+            libgit2-dev \
+            libglib2.0-dev \
+            libsqlite3-dev \
+            libssl-dev \
+            libva-dev \
+            libvulkan-dev \
+            libwayland-dev \
+            libx11-xcb-dev \
+            libxkbcommon-x11-dev \
+            libzstd-dev \
+            lld \
+            llvm \
+            pkg-config
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10
+
+      - name: Cache Cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-
+
+      - name: Build AppImage
+        run: |
+          cargo build --release
+          uv run packaging/build-appimage.py
+
+      - name: Verify AppImage
+        run: test -s packaging/out/*.AppImage
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v7
+        with:
+          name: augur-git-linux-x86-64-appimage
+          path: packaging/out/*.AppImage
+          if-no-files-found: error
