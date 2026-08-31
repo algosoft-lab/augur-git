@@ -1,7 +1,7 @@
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, IndexPath,
+    ActiveTheme, IconName, IndexPath, Sizable,
     button::{Button, ButtonVariants},
     h_flex,
     scroll::ScrollableElement,
@@ -724,11 +724,13 @@ impl Render for SettingsPanel {
                             )
                             .child(
                                 Button::new("settings-close")
-                                    .label(i18n::text(
+                                    .icon(IconName::Close)
+                                    .ghost()
+                                    .small()
+                                    .tooltip(i18n::text(
                                         self.locale,
                                         "settings-close",
                                     ))
-                                    .ghost()
                                     .on_click(move |_event, _window, cx| {
                                         close.update(cx, |panel, cx| {
                                             panel.close(cx)
