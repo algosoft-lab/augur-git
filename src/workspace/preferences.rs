@@ -1,7 +1,8 @@
 use gpui::*;
 
 use crate::core::config::{
-    DiffLayoutPreference, LanguagePreference, ThemePreference,
+    DiffLayoutPreference, GraphHistoryPreference, LanguagePreference,
+    ThemePreference,
 };
 use crate::core::i18n;
 use crate::git::diff_view::DiffLayoutMode;
@@ -141,6 +142,26 @@ impl Workspace {
         }
         self.config_saver.schedule(&self.config);
         log::info!("[workspace] diff layout preference: {preference:?}");
+        cx.notify();
+    }
+
+    /// Switch the commit graph history scope and apply it to every open tab.
+    pub(super) fn set_graph_history(
+        &mut self,
+        preference: GraphHistoryPreference,
+        cx: &mut Context<Self>,
+    ) {
+        if self.config.view.graph_history == preference {
+            return;
+        }
+        self.config.view.graph_history = preference;
+        for entry in &self.tabs {
+            if let TabContent::Repo(tab) = &entry.content {
+                tab.update(cx, |tab, cx| tab.set_graph_history(preference, cx));
+            }
+        }
+        self.config_saver.schedule(&self.config);
+        log::info!("[workspace] graph history preference: {preference:?}");
         cx.notify();
     }
 

@@ -2,7 +2,7 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{ActiveTheme, h_flex, v_flex};
 
-use crate::core::config::LayoutSettings;
+use crate::core::config::{GraphHistoryPreference, LayoutSettings};
 use crate::core::git::{
     CheckoutTarget, WorkingTreeAction, WorkingTreeDiffKind, WorkingTreeScope,
     WorkingTreeScopeKind,
@@ -111,6 +111,7 @@ impl RepoTab {
         repo_path: String,
         locale: Locale,
         diff_layout: DiffLayoutMode,
+        graph_history: GraphHistoryPreference,
         mut layout: LayoutSettings,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -118,7 +119,7 @@ impl RepoTab {
         layout.normalize();
         let git_view = cx.new(|cx| GitView::new(locale, cx));
         let sidebar = cx.new(|cx| Sidebar::new(window, cx, locale));
-        let graph = cx.new(|cx| GraphView::new(id, locale, cx));
+        let graph = cx.new(|cx| GraphView::new(id, locale, graph_history, cx));
         let toolbar = cx.new(|_cx| Toolbar::new(locale));
         let commit = cx.new(|cx| CommitPanel::new(window, cx, locale));
         let changes = cx.new(|_cx| ChangesPanel::new(locale));
@@ -332,6 +333,7 @@ impl RepoTab {
         cx.subscribe(&git_view, |tab, _event, event, cx| match event {
             GitUiEvent::StatusChanged {
                 branch,
+                upstream,
                 ahead,
                 behind,
                 files,
@@ -354,6 +356,13 @@ impl RepoTab {
                 let unstaged_text = unstaged_count.to_string();
 
                 tab.branch = branch_name;
+                tab.graph.update(cx, |graph, cx| {
+                    graph.set_history_context(
+                        branch.clone(),
+                        upstream.clone(),
+                        cx,
+                    );
+                });
                 tab.status = GitStatus::Ready(i18n::text_args(
                     tab.locale,
                     "status-summary",
@@ -778,6 +787,17 @@ impl RepoTab {
     ) {
         self.bottom.update(cx, |bottom, cx| {
             bottom.set_diff_layout(diff_layout, cx);
+        });
+    }
+
+    /// Apply the persisted commit graph history scope to this repository tab.
+    pub fn set_graph_history(
+        &mut self,
+        preference: GraphHistoryPreference,
+        cx: &mut Context<Self>,
+    ) {
+        self.graph.update(cx, |graph, cx| {
+            graph.set_history_scope(preference, cx);
         });
     }
 

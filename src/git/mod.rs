@@ -32,15 +32,16 @@ use crate::core::i18n::{self, Locale};
 /// GitView → Workspace 事件（事件即数据快照，面板各自持有副本）
 #[derive(Clone, Debug)]
 pub enum GitUiEvent {
-    /// 仓库状态快照
+    /// Repository status snapshot.
     StatusChanged {
         branch: String,
+        upstream: Option<String>,
         ahead: usize,
         behind: usize,
         files: Vec<FileStatus>,
         branches: Vec<BranchInfo>,
     },
-    /// 提交日志快照
+    /// Commit log snapshot.
     LogChanged { rows: Vec<LogRow> },
     /// 引用快照（侧栏 remotes/远程分支/标签/stash 分区）
     RefsChanged(RefsInfo),
@@ -372,13 +373,14 @@ impl GitView {
             match evt {
                 GitEvent::Status {
                     branch,
+                    upstream,
                     files,
                     branches,
                     ahead,
                     behind,
                 } => {
                     log::info!(
-                        "[git_view] status refreshed: branch={branch}, files={}, branches={}, ahead={ahead}, behind={behind}",
+                        "[git_view] status refreshed: branch={branch}, upstream={upstream:?}, files={}, branches={}, ahead={ahead}, behind={behind}",
                         files.len(),
                         branches.len()
                     );
@@ -389,6 +391,7 @@ impl GitView {
                     );
                     cx.emit(GitUiEvent::StatusChanged {
                         branch,
+                        upstream,
                         ahead,
                         behind,
                         files,

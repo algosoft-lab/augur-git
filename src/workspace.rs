@@ -244,6 +244,9 @@ impl Workspace {
                 SettingsPanelEvent::DiffLayoutChanged(preference) => {
                     workspace.set_diff_layout(*preference, cx);
                 }
+                SettingsPanelEvent::GraphHistoryChanged(preference) => {
+                    workspace.set_graph_history(*preference, cx);
+                }
                 SettingsPanelEvent::UiFontChanged(font) => {
                     workspace.set_ui_font(font.clone(), cx);
                 }
@@ -376,6 +379,7 @@ impl Workspace {
                 path_for_tab,
                 locale,
                 self.config.view.diff_layout.into(),
+                self.config.view.graph_history,
                 self.ui_state.layout.clone(),
                 window,
                 cx,
@@ -442,6 +446,7 @@ impl Workspace {
                 path.clone(),
                 locale,
                 self.config.view.diff_layout.into(),
+                self.config.view.graph_history,
                 self.ui_state.layout.clone(),
                 window,
                 cx,

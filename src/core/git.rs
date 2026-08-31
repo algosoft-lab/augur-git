@@ -104,9 +104,11 @@ pub struct RefsInfo {
 
 /// 后台 → UI 事件
 pub enum GitEvent {
-    /// 状态结果（分支 + 变更文件 + 本地分支列表 + ahead/behind）
+    /// Repository status, tracked upstream, changed files, and branch list.
     Status {
         branch: String,
+        /// Tracked upstream ref, when the current branch has one.
+        upstream: Option<String>,
         files: Vec<FileStatus>,
         /// 本地分支列表（(名字, 是否当前分支)）
         branches: Vec<BranchInfo>,
@@ -115,7 +117,7 @@ pub enum GitEvent {
         /// 落后上游提交数
         behind: usize,
     },
-    /// 提交日志（含 parents，供 compute_graph 布局）
+    /// Commit log rows with parents for active-lane layout.
     Log { rows: Vec<LogRow> },
     /// 引用快照（侧栏 remotes/远程分支/标签/stash 分区）
     Refs(RefsInfo),
@@ -549,9 +551,10 @@ fn refresh_status(repo_path: &str, event_tx: &Sender<GitEvent>) {
     let status = run_status(repo_path);
     let branches = run_branches(repo_path);
     match status {
-        Ok((branch, files, ahead, behind)) => {
+        Ok((branch, upstream, files, ahead, behind)) => {
             let _ = event_tx.send(GitEvent::Status {
                 branch,
+                upstream,
                 files,
                 branches,
                 ahead,
@@ -923,10 +926,10 @@ fn read_blob_spec(repo_path: &str, spec: &str) -> Option<String> {
     String::from_utf8(output.stdout).ok()
 }
 
-/// Execute git status and return (branch, files, ahead, behind).
+/// Execute git status and return (branch, upstream, files, ahead, behind).
 fn run_status(
     repo_path: &str,
-) -> Result<(String, Vec<FileStatus>, usize, usize), GitError> {
+) -> Result<(String, Option<String>, Vec<FileStatus>, usize, usize), GitError> {
     let output = git_command()
         .args([
             "-C",
@@ -973,8 +976,9 @@ fn run_status(
 /// ```
 fn parse_status(
     output: &[u8],
-) -> Result<(String, Vec<FileStatus>, usize, usize), GitError> {
+) -> Result<(String, Option<String>, Vec<FileStatus>, usize, usize), GitError> {
     let mut branch = String::new();
+    let mut upstream = None;
     let mut ahead = 0;
     let mut behind = 0;
     let mut files = Vec::new();
@@ -985,7 +989,9 @@ fn parse_status(
         }
         if let Some(rest) = record.strip_prefix(b"## ") {
             let rest = decode_status_text(rest)?;
-            branch = parse_branch_name(&rest);
+            let (parsed_branch, parsed_upstream) = parse_branch_info(&rest);
+            branch = parsed_branch;
+            upstream = parsed_upstream;
             ahead = parse_count(&rest, "[ahead ");
             behind = parse_count(&rest, "behind ");
             continue;
@@ -1022,7 +1028,7 @@ fn parse_status(
             old_path,
         });
     }
-    Ok((branch, files, ahead, behind))
+    Ok((branch, upstream, files, ahead, behind))
 }
 
 fn decode_status_text(bytes: &[u8]) -> Result<String, GitError> {
@@ -1043,13 +1049,24 @@ fn decode_status_path(bytes: &[u8]) -> Result<String, GitError> {
     })
 }
 
-fn parse_branch_name(rest: &str) -> String {
+fn parse_branch_info(rest: &str) -> (String, Option<String>) {
     if let Some(branch) = rest.strip_prefix("No commits yet on ") {
-        branch.to_string()
+        (branch.to_string(), None)
     } else if let Some(branch) = rest.strip_prefix("Initial commit on ") {
-        branch.to_string()
+        (branch.to_string(), None)
     } else {
-        rest.split("...").next().unwrap_or("").to_string()
+        let Some((branch, tracking)) = rest.split_once("...") else {
+            return (rest.to_string(), None);
+        };
+        let upstream = tracking
+            .split_once(" [")
+            .map(|(name, _)| name)
+            .unwrap_or(tracking)
+            .trim();
+        (
+            branch.to_string(),
+            (!upstream.is_empty()).then(|| upstream.to_string()),
+        )
     }
 }
 
@@ -1142,20 +1159,9 @@ fn parse_stashes(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// 执行 git log（提交图数据：oid/short/author/date/subject/装饰/parents）
+/// Execute git log in the topological order used by the active-lane layout.
 fn run_log(repo_path: &str, event_tx: &Sender<GitEvent>) {
-    let output = git_command()
-        .args([
-            "-C",
-            repo_path,
-            "log",
-            "--all",
-            "--graph",
-            "--max-count=200",
-            "--date=format:%Y-%m-%d %H:%M",
-            "--pretty=format:%H%x00%h%x00%an%x00%ai%x00%at%x00%s%x00%D%x00%P",
-        ])
-        .output();
+    let output = git_command().args(log_args(repo_path)).output();
     match output {
         Ok(output) if output.status.success() => {
             let text = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -1176,25 +1182,34 @@ fn run_log(repo_path: &str, event_tx: &Sender<GitEvent>) {
     }
 }
 
-/// 解析 `git log --graph --pretty=format:%H%x00%h%x00%an%x00%ai%x00%at%x00%s%x00%D%x00%P` 输出
+fn log_args(repo_path: &str) -> Vec<String> {
+    vec![
+        "-C".into(),
+        repo_path.into(),
+        "log".into(),
+        "--all".into(),
+        "--topo-order".into(),
+        "--max-count=200".into(),
+        "--date=format:%Y-%m-%d %H:%M".into(),
+        "--pretty=format:%H%x00%h%x00%an%x00%ai%x00%at%x00%s%x00%D%x00%P"
+            .into(),
+    ]
+}
+
+/// Parse structured `git log --pretty=format:...` output.
 ///
-/// 每行结构：`<graph 区><40-hex oid>\0<short>\0<author>\0<date>\0<timestamp>\0<subject>\0<decorations>\0<parents>`
-/// graph 区字符集为 `| * / \ _ . -` + 空格（不含 a-f 等 hex 字符），
-/// 跳过行首 graph 字符后剩下的必以 40-hex 开头。
+/// Each line starts with a 40-character hexadecimal object id followed by
+/// NUL-separated commit fields. Malformed records are ignored defensively.
 fn parse_log(text: &str) -> Vec<LogRow> {
     let mut rows = Vec::new();
     for line in text.lines() {
-        let graph_end = line
-            .find(|c: char| {
-                !matches!(c, '|' | '*' | '/' | '\\' | '_' | '.' | '-' | ' ')
-            })
-            .unwrap_or(line.len());
-        let rest = &line[graph_end..];
-        if rest.len() < 40 || !rest[..40].bytes().all(|b| b.is_ascii_hexdigit())
-        {
+        let fields: Vec<&str> = line.split('\0').collect();
+        let Some(oid) = fields.first().copied() else {
+            continue;
+        };
+        if oid.len() != 40 || !oid.bytes().all(|b| b.is_ascii_hexdigit()) {
             continue;
         }
-        let fields: Vec<&str> = rest.split('\0').collect();
         if fields.len() < 6 {
             continue;
         }
@@ -1205,11 +1220,10 @@ fn parse_log(text: &str) -> Vec<LogRow> {
             .split_whitespace()
             .map(|s| s.to_string())
             .collect();
-        // %at = 作者时间戳（unix 秒，相对时间显示用）
+        // `%at` is the author timestamp used for relative-time display.
         let timestamp = fields.get(4).and_then(|s| s.parse().ok()).unwrap_or(0);
         rows.push(LogRow {
-            graph: line[..graph_end].to_string(),
-            oid: fields[0].to_string(),
+            oid: oid.to_string(),
             short: fields[1].to_string(),
             author: fields[2].to_string(),
             date: fields[3].to_string(),
@@ -1367,8 +1381,10 @@ mod tests {
     #[test]
     fn parse_status_normal() {
         let output = b"## main...origin/main [ahead 1, behind 2]\0 M src/a.rs\0A  new.rs\0?? untracked.txt\0";
-        let (branch, files, ahead, behind) = parse_status(output).unwrap();
+        let (branch, upstream, files, ahead, behind) =
+            parse_status(output).unwrap();
         assert_eq!(branch, "main");
+        assert_eq!(upstream.as_deref(), Some("origin/main"));
         assert_eq!(ahead, 1);
         assert_eq!(behind, 2);
         assert_eq!(files.len(), 3);
@@ -1386,7 +1402,7 @@ mod tests {
     fn file_status_separates_staged_worktree_and_mixed_changes() {
         let output =
             b"## main\0M  staged.rs\0 M changed.rs\0MM mixed.rs\0?? new.txt\0";
-        let (_, files, _, _) = parse_status(output).unwrap();
+        let (_, _, files, _, _) = parse_status(output).unwrap();
         assert!(files[0].has_staged_changes());
         assert!(!files[0].has_worktree_changes());
         assert!(!files[1].has_staged_changes());
@@ -1402,8 +1418,10 @@ mod tests {
     #[test]
     fn parse_status_no_upstream() {
         let output = b"## main\0 M a.rs\0";
-        let (branch, _files, ahead, behind) = parse_status(output).unwrap();
+        let (branch, upstream, _files, ahead, behind) =
+            parse_status(output).unwrap();
         assert_eq!(branch, "main");
+        assert!(upstream.is_none());
         assert_eq!(ahead, 0);
         assert_eq!(behind, 0);
     }
@@ -1411,8 +1429,9 @@ mod tests {
     #[test]
     fn parse_status_rename_and_detached() {
         let output = b"## HEAD (no branch)\0R  new.txt\0old.txt\0";
-        let (branch, files, _, _) = parse_status(output).unwrap();
+        let (branch, upstream, files, _, _) = parse_status(output).unwrap();
         assert_eq!(branch, "HEAD (no branch)");
+        assert!(upstream.is_none());
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].index, 'R');
         assert_eq!(files[0].path, "new.txt");
@@ -1423,7 +1442,7 @@ mod tests {
     fn parse_status_tracks_worktree_rename_and_copy_paths() {
         let output =
             b"## main\0 R renamed.txt\0old.txt\0 C copied.txt\0source.txt\0";
-        let (_, files, _, _) = parse_status(output).unwrap();
+        let (_, _, files, _, _) = parse_status(output).unwrap();
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].worktree, 'R');
         assert_eq!(files[0].path, "renamed.txt");
@@ -1436,7 +1455,7 @@ mod tests {
     #[test]
     fn parse_status_z_preserves_special_paths() {
         let output = b"## main\0 M path -> literal\nname.rs\0?? unicode-\xE4\xB8\xAD.txt\0";
-        let (_, files, _, _) = parse_status(output).unwrap();
+        let (_, _, files, _, _) = parse_status(output).unwrap();
         assert_eq!(files[0].path, "path -> literal\nname.rs");
         assert_eq!(files[1].path, "unicode-中.txt");
     }
@@ -1501,6 +1520,18 @@ mod tests {
         let text = "garbage\n0123456789abcdef0123456789abcdef01234567\0s\0a\0d\0提交\0\n";
         let rows = parse_log(text);
         assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn log_args_use_topological_order_without_ascii_graph() {
+        let args = log_args("repo with spaces");
+
+        assert!(args.windows(2).any(|pair| {
+            pair == ["-C".to_string(), "repo with spaces".to_string()]
+        }));
+        assert!(args.iter().any(|arg| arg == "--all"));
+        assert!(args.iter().any(|arg| arg == "--topo-order"));
+        assert!(!args.iter().any(|arg| arg == "--graph"));
     }
 
     #[test]

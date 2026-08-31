@@ -11,7 +11,8 @@ use gpui_component::{
 };
 
 use crate::core::config::{
-    AppConfig, DiffLayoutPreference, LanguagePreference, ThemePreference,
+    AppConfig, DiffLayoutPreference, GraphHistoryPreference,
+    LanguagePreference, ThemePreference,
 };
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
@@ -23,6 +24,7 @@ pub enum SettingsPanelEvent {
     AutoRefreshOnFocusChanged(bool),
     ThemeChanged(ThemePreference),
     DiffLayoutChanged(DiffLayoutPreference),
+    GraphHistoryChanged(GraphHistoryPreference),
     UiFontChanged(Option<String>),
     MonoFontChanged(Option<String>),
 }
@@ -68,6 +70,7 @@ pub struct SettingsPanel {
     auto_refresh_on_focus: bool,
     theme: ThemePreference,
     diff_layout: DiffLayoutPreference,
+    graph_history: GraphHistoryPreference,
     ui_font: Option<String>,
     mono_font: Option<String>,
     font_families: Vec<String>,
@@ -77,6 +80,8 @@ pub struct SettingsPanel {
     theme_state: Entity<SelectState<Vec<SettingsOption<ThemePreference>>>>,
     diff_layout_state:
         Entity<SelectState<Vec<SettingsOption<DiffLayoutPreference>>>>,
+    graph_history_state:
+        Entity<SelectState<Vec<SettingsOption<GraphHistoryPreference>>>>,
     ui_font_state:
         Entity<SelectState<SearchableVec<SettingsOption<Option<String>>>>>,
     mono_font_state:
@@ -97,6 +102,7 @@ impl SettingsPanel {
         let auto_refresh_on_focus = config.view.auto_refresh_on_focus;
         let theme = config.theme;
         let diff_layout = config.view.diff_layout;
+        let graph_history = config.view.graph_history;
         let ui_font = config.typography.ui_font_family.clone();
         let mono_font = config.typography.mono_font_family.clone();
 
@@ -135,6 +141,14 @@ impl SettingsPanel {
                 cx,
             )
         });
+        let graph_history_state = cx.new(|cx| {
+            SelectState::new(
+                graph_history_options(locale),
+                selected_index(&graph_history_options(locale), &graph_history),
+                window,
+                cx,
+            )
+        });
         let ui_font_state = cx.new(|cx| {
             let options = font_options(locale, &font_families);
             SelectState::new(
@@ -163,6 +177,7 @@ impl SettingsPanel {
             auto_refresh_on_focus,
             theme,
             diff_layout,
+            graph_history,
             ui_font,
             mono_font,
             font_families,
@@ -170,6 +185,7 @@ impl SettingsPanel {
             auto_refresh_state,
             theme_state,
             diff_layout_state,
+            graph_history_state,
             ui_font_state,
             mono_font_state,
         };
@@ -214,6 +230,16 @@ impl SettingsPanel {
         })
         .detach();
 
+        let graph_history_state_for_events = panel.graph_history_state.clone();
+        cx.subscribe(&graph_history_state_for_events, |panel, _, event, cx| {
+            let SelectEvent::Confirm(Some(value)) = event else {
+                return;
+            };
+            panel.graph_history = *value;
+            cx.emit(SettingsPanelEvent::GraphHistoryChanged(*value));
+        })
+        .detach();
+
         let ui_font_state_for_events = panel.ui_font_state.clone();
         cx.subscribe(&ui_font_state_for_events, |panel, _, event, cx| {
             let SelectEvent::Confirm(Some(value)) = event else {
@@ -248,6 +274,7 @@ impl SettingsPanel {
         let auto_refresh_on_focus = self.auto_refresh_on_focus;
         let theme = self.theme;
         let diff_layout = self.diff_layout;
+        let graph_history = self.graph_history;
         let ui_font = self.ui_font.clone();
         let mono_font = self.mono_font.clone();
         let fonts = self.font_families.clone();
@@ -271,6 +298,11 @@ impl SettingsPanel {
             let options = diff_layout_options(locale);
             state.set_items(options, window, cx);
             state.set_selected_value(&diff_layout, window, cx);
+        });
+        self.graph_history_state.update(cx, |state, cx| {
+            let options = graph_history_options(locale);
+            state.set_items(options, window, cx);
+            state.set_selected_value(&graph_history, window, cx);
         });
         self.ui_font_state.update(cx, |state, cx| {
             let options = font_options(locale, &fonts);
@@ -454,6 +486,22 @@ impl SettingsPanel {
                         .into_any_element(),
                     colors.foreground,
                 ))
+                .child(Self::field(
+                    i18n::text(self.locale, "graph-history-title"),
+                    Select::new(&self.graph_history_state)
+                        .w_full()
+                        .into_any_element(),
+                    colors.foreground,
+                ))
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text(
+                            self.locale,
+                            "graph-history-description",
+                        ))),
+                )
                 .child(
                     div()
                         .text_size(px(12.))
@@ -660,6 +708,21 @@ fn diff_layout_options(
         SettingsOption::new(
             DiffLayoutPreference::SideBySide,
             i18n::text(locale, "diff-layout-side-by-side"),
+        ),
+    ]
+}
+
+fn graph_history_options(
+    locale: Locale,
+) -> Vec<SettingsOption<GraphHistoryPreference>> {
+    vec![
+        SettingsOption::new(
+            GraphHistoryPreference::CurrentBranch,
+            i18n::text(locale, "graph-history-current"),
+        ),
+        SettingsOption::new(
+            GraphHistoryPreference::AllBranches,
+            i18n::text(locale, "graph-history-all"),
         ),
     ]
 }

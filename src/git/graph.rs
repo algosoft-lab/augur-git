@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::time::Duration;
 
+use crate::core::config::GraphHistoryPreference;
 use crate::core::git::{CheckoutTarget, CommitMessage};
 use crate::git::commit_message_dialog::CommitMessageDialog;
 use crate::git::commit_preview::CommitHoverPreview;
@@ -19,10 +20,13 @@ use gpui_component::{
 
 use crate::core::graph::{
     AUTHOR_COL_WIDTH, DATE_COL_WIDTH, GraphRow, HASH_COL_WIDTH, LogRow,
-    column_visibility, compute_graph, format_relative_time,
+    column_visibility, compute_graph, filter_log_rows, format_relative_time,
 };
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
+
+#[path = "graph_painter.rs"]
+mod graph_painter;
 
 /// 提交树行高（h_9=36px：圆心距 36，节点直径 24，边缘间距 12 = 半径，验证项目同比例）
 pub const ROW_HEIGHT: f32 = 36.0;
@@ -52,8 +56,12 @@ pub enum GraphEvent {
 }
 
 pub struct GraphView {
+    all_rows: Vec<LogRow>,
     rows: Vec<LogRow>,
     layout: Vec<GraphRow>,
+    history_scope: GraphHistoryPreference,
+    current_branch: String,
+    upstream: Option<String>,
     selected: Option<usize>,
     /// Full messages cached after selection or hover requests.
     commit_messages: HashMap<String, CommitMessage>,
@@ -88,12 +96,21 @@ struct GraphRenderOptions {
 impl EventEmitter<GraphEvent> for GraphView {}
 
 impl GraphView {
-    pub fn new(tab_id: u64, locale: Locale, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        tab_id: u64,
+        locale: Locale,
+        history_scope: GraphHistoryPreference,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let hover_preview = cx.new(|_| CommitHoverPreview::new(locale));
         let message_dialog = cx.new(|_| CommitMessageDialog::new(locale));
         Self {
+            all_rows: Vec::new(),
             rows: Vec::new(),
             layout: Vec::new(),
+            history_scope,
+            current_branch: String::new(),
+            upstream: None,
             selected: None,
             commit_messages: HashMap::new(),
             hover_preview,
@@ -127,17 +144,60 @@ impl GraphView {
         }
     }
 
+    /// Update the current branch context used by the scoped graph.
+    pub fn set_history_context(
+        &mut self,
+        current_branch: String,
+        upstream: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.current_branch == current_branch && self.upstream == upstream {
+            return;
+        }
+        self.current_branch = current_branch;
+        self.upstream = upstream;
+        self.rebuild_rows(cx);
+        cx.notify();
+    }
+
+    /// Switch between the current-branch and all-branches graph histories.
+    pub fn set_history_scope(
+        &mut self,
+        history_scope: GraphHistoryPreference,
+        cx: &mut Context<Self>,
+    ) {
+        if self.history_scope == history_scope {
+            return;
+        }
+        self.history_scope = history_scope;
+        self.rebuild_rows(cx);
+        cx.notify();
+    }
+
     pub fn set_rows(&mut self, rows: Vec<LogRow>, cx: &mut Context<Self>) {
-        self.selected = self
-            .selected
-            .and_then(|i| rows.get(i).map(|_| i))
-            .filter(|i| *i < rows.len());
-        self.layout = compute_graph(&rows);
+        self.all_rows = rows;
+        self.rebuild_rows(cx);
         log::debug!(
             "[graph_perf] graph layout cached: rows={}",
             self.layout.len()
         );
-        self.rows = rows;
+        cx.notify();
+    }
+
+    fn rebuild_rows(&mut self, cx: &mut Context<Self>) {
+        let selected_oid = self
+            .selected
+            .and_then(|index| self.rows.get(index))
+            .map(|row| row.oid.clone());
+        self.rows = filter_log_rows(
+            &self.all_rows,
+            self.history_scope,
+            &self.current_branch,
+            self.upstream.as_deref(),
+        );
+        self.layout = compute_graph(&self.rows);
+        self.selected = selected_oid
+            .and_then(|oid| self.rows.iter().position(|row| row.oid == oid));
         if self
             .hovered_oid
             .as_ref()
@@ -148,7 +208,6 @@ impl GraphView {
                 preview.clear(cx);
             });
         }
-        cx.notify();
     }
 
     /// Cache an asynchronous message response and update the active preview
@@ -449,7 +508,7 @@ impl GraphView {
                                   (): (),
                                   window: &mut Window,
                                   _cx: &mut App| {
-                                draw_graph_row(
+                                graph_painter::draw_graph_row(
                                     &graph_row,
                                     bounds,
                                     window,
@@ -714,240 +773,4 @@ fn measure_width_canvas(entity: Entity<GraphView>) -> impl IntoElement {
     )
     .w_full()
     .h(px(0.))
-}
-
-/// 绘制一行提交图（镜像 rgitui：lane 布局 + 边止于圆周）
-///
-/// - 竖线（同 lane 贯通/出入边）：上段到圆顶、下段从圆底，不进入圆内
-/// - 跨 lane 连接（入边/出边）：改用 augur-exp 弧线方案 —— 从 lane 端点
-///   贝塞尔弧到本节点圆周（lane 在右 → 3 点钟，在左 → 9 点钟），末端切线指向圆心；
-///   配合节点上段竖线（= exp 的竖直直线段），两圆连接即 exp 的「直线 + 弧线」造型
-/// - 跨 lane 贯通（不碰本行节点的 lane 迁移）：贯穿斜线
-/// - 节点：空心描边圆（stroke）；HEAD 提交实心圆（fill）
-fn draw_graph_row(
-    row: &GraphRow,
-    bounds: Bounds<Pixels>,
-    window: &mut Window,
-    lane_colors: &[Hsla; 10],
-) {
-    let lane_color = |index: usize| lane_colors[index % lane_colors.len()];
-    let origin_x = bounds.origin.x;
-    let origin_y = bounds.origin.y;
-    let mid_y = ROW_HEIGHT / 2.0;
-    let lane_x = |lane: usize| {
-        origin_x
-            + px(GRAPH_LEFT_PAD + lane as f32 * COL_WIDTH + COL_WIDTH / 2.0)
-    };
-    let node_x = lane_x(row.node_lane);
-
-    // 1. 入边（到本行节点）+ 跨 lane 贯通边
-    for e in &row.edges {
-        if e.to_lane == row.node_lane {
-            if e.from_lane == row.node_lane {
-                continue; // 同 lane 入边：由节点上段竖线处理
-            }
-            // 跨 lane 入边：上一行起点列 → 本节点 3/9 点钟（exp 弧线）
-            paint_stroke_arc(
-                lane_x(e.from_lane),
-                origin_y,
-                node_x,
-                origin_y + px(mid_y),
-                e.from_lane > row.node_lane,
-                lane_color(e.color_index),
-                window,
-            );
-        } else if e.from_lane == e.to_lane {
-            // 贯通竖线：本行该 lane 无节点，全程贯通（不能断开；
-            // 旧版只画上/下两段留中间空档，圆与圆之间的直线会断）
-            let x = lane_x(e.from_lane);
-            let color = lane_color(e.color_index);
-            paint_stroke_line(
-                x,
-                origin_y,
-                x,
-                origin_y + px(ROW_HEIGHT),
-                color,
-                window,
-            );
-        } else if e.from_lane != row.node_lane && e.to_lane != row.node_lane {
-            // 跨 lane 贯通（lane 迁移，不碰本行节点）：贯穿斜线
-            paint_stroke_line(
-                lane_x(e.from_lane),
-                origin_y,
-                lane_x(e.to_lane),
-                origin_y + px(ROW_HEIGHT),
-                lane_color(e.color_index),
-                window,
-            );
-        }
-    }
-
-    // 2. 出边（本行节点 → parent lane）：跨 lane 改为 exp 弧线（止于本节点圆周）
-    for e in &row.edges {
-        if e.from_lane == row.node_lane && e.to_lane != row.node_lane {
-            paint_stroke_arc(
-                lane_x(e.to_lane),
-                origin_y + px(ROW_HEIGHT),
-                node_x,
-                origin_y + px(mid_y),
-                e.to_lane > row.node_lane,
-                lane_color(e.color_index),
-                window,
-            );
-        }
-    }
-
-    // 3. 节点圆（先画上下竖线段，再画圆覆盖衔接）
-    let node_color = lane_color(row.node_color);
-    // 节点上段：有入边（含同 lane）才画；无入边（分支尖端）不画
-    if row.has_incoming {
-        paint_stroke_line(
-            node_x,
-            origin_y,
-            node_x,
-            origin_y + px(mid_y - NODE_RADIUS),
-            node_color,
-            window,
-        );
-    }
-    // 节点下段：仅同 lane 出边（主线继续往下）才画；
-    // 跨 lane 出边下方没有连线（由弧线承接），悬空小线段不显示
-    if row
-        .edges
-        .iter()
-        .any(|e| e.from_lane == row.node_lane && e.to_lane == row.node_lane)
-    {
-        paint_stroke_line(
-            node_x,
-            origin_y + px(mid_y + NODE_RADIUS),
-            node_x,
-            origin_y + px(ROW_HEIGHT),
-            node_color,
-            window,
-        );
-    }
-
-    if row.is_head {
-        // HEAD 提交：实心圆
-        if let Some(p) =
-            build_filled_circle(node_x, origin_y + px(mid_y), NODE_RADIUS)
-        {
-            window.paint_path(p, node_color);
-        }
-    } else if let Some(p) =
-        build_stroked_circle(node_x, origin_y + px(mid_y), NODE_RADIUS, px(1.5))
-    {
-        window.paint_path(p, node_color);
-    }
-}
-
-/// 实心圆（HEAD 提交节点）
-fn build_filled_circle(
-    cx: Pixels,
-    cy: Pixels,
-    radius: f32,
-) -> Option<gpui::Path<Pixels>> {
-    let mut builder = PathBuilder::fill();
-    builder.move_to(point(cx + px(radius), cy));
-    builder.arc_to(
-        point(px(radius), px(radius)),
-        px(0.),
-        false,
-        false,
-        point(cx - px(radius), cy),
-    );
-    builder.arc_to(
-        point(px(radius), px(radius)),
-        px(0.),
-        false,
-        false,
-        point(cx + px(radius), cy),
-    );
-    builder.close();
-    builder.build().ok()
-}
-
-/// 描边空心圆（照抄验证项目：PathBuilder::stroke + arc_to 两个半圆）
-fn build_stroked_circle(
-    cx: Pixels,
-    cy: Pixels,
-    radius: f32,
-    width: Pixels,
-) -> Option<gpui::Path<Pixels>> {
-    let mut builder = PathBuilder::stroke(width);
-    builder.move_to(point(cx + px(radius), cy));
-    builder.arc_to(
-        point(px(radius), px(radius)),
-        px(0.),
-        false,
-        false,
-        point(cx - px(radius), cy),
-    );
-    builder.arc_to(
-        point(px(radius), px(radius)),
-        px(0.),
-        false,
-        false,
-        point(cx + px(radius), cy),
-    );
-    builder.close();
-    builder.build().ok()
-}
-
-/// stroke 画直线（照抄 zed：PathBuilder::stroke + paint_path）
-fn paint_stroke_line(
-    x1: Pixels,
-    y1: Pixels,
-    x2: Pixels,
-    y2: Pixels,
-    color: Hsla,
-    window: &mut Window,
-) {
-    let mut path = PathBuilder::stroke(px(1.5));
-    path.move_to(point(x1, y1));
-    path.line_to(point(x2, y2));
-    if let Ok(p) = path.build() {
-        window.paint_path(p, color);
-    }
-}
-
-/// 跨 lane 弧线（照抄 augur-exp draw_scene 的三次贝塞尔）：从 lane 端点
-/// （行顶/行底）弧到本节点圆周 —— lane 在右接 3 点钟、在左接 9 点钟，
-/// 末端切线水平指向圆心；起点切线竖直，与 lane 竖线顺接；控制点 0.75r（同 exp）
-fn paint_stroke_arc(
-    lane_x: Pixels,
-    lane_y: Pixels,
-    node_x: Pixels,
-    node_mid_y: Pixels,
-    lane_is_right: bool,
-    color: Hsla,
-    window: &mut Window,
-) {
-    let end_x = if lane_is_right {
-        node_x + px(NODE_RADIUS)
-    } else {
-        node_x - px(NODE_RADIUS)
-    };
-    // 起点切线竖直：lane 端在节点上方 → 向下，在下方 → 向上
-    let ctrl_a_y = if lane_y < node_mid_y {
-        lane_y + px(NODE_RADIUS * 0.75)
-    } else {
-        lane_y - px(NODE_RADIUS * 0.75)
-    };
-    // 末端切线水平：控制点放在圆周外侧，切线正指圆心
-    let ctrl_b_x = if lane_is_right {
-        end_x + px(NODE_RADIUS * 0.75)
-    } else {
-        end_x - px(NODE_RADIUS * 0.75)
-    };
-    let mut path = PathBuilder::stroke(px(1.5));
-    path.move_to(point(lane_x, lane_y));
-    path.cubic_bezier_to(
-        point(end_x, node_mid_y),
-        point(lane_x, ctrl_a_y),
-        point(ctrl_b_x, node_mid_y),
-    );
-    if let Ok(p) = path.build() {
-        window.paint_path(p, color);
-    }
 }

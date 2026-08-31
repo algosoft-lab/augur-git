@@ -82,6 +82,21 @@ impl Default for DiffLayoutPreference {
     }
 }
 
+/// History scope used by the commit graph.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub enum GraphHistoryPreference {
+    #[serde(rename = "current-branch")]
+    CurrentBranch,
+    #[serde(rename = "all-branches")]
+    AllBranches,
+}
+
+impl Default for GraphHistoryPreference {
+    fn default() -> Self {
+        Self::CurrentBranch
+    }
+}
+
 /// Serde default for `ViewSettings::auto_refresh_on_focus`: config files
 /// written before the field existed keep the feature enabled.
 fn default_true() -> bool {
@@ -94,6 +109,8 @@ pub struct ViewSettings {
     pub auto_follow: bool,
     #[serde(default)]
     pub diff_layout: DiffLayoutPreference,
+    #[serde(default)]
+    pub graph_history: GraphHistoryPreference,
     #[serde(default = "default_true")]
     pub auto_refresh_on_focus: bool,
 }
@@ -104,6 +121,7 @@ impl Default for ViewSettings {
             show_untracked: true,
             auto_follow: true,
             diff_layout: DiffLayoutPreference::Inline,
+            graph_history: GraphHistoryPreference::CurrentBranch,
             auto_refresh_on_focus: true,
         }
     }
@@ -699,6 +717,33 @@ mod tests {
 
         let serialized = serde_json::to_string(&AppConfig::default()).unwrap();
         assert!(serialized.contains(r#""diff_layout":"inline""#));
+    }
+
+    #[test]
+    fn graph_history_preference_round_trips() {
+        let json = r#"{"view":{"show_untracked":true,"auto_follow":true,"graph_history":"all-branches"}}"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(
+            config.view.graph_history,
+            GraphHistoryPreference::AllBranches
+        );
+
+        let serialized = serde_json::to_string(&AppConfig::default()).unwrap();
+        assert!(serialized.contains(r#""graph_history":"current-branch""#));
+    }
+
+    #[test]
+    fn missing_graph_history_defaults_to_current_branch() {
+        let json = r#"{"view":{"show_untracked":false,"auto_follow":true}}"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(
+            config.view.graph_history,
+            GraphHistoryPreference::CurrentBranch
+        );
     }
 
     #[test]
