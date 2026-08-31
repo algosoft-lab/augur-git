@@ -8,9 +8,7 @@ use std::time::{Duration, Instant};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Icon, IconName, WindowExt,
-    dialog::DialogButtonProps,
-    h_flex,
+    ActiveTheme, Icon, IconName, h_flex,
     menu::{ContextMenuExt, PopupMenuItem},
     theme::ThemeColor,
     v_flex,
@@ -239,16 +237,14 @@ impl Sidebar {
                 )
                 .child(ref_marker(&colors, is_head))
                 .child(ref_label(&colors, name.clone(), is_head))
-                .on_click(move |event, window, cx| {
+                .on_click(move |event, _window, cx| {
                     if event.click_count() >= 2 {
                         if !is_head {
-                            request_checkout(
+                            emit_checkout(
                                 &sidebar_for_click,
-                                locale,
                                 CheckoutTarget::LocalBranch(
                                     name_for_click.clone(),
                                 ),
-                                window,
                                 cx,
                             );
                         }
@@ -354,17 +350,15 @@ impl Sidebar {
                         .child(ref_marker(&colors, false))
                         .child(ref_label(&colors, entry.label.clone(), false))
                         .on_click(
-                            move |event, window, cx| {
+                            move |event, _window, cx| {
                                 if event.click_count() < 2 {
                                     return;
                                 }
-                                request_checkout(
+                                emit_checkout(
                                     &sidebar_for_click,
-                                    locale,
                                     CheckoutTarget::RemoteBranch(
                                         name_for_click.clone(),
                                     ),
-                                    window,
                                     cx,
                                 );
                             },
@@ -481,15 +475,13 @@ impl Sidebar {
                 )
                 .child(ref_marker(&colors, false))
                 .child(ref_label(&colors, name.clone(), false))
-                .on_click(move |event, window, cx| {
+                .on_click(move |event, _window, cx| {
                     if event.click_count() < 2 {
                         return;
                     }
-                    request_checkout(
+                    emit_checkout(
                         &sidebar_for_click,
-                        locale,
                         CheckoutTarget::Tag(name_for_click.clone()),
-                        window,
                         cx,
                     );
                 });
@@ -743,62 +735,21 @@ fn ref_label(colors: &ThemeColor, text: String, is_head: bool) -> Div {
         .child(shared(text))
 }
 
-fn checkout_display_name(target: &CheckoutTarget) -> &str {
-    match target {
-        CheckoutTarget::LocalBranch(name)
-        | CheckoutTarget::RemoteBranch(name)
-        | CheckoutTarget::Tag(name)
-        | CheckoutTarget::Commit(name) => name,
-    }
-}
-
-/// Ask for confirmation before checking out `target`.
+/// Check out `target` immediately, honouring the busy state.
 ///
-/// The checkout event is emitted only from the dialog's OK action (button or
-/// Enter), so cancelling leaves the repository untouched.
-fn request_checkout(
+/// The branch/tag rows emit the checkout event directly on double-click,
+/// without a confirmation dialog.
+fn emit_checkout(
     sidebar: &Entity<Sidebar>,
-    locale: Locale,
     target: CheckoutTarget,
-    window: &mut Window,
     cx: &mut App,
 ) {
-    if window.has_active_dialog(cx) || sidebar.read(cx).busy {
-        return;
-    }
-
-    let name = checkout_display_name(&target);
-    let title = i18n::text_args(locale, "checkout-title", &[("name", name)]);
-    let description =
-        i18n::text_args(locale, "checkout-description", &[("name", name)]);
-    let ok_label = i18n::text(locale, "context-checkout");
-    let cancel_label = i18n::text(locale, "checkout-cancel");
-    let sidebar = sidebar.downgrade();
-
-    window.open_alert_dialog(cx, move |alert, _window, _cx| {
-        // The dialog builder is `Fn`, so clone the captures per invocation.
-        let sidebar = sidebar.clone();
-        let target = target.clone();
-        alert
-            .title(title.clone())
-            .description(description.clone())
-            .button_props(
-                DialogButtonProps::default()
-                    .ok_text(ok_label.clone())
-                    .cancel_text(cancel_label.clone())
-                    .show_cancel(true)
-                    .on_ok(move |_event, _window, cx| {
-                        if let Some(sidebar) = sidebar.upgrade() {
-                            sidebar.update(cx, |_sidebar, cx| {
-                                cx.emit(SidebarEvent::CheckoutRef(
-                                    target.clone(),
-                                ))
-                            });
-                        }
-                        true
-                    }),
-            )
-    })
+    sidebar.update(cx, |sidebar, cx| {
+        if sidebar.busy {
+            return;
+        }
+        cx.emit(SidebarEvent::CheckoutRef(target));
+    });
 }
 
 impl Render for Sidebar {
