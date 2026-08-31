@@ -18,6 +18,7 @@ use gpui_component::{
 
 use crate::core::git::{BranchInfo, CheckoutTarget, RefsInfo};
 use crate::core::i18n::{self, Locale};
+use crate::core::refs::{RemoteBranchGroup, group_remote_branches};
 use crate::git::shared;
 
 /// Sidebar events routed to Workspace.
@@ -43,45 +44,18 @@ pub struct Sidebar {
     branches: Vec<BranchInfo>,
     /// Current branch.
     branch: String,
-    /// Read-only remotes, remote branches, tags, and stashes.
+    /// Read-only remote branches, tags, and stashes.
     refs: RefsInfo,
+    /// Remote branches grouped per remote for the tree section.
+    remote_groups: Vec<RemoteBranchGroup>,
     /// Branch highlight expiration after the toolbar branch action.
     flash_branches_until: Option<Instant>,
-    /// Collapsed section keys (in-memory only).
-    collapsed: Vec<&'static str>,
+    /// Collapsed section and remote-group keys (in-memory only).
+    collapsed: Vec<String>,
     /// UI locale synchronized by Workspace.
     locale: Locale,
     /// Disable checkout actions while a repository operation is running.
     busy: bool,
-}
-
-#[derive(Clone, Copy)]
-enum CheckoutableRefKind {
-    RemoteBranch,
-    Tag,
-}
-
-impl CheckoutableRefKind {
-    fn target(self, name: String) -> CheckoutTarget {
-        match self {
-            Self::RemoteBranch => CheckoutTarget::RemoteBranch(name),
-            Self::Tag => CheckoutTarget::Tag(name),
-        }
-    }
-
-    fn copy_label_key(self) -> &'static str {
-        match self {
-            Self::RemoteBranch => "context-copy-branch",
-            Self::Tag => "context-copy-tag",
-        }
-    }
-
-    fn actions(self) -> RefActions {
-        match self {
-            Self::RemoteBranch => RefActions::RemoteBranch,
-            Self::Tag => RefActions::Tag,
-        }
-    }
 }
 
 /// Extra context-menu actions offered per ref type. Local branches support
@@ -111,6 +85,7 @@ impl Sidebar {
             branches: Vec::new(),
             branch: String::new(),
             refs: RefsInfo::default(),
+            remote_groups: Vec::new(),
             flash_branches_until: None,
             collapsed: Vec::new(),
             locale,
@@ -146,6 +121,8 @@ impl Sidebar {
 
     /// Apply the read-only refs snapshot.
     pub fn set_refs(&mut self, refs: RefsInfo, cx: &mut Context<Self>) {
+        self.remote_groups =
+            group_remote_branches(&refs.remotes, &refs.remote_branches);
         self.refs = refs;
         cx.notify();
     }
@@ -154,21 +131,21 @@ impl Sidebar {
     pub fn flash_branches(&mut self, cx: &mut Context<Self>) {
         self.flash_branches_until =
             Some(Instant::now() + Duration::from_millis(800));
-        self.collapsed.retain(|k| *k != "section-branches");
+        self.collapsed.retain(|k| k != "section-branches");
         cx.notify();
     }
 
     fn is_collapsed(&self, key: &str) -> bool {
-        self.collapsed.iter().any(|k| *k == key)
+        self.collapsed.iter().any(|k| k == key)
     }
 
-    /// Toggle a section when its header is clicked.
-    fn toggle_section(&mut self, key: &'static str, cx: &mut Context<Self>) {
-        match self.collapsed.iter().position(|k| *k == key) {
+    /// Toggle a section or remote group when its header is clicked.
+    fn toggle_section(&mut self, key: &str, cx: &mut Context<Self>) {
+        match self.collapsed.iter().position(|k| k == key) {
             Some(i) => {
                 self.collapsed.remove(i);
             }
-            None => self.collapsed.push(key),
+            None => self.collapsed.push(key.to_string()),
         }
         cx.notify();
     }
@@ -223,22 +200,11 @@ impl Sidebar {
                     .gap_1()
                     .pb_2()
                     .child(self.branch_section(cx))
-                    .child(self.list_section(
-                        cx,
-                        "section-remotes",
-                        &self.refs.remotes,
-                    ))
-                    .child(self.checkoutable_list_section(
-                        cx,
-                        "section-remote-branches",
-                        &self.refs.remote_branches,
-                        CheckoutableRefKind::RemoteBranch,
-                    ))
-                    .child(self.checkoutable_list_section(
+                    .child(self.remote_branches_section(cx))
+                    .child(self.tag_list_section(
                         cx,
                         "section-tags",
                         &self.refs.tags,
-                        CheckoutableRefKind::Tag,
                     ))
                     .child(self.list_section(
                         cx,
@@ -321,11 +287,11 @@ impl Sidebar {
             .when(!self.is_collapsed("section-branches"), |s| s.children(rows))
     }
 
-    /// Read-only list section for remotes and stashes.
+    /// Read-only list section for stashes.
     fn list_section(
         &self,
         cx: &Context<Self>,
-        key: &'static str,
+        key: &str,
         items: &[String],
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
@@ -355,13 +321,150 @@ impl Sidebar {
             .when(!collapsed, |s| s.children(rows))
     }
 
-    /// List section for refs that support checkout and copy actions.
-    fn checkoutable_list_section(
+    /// Remote branches rendered as a tree: one collapsible node per remote
+    /// with its tracking branches nested underneath.
+    fn remote_branches_section(&self, cx: &Context<Self>) -> impl IntoElement {
+        let colors = cx.theme().colors.clone();
+        let sidebar = cx.entity();
+        let locale = self.locale;
+        let total: usize =
+            self.remote_groups.iter().map(|g| g.branches.len()).sum();
+        let groups = self
+            .remote_groups
+            .iter()
+            .map(|group| {
+                let key = format!("remote-group/{}", group.remote);
+                let group_collapsed = self.is_collapsed(&key);
+                let sidebar_for_toggle = sidebar.clone();
+                let key_for_toggle = key.clone();
+                let rows = group
+                    .branches
+                    .iter()
+                    .map(|entry| {
+                        let sidebar_for_click = sidebar.clone();
+                        let name_for_click = entry.full_name.clone();
+                        let row = ref_row(
+                            &colors,
+                            SharedString::from(format!(
+                                "remote-branch-{}",
+                                entry.full_name
+                            )),
+                        )
+                        .pl_6()
+                        .child(ref_marker(&colors, false))
+                        .child(ref_label(&colors, entry.label.clone(), false))
+                        .on_click(
+                            move |event, window, cx| {
+                                if event.click_count() < 2 {
+                                    return;
+                                }
+                                request_checkout(
+                                    &sidebar_for_click,
+                                    locale,
+                                    CheckoutTarget::RemoteBranch(
+                                        name_for_click.clone(),
+                                    ),
+                                    window,
+                                    cx,
+                                );
+                            },
+                        );
+
+                        ref_context_menu(
+                            row,
+                            locale,
+                            sidebar.clone(),
+                            CheckoutTarget::RemoteBranch(
+                                entry.full_name.clone(),
+                            ),
+                            entry.full_name.clone(),
+                            "context-copy-branch",
+                            self.busy,
+                            RefActions::RemoteBranch,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+
+                v_flex()
+                    .id(SharedString::from(format!("tree-{key}")))
+                    .w_full()
+                    .gap_0p5()
+                    .child(
+                        h_flex()
+                            .id(SharedString::from(key))
+                            .w_full()
+                            .h(px(22.))
+                            .flex_shrink_0()
+                            .px_2()
+                            .gap_1()
+                            .items_center()
+                            .rounded_sm()
+                            .cursor(CursorStyle::PointingHand)
+                            .hover(|this| this.bg(colors.list_hover))
+                            .on_click(move |_e, _w, cx| {
+                                sidebar_for_toggle.update(cx, |sidebar, cx| {
+                                    sidebar.toggle_section(&key_for_toggle, cx);
+                                });
+                            })
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(colors.muted_foreground)
+                                    .child(if group_collapsed {
+                                        Icon::new(IconName::ChevronRight)
+                                    } else {
+                                        Icon::new(IconName::ChevronDown)
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(colors.muted_foreground)
+                                    .child(crate::git::lucide("git-branch")),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_size(px(12.))
+                                    .text_color(colors.foreground)
+                                    .truncate()
+                                    .child(shared(group.remote.clone())),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(10.))
+                                    .text_color(colors.muted_foreground)
+                                    .child(group.branches.len().to_string()),
+                            ),
+                    )
+                    .when(!group_collapsed, |s| s.children(rows))
+            })
+            .collect::<Vec<_>>();
+
+        let collapsed = self.is_collapsed("section-remote-branches");
+        v_flex()
+            .id("list-section-remote-branches")
+            .w_full()
+            .gap_0p5()
+            .px_2()
+            .child(section_header(
+                cx,
+                "section-remote-branches",
+                i18n::text(self.locale, "section-remote-branches"),
+                total,
+                collapsed,
+                false,
+            ))
+            .when(!collapsed, |s| s.children(groups))
+    }
+
+    /// Tag list section with checkout and copy actions.
+    fn tag_list_section(
         &self,
         cx: &Context<Self>,
-        key: &'static str,
+        key: &str,
         items: &[String],
-        kind: CheckoutableRefKind,
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let sidebar = cx.entity();
@@ -385,7 +488,7 @@ impl Sidebar {
                     request_checkout(
                         &sidebar_for_click,
                         locale,
-                        kind.target(name_for_click.clone()),
+                        CheckoutTarget::Tag(name_for_click.clone()),
                         window,
                         cx,
                     );
@@ -395,11 +498,11 @@ impl Sidebar {
                     row,
                     locale,
                     sidebar.clone(),
-                    kind.target(name.clone()),
+                    CheckoutTarget::Tag(name.clone()),
                     name,
-                    kind.copy_label_key(),
+                    "context-copy-tag",
                     self.busy,
-                    kind.actions(),
+                    RefActions::Tag,
                 )
             })
             .collect::<Vec<_>>();
@@ -711,7 +814,7 @@ impl Render for Sidebar {
 /// Section header with a chevron, title, and item count.
 fn section_header(
     cx: &Context<Sidebar>,
-    key: &'static str,
+    key: &str,
     title: String,
     count: usize,
     collapsed: bool,
@@ -719,6 +822,7 @@ fn section_header(
 ) -> impl IntoElement {
     let colors = cx.theme().colors.clone();
     let this = cx.entity();
+    let key_for_click = key.to_string();
     h_flex()
         .id(SharedString::from(format!("section-{key}")))
         .w_full()
@@ -735,7 +839,9 @@ fn section_header(
         .cursor(CursorStyle::PointingHand)
         .hover(|this| this.bg(colors.list_hover))
         .on_click(move |_e, _w, cx| {
-            this.update(cx, |sidebar, cx| sidebar.toggle_section(key, cx));
+            this.update(cx, |sidebar, cx| {
+                sidebar.toggle_section(&key_for_click, cx);
+            });
         })
         .child(
             div()

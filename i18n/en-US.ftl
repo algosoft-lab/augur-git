@@ -86,7 +86,6 @@ rel-year = { $n }y ago
 # ===== Sidebar =====
 sidebar-repo = Repository
 section-branches = Branches
-section-remotes = Remotes
 section-remote-branches = Remote branches
 section-tags = Tags
 section-stashes = Stashes

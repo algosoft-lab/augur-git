@@ -139,7 +139,8 @@ pub struct CommitMessage {
 pub struct RefsInfo {
     /// 远程名清单（git remote）
     pub remotes: Vec<String>,
-    /// 远程分支短名（origin/main 等，git branch -r）
+    /// Remote-tracking branch short names (`origin/main` etc.); symbolic
+    /// HEAD aliases are not included.
     pub remote_branches: Vec<String>,
     /// 标签名（按创建时间倒序）
     pub tags: Vec<String>,
@@ -1302,10 +1303,10 @@ fn run_refs(repo_path: &str, event_tx: &Sender<GitEvent>) {
         .unwrap_or_default();
     let refs = RefsInfo {
         remotes: non_empty_lines(&out(&["remote"])),
-        remote_branches: non_empty_lines(&out(&[
-            "branch",
-            "-r",
-            "--format=%(refname:short)",
+        remote_branches: parse_remote_branches(&out(&[
+            "for-each-ref",
+            "refs/remotes",
+            "--format=%(refname:short)%09%(symref)",
         ])),
         tags: non_empty_lines(&out(&["tag", "--sort=-creatordate"])),
         stashes: parse_stashes(&out(&["stash", "list"])),
@@ -1320,6 +1321,20 @@ fn non_empty_lines(text: &str) -> Vec<String> {
         .map(str::trim)
         .filter(|l| !l.is_empty())
         .map(str::to_string)
+        .collect()
+}
+
+/// Remote-tracking branch short names from `for-each-ref refs/remotes`,
+/// dropping symbolic refs such as the `origin/HEAD` alias (whose short name
+/// newer Git resolves to the bare remote name).
+fn parse_remote_branches(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|line| {
+            let (name, symref) = line.split_once('\t')?;
+            let name = name.trim();
+            (!name.is_empty() && symref.trim().is_empty())
+                .then(|| name.to_string())
+        })
         .collect()
 }
 
@@ -1348,6 +1363,91 @@ mod tests {
         assert!(CompareRevision::from_commit_id("abcdef").is_none());
         assert!(CompareRevision::from_commit_id("not-a-sha").is_none());
         assert!(CompareRevision::from_commit_id("a".repeat(65)).is_none());
+    }
+
+    #[test]
+    fn parse_remote_branches_skips_symref_head_alias() {
+        let text = "origin\trefs/remotes/origin/master\n\
+                    origin/build\t\n\
+                    origin/master\t\n\
+                    \t\n";
+        assert_eq!(
+            parse_remote_branches(text),
+            vec!["origin/build".to_string(), "origin/master".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_remote_branches_round_trips_real_clone_refs() {
+        use std::fs;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir()
+            .join(format!("augur-git-refs-{}-{id}", std::process::id()));
+        let source = root.join("source");
+        let clone = root.join("clone");
+        fs::create_dir_all(&source).expect("test directory");
+
+        let git = |args: &[&str]| {
+            let output = git_command()
+                .args(args)
+                .output()
+                .expect("git must be available");
+            assert!(
+                output.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8_lossy(&output.stdout).into_owned()
+        };
+        git(&["init", "-q", source.to_str().unwrap()]);
+        git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "config",
+            "user.email",
+            "test@example.com",
+        ]);
+        git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "config",
+            "user.name",
+            "Test User",
+        ]);
+        git(&[
+            "-C",
+            source.to_str().unwrap(),
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "init",
+        ]);
+        git(&[
+            "clone",
+            "-q",
+            source.to_str().unwrap(),
+            clone.to_str().unwrap(),
+        ]);
+        let output = git(&[
+            "-C",
+            clone.to_str().unwrap(),
+            "for-each-ref",
+            "refs/remotes",
+            "--format=%(refname:short)%09%(symref)",
+        ]);
+        let parsed = parse_remote_branches(&output);
+        assert!(!parsed.is_empty(), "clone should have remote refs");
+        for name in &parsed {
+            assert!(
+                name.starts_with("origin/"),
+                "unexpected bare entry {name:?}"
+            );
+        }
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
