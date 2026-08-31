@@ -21,6 +21,7 @@ pub enum ToolbarEvent {
     Push,
     PushForce,
     Branch,
+    Compare,
     Refresh,
     Settings,
 }
@@ -215,6 +216,15 @@ impl Render for Toolbar {
                 &colors,
                 true,
                 ToolbarEvent::Branch,
+                cx,
+            ))
+            .child(self.tool_button(
+                "tb-compare",
+                lucide("git-branch"),
+                "toolbar-compare",
+                &colors,
+                !self.busy,
+                ToolbarEvent::Compare,
                 cx,
             ))
             // ahead/behind 徽标

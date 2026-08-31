@@ -29,7 +29,25 @@ pub use crate::core::diff::{
 use crate::core::diff::{merge_numstat, parse_numstat, parse_raw_records};
 use crate::core::graph::LogRow;
 
+mod branch_compare;
 mod working_tree;
+
+pub use branch_compare::BranchCompareMode;
+
+/// The kind of branch reference exposed by the comparison selector.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BranchRefKind {
+    Local,
+    Remote,
+}
+
+/// A branch reference with a stable command name and a user-facing label.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BranchRefInfo {
+    pub name: String,
+    pub full_name: String,
+    pub kind: BranchRefKind,
+}
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -100,6 +118,8 @@ pub struct RefsInfo {
     pub tags: Vec<String>,
     /// stash 描述（"stash@{n}: " 前缀已剥除）
     pub stashes: Vec<String>,
+    /// Local and remote-tracking branches available to branch comparison.
+    pub comparison_branches: Vec<BranchRefInfo>,
 }
 
 /// 后台 → UI 事件
@@ -153,6 +173,27 @@ pub enum GitEvent {
         file: FileStatus,
         detail: String,
     },
+    /// Branch comparison file metadata.
+    BranchCompareFiles {
+        request_id: u64,
+        files: Vec<FileChange>,
+    },
+    /// One file from a branch comparison.
+    BranchCompareFileDiff {
+        request_id: u64,
+        file: FileChange,
+        patch: String,
+        old_source: Option<String>,
+        new_source: Option<String>,
+    },
+    /// A non-fatal branch comparison error. `file` is `None` for a request-level error.
+    BranchCompareError {
+        request_id: u64,
+        file: Option<FileChange>,
+        detail: String,
+    },
+    /// All files for a branch comparison have been attempted.
+    BranchCompareFinished { request_id: u64 },
     /// A staged/working-tree mutation completed without stopping the worker.
     WorkingTreeOperationFinished {
         request_id: u64,
@@ -335,6 +376,13 @@ pub enum GitCommand {
         kind: WorkingTreeDiffKind,
         file: FileStatus,
     },
+    /// Compare two local or remote-tracking branch references without checkout.
+    BranchCompare {
+        request_id: u64,
+        base: BranchRefInfo,
+        target: BranchRefInfo,
+        mode: BranchCompareMode,
+    },
     /// Apply a staged/working-tree mutation to a captured file snapshot.
     WorkingTreeOperation {
         request_id: u64,
@@ -348,6 +396,7 @@ pub enum GitCommand {
 /// 工作线程句柄（UI 侧持有）
 pub struct GitHandle {
     cmd_tx: Sender<GitCommand>,
+    compare_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl GitHandle {
@@ -417,6 +466,30 @@ impl GitHandle {
         });
     }
 
+    /// Start a read-only branch comparison and cancel the previous request.
+    pub fn branch_compare(
+        &self,
+        request_id: u64,
+        base: BranchRefInfo,
+        target: BranchRefInfo,
+        mode: BranchCompareMode,
+    ) {
+        self.compare_generation
+            .store(request_id, std::sync::atomic::Ordering::Release);
+        let _ = self.cmd_tx.send(GitCommand::BranchCompare {
+            request_id,
+            base,
+            target,
+            mode,
+        });
+    }
+
+    /// Cancel an in-flight branch comparison at the next file boundary.
+    pub fn cancel_branch_compare(&self) {
+        self.compare_generation
+            .store(0, std::sync::atomic::Ordering::Release);
+    }
+
     /// Apply a staged/working-tree mutation without blocking the UI.
     pub fn working_tree_operation(
         &self,
@@ -433,6 +506,7 @@ impl GitHandle {
 
     /// 请求关闭工作线程
     pub fn close(&self) {
+        self.cancel_branch_compare();
         let _ = self.cmd_tx.send(GitCommand::Close);
     }
 }
@@ -455,9 +529,17 @@ pub fn spawn_open(
     }
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<GitCommand>();
-    thread::spawn(move || worker_loop(repo_path, cmd_rx, event_tx));
+    let compare_generation =
+        std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    thread::spawn({
+        let compare_generation = compare_generation.clone();
+        move || worker_loop(repo_path, cmd_rx, event_tx, compare_generation)
+    });
 
-    Ok(GitHandle { cmd_tx })
+    Ok(GitHandle {
+        cmd_tx,
+        compare_generation,
+    })
 }
 
 /// 工作线程：命令处理（git 子进程阻塞执行）
@@ -465,6 +547,7 @@ fn worker_loop(
     repo_path: String,
     cmd_rx: Receiver<GitCommand>,
     event_tx: Sender<GitEvent>,
+    compare_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
 ) {
     // 打开即刷新一次
     refresh_all(&repo_path, &event_tx);
@@ -502,6 +585,26 @@ fn worker_loop(
                 working_tree::run_file_diff(
                     &repo_path, request_id, kind, &file, &event_tx,
                 );
+            }
+            Ok(GitCommand::BranchCompare {
+                request_id,
+                base,
+                target,
+                mode,
+            }) => {
+                if compare_generation.load(std::sync::atomic::Ordering::Acquire)
+                    == request_id
+                {
+                    branch_compare::spawn_comparison(
+                        repo_path.clone(),
+                        request_id,
+                        base,
+                        target,
+                        mode,
+                        event_tx.clone(),
+                        compare_generation.clone(),
+                    );
+                }
             }
             Ok(GitCommand::WorkingTreeOperation {
                 request_id,
@@ -1127,6 +1230,17 @@ fn run_refs(repo_path: &str, event_tx: &Sender<GitEvent>) {
             _ => String::new(),
         }
     };
+    let comparison_branches = git_command()
+        .args(branch_compare::branch_ref_args(repo_path))
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| {
+            branch_compare::parse_branch_refs(&String::from_utf8_lossy(
+                &output.stdout,
+            ))
+        })
+        .unwrap_or_default();
     let refs = RefsInfo {
         remotes: non_empty_lines(&out(&["remote"])),
         remote_branches: non_empty_lines(&out(&[
@@ -1136,6 +1250,7 @@ fn run_refs(repo_path: &str, event_tx: &Sender<GitEvent>) {
         ])),
         tags: non_empty_lines(&out(&["tag", "--sort=-creatordate"])),
         stashes: parse_stashes(&out(&["stash", "list"])),
+        comparison_branches,
     };
     let _ = event_tx.send(GitEvent::Refs(refs));
 }

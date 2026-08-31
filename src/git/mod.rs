@@ -6,6 +6,7 @@
 //! - 面板交互事件由 Workspace 汇总后经 GitCommand 下发工作线程
 
 pub mod bottom_panel;
+pub mod branch_compare;
 pub mod changes_panel;
 pub mod commit_message_dialog;
 pub mod commit_preview;
@@ -22,9 +23,9 @@ use gpui::{Context, EventEmitter, SharedString, Task};
 
 use crate::core::diff::FileChange;
 use crate::core::git::{
-    self, BranchInfo, CheckoutTarget, CommitMessage, FileStatus, GitError,
-    GitEvent, RefsInfo, WorkingTreeAction, WorkingTreeDiffKind,
-    WorkingTreeScope, WorkingTreeScopeKind,
+    self, BranchCompareMode, BranchInfo, BranchRefInfo, CheckoutTarget,
+    CommitMessage, FileStatus, GitError, GitEvent, RefsInfo, WorkingTreeAction,
+    WorkingTreeDiffKind, WorkingTreeScope, WorkingTreeScopeKind,
 };
 use crate::core::graph::LogRow;
 use crate::core::i18n::{self, Locale};
@@ -77,6 +78,27 @@ pub enum GitUiEvent {
         file: FileStatus,
         detail: String,
     },
+    /// Branch comparison file metadata.
+    BranchCompareFiles {
+        request_id: u64,
+        files: Vec<FileChange>,
+    },
+    /// One file from a branch comparison.
+    BranchCompareFileDiff {
+        request_id: u64,
+        file: FileChange,
+        patch: String,
+        old_source: Option<String>,
+        new_source: Option<String>,
+    },
+    /// Non-fatal branch comparison error.
+    BranchCompareError {
+        request_id: u64,
+        file: Option<FileChange>,
+        detail: String,
+    },
+    /// All files for a branch comparison have been attempted.
+    BranchCompareFinished { request_id: u64 },
     /// Completed staged/working-tree mutation.
     WorkingTreeOperationFinished {
         request_id: u64,
@@ -329,6 +351,32 @@ impl GitView {
         }
     }
 
+    /// Request a read-only comparison of two branch references.
+    pub fn branch_compare(
+        &self,
+        request_id: u64,
+        base: BranchRefInfo,
+        target: BranchRefInfo,
+        mode: BranchCompareMode,
+    ) {
+        log::info!(
+            "[git_compare] requested: request_id={}, base={}, target={}, mode={mode:?}",
+            request_id,
+            base.name,
+            target.name
+        );
+        if let Some(handle) = &self.handle {
+            handle.branch_compare(request_id, base, target, mode);
+        }
+    }
+
+    /// Cancel an in-flight branch comparison.
+    pub fn cancel_branch_compare(&self) {
+        if let Some(handle) = &self.handle {
+            handle.cancel_branch_compare();
+        }
+    }
+
     /// Apply a staged/working-tree mutation.
     pub fn working_tree_operation(
         &self,
@@ -404,9 +452,10 @@ impl GitView {
                 }
                 GitEvent::Refs(refs) => {
                     log::info!(
-                        "[git_view] refs refreshed: remotes={}, remote_branches={}, tags={}, stashes={}",
+                        "[git_view] refs refreshed: remotes={}, remote_branches={}, comparison_branches={}, tags={}, stashes={}",
                         refs.remotes.len(),
                         refs.remote_branches.len(),
+                        refs.comparison_branches.len(),
                         refs.tags.len(),
                         refs.stashes.len()
                     );
@@ -493,6 +542,62 @@ impl GitView {
                         file,
                         detail,
                     });
+                }
+                GitEvent::BranchCompareFiles { request_id, files } => {
+                    log::info!(
+                        "[git_view] branch comparison files received: request_id={}, files={}",
+                        request_id,
+                        files.len()
+                    );
+                    cx.emit(GitUiEvent::BranchCompareFiles {
+                        request_id,
+                        files,
+                    });
+                }
+                GitEvent::BranchCompareFileDiff {
+                    request_id,
+                    file,
+                    patch,
+                    old_source,
+                    new_source,
+                } => {
+                    log::debug!(
+                        "[git_view] branch comparison file received: request_id={}, path={}",
+                        request_id,
+                        file.path
+                    );
+                    cx.emit(GitUiEvent::BranchCompareFileDiff {
+                        request_id,
+                        file,
+                        patch,
+                        old_source,
+                        new_source,
+                    });
+                }
+                GitEvent::BranchCompareError {
+                    request_id,
+                    file,
+                    detail,
+                } => {
+                    log::warn!(
+                        "[git_view] branch comparison failed: request_id={}, file={}",
+                        request_id,
+                        file.as_ref()
+                            .map(|file| file.path.as_str())
+                            .unwrap_or("<request>")
+                    );
+                    cx.emit(GitUiEvent::BranchCompareError {
+                        request_id,
+                        file,
+                        detail,
+                    });
+                }
+                GitEvent::BranchCompareFinished { request_id } => {
+                    log::info!(
+                        "[git_view] branch comparison finished: request_id={}",
+                        request_id
+                    );
+                    cx.emit(GitUiEvent::BranchCompareFinished { request_id });
                 }
                 GitEvent::WorkingTreeOperationFinished {
                     request_id,

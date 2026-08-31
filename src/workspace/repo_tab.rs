@@ -20,6 +20,7 @@ use crate::git::{GitStatus, GitUiEvent, GitView};
 
 use super::tabs::{TabId, TabState, TabSummary};
 
+mod branch_compare;
 mod dialogs;
 mod layout;
 
@@ -92,6 +93,7 @@ pub struct RepoTab {
     commit: Entity<CommitPanel>,
     changes: Entity<ChangesPanel>,
     bottom: Entity<BottomPanel>,
+    compare: Entity<crate::git::branch_compare::BranchCompareView>,
     status: GitStatus,
     status_message: Option<String>,
     status_message_ok: Option<bool>,
@@ -126,6 +128,8 @@ impl RepoTab {
         let bottom = cx.new(|_cx| {
             BottomPanel::new(locale, diff_layout, layout.file_list_ratio)
         });
+        let compare = branch_compare::new_view(window, cx, locale, diff_layout);
+        branch_compare::subscribe(&compare, cx);
 
         cx.subscribe(&sidebar, |tab, _event, event, cx| match event {
             SidebarEvent::BranchSelected(name) => {
@@ -200,6 +204,7 @@ impl RepoTab {
                     sidebar.flash_branches(cx);
                 });
             }
+            ToolbarEvent::Compare => branch_compare::open(tab, cx),
             ToolbarEvent::Refresh => {
                 tab.refresh_repository(cx);
             }
@@ -330,7 +335,11 @@ impl RepoTab {
         })
         .detach();
 
-        cx.subscribe(&git_view, |tab, _event, event, cx| match event {
+        cx.subscribe(&git_view, |tab, _event, event, cx| {
+            if branch_compare::handle_git_event(tab, event, cx) {
+                return;
+            }
+            match event {
             GitUiEvent::StatusChanged {
                 branch,
                 upstream,
@@ -579,6 +588,8 @@ impl RepoTab {
                 tab.emit_summary(cx);
                 cx.notify();
             }
+            _ => {}
+            }
         })
         .detach();
 
@@ -594,6 +605,7 @@ impl RepoTab {
             commit,
             changes,
             bottom,
+            compare,
             status: GitStatus::None,
             status_message: None,
             status_message_ok: None,
@@ -792,6 +804,7 @@ impl RepoTab {
         self.bottom.update(cx, |bottom, cx| {
             bottom.set_locale(locale, cx);
         });
+        branch_compare::set_locale(self, locale, cx);
         cx.notify();
     }
 
@@ -804,6 +817,7 @@ impl RepoTab {
         self.bottom.update(cx, |bottom, cx| {
             bottom.set_diff_layout(diff_layout, cx);
         });
+        branch_compare::set_diff_layout(self, diff_layout, cx);
     }
 
     /// Apply the persisted commit graph history scope to this repository tab.
@@ -922,7 +936,7 @@ impl Render for RepoTab {
             .size_full()
             .min_h_0()
             .child(self.toolbar.clone())
-            .child(self.main_content(window, cx))
+            .child(branch_compare::render(self, window, cx))
             .child(self.status_bar(cx))
             .when(self.confirmation.is_some(), |element| {
                 element.child(self.confirmation_overlay(cx))

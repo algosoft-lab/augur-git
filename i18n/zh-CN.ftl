@@ -62,6 +62,7 @@ toolbar-pull-rebase = 拉取（变基）
 toolbar-push = 推送
 toolbar-push-force = 推送（强制）
 toolbar-branch = 分支
+toolbar-compare = 比较
 toolbar-refresh = 刷新
 toolbar-settings = 设置
 toolbar-busy = 操作中…
@@ -145,6 +146,25 @@ diff-working-tree-staged = 暂存
 diff-working-tree-changes = 变更
 diff-working-tree-loading = 正在加载工作区 diff…
 diff-working-tree-error = 无法加载工作区 diff
+
+# ===== 分支比较 =====
+branch-compare-title = 分支比较
+branch-compare-back = 返回仓库
+branch-compare-base = 基准
+branch-compare-target = 目标
+branch-compare-local = 本地
+branch-compare-remote = 远程
+branch-compare-direct = 比较分支端点
+branch-compare-merge-base = 相对共同祖先
+branch-compare-run = 比较
+branch-compare-refresh = 刷新
+branch-compare-loading = 正在加载比较…
+branch-compare-search = 搜索分支…
+branch-compare-all-files = 全部变更文件
+branch-compare-no-changes = 所选分支没有文件变化
+branch-compare-select-hint = 选择两个分支后开始比较
+branch-compare-select-file = 选择文件查看 diff
+branch-compare-error = 无法加载分支比较
 
 # ===== 危险工作区操作 =====
 discard-title = 丢弃变更？

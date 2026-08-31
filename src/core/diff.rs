@@ -3,6 +3,11 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+#[path = "diff/numstat.rs"]
+mod numstat;
+
+pub(crate) use numstat::parse_numstat_z;
+
 /// The kind of change represented by a file entry in a commit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileChangeStatus {
