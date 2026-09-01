@@ -1,8 +1,8 @@
-//! Workspace-level lifecycle guards for external Agent sessions.
+//! Workspace-level lifecycle guards for visible Agent connectivity tests.
 //!
-//! Repository tabs own their sessions, while this module coordinates actions
-//! that can close a tab or the whole application. A running process is always
-//! listed behind an explicit confirmation before it is terminated.
+//! This module coordinates actions that can close the workspace or the whole
+//! application. A running test is always listed behind an explicit
+//! confirmation before it is terminated.
 
 use gpui::prelude::*;
 use gpui::*;
@@ -19,27 +19,23 @@ use super::tabs::{TabId, fallback_after_close};
 use super::{TabContent, Workspace};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum PendingWorkspaceClose {
-    Application,
-    Tab(TabId),
-}
+pub(super) struct PendingWorkspaceClose;
 
 impl Workspace {
     /// Request application quit from the menu or a command. The app quit is
-    /// deferred while Agent processes are still active.
+    /// deferred while connectivity-test processes are still active.
     pub(super) fn request_application_quit(&mut self, cx: &mut Context<Self>) {
         if self.pending_close.is_some() {
             return;
         }
-        let count = self.running_agent_session_count(cx)
-            + super::agent_connectivity::running_count(self, cx);
+        let count = super::agent_connectivity::running_count(self, cx);
         if count == 0 {
             cx.quit();
         } else {
             log::info!(
-                "[agent_terminal] delaying application quit for {count} active session(s)"
+                "[agent_terminal] delaying application quit for {count} active test(s)"
             );
-            self.pending_close = Some(PendingWorkspaceClose::Application);
+            self.pending_close = Some(PendingWorkspaceClose);
             cx.notify();
         }
     }
@@ -54,15 +50,14 @@ impl Workspace {
         if self.pending_close.is_some() {
             return false;
         }
-        let count = self.running_agent_session_count(cx)
-            + super::agent_connectivity::running_count(self, cx);
+        let count = super::agent_connectivity::running_count(self, cx);
         if count == 0 {
             true
         } else {
             log::info!(
-                "[agent_terminal] delaying window close for {count} active session(s)"
+                "[agent_terminal] delaying window close for {count} active test(s)"
             );
-            self.pending_close = Some(PendingWorkspaceClose::Application);
+            self.pending_close = Some(PendingWorkspaceClose);
             cx.notify();
             false
         }
@@ -73,36 +68,10 @@ impl Workspace {
         id: TabId,
         cx: &mut Context<Self>,
     ) {
-        let Some(entry) = self.tabs.iter().find(|entry| entry.id == id) else {
-            return;
-        };
-        let count = match &entry.content {
-            TabContent::Repo(tab) => {
-                tab.read(cx).running_agent_session_count(cx)
-            }
-            TabContent::Welcome => 0,
-        };
-        if count > 0 {
-            log::info!(
-                "[agent_terminal] delaying tab close: tab={id}, sessions={count}"
-            );
-            self.pending_close = Some(PendingWorkspaceClose::Tab(id));
-            cx.notify();
+        if !self.tabs.iter().any(|entry| entry.id == id) {
             return;
         }
         self.close_tab_now(id, cx);
-    }
-
-    fn running_agent_session_count(&self, cx: &App) -> usize {
-        self.tabs
-            .iter()
-            .filter_map(|entry| match &entry.content {
-                TabContent::Repo(tab) => {
-                    Some(tab.read(cx).running_agent_session_count(cx))
-                }
-                TabContent::Welcome => None,
-            })
-            .sum()
     }
 
     fn close_tab_now(&mut self, id: TabId, cx: &mut Context<Self>) {
@@ -139,14 +108,7 @@ impl Workspace {
             return;
         };
         match pending {
-            PendingWorkspaceClose::Application => {
-                for entry in &self.tabs {
-                    if let TabContent::Repo(tab) = &entry.content {
-                        tab.update(cx, |tab, cx| {
-                            tab.terminate_agent_sessions(cx)
-                        });
-                    }
-                }
+            PendingWorkspaceClose => {
                 super::agent_connectivity::stop_all(self, cx);
                 log::info!("[agent_terminal] confirmed application close");
                 // `TerminalBackend::shutdown` gives each child a short grace
@@ -161,16 +123,6 @@ impl Workspace {
                 })
                 .detach();
             }
-            PendingWorkspaceClose::Tab(id) => {
-                if let Some(entry) =
-                    self.tabs.iter().find(|entry| entry.id == id)
-                    && let TabContent::Repo(tab) = &entry.content
-                {
-                    tab.update(cx, |tab, cx| tab.terminate_agent_sessions(cx));
-                }
-                log::info!("[agent_terminal] confirmed tab close: tab={id}");
-                self.close_tab_now(id, cx);
-            }
         }
     }
 
@@ -178,68 +130,19 @@ impl Workspace {
         &self,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let Some(pending) = self.pending_close else {
+        let Some(_) = self.pending_close else {
             return div().into_any_element();
         };
         let colors = cx.theme().colors.clone();
-        let session_labels = match pending {
-            PendingWorkspaceClose::Application => {
-                let mut labels = self
-                    .tabs
-                    .iter()
-                    .filter_map(|entry| match &entry.content {
-                        TabContent::Repo(tab) => {
-                            Some(tab.read(cx).running_agent_session_labels(cx))
-                        }
-                        TabContent::Welcome => None,
-                    })
-                    .flatten()
-                    .collect::<Vec<_>>();
-                labels.extend(super::agent_connectivity::running_labels(
-                    self, cx,
-                ));
-                labels
-            }
-            PendingWorkspaceClose::Tab(id) => self
-                .tabs
-                .iter()
-                .find(|entry| entry.id == id)
-                .and_then(|entry| match &entry.content {
-                    TabContent::Repo(tab) => {
-                        Some(tab.read(cx).running_agent_session_labels(cx))
-                    }
-                    TabContent::Welcome => None,
-                })
-                .unwrap_or_default(),
-        };
-        let count = session_labels.len();
+        let test_labels = super::agent_connectivity::running_labels(self, cx);
+        let count = test_labels.len();
         let count_text = count.to_string();
-        let (title, warning) = match pending {
-            PendingWorkspaceClose::Application => (
-                i18n::text(self.locale, "workspace-close-title"),
-                i18n::text_args(
-                    self.locale,
-                    "workspace-close-warning",
-                    &[("count", &count_text)],
-                ),
-            ),
-            PendingWorkspaceClose::Tab(id) => {
-                let tab_name = self
-                    .tabs
-                    .iter()
-                    .find(|entry| entry.id == id)
-                    .map(|entry| entry.summary.title.clone())
-                    .unwrap_or_else(|| id.to_string());
-                (
-                    i18n::text(self.locale, "workspace-tab-close-title"),
-                    i18n::text_args(
-                        self.locale,
-                        "workspace-tab-close-warning",
-                        &[("tab", &tab_name), ("count", &count_text)],
-                    ),
-                )
-            }
-        };
+        let title = i18n::text(self.locale, "workspace-close-title");
+        let warning = i18n::text_args(
+            self.locale,
+            "workspace-close-warning",
+            &[("count", &count_text)],
+        );
         let this = cx.entity();
         let cancel = this.clone();
         let cancel_backdrop = cancel.clone();
@@ -303,7 +206,7 @@ impl Workspace {
                             .text_size(crate::theme::scaled_text_size(12.))
                             .child(SharedString::from(warning)),
                     )
-                    .children(session_labels.into_iter().map(|label| {
+                    .children(test_labels.into_iter().map(|label| {
                         div()
                             .w_full()
                             .text_color(colors.foreground)

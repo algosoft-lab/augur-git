@@ -4,7 +4,6 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{Root, TitleBar};
 
-use crate::agent::ReviewSelection;
 use crate::core::i18n::Locale;
 use crate::git::GitUiEvent;
 use crate::git::branch_compare::{
@@ -27,7 +26,7 @@ pub(super) fn subscribe(
     window: &mut Window,
     cx: &mut Context<RepoTab>,
 ) {
-    cx.subscribe_in(compare, window, |tab, _event, event, window, cx| {
+    cx.subscribe_in(compare, window, |tab, _event, event, _window, cx| {
         match event {
             BranchCompareEvent::Cancel => {
                 tab.git_view
@@ -38,11 +37,6 @@ pub(super) fn subscribe(
                 base,
                 target,
             } => {
-                tab.review_context.selection = ReviewSelection::Comparison {
-                    base: base.full_name.clone(),
-                    target: target.full_name.clone(),
-                    path: None,
-                };
                 tab.git_view.update(cx, |view, _| {
                     view.branch_compare(
                         *request_id,
@@ -50,10 +44,6 @@ pub(super) fn subscribe(
                         target.clone(),
                     );
                 });
-            }
-            BranchCompareEvent::NewAgentTask(context) => {
-                window.activate_window();
-                tab.open_agent_composer(context.clone(), window, cx);
             }
         }
     })
@@ -241,8 +231,5 @@ pub(super) fn render(
     window: &mut Window,
     cx: &mut Context<RepoTab>,
 ) -> AnyElement {
-    // Keep the Review tab visible even before the first Agent session. This
-    // makes the repository content area stable while sessions are opened and
-    // closed, and gives every review context the same New Agent entry point.
-    tab.render_agent_content(window, cx)
+    tab.main_content(window, cx).into_any_element()
 }

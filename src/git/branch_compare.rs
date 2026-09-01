@@ -11,7 +11,6 @@ use gpui_component::{
     ActiveTheme, Disableable, Icon, IconName, Sizable, TitleBar, h_flex, v_flex,
 };
 
-use crate::agent::{ReviewContext, ReviewSelection};
 use crate::core::diff::{DiffDocument, FileChange};
 use crate::core::git::{CompareRevision, CompareRevisionKind, RefsInfo};
 use crate::core::graph::LogRow;
@@ -40,7 +39,6 @@ pub enum BranchCompareEvent {
         base: CompareRevision,
         target: CompareRevision,
     },
-    NewAgentTask(ReviewContext),
 }
 
 struct CompareDocument {
@@ -387,34 +385,6 @@ impl BranchCompareView {
         cx.notify();
     }
 
-    fn new_agent_task(&self, cx: &mut Context<Self>) {
-        let Some(base) = self.base_picker.read(cx).candidate().revision()
-        else {
-            return;
-        };
-        let Some(target) = self.target_picker.read(cx).candidate().revision()
-        else {
-            return;
-        };
-        let path = (!self.show_all)
-            .then(|| self.selected_identity())
-            .flatten()
-            .and_then(|identity| {
-                self.files
-                    .iter()
-                    .find(|file| file.identity() == identity)
-                    .map(|file| file.path.clone())
-            });
-        cx.emit(BranchCompareEvent::NewAgentTask(ReviewContext {
-            branch: self.current_branch.clone(),
-            selection: ReviewSelection::Comparison {
-                base: base.full_name,
-                target: target.full_name,
-                path,
-            },
-        }));
-    }
-
     fn copy_diff(&self, cx: &mut Context<Self>) {
         let text = if self.show_all {
             self.files
@@ -514,8 +484,6 @@ impl BranchCompareView {
         } else {
             i18n::text(self.locale, "branch-compare-run")
         };
-        let agent_label = i18n::text(self.locale, "agent-new-task");
-        let agent_enabled = compare_enabled;
         let (total_added, total_deleted) =
             self.files.iter().fold((0, 0), |(added, deleted), file| {
                 (
@@ -627,29 +595,6 @@ impl BranchCompareView {
                                         12.,
                                     ))
                                     .child(shared(run_label)),
-                            ),
-                    ))
-                    .child(compare_field_action(
-                        Button::new("branch-compare-agent")
-                            .icon(IconName::Bot)
-                            .ghost()
-                            .compact()
-                            .flex_shrink_0()
-                            .disabled(!agent_enabled)
-                            .on_click({
-                                let this = this.clone();
-                                move |_event, _window, cx| {
-                                    this.update(cx, |view, cx| {
-                                        view.new_agent_task(cx)
-                                    });
-                                }
-                            })
-                            .child(
-                                div()
-                                    .text_size(crate::theme::scaled_text_size(
-                                        12.,
-                                    ))
-                                    .child(shared(agent_label)),
                             ),
                     )),
             )

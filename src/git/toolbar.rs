@@ -46,7 +46,6 @@ pub enum ToolbarEvent {
     Push,
     PushForce,
     Compare,
-    NewAgentTask,
     Refresh,
     Settings,
 }
@@ -378,15 +377,6 @@ impl Render for Toolbar {
                 &colors,
                 !self.busy,
                 ToolbarEvent::Compare,
-                cx,
-            ))
-            .child(self.tool_button(
-                "tb-agent-task",
-                Icon::new(IconName::Bot),
-                "toolbar-agent-task",
-                &colors,
-                !self.busy,
-                ToolbarEvent::NewAgentTask,
                 cx,
             ))
             // Ahead/behind badges.

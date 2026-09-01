@@ -738,12 +738,8 @@ mod tests {
         let profile = config.agent.profile("reviewer").expect("profile");
         assert_eq!(profile.args, vec!["--interactive"]);
         assert_eq!(
-            profile.launch_spec(PathBuf::from("task.md")).args,
-            vec![
-                "--interactive",
-                "--prompt",
-                "Read the complete Augur Git task from the file path in AUGUR_GIT_TASK_FILE, follow it, and keep this interactive session open for follow-up questions."
-            ]
+            profile.launch_spec_for_prompt("diagnostic").args,
+            vec!["--interactive", "--prompt", "diagnostic"]
         );
     }
 

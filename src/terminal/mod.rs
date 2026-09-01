@@ -1,4 +1,4 @@
-//! Embedded PTY-backed terminal used exclusively for external Agent sessions.
+//! Embedded PTY-backed terminal used for visible external Agent diagnostics.
 //!
 //! The terminal owns no shell policy and does not interpret Agent output. It
 //! provides a small GPUI view over `alacritty_terminal`'s cross-platform PTY
@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::event_loop::{EventLoop, EventLoopSender, Msg};
@@ -28,9 +28,7 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{ActiveTheme, v_flex};
 
-use crate::agent::{
-    AgentLaunchSpec, AgentTestDirectory, TaskFile, task_file_env,
-};
+use crate::agent::{AgentLaunchSpec, AgentTestDirectory};
 
 const DEFAULT_COLUMNS: usize = 120;
 const DEFAULT_LINES: usize = 32;
@@ -74,7 +72,6 @@ pub struct TerminalSnapshot {
 #[derive(Clone)]
 struct TerminalProxy {
     events: Sender<TerminalEvent>,
-    task_file: Option<std::path::PathBuf>,
     test_directory: Option<AgentTestDirectory>,
     /// The terminal parser emits responses to device queries as `PtyWrite`.
     /// Keep those responses inside the PTY; only OSC and other host side
@@ -85,9 +82,6 @@ struct TerminalProxy {
 
 impl TerminalProxy {
     fn cleanup_resources(&self) {
-        if let Some(task_file) = &self.task_file {
-            let _ = std::fs::remove_file(task_file);
-        }
         if let Some(test_directory) = &self.test_directory {
             if test_directory.cleanup().is_err() {
                 log::debug!(
@@ -173,7 +167,6 @@ pub struct TerminalBackend {
     events: Arc<Mutex<Receiver<TerminalEvent>>>,
     events_sender: Sender<TerminalEvent>,
     child_exit_seen: Arc<AtomicBool>,
-    _task_file: Option<TaskFile>,
     _test_directory: Option<AgentTestDirectory>,
     shutdown_requested: AtomicBool,
 }
@@ -181,20 +174,17 @@ pub struct TerminalBackend {
 impl TerminalBackend {
     pub fn spawn(
         spec: &AgentLaunchSpec,
-        task_file: Option<TaskFile>,
         test_directory: Option<AgentTestDirectory>,
         working_directory: &Path,
         window_id: u64,
     ) -> anyhow::Result<Self> {
+        let executable = crate::agent::resolve_executable(&spec.executable)?;
         let (events_tx, events_rx) = mpsc::channel();
         let events_for_join = events_tx.clone();
         let input_sender = Arc::new(Mutex::new(None));
         let child_exit_seen = Arc::new(AtomicBool::new(false));
         let proxy = TerminalProxy {
             events: events_tx,
-            task_file: task_file
-                .as_ref()
-                .map(|task_file| task_file.path().to_path_buf()),
             test_directory: test_directory.clone(),
             input_sender: input_sender.clone(),
             child_exit_seen,
@@ -214,19 +204,12 @@ impl TerminalBackend {
         )));
 
         let mut env = HashMap::new();
-        if let Some(task_file) = task_file.as_ref() {
-            let (env_key, env_value) = task_file_env(task_file.path());
-            env.insert(
-                env_key.to_string_lossy().into_owned(),
-                env_value.to_string_lossy().into_owned(),
-            );
-        }
         env.insert("TERM".to_string(), "xterm-256color".to_string());
         env.insert("COLORTERM".to_string(), "truecolor".to_string());
 
         let mut options = PtyOptions {
             shell: Some(Shell::new(
-                terminal_program(spec.executable.as_path()),
+                terminal_program(executable.as_path()),
                 spec.args.clone(),
             )),
             working_directory: Some(working_directory.to_path_buf()),
@@ -258,16 +241,10 @@ impl TerminalBackend {
         }
         let event_loop_join = event_loop.spawn();
         let child_exit_for_join = child_exit_seen.clone();
-        let task_file_for_join = task_file
-            .as_ref()
-            .map(|task_file| task_file.path().to_path_buf());
         let test_directory_for_join = test_directory.clone();
         std::thread::spawn(move || {
             let _ = event_loop_join.join();
             if !child_exit_for_join.swap(true, Ordering::AcqRel) {
-                if let Some(task_file) = task_file_for_join {
-                    let _ = std::fs::remove_file(task_file);
-                }
                 if let Some(test_directory) = test_directory_for_join {
                     if test_directory.cleanup().is_err() {
                         log::debug!(
@@ -290,7 +267,6 @@ impl TerminalBackend {
             events: Arc::new(Mutex::new(events_rx)),
             events_sender,
             child_exit_seen,
-            _task_file: task_file,
             _test_directory: test_directory,
             shutdown_requested: AtomicBool::new(false),
         })
@@ -317,17 +293,10 @@ impl TerminalBackend {
         let sender = self.sender.clone();
         let events_sender = self.events_sender.clone();
         let child_exit_seen = self.child_exit_seen.clone();
-        let task_file = self
-            ._task_file
-            .as_ref()
-            .map(|task_file| task_file.path().to_path_buf());
         let test_directory = self._test_directory.clone();
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(150));
             if !child_exit_seen.swap(true, Ordering::AcqRel) {
-                if let Some(task_file) = task_file {
-                    let _ = std::fs::remove_file(task_file);
-                }
                 if let Some(test_directory) = test_directory {
                     if test_directory.cleanup().is_err() {
                         log::debug!(
@@ -565,7 +534,7 @@ impl Drop for TerminalBackend {
     }
 }
 
-/// GPUI rendering and input bridge for one Agent session.
+/// GPUI rendering and input bridge for one visible Agent test.
 pub struct TerminalView {
     backend: Arc<TerminalBackend>,
     rows: Vec<String>,
@@ -579,7 +548,6 @@ pub struct TerminalView {
     _poll_task: Option<Task<()>>,
     child_exit: Option<Option<i32>>,
     error: Option<String>,
-    last_activity: Instant,
 }
 
 impl TerminalView {
@@ -621,7 +589,6 @@ impl TerminalView {
             _poll_task: Some(poll_task),
             child_exit: None,
             error: None,
-            last_activity: Instant::now(),
         }
     }
 
@@ -631,7 +598,6 @@ impl TerminalView {
         events: Vec<TerminalEvent>,
         cx: &mut Context<Self>,
     ) {
-        let activity = !events.is_empty();
         self.rows = snapshot.rows;
         self.cell_rows = snapshot.cell_rows;
         self.cursor = snapshot.cursor;
@@ -645,9 +611,6 @@ impl TerminalView {
                 TerminalEvent::Wakeup => {}
             }
         }
-        if activity {
-            self.last_activity = Instant::now();
-        }
         cx.notify();
     }
 
@@ -657,10 +620,6 @@ impl TerminalView {
         } else {
             self.error.clone().map(Err)
         }
-    }
-
-    pub fn last_activity(&self) -> Instant {
-        self.last_activity
     }
 
     fn send_key(&self, event: &KeyDownEvent) {

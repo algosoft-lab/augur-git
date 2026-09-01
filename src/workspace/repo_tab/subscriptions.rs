@@ -4,7 +4,6 @@
 
 use gpui::{Context, Entity, Window};
 
-use crate::agent::ReviewSelection;
 use crate::core::git::{
     WorkingTreeAction, WorkingTreeDiffKind, WorkingTreeScopeKind,
 };
@@ -55,7 +54,7 @@ fn wire_toolbar(
     window: &mut Window,
     cx: &mut Context<RepoTab>,
 ) {
-    cx.subscribe_in(toolbar, window, |tab, _event, event, window, cx| {
+    cx.subscribe_in(toolbar, window, |tab, _event, event, _window, cx| {
         match event {
             ToolbarEvent::Fetch => {
                 if tab.operation_busy {
@@ -145,9 +144,6 @@ fn wire_toolbar(
                 );
             }
             ToolbarEvent::Compare => branch_compare::open(tab, cx),
-            ToolbarEvent::NewAgentTask => {
-                tab.open_agent_composer(tab.review_context.clone(), window, cx);
-            }
             ToolbarEvent::Refresh => {
                 tab.refresh_repository(cx);
             }
@@ -167,8 +163,6 @@ fn wire_graph(graph: &Entity<GraphView>, cx: &mut Context<RepoTab>) {
             subject,
             ..
         } => {
-            tab.review_context.selection =
-                ReviewSelection::Commit { oid: oid.clone() };
             tab.bottom.update(cx, |bottom, cx| {
                 bottom.set_commit(oid, short, subject, cx);
             });
@@ -178,7 +172,6 @@ fn wire_graph(graph: &Entity<GraphView>, cx: &mut Context<RepoTab>) {
             });
         }
         GraphEvent::SelectionCleared => {
-            tab.review_context.selection = ReviewSelection::None;
             tab.bottom.update(cx, |bottom, cx| {
                 bottom.clear_commit(cx);
             });
@@ -226,10 +219,6 @@ fn wire_commit(commit: &Entity<CommitPanel>, cx: &mut Context<RepoTab>) {
 fn wire_changes(changes: &Entity<ChangesPanel>, cx: &mut Context<RepoTab>) {
     cx.subscribe(changes, |tab, _event, event, cx| match event {
         ChangesPanelEvent::FileSelected { staged, file } => {
-            tab.review_context.selection = ReviewSelection::WorkingTreeFile {
-                staged: *staged,
-                path: file.path.clone(),
-            };
             tab.working_diff_request_id =
                 tab.working_diff_request_id.wrapping_add(1).max(1);
             let request_id = tab.working_diff_request_id;
@@ -268,10 +257,6 @@ fn wire_bottom(bottom: &Entity<BottomPanel>, cx: &mut Context<RepoTab>) {
             merge_parent,
             file,
         } => {
-            tab.review_context.selection = ReviewSelection::CommitFile {
-                oid: oid.clone(),
-                path: file.path.clone(),
-            };
             tab.git_view.update(cx, |view, _| {
                 view.file_diff(oid.clone(), merge_parent.clone(), file.clone());
             });
@@ -281,8 +266,6 @@ fn wire_bottom(bottom: &Entity<BottomPanel>, cx: &mut Context<RepoTab>) {
             merge_parent,
             files,
         } => {
-            tab.review_context.selection =
-                ReviewSelection::Commit { oid: oid.clone() };
             tab.git_view.update(cx, |view, _| {
                 view.file_diffs(
                     oid.clone(),
@@ -332,7 +315,6 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 let unstaged_text = unstaged_count.to_string();
 
                 tab.branch = branch_name;
-                tab.review_context.branch = branch.clone();
                 tab.upstream = upstream.clone();
                 tab.local_branches = branches
                     .iter()

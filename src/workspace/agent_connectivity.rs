@@ -71,7 +71,6 @@ impl AgentConnectivityWindow {
         } else if let Some(directory) = working_directory.as_ref() {
             match TerminalBackend::spawn(
                 &spec,
-                None,
                 Some(directory.clone()),
                 directory.path(),
                 window_id,
@@ -526,10 +525,18 @@ pub(super) fn open(
     };
     let locale = workspace.locale;
     let challenge = AgentConnectivityChallenge::new();
-    let spec = profile.launch_spec_for_prompt(&challenge.prompt);
+    let mut spec = profile.launch_spec_for_prompt(&challenge.prompt);
+    let startup_error = match crate::agent::resolve_executable(&spec.executable)
+    {
+        Ok(executable) => {
+            spec.executable = executable;
+            None
+        }
+        Err(error) => Some(first_line(&error.to_string()).to_string()),
+    };
     let (working_directory, startup_error) = match AgentTestDirectory::create()
     {
-        Ok(directory) => (Some(directory), None),
+        Ok(directory) => (Some(directory), startup_error),
         Err(error) => (None, Some(first_line(&error.to_string()).to_string())),
     };
     let options = WindowOptions {

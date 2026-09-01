@@ -1,28 +1,21 @@
-//! External coding-agent profiles, task context, and safe launch arguments.
+//! External coding-agent profiles and safe launch arguments.
 //!
 //! This module deliberately contains no provider SDKs or agent logic. It only
 //! prepares a structured PTY launch request for a user-installed CLI agent.
 
 use std::collections::HashMap;
-use std::ffi::OsString;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Instant;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
 use serde::{Deserialize, Serialize};
 
-const TASK_FILE_ENV: &str = "AUGUR_GIT_TASK_FILE";
-const TASK_DIRECTORY: &str = "agent-tasks";
-const BOOTSTRAP_PROMPT: &str = "Read the complete Augur Git task from the file path in AUGUR_GIT_TASK_FILE, follow it, and keep this interactive session open for follow-up questions.";
-const STALE_TASK_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const TEST_DIRECTORY_PREFIX: &str = "augur-git-agent-test";
 
 /// Built-in providers supported by the first-party UI.
@@ -212,17 +205,6 @@ impl AgentSettings {
             .unwrap_or_else(|| BuiltInAgent::Codex.id().to_string())
     }
 
-    pub fn valid_custom_profiles(
-        &self,
-    ) -> impl Iterator<Item = &CustomAgentProfile> {
-        self.custom_profiles.iter().filter(|profile| {
-            profile.validate().is_ok()
-                && !BuiltInAgent::ALL
-                    .iter()
-                    .any(|agent| agent.id() == profile.id)
-        })
-    }
-
     pub fn profile(&self, id: &str) -> Option<ResolvedAgentProfile> {
         if let Some(agent) = BuiltInAgent::ALL
             .iter()
@@ -276,7 +258,6 @@ pub struct ResolvedAgentProfile {
 pub struct AgentLaunchSpec {
     pub executable: PathBuf,
     pub args: Vec<String>,
-    pub task_file: Option<PathBuf>,
 }
 
 /// A fixed, non-destructive challenge used to verify that an Agent receives a
@@ -310,31 +291,9 @@ impl Default for AgentConnectivityChallenge {
     }
 }
 
-/// Lifecycle status surfaced by the session tab. The terminal intentionally
-/// does not infer provider-specific semantic states.
-#[derive(Clone, Debug, PartialEq)]
-pub enum AgentSessionState {
-    Starting,
-    Running { last_activity: Instant },
-    Exited { code: Option<i32> },
-    Failed { summary: String },
-}
-
 impl ResolvedAgentProfile {
-    pub fn launch_spec(&self, task_file: PathBuf) -> AgentLaunchSpec {
-        self.launch_spec_with_prompt(BOOTSTRAP_PROMPT, Some(task_file))
-    }
-
-    /// Build a direct-prompt launch without a task-file environment variable.
+    /// Build a direct-prompt launch with structured executable arguments.
     pub fn launch_spec_for_prompt(&self, prompt: &str) -> AgentLaunchSpec {
-        self.launch_spec_with_prompt(prompt, None)
-    }
-
-    fn launch_spec_with_prompt(
-        &self,
-        prompt: &str,
-        task_file: Option<PathBuf>,
-    ) -> AgentLaunchSpec {
         let mut args = self.args.clone();
         match &self.prompt_mode {
             PromptMode::TrailingArgument => args.push(prompt.to_string()),
@@ -346,108 +305,7 @@ impl ResolvedAgentProfile {
         AgentLaunchSpec {
             executable: self.executable.clone(),
             args,
-            task_file,
         }
-    }
-}
-
-/// Context references captured from Augur's review panels.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-pub struct ReviewContext {
-    pub branch: String,
-    #[serde(default)]
-    pub selection: ReviewSelection,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-pub enum ReviewSelection {
-    #[default]
-    None,
-    WorkingTreeFile {
-        staged: bool,
-        path: String,
-    },
-    Commit {
-        oid: String,
-    },
-    CommitFile {
-        oid: String,
-        path: String,
-    },
-    Comparison {
-        base: String,
-        target: String,
-        path: Option<String>,
-    },
-}
-
-/// Build the small, reference-only task document passed to an external agent.
-pub fn task_document(request: &str, context: &ReviewContext) -> String {
-    let mut document = String::new();
-    document.push_str("# Augur Git task\n\n");
-    document.push_str("## User request\n\n");
-    document.push_str(request.trim());
-    document.push_str("\n\n## Review context\n\n");
-    if context.branch.trim().is_empty() {
-        document.push_str("- Branch: (detached or unavailable)\n");
-    } else {
-        document.push_str("- Branch: ");
-        document.push_str(context.branch.trim());
-        document.push('\n');
-    }
-    match &context.selection {
-        ReviewSelection::None => document.push_str("- Selection: none\n"),
-        ReviewSelection::WorkingTreeFile { staged, path } => {
-            document.push_str("- Working-tree file (staged=");
-            document.push_str(&staged.to_string());
-            document.push_str("): ");
-            document.push_str(path);
-            document.push('\n');
-        }
-        ReviewSelection::Commit { oid } => {
-            document.push_str("- Commit: ");
-            document.push_str(oid);
-            document.push('\n');
-        }
-        ReviewSelection::CommitFile { oid, path } => {
-            document.push_str("- Commit: ");
-            document.push_str(oid);
-            document.push_str("\n- Commit file: ");
-            document.push_str(path);
-            document.push('\n');
-        }
-        ReviewSelection::Comparison { base, target, path } => {
-            document.push_str("- Comparison: ");
-            document.push_str(base);
-            document.push_str(" -> ");
-            document.push_str(target);
-            document.push('\n');
-            if let Some(path) = path {
-                document.push_str("- Comparison file: ");
-                document.push_str(path);
-                document.push('\n');
-            }
-        }
-    }
-    document.push_str("\nUse the repository working tree as the source of truth. The references above are hints; inspect files and Git state yourself before making changes.\n");
-    document
-}
-
-/// A task file whose lifecycle is tied to one Agent session.
-#[derive(Debug)]
-pub struct TaskFile {
-    path: PathBuf,
-}
-
-impl TaskFile {
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TaskFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
     }
 }
 
@@ -526,117 +384,66 @@ impl Drop for AgentTestDirectory {
     }
 }
 
-/// Private app-owned task storage. The directory is intentionally outside the
-/// repository so task files never appear in Git status.
-#[derive(Clone, Debug)]
-pub struct TaskStore {
-    root: PathBuf,
+/// Resolve a profile executable using the same Windows executable suffixes
+/// that an interactive command shell uses for npm-installed CLI shims.
+pub fn resolve_executable(path: &Path) -> anyhow::Result<PathBuf> {
+    #[cfg(windows)]
+    {
+        return resolve_windows_executable(path);
+    }
+
+    #[cfg(not(windows))]
+    {
+        if (path.is_absolute() || path.components().count() > 1)
+            && !path.is_file()
+        {
+            anyhow::bail!("executable '{}' was not found", path.display());
+        }
+        Ok(path.to_path_buf())
+    }
 }
 
-impl Default for TaskStore {
-    fn default() -> Self {
-        Self::new(default_task_root())
-    }
-}
-
-impl TaskStore {
-    pub fn new(root: PathBuf) -> Self {
-        Self { root }
-    }
-
-    pub fn write(&self, document: &str) -> anyhow::Result<TaskFile> {
-        fs::create_dir_all(&self.root)?;
-        set_private_directory_permissions(&self.root);
-
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        let filename =
-            format!("task-{}-{}-{}.md", std::process::id(), timestamp, counter);
-        let path = self.root.join(filename);
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)?;
-        if let Err(error) = file.write_all(document.as_bytes()) {
-            let _ = fs::remove_file(&path);
-            return Err(error.into());
+#[cfg(windows)]
+fn resolve_windows_executable(path: &Path) -> anyhow::Result<PathBuf> {
+    let has_directory = path.is_absolute()
+        || path
+            .parent()
+            .is_some_and(|parent| !parent.as_os_str().is_empty());
+    if has_directory {
+        if let Some(candidate) = windows_existing_candidate(path) {
+            return Ok(candidate);
         }
-        if let Err(error) = file.flush() {
-            let _ = fs::remove_file(&path);
-            return Err(error.into());
-        }
-        set_private_file_permissions(&path);
-        Ok(TaskFile { path })
+        anyhow::bail!("executable '{}' was not found", path.display());
     }
 
-    /// Remove only stale files in this app-owned directory whose names match
-    /// the generated task-file pattern.
-    pub fn cleanup_stale(&self) {
-        let Ok(entries) = fs::read_dir(&self.root) else {
-            return;
-        };
-        let now = SystemTime::now();
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let valid_name = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(valid_task_filename);
-            if !valid_name {
-                continue;
-            }
-            let stale = entry
-                .metadata()
-                .and_then(|metadata| metadata.modified())
-                .ok()
-                .and_then(|modified| now.duration_since(modified).ok())
-                .is_some_and(|age| age > STALE_TASK_AGE);
-            if stale {
-                let _ = fs::remove_file(path);
-            }
+    let path_variable = std::env::var_os("PATH").unwrap_or_default();
+    for directory in std::env::split_paths(&path_variable) {
+        if let Some(candidate) =
+            windows_existing_candidate(&directory.join(path))
+        {
+            return Ok(candidate);
         }
     }
+    anyhow::bail!("executable '{}' was not found in PATH", path.display());
 }
 
-fn valid_task_filename(name: &str) -> bool {
-    let Some(name) = name.strip_prefix("task-") else {
-        return false;
+#[cfg(windows)]
+fn windows_existing_candidate(path: &Path) -> Option<PathBuf> {
+    let candidates = if path.extension().is_some() {
+        vec![path.to_path_buf()]
+    } else {
+        vec![
+            path.with_extension("exe"),
+            path.with_extension("cmd"),
+            path.with_extension("bat"),
+        ]
     };
-    let Some(name) = name.strip_suffix(".md") else {
-        return false;
-    };
-    let mut parts = name.split('-');
-    let Some(pid) = parts.next() else {
-        return false;
-    };
-    let Some(timestamp) = parts.next() else {
-        return false;
-    };
-    let Some(counter) = parts.next() else {
-        return false;
-    };
-    parts.next().is_none()
-        && !pid.is_empty()
-        && !timestamp.is_empty()
-        && !counter.is_empty()
-        && pid.bytes().all(|byte| byte.is_ascii_digit())
-        && timestamp.bytes().all(|byte| byte.is_ascii_digit())
-        && counter.bytes().all(|byte| byte.is_ascii_digit())
-}
-
-pub fn task_file_env(task_file: &Path) -> (OsString, OsString) {
-    (
-        OsString::from(TASK_FILE_ENV),
-        task_file.as_os_str().to_os_string(),
-    )
+    candidates.into_iter().find(|candidate| candidate.is_file())
 }
 
 pub fn probe_profile(profile: &ResolvedAgentProfile) -> anyhow::Result<String> {
-    let mut command = Command::new(&profile.executable);
+    let executable = resolve_executable(&profile.executable)?;
+    let mut command = Command::new(executable);
     command.args(&profile.args).arg("--version");
     #[cfg(windows)]
     command.creation_flags(0x0800_0000);
@@ -654,14 +461,6 @@ pub fn probe_profile(profile: &ResolvedAgentProfile) -> anyhow::Result<String> {
     }
 }
 
-fn default_task_root() -> PathBuf {
-    dirs::data_local_dir()
-        .or_else(dirs::config_dir)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("augur-git")
-        .join(TASK_DIRECTORY)
-}
-
 #[cfg(unix)]
 fn set_private_directory_permissions(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
@@ -671,15 +470,6 @@ fn set_private_directory_permissions(path: &Path) {
 #[cfg(not(unix))]
 fn set_private_directory_permissions(_path: &Path) {}
 
-#[cfg(unix)]
-fn set_private_file_permissions(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
-}
-
-#[cfg(not(unix))]
-fn set_private_file_permissions(_path: &Path) {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -688,12 +478,15 @@ mod tests {
     fn built_in_profiles_use_expected_prompt_positions() {
         let settings = AgentSettings::default();
         let codex = settings.profile("codex").expect("codex profile");
-        assert_eq!(codex.launch_spec(PathBuf::from("task.md")).args.len(), 1);
+        assert_eq!(
+            codex.launch_spec_for_prompt("diagnostic").args,
+            vec!["diagnostic"]
+        );
 
         let opencode = settings.profile("opencode").expect("opencode profile");
         assert_eq!(
-            opencode.launch_spec(PathBuf::from("task.md")).args,
-            vec!["--prompt", BOOTSTRAP_PROMPT]
+            opencode.launch_spec_for_prompt("diagnostic").args,
+            vec!["--prompt", "diagnostic"]
         );
     }
 
@@ -711,8 +504,8 @@ mod tests {
         };
         let profile = settings.profile("reviewer").expect("profile");
         assert_eq!(
-            profile.launch_spec(PathBuf::from("task.md")).args,
-            vec!["--mode", "safe mode", "--task", BOOTSTRAP_PROMPT]
+            profile.launch_spec_for_prompt("diagnostic").args,
+            vec!["--mode", "safe mode", "--task", "diagnostic"]
         );
     }
 
@@ -731,70 +524,55 @@ mod tests {
         assert!(settings.profile("broken").is_none());
     }
 
+    #[cfg(windows)]
     #[test]
-    fn task_document_contains_references_without_diff() {
-        let context = ReviewContext {
-            branch: "feature/demo".into(),
-            selection: ReviewSelection::CommitFile {
-                oid: "0123456789abcdef".into(),
-                path: "src/main.rs".into(),
-            },
+    fn windows_resolver_accepts_cmd_shims_without_an_extension() {
+        let directory = std::env::temp_dir().join(format!(
+            "augur-agent-resolver-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir(&directory).expect("resolver test directory");
+        let shim = directory.join("agent.cmd");
+        fs::write(&shim, "@echo off\r\n").expect("resolver shim");
+
+        let resolved = resolve_executable(&directory.join("agent"))
+            .expect("cmd shim should resolve");
+        assert_eq!(resolved, shim);
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_probe_runs_a_cmd_shim() {
+        let directory = std::env::temp_dir().join(format!(
+            "augur-agent-probe-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir(&directory).expect("probe test directory");
+        let shim = directory.join("agent.cmd");
+        fs::write(&shim, "@echo off\r\necho shim-version\r\n")
+            .expect("probe shim");
+        let profile = ResolvedAgentProfile {
+            id: "probe".into(),
+            name: "Probe".into(),
+            executable: directory.join("agent"),
+            args: Vec::new(),
+            prompt_mode: PromptMode::TrailingArgument,
         };
-        let text = task_document("Fix the bug", &context);
-        assert!(text.contains("Fix the bug"));
-        assert!(text.contains("feature/demo"));
-        assert!(text.contains("src/main.rs"));
-        assert!(!text.contains("diff --git"));
-    }
 
-    #[test]
-    fn task_file_is_removed_when_dropped() {
-        let root = std::env::temp_dir()
-            .join(format!("augur-agent-test-{}", std::process::id()));
-        let store = TaskStore::new(root.clone());
-        let task = store.write("task").expect("task file");
-        let path = task.path().to_path_buf();
-        assert!(path.exists());
-        drop(task);
-        assert!(!path.exists());
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn task_storage_uses_private_unix_permissions() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let root = std::env::temp_dir()
-            .join(format!("augur-agent-permissions-{}", std::process::id()));
-        let store = TaskStore::new(root.clone());
-        let task = store.write("private task").expect("task file");
         assert_eq!(
-            fs::metadata(&root)
-                .expect("task root metadata")
-                .permissions()
-                .mode()
-                & 0o777,
-            0o700
+            probe_profile(&profile).expect("probe result"),
+            "shim-version"
         );
-        assert_eq!(
-            fs::metadata(task.path())
-                .expect("task metadata")
-                .permissions()
-                .mode()
-                & 0o777,
-            0o600
-        );
-        drop(task);
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn stale_cleanup_only_accepts_generated_names() {
-        assert!(valid_task_filename("task-42-123-0.md"));
-        assert!(!valid_task_filename("task-old.md"));
-        assert!(!valid_task_filename("task-42-123.md"));
-        assert!(!valid_task_filename("task-42-123-0.txt"));
+        let _ = fs::remove_dir_all(directory);
     }
 
     #[test]
@@ -838,7 +616,7 @@ mod tests {
     }
 
     #[test]
-    fn connectivity_prompt_uses_structured_arguments_without_task_file() {
+    fn connectivity_prompt_uses_structured_arguments() {
         let settings = AgentSettings {
             custom_profiles: vec![CustomAgentProfile {
                 id: "flag-agent".into(),
@@ -855,12 +633,10 @@ mod tests {
             spec.args,
             vec!["--mode", "interactive", "--prompt", "diagnostic prompt"]
         );
-        assert_eq!(spec.task_file, None);
 
         let codex = settings.profile("codex").expect("codex profile");
         let spec = codex.launch_spec_for_prompt("diagnostic prompt");
         assert_eq!(spec.args, vec!["diagnostic prompt"]);
-        assert_eq!(spec.task_file, None);
     }
 
     #[test]

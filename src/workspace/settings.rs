@@ -1452,5 +1452,5 @@ fn first_line(value: &str) -> &str {
 fn explicit_executable_path_missing(path: &std::path::Path) -> bool {
     let has_directory_component =
         path.is_absolute() || path.components().count() > 1;
-    has_directory_component && !path.is_file()
+    has_directory_component && crate::agent::resolve_executable(path).is_err()
 }

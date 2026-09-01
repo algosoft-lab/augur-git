@@ -1,6 +1,6 @@
 use gpui::*;
 
-use crate::agent::{AgentSettings, BuiltInAgent, CustomAgentProfile};
+use crate::agent::{BuiltInAgent, CustomAgentProfile};
 use crate::core::config::{
     DiffLayoutPreference, GraphHistoryPreference, LanguagePreference,
     ThemePreference, normalized_diff_font_size, normalized_ui_font_size,
@@ -234,14 +234,6 @@ impl Workspace {
             return;
         }
         self.config.agent.default_profile_id = Some(profile_id.clone());
-        let settings = self.config.agent.clone();
-        for entry in &self.tabs {
-            if let TabContent::Repo(tab) = &entry.content {
-                tab.update(cx, |tab, _| {
-                    tab.set_agent_settings(settings.clone())
-                });
-            }
-        }
         self.config_saver.schedule(&self.config);
         log::info!("[agent_terminal] default profile changed: {profile_id}");
         cx.notify();
@@ -277,13 +269,6 @@ impl Workspace {
             }
         }
         let settings = self.config.agent.clone();
-        for entry in &self.tabs {
-            if let TabContent::Repo(tab) = &entry.content {
-                tab.update(cx, |tab, _| {
-                    tab.set_agent_settings(settings.clone())
-                });
-            }
-        }
         self.settings_panel.update(cx, |panel, cx| {
             panel.update_agent_settings(settings.clone(), cx);
         });
@@ -323,13 +308,6 @@ impl Workspace {
             return;
         }
         self.config.agent = settings.clone();
-        for entry in &self.tabs {
-            if let TabContent::Repo(tab) = &entry.content {
-                tab.update(cx, |tab, _| {
-                    tab.set_agent_settings(settings.clone())
-                });
-            }
-        }
         self.settings_panel.update(cx, |panel, cx| {
             panel.set_agent_settings(settings.clone(), window, cx);
         });
@@ -356,40 +334,11 @@ impl Workspace {
             self.config.agent.default_profile_id = None;
         }
         let settings = self.config.agent.clone();
-        for entry in &self.tabs {
-            if let TabContent::Repo(tab) = &entry.content {
-                tab.update(cx, |tab, _| {
-                    tab.set_agent_settings(settings.clone())
-                });
-            }
-        }
         self.settings_panel.update(cx, |panel, cx| {
             panel.set_agent_settings(settings.clone(), window, cx);
         });
         self.config_saver.schedule(&self.config);
         log::info!("[agent_terminal] custom profile removed: id={profile_id}");
-        cx.notify();
-    }
-
-    #[allow(dead_code)]
-    pub(super) fn set_agent_settings(
-        &mut self,
-        settings: AgentSettings,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.config.agent = settings.clone();
-        for entry in &self.tabs {
-            if let TabContent::Repo(tab) = &entry.content {
-                tab.update(cx, |tab, _| {
-                    tab.set_agent_settings(settings.clone())
-                });
-            }
-        }
-        self.settings_panel.update(cx, |panel, cx| {
-            panel.set_agent_settings(settings.clone(), window, cx);
-        });
-        self.config_saver.schedule(&self.config);
         cx.notify();
     }
 }

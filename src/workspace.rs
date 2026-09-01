@@ -218,7 +218,6 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        crate::agent::TaskStore::default().cleanup_stale();
         if let Err(errors) = config.agent.validate() {
             for error in errors {
                 log::warn!(
@@ -451,7 +450,6 @@ impl Workspace {
                 self.config.view.diff_layout.into(),
                 self.config.view.graph_history,
                 self.ui_state.layout.clone(),
-                self.config.agent.clone(),
                 window,
                 cx,
             )
@@ -519,7 +517,6 @@ impl Workspace {
                 self.config.view.diff_layout.into(),
                 self.config.view.graph_history,
                 self.ui_state.layout.clone(),
-                self.config.agent.clone(),
                 window,
                 cx,
             )
