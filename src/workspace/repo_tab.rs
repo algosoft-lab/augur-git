@@ -129,8 +129,8 @@ impl RepoTab {
                 }
                 tab.git_view.update(cx, |view, _| {
                     view.run(
-                        "fetch --all",
-                        vec!["fetch".into(), "--all".into()],
+                        "fetch --all --prune",
+                        vec!["fetch".into(), "--all".into(), "--prune".into()],
                     );
                 });
                 tab.set_operation_busy(true, cx);
@@ -570,7 +570,7 @@ impl RepoTab {
                         label.as_str(),
                         "commit"
                             | "checkout"
-                            | "fetch --all"
+                            | "fetch --all --prune"
                             | "pull"
                             | "pull --rebase"
                             | "push"
