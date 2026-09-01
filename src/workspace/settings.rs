@@ -963,9 +963,7 @@ impl SettingsPanel {
                         .iter()
                         .find(|custom| custom.id == profile.value)
                         .map(|_| profile.value.clone());
-                    let can_test = resolved.is_some()
-                        && !executable_path_missing
-                        && !matches!(probe_result, Some(Err(_)));
+                    let can_test = resolved.is_some() && !executable_path_missing;
                     let test = this.clone();
                     let test_id = profile.value.clone();
                     let mut row = v_flex()
