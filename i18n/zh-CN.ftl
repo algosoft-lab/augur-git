@@ -209,6 +209,10 @@ delete-tag-title = 删除标签
 delete-branch-warning = 将从仓库中删除分支 { $name }。仅被该分支引用的提交可能因此无法访问。
 delete-tag-warning = 将从仓库中删除标签 { $name }。
 delete-force-label = 强制删除，即使存在未合并的提交（-D）
+rename-remote-branch-title = 重命名远程分支
+rename-remote-branch-hint = 将重命名远程上的 { $remote }/{ $branch }：一次推送会创建新分支并删除旧分支。
+delete-remote-branch-title = 删除远程分支
+delete-remote-branch-warning = 将从远程永久删除分支 { $remote }/{ $branch }。受远程保护的分支无法删除。
 
 # ===== 危险工作区操作 =====
 discard-title = 丢弃变更？

@@ -575,6 +575,8 @@ impl RepoTab {
                             | "pull --rebase"
                             | "push"
                             | "push --force"
+                            | "push --rename"
+                            | "push --delete"
                             | "switch"
                             | "branch -m"
                             | "branch -d"

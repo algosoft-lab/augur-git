@@ -35,6 +35,11 @@ pub enum SidebarEvent {
     DeleteTag(String),
     /// Merge a local branch into the current branch.
     MergeIntoCurrent { name: String, no_ff: bool },
+    /// Rename a remote branch on its remote: one push that creates the new
+    /// name and deletes the old one.
+    RenameRemoteBranch { remote: String, branch: String },
+    /// Delete a remote branch on its remote.
+    DeleteRemoteBranch { remote: String, branch: String },
 }
 
 pub struct Sidebar {
@@ -57,16 +62,24 @@ pub struct Sidebar {
 }
 
 /// Extra context-menu actions offered per ref type. Local branches support
-/// rename, delete, and merging into the current branch; tags support delete.
-#[derive(Clone, Copy)]
+/// rename, delete, and merging into the current branch; tags support
+/// delete; remote branches support rename and delete on their remote.
+#[derive(Clone)]
 enum RefActions {
-    LocalBranch { is_head: bool },
+    LocalBranch {
+        is_head: bool,
+    },
     Tag,
-    RemoteBranch,
+    RemoteBranch {
+        /// Remote that hosts the branch (e.g. `origin`).
+        remote: String,
+        /// Branch name without the remote prefix.
+        branch: String,
+    },
 }
 
 impl RefActions {
-    fn is_head(self) -> bool {
+    fn is_head(&self) -> bool {
         matches!(self, Self::LocalBranch { is_head: true })
     }
 }
@@ -374,7 +387,10 @@ impl Sidebar {
                             entry.full_name.clone(),
                             "context-copy-branch",
                             self.busy,
-                            RefActions::RemoteBranch,
+                            RefActions::RemoteBranch {
+                                remote: group.remote.clone(),
+                                branch: entry.label.clone(),
+                            },
                         )
                     })
                     .collect::<Vec<_>>();
@@ -572,7 +588,7 @@ where
                     }),
             );
 
-        match actions {
+        match &actions {
             RefActions::LocalBranch { is_head } => {
                 let sidebar_for_rename = sidebar.clone();
                 let sidebar_for_delete = sidebar.clone();
@@ -610,7 +626,7 @@ where
                             "context-delete",
                         ))
                         .icon(crate::git::lucide("trash-2"))
-                        .disabled(busy || is_head)
+                        .disabled(busy || *is_head)
                         .on_click(
                             move |_event, _window, cx| {
                                 sidebar_for_delete.update(
@@ -631,7 +647,7 @@ where
                             "context-merge-into-current",
                         ))
                         .icon(crate::git::lucide("git-merge"))
-                        .disabled(busy || is_head)
+                        .disabled(busy || *is_head)
                         .on_click(
                             move |_event, _window, cx| {
                                 sidebar_for_merge.update(cx, |_sidebar, cx| {
@@ -649,7 +665,7 @@ where
                             "context-merge-no-ff-into-current",
                         ))
                         .icon(crate::git::lucide("git-merge"))
-                        .disabled(busy || is_head)
+                        .disabled(busy || *is_head)
                         .on_click(
                             move |_event, _window, cx| {
                                 sidebar_for_merge_no_ff.update(
@@ -683,7 +699,65 @@ where
                         }),
                 )
             }
-            RefActions::RemoteBranch => menu,
+            RefActions::RemoteBranch { remote, branch } => {
+                let sidebar_for_rename = sidebar.clone();
+                let sidebar_for_delete = sidebar.clone();
+                let remote_for_rename = remote.clone();
+                let branch_for_rename = branch.clone();
+                let remote_for_delete = remote.clone();
+                let branch_for_delete = branch.clone();
+                menu.separator()
+                    .item(
+                        PopupMenuItem::new(i18n::text(
+                            locale,
+                            "context-rename",
+                        ))
+                        .icon(crate::git::lucide("pencil"))
+                        .disabled(busy)
+                        .on_click(
+                            move |_event, _window, cx| {
+                                sidebar_for_rename.update(
+                                    cx,
+                                    |_sidebar, cx| {
+                                        cx.emit(
+                                            SidebarEvent::RenameRemoteBranch {
+                                                remote: remote_for_rename
+                                                    .clone(),
+                                                branch: branch_for_rename
+                                                    .clone(),
+                                            },
+                                        );
+                                    },
+                                );
+                            },
+                        ),
+                    )
+                    .item(
+                        PopupMenuItem::new(i18n::text(
+                            locale,
+                            "context-delete",
+                        ))
+                        .icon(crate::git::lucide("trash-2"))
+                        .disabled(busy)
+                        .on_click(
+                            move |_event, _window, cx| {
+                                sidebar_for_delete.update(
+                                    cx,
+                                    |_sidebar, cx| {
+                                        cx.emit(
+                                            SidebarEvent::DeleteRemoteBranch {
+                                                remote: remote_for_delete
+                                                    .clone(),
+                                                branch: branch_for_delete
+                                                    .clone(),
+                                            },
+                                        );
+                                    },
+                                );
+                            },
+                        ),
+                    )
+            }
         }
     })
 }

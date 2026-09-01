@@ -1,6 +1,6 @@
 //! Branch operations launched from the toolbar Branch menu and the sidebar
 //! context menus: create/rename/delete a branch, delete a tag,
-//! stash/stash pop, merge, and rebase.
+//! rename/delete a remote branch, stash/stash pop, merge, and rebase.
 //!
 //! Dialog state lives on `RepoTab` (`dialogs`). Text inputs are created
 //! lazily during render because `InputState` needs a `Window` handle, which
@@ -43,6 +43,17 @@ pub(super) enum PendingBranchDialog {
     DeleteRef {
         name: String,
         is_tag: bool,
+    },
+    /// Rename a remote branch on its remote after confirmation; `old` is
+    /// the current branch name without the remote prefix.
+    RenameRemote {
+        remote: String,
+        old: String,
+    },
+    /// Delete a remote branch on its remote after confirmation.
+    DeleteRemote {
+        remote: String,
+        branch: String,
     },
 }
 
@@ -152,6 +163,48 @@ fn merge_args(source: &str, no_ff: bool) -> (&'static str, Vec<String>) {
     }
 }
 
+/// Command label and arguments for renaming a remote branch. Git has no
+/// native remote rename, so a single push creates the new branch and
+/// deletes the old ref. The source of the create refspec is the local
+/// remote-tracking ref `refs/remotes/<remote>/<old>` — a plain
+/// `refs/heads/<old>` source would require the branch to exist locally
+/// ("src refspec does not match any" otherwise), while the tracking ref is
+/// maintained by fetch and backs the very sidebar entry this action was
+/// launched from. If the new name already exists on the remote, the push
+/// is rejected as a non-fast-forward update. Pure so it can be unit tested.
+fn rename_remote_args(
+    remote: &str,
+    old: &str,
+    new: &str,
+) -> (&'static str, Vec<String>) {
+    (
+        "push --rename",
+        vec![
+            "push".into(),
+            remote.into(),
+            format!("refs/remotes/{remote}/{old}:refs/heads/{new}"),
+            format!(":refs/heads/{old}"),
+        ],
+    )
+}
+
+/// Command label and arguments for deleting a remote branch on its remote.
+/// Pure so it can be unit tested.
+fn delete_remote_args(
+    remote: &str,
+    branch: &str,
+) -> (&'static str, Vec<String>) {
+    (
+        "push --delete",
+        vec![
+            "push".into(),
+            remote.into(),
+            "--delete".into(),
+            branch.into(),
+        ],
+    )
+}
+
 impl RepoTab {
     /// Sync Branch menu entry availability to the toolbar. Called after the
     /// status and refs snapshots change.
@@ -210,6 +263,12 @@ impl RepoTab {
                 // The current branch can never be deleted.
                 *is_tag || *name != self.branch
             }
+            PendingBranchDialog::RenameRemote { remote, old } => {
+                !remote.is_empty() && !old.is_empty()
+            }
+            PendingBranchDialog::DeleteRemote { remote, branch } => {
+                !remote.is_empty() && !branch.is_empty()
+            }
         }
     }
 
@@ -230,11 +289,13 @@ impl RepoTab {
             pending,
             PendingBranchDialog::NewBranch
                 | PendingBranchDialog::Rename { .. }
+                | PendingBranchDialog::RenameRemote { .. }
                 | PendingBranchDialog::Stash
         ) && tab.dialogs.text_input.is_none()
         {
             let prefill = match &pending {
                 PendingBranchDialog::Rename { old } => old.clone(),
+                PendingBranchDialog::RenameRemote { old, .. } => old.clone(),
                 _ => String::new(),
             };
             let state =
@@ -271,11 +332,25 @@ impl RepoTab {
                     ),
                 }
             }
+            PendingBranchDialog::RenameRemote { .. } => {
+                // The new name is a remote branch name: only git-ref syntax
+                // applies here; an existing remote branch is rejected by the
+                // remote itself when the push runs.
+                let name = input_value(tab, cx);
+                match validate_branch_name(&name, &[], None) {
+                    None => (true, None),
+                    Some(NameError::Empty) => (false, None),
+                    Some(_) => {
+                        (false, Some(i18n::text(locale, "branch-name-invalid")))
+                    }
+                }
+            }
             PendingBranchDialog::Stash => (true, None),
             PendingBranchDialog::Merge { .. } | PendingBranchDialog::Rebase => {
                 (tab.dialogs.merge_source.is_some(), None)
             }
             PendingBranchDialog::DeleteRef { .. } => (true, None),
+            PendingBranchDialog::DeleteRemote { .. } => (true, None),
         };
 
         let body: AnyElement = match &pending {
@@ -304,6 +379,17 @@ impl RepoTab {
                 &[("branch", old)],
                 error_text,
             ),
+            PendingBranchDialog::RenameRemote { remote, old } => {
+                named_input_body(
+                    &colors,
+                    tab.dialogs.text_input.as_ref(),
+                    locale,
+                    "branch-name-label",
+                    "rename-remote-branch-hint",
+                    &[("remote", remote), ("branch", old)],
+                    error_text,
+                )
+            }
             PendingBranchDialog::Stash => {
                 let count = tab.local_change_count.to_string();
                 named_input_body(
@@ -373,13 +459,30 @@ impl RepoTab {
                 }
                 body.into_any_element()
             }
+            PendingBranchDialog::DeleteRemote { remote, branch } => v_flex()
+                .w_full()
+                .gap_2()
+                .child(
+                    div()
+                        .text_size(crate::theme::scaled_text_size(12.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text_args(
+                            locale,
+                            "delete-remote-branch-warning",
+                            &[("remote", remote), ("branch", branch)],
+                        ))),
+                )
+                .into_any_element(),
         };
 
         let title_icon = match &pending {
             PendingBranchDialog::NewBranch => {
                 crate::git::lucide("git-branch-plus")
             }
-            PendingBranchDialog::Rename { .. } => crate::git::lucide("pencil"),
+            PendingBranchDialog::Rename { .. }
+            | PendingBranchDialog::RenameRemote { .. } => {
+                crate::git::lucide("pencil")
+            }
             PendingBranchDialog::Stash => crate::git::lucide("archive"),
             PendingBranchDialog::Merge { .. } => {
                 crate::git::lucide("git-merge")
@@ -387,7 +490,8 @@ impl RepoTab {
             PendingBranchDialog::Rebase => {
                 crate::git::lucide("git-commit-horizontal")
             }
-            PendingBranchDialog::DeleteRef { .. } => {
+            PendingBranchDialog::DeleteRef { .. }
+            | PendingBranchDialog::DeleteRemote { .. } => {
                 crate::git::lucide("trash-2")
             }
         };
@@ -397,6 +501,9 @@ impl RepoTab {
             }
             PendingBranchDialog::Rename { .. } => {
                 i18n::text(locale, "branch-rename-title")
+            }
+            PendingBranchDialog::RenameRemote { .. } => {
+                i18n::text(locale, "rename-remote-branch-title")
             }
             PendingBranchDialog::Stash => i18n::text(locale, "stash-title"),
             PendingBranchDialog::Merge { .. } => i18n::text_args(
@@ -417,6 +524,9 @@ impl RepoTab {
                     "delete-branch-title"
                 },
             ),
+            PendingBranchDialog::DeleteRemote { .. } => {
+                i18n::text(locale, "delete-remote-branch-title")
+            }
         };
 
         let title_row = h_flex()
@@ -455,6 +565,7 @@ impl RepoTab {
                 pending,
                 PendingBranchDialog::Rebase
                     | PendingBranchDialog::DeleteRef { .. }
+                    | PendingBranchDialog::DeleteRemote { .. }
             ) {
                 btn.danger()
             } else {
@@ -519,7 +630,9 @@ impl RepoTab {
             return;
         }
         let (label, args) = merge_args(&name, no_ff);
-        log::info!("[branch_ops] command queued: {label} (source={name})");
+        log::info!(
+            "[branch_ops] command queued: {label}, args={args:?} (source={name})"
+        );
         self.git_view.update(cx, |view, _| view.run(label, args));
         self.set_operation_busy(true, cx);
     }
@@ -572,6 +685,24 @@ pub(super) fn handle_sidebar_event(
         }
         SidebarEvent::MergeIntoCurrent { name, no_ff } => {
             tab.merge_into_current(name.clone(), *no_ff, cx);
+        }
+        SidebarEvent::RenameRemoteBranch { remote, branch } => {
+            tab.open_branch_dialog(
+                PendingBranchDialog::RenameRemote {
+                    remote: remote.clone(),
+                    old: branch.clone(),
+                },
+                cx,
+            );
+        }
+        SidebarEvent::DeleteRemoteBranch { remote, branch } => {
+            tab.open_branch_dialog(
+                PendingBranchDialog::DeleteRemote {
+                    remote: remote.clone(),
+                    branch: branch.clone(),
+                },
+                cx,
+            );
         }
     }
 }
@@ -750,9 +881,21 @@ fn confirm_branch_dialog(tab: &mut RepoTab, cx: &mut Context<RepoTab>) {
         PendingBranchDialog::DeleteRef { name, is_tag } => {
             delete_args(&name, tab.dialogs.force_delete, is_tag)
         }
+        PendingBranchDialog::RenameRemote { remote, old } => {
+            // Only git-ref syntax is checked locally; an existing remote
+            // branch is rejected by the remote when the push runs.
+            let name = input_value(tab, cx);
+            let Some(name) = validated_name_in(&name, &[], None) else {
+                return;
+            };
+            rename_remote_args(&remote, &old, &name)
+        }
+        PendingBranchDialog::DeleteRemote { remote, branch } => {
+            delete_remote_args(&remote, &branch)
+        }
     };
     tab.dialogs.close();
-    log::info!("[branch_ops] command queued: {label}");
+    log::info!("[branch_ops] command queued: {label}, args={args:?}");
     tab.git_view.update(cx, |view, _| view.run(label, args));
     tab.set_operation_busy(true, cx);
     cx.notify();
@@ -770,8 +913,17 @@ fn validated_name(
     if !tab.branch.is_empty() {
         existing.push(tab.branch.clone());
     }
-    match validate_branch_name(&name, &existing, allow) {
-        None => Some(name),
+    validated_name_in(&name, &existing, allow)
+}
+
+/// Core confirm-time validation against an explicit branch list.
+fn validated_name_in(
+    name: &str,
+    existing: &[String],
+    allow: Option<&str>,
+) -> Option<String> {
+    match validate_branch_name(name, existing, allow) {
+        None => Some(name.to_string()),
         Some(error) => {
             log::warn!("[branch_ops] rejected branch name: {error:?}");
             None
@@ -782,7 +934,8 @@ fn validated_name(
 #[cfg(test)]
 mod tests {
     use super::{
-        NameError, delete_args, merge_args, rename_args, validate_branch_name,
+        NameError, delete_args, delete_remote_args, merge_args, rename_args,
+        rename_remote_args, validate_branch_name,
     };
 
     fn existing(names: &[&str]) -> Vec<String> {
@@ -876,5 +1029,33 @@ mod tests {
         let (label, args) = merge_args("feature", true);
         assert_eq!(label, "merge --no-ff");
         assert_eq!(args, vec!["merge", "feature", "--no-ff"]);
+    }
+
+    #[test]
+    fn rename_remote_args_push_new_name_and_delete_old_in_one_push() {
+        let (label, args) = rename_remote_args("origin", "old", "new");
+        assert_eq!(label, "push --rename");
+        assert_eq!(
+            args,
+            vec![
+                "push",
+                "origin",
+                "refs/remotes/origin/old:refs/heads/new",
+                ":refs/heads/old",
+            ]
+        );
+    }
+
+    #[test]
+    fn delete_remote_args_target_the_named_remote() {
+        let (label, args) = delete_remote_args("upstream", "feature/one");
+        assert_eq!(label, "push --delete");
+        assert_eq!(args, vec!["push", "upstream", "--delete", "feature/one"]);
+    }
+
+    #[test]
+    fn remote_branch_names_pass_ref_validation() {
+        assert_eq!(validate_branch_name("feature/one", &[], None), None);
+        assert_eq!(validate_branch_name("v1.2.3", &[], None), None);
     }
 }

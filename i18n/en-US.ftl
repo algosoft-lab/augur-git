@@ -210,6 +210,10 @@ delete-tag-title = Delete Tag
 delete-branch-warning = Branch { $name } will be removed from this repository. Commits only reachable from it may become unreachable.
 delete-tag-warning = Tag { $name } will be removed from this repository.
 delete-force-label = Force delete, even if it has unmerged commits (-D)
+rename-remote-branch-title = Rename Remote Branch
+rename-remote-branch-hint = Renames { $remote }/{ $branch } on the remote: one push creates the new branch and deletes the old one.
+delete-remote-branch-title = Delete Remote Branch
+delete-remote-branch-warning = Branch { $remote }/{ $branch } will be permanently deleted from the remote. Branches protected by the remote cannot be deleted.
 
 # ===== Destructive working-tree actions =====
 discard-title = Discard changes?
