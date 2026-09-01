@@ -35,8 +35,8 @@ mod render;
 use geometry::TerminalGeometry;
 use model::{TerminalColor, TerminalSnapshot};
 use render::{
-    StyledRenderPlan, build_styled_render_plan, terminal_color_to_hsla,
-    terminal_text_run,
+    PlainRenderPlan, StyledRenderPlan, build_plain_render_plan,
+    build_styled_render_plan, terminal_color_to_hsla, terminal_text_run,
 };
 
 const DEFAULT_COLUMNS: usize = 120;
@@ -613,6 +613,7 @@ impl Render for TerminalView {
         let geometry_backend = backend.clone();
         let mono = cx.theme().mono_font_family.clone();
         let plan = build_styled_render_plan(&self.snapshot);
+        let plain_plan = build_plain_render_plan(&self.snapshot);
         let palette = self.snapshot.palette.clone();
         let terminal_colors = colors;
         let terminal_canvas = canvas(
@@ -622,6 +623,7 @@ impl Render for TerminalView {
                 StyledCanvasState {
                     geometry,
                     plan,
+                    plain_plan,
                     palette,
                 }
             },
@@ -818,6 +820,7 @@ impl Render for TerminalView {
 struct StyledCanvasState {
     geometry: TerminalGeometry,
     plan: StyledRenderPlan,
+    plain_plan: PlainRenderPlan,
     palette: Vec<Option<TerminalColor>>,
 }
 
@@ -873,12 +876,13 @@ fn paint_styled_terminal(
             window.paint_quad(fill(region_bounds, colors.selection));
         }
 
-        for run in state.plan.runs {
+        let mut styled_paint_failed = false;
+        for run in &state.plan.runs {
             if run.text.is_empty() || run.cell_count == 0 {
                 continue;
             }
             let width = px(state.geometry.cell_width * run.cell_count as f32);
-            let text = SharedString::from(run.text);
+            let text = SharedString::from(run.text.clone());
             let mut foreground = terminal_color_to_hsla(
                 run.style.foreground,
                 &state.palette,
@@ -918,17 +922,35 @@ fn paint_styled_terminal(
                 log::debug!(
                     "[agent_terminal] styled text paint failed; using plain fallback: {error}"
                 );
+                styled_paint_failed = true;
+                break;
+            }
+        }
+
+        if styled_paint_failed {
+            for run in state.plain_plan.runs {
+                if run.text.is_empty() || run.cell_count == 0 {
+                    continue;
+                }
+                let text = SharedString::from(run.text);
                 let fallback_run = TextRun {
                     len: text.len(),
                     font: font.clone(),
                     color: colors.foreground,
                     ..TextRun::default()
                 };
+                let width = px(state.geometry.cell_width * run.cell_count as f32);
                 let fallback = window.text_system().shape_line(
                     text,
                     font_size,
                     &[fallback_run],
                     Some(width),
+                );
+                let origin = point(
+                    bounds.origin.x
+                        + px(run.column as f32 * state.geometry.cell_width),
+                    bounds.origin.y
+                        + px(run.line as f32 * state.geometry.line_height),
                 );
                 let _ = fallback.paint(
                     origin,

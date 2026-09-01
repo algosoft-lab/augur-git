@@ -505,6 +505,7 @@ mod tests {
         TerminalCellSnapshot, TerminalColor, TerminalPointSnapshot,
         TerminalSnapshot,
     };
+    use alacritty_terminal::grid::Dimensions;
     use alacritty_terminal::index::{Column, Line, Point};
     use alacritty_terminal::selection::SelectionRange;
     use alacritty_terminal::term::cell::Flags as CellFlags;
@@ -634,5 +635,76 @@ mod tests {
             terminal_color_to_hsla(TerminalColor::Named(268), &[], &colors);
         assert_eq!(mapped, colors.background);
         assert_ne!(mapped, colors.foreground);
+    }
+
+    #[test]
+    fn ansi_fixture_keeps_truecolor_and_inverse_cell_coordinates() {
+        let dimensions = alacritty_terminal::term::test::TermSize::new(20, 2);
+        let mut terminal = alacritty_terminal::term::Term::new(
+            alacritty_terminal::term::Config::default(),
+            &dimensions,
+            alacritty_terminal::event::VoidListener,
+        );
+        let mut processor = alacritty_terminal::vte::ansi::Processor::<
+            alacritty_terminal::vte::ansi::StdSyncHandler,
+        >::new();
+        processor.advance(
+            &mut terminal,
+            b"\x1b[38;2;1;2;3mA\x1b[48;2;4;5;6mB\x1b[7mC",
+        );
+        let snapshot = TerminalSnapshot::from_renderable(
+            terminal.renderable_content(),
+            terminal.columns(),
+            terminal.screen_lines(),
+        );
+        let plan = build_styled_render_plan(&snapshot);
+        assert_eq!(
+            plan.runs[0].style.foreground,
+            TerminalColor::Rgb { r: 1, g: 2, b: 3 }
+        );
+        assert_eq!(plan.runs[0].text, "AB");
+        assert_eq!(plan.runs[0].cell_count, 2);
+        assert_eq!(
+            plan.backgrounds[0].color,
+            TerminalColor::Rgb { r: 4, g: 5, b: 6 }
+        );
+        assert_eq!(
+            plan.runs[1].style.foreground,
+            TerminalColor::Rgb { r: 4, g: 5, b: 6 }
+        );
+        assert_eq!(plan.runs[1].column, 2);
+    }
+
+    #[test]
+    fn selection_regions_share_the_same_line_and_column_geometry() {
+        let snapshot = TerminalSnapshot {
+            columns: 6,
+            cells: (0..6)
+                .map(|column| cell(0, column, 'a'))
+                .chain((0..6).map(|column| cell(1, column, 'b')))
+                .collect(),
+            selection: Some(SelectionRange {
+                start: Point::new(Line(0), Column(2)),
+                end: Point::new(Line(1), Column(3)),
+                is_block: false,
+            }),
+            ..TerminalSnapshot::default()
+        };
+        let plan = build_styled_render_plan(&snapshot);
+        assert_eq!(
+            plan.selections,
+            vec![
+                super::TerminalSelectionRegion {
+                    line: 0,
+                    start_column: 2,
+                    end_column: 6,
+                },
+                super::TerminalSelectionRegion {
+                    line: 1,
+                    start_column: 0,
+                    end_column: 4,
+                },
+            ]
+        );
     }
 }
