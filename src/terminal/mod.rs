@@ -23,12 +23,15 @@ use alacritty_terminal::term::cell::Cell;
 use alacritty_terminal::term::cell::Flags as CellFlags;
 use alacritty_terminal::term::{Config as TerminalConfig, Term, TermMode};
 use alacritty_terminal::tty::{self, Options as PtyOptions, Shell};
-use alacritty_terminal::vte::ansi::{Color as AnsiColor, Rgb};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{ActiveTheme, v_flex};
 
 use crate::agent::{AgentLaunchSpec, AgentTestDirectory};
+
+mod model;
+
+use model::{TerminalCellSnapshot, TerminalColor, TerminalSnapshot};
 
 const DEFAULT_COLUMNS: usize = 120;
 const DEFAULT_LINES: usize = 32;
@@ -40,33 +43,6 @@ pub enum TerminalEvent {
     Wakeup,
     ChildExit(Option<i32>),
     Error(String),
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum TerminalColor {
-    Named(u16),
-    Indexed(u8),
-    Rgb { r: u8, g: u8, b: u8 },
-}
-
-#[derive(Clone, Debug)]
-struct TerminalCellSnapshot {
-    character: char,
-    zero_width: Vec<char>,
-    foreground: TerminalColor,
-    background: TerminalColor,
-    flags: u16,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct TerminalSnapshot {
-    pub rows: Vec<String>,
-    pub cursor: Option<(usize, usize)>,
-    pub alternate_screen: bool,
-    pub display_offset: usize,
-    /// Visible row ranges covered by the current host-side selection.
-    pub selection: Option<SelectionRange>,
-    cell_rows: Vec<Vec<TerminalCellSnapshot>>,
 }
 
 #[derive(Clone)]
@@ -455,68 +431,11 @@ impl TerminalBackend {
 
     pub fn snapshot(&self) -> TerminalSnapshot {
         let terminal = self.terminal.lock();
-        let content = terminal.renderable_content();
-        let mut rows = Vec::<String>::new();
-        let mut cell_rows = Vec::<Vec<TerminalCellSnapshot>>::new();
-        let mut current_line = None;
-        for indexed in content.display_iter {
-            let line = indexed.point.line.0;
-            if current_line != Some(line) {
-                rows.push(String::new());
-                cell_rows.push(Vec::new());
-                current_line = Some(line);
-            }
-            let Some(row) = rows.last_mut() else {
-                continue;
-            };
-            let Some(cells) = cell_rows.last_mut() else {
-                continue;
-            };
-            let cell = indexed.cell;
-            if cell.flags.intersects(
-                alacritty_terminal::term::cell::Flags::WIDE_CHAR_SPACER,
-            ) {
-                continue;
-            }
-            if cell
-                .flags
-                .contains(alacritty_terminal::term::cell::Flags::HIDDEN)
-            {
-                row.push(' ');
-            } else {
-                row.push(cell.c);
-                if let Some(zerowidth) = cell.zerowidth() {
-                    row.extend(zerowidth.iter().copied());
-                }
-            }
-            cells.push(TerminalCellSnapshot {
-                character: if cell.flags.contains(CellFlags::HIDDEN) {
-                    ' '
-                } else {
-                    cell.c
-                },
-                zero_width: cell.zerowidth().unwrap_or_default().to_vec(),
-                foreground: terminal_color(cell.fg),
-                background: terminal_color(cell.bg),
-                flags: cell.flags.bits(),
-            });
-        }
-        let cursor = match content.cursor.shape {
-            alacritty_terminal::vte::ansi::CursorShape::Hidden => None,
-            _ => Some((
-                (content.cursor.point.line.0 + content.display_offset as i32)
-                    .max(0) as usize,
-                content.cursor.point.column.0,
-            )),
-        };
-        TerminalSnapshot {
-            rows,
-            cursor,
-            alternate_screen: content.mode.contains(TermMode::ALT_SCREEN),
-            display_offset: content.display_offset,
-            selection: content.selection,
-            cell_rows,
-        }
+        TerminalSnapshot::from_renderable(
+            terminal.renderable_content(),
+            terminal.columns(),
+            terminal.screen_lines(),
+        )
     }
 
     /// Search the bounded terminal grid without retaining a separate
@@ -600,7 +519,7 @@ impl TerminalView {
     ) {
         self.rows = snapshot.rows;
         self.cell_rows = snapshot.cell_rows;
-        self.cursor = snapshot.cursor;
+        self.cursor = snapshot.legacy_cursor;
         self.alternate_screen = snapshot.alternate_screen;
         self.display_offset = snapshot.display_offset;
         self.selection = snapshot.selection;
@@ -924,14 +843,6 @@ fn terminal_program(path: &Path) -> String {
         }
     }
     value
-}
-
-fn terminal_color(color: AnsiColor) -> TerminalColor {
-    match color {
-        AnsiColor::Named(named) => TerminalColor::Named(named as u16),
-        AnsiColor::Indexed(index) => TerminalColor::Indexed(index),
-        AnsiColor::Spec(Rgb { r, g, b }) => TerminalColor::Rgb { r, g, b },
-    }
 }
 
 fn grid_contains_text(grid: &Grid<Cell>, needle: &str) -> bool {
