@@ -634,7 +634,7 @@ impl BranchCompareView {
                     this.update(cx, |view, cx| view.select_file(None, cx));
                 }
             })
-            .child(lucide("file"))
+            .child(Icon::new(IconName::File))
             .child(
                 div()
                     .flex_1()
