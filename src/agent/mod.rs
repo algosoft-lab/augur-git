@@ -401,6 +401,13 @@ fn agent_test_directory_root() -> anyhow::Result<PathBuf> {
 
 impl Drop for AgentTestDirectory {
     fn drop(&mut self) {
+        // Clones are passed to the window, PTY proxy, and event-loop joiner.
+        // Only the final owner may perform implicit cleanup; otherwise a
+        // short-lived clone can remove the working directory while the child
+        // is still starting (Unix permits unlinking an active cwd).
+        if Arc::strong_count(&self.cleanup) != 1 {
+            return;
+        }
         if self.cleanup().is_err() {
             log::debug!(
                 "[agent_terminal] temporary test directory cleanup deferred"
@@ -674,6 +681,19 @@ mod tests {
         assert_eq!(fs::read_dir(&path).expect("directory entries").count(), 0);
         directory.cleanup().expect("cleanup");
         second.cleanup().expect("second cleanup");
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn dropping_a_directory_clone_does_not_cleanup_the_active_test() {
+        let directory = AgentTestDirectory::create().expect("test directory");
+        let path = directory.path().to_path_buf();
+        let clone = directory.clone();
+
+        drop(clone);
+        assert!(path.is_dir());
+
+        directory.cleanup().expect("cleanup");
         assert!(!path.exists());
     }
 
