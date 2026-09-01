@@ -9,7 +9,7 @@ use gpui::*;
 use gpui_component::ActiveTheme;
 
 use super::geometry::TerminalGeometry;
-use super::model::{TerminalColor, TerminalSnapshot};
+use super::model::TerminalSnapshot;
 use super::render::{
     PlainRenderPlan, StyledRenderPlan, build_plain_render_plan,
     build_styled_render_plan, terminal_color_to_hsla, terminal_text_run,
@@ -19,7 +19,6 @@ use super::{CELL_WIDTH, TerminalBackend, TerminalEvent, encode_key};
 /// GPUI rendering and input bridge for one visible Agent test.
 pub struct TerminalView {
     backend: Arc<TerminalBackend>,
-    snapshot: TerminalSnapshot,
     focus_handle: FocusHandle,
     _poll_task: Option<Task<()>>,
     child_exit: Option<Option<i32>>,
@@ -37,7 +36,6 @@ impl TerminalView {
                     .timer(Duration::from_millis(33))
                     .await;
                 let events = backend_for_task.drain_events();
-                let snapshot = backend_for_task.snapshot();
                 let done = events.iter().any(|event| {
                     matches!(
                         event,
@@ -45,7 +43,7 @@ impl TerminalView {
                     )
                 });
                 view_entity.update(cx, |view, cx| {
-                    view.apply(snapshot, events, cx);
+                    view.apply(events, cx);
                 });
                 if done {
                     break;
@@ -54,7 +52,6 @@ impl TerminalView {
         });
         Self {
             backend,
-            snapshot: TerminalSnapshot::default(),
             focus_handle,
             _poll_task: Some(poll_task),
             child_exit: None,
@@ -62,13 +59,7 @@ impl TerminalView {
         }
     }
 
-    fn apply(
-        &mut self,
-        snapshot: TerminalSnapshot,
-        events: Vec<TerminalEvent>,
-        cx: &mut Context<Self>,
-    ) {
-        self.snapshot = snapshot;
+    fn apply(&mut self, events: Vec<TerminalEvent>, cx: &mut Context<Self>) {
         for event in events {
             match event {
                 TerminalEvent::ChildExit(code) => self.child_exit = Some(code),
@@ -106,19 +97,22 @@ impl Render for TerminalView {
         let backend = self.backend.clone();
         let geometry_backend = backend.clone();
         let mono = cx.theme().mono_font_family.clone();
-        let plan = build_styled_render_plan(&self.snapshot);
-        let plain_plan = build_plain_render_plan(&self.snapshot);
-        let palette = self.snapshot.palette.clone();
         let terminal_colors = colors;
         let terminal_canvas = canvas(
             move |bounds, window, _cx| {
                 let geometry = terminal_geometry_for_bounds(bounds, window);
-                let _ = geometry_backend.synchronize_viewport(geometry);
+                let (generation, snapshot) =
+                    geometry_backend.synchronize_viewport(geometry);
+                let plan = build_styled_render_plan(&snapshot);
+                let plain_plan = build_plain_render_plan(&snapshot);
                 StyledCanvasState {
-                    geometry,
+                    frame: TerminalFrame {
+                        geometry,
+                        snapshot,
+                        generation,
+                    },
                     plan,
                     plain_plan,
-                    palette,
                 }
             },
             move |bounds, state, window, cx| {
@@ -311,11 +305,16 @@ impl Render for TerminalView {
     }
 }
 
-struct StyledCanvasState {
+struct TerminalFrame {
     geometry: TerminalGeometry,
+    snapshot: TerminalSnapshot,
+    generation: u64,
+}
+
+struct StyledCanvasState {
+    frame: TerminalFrame,
     plan: StyledRenderPlan,
     plain_plan: PlainRenderPlan,
-    palette: Vec<Option<TerminalColor>>,
 }
 
 fn paint_styled_terminal(
@@ -328,24 +327,44 @@ fn paint_styled_terminal(
     window.with_content_mask(Some(ContentMask { bounds }), |window| {
         window.paint_quad(fill(bounds, colors.background));
 
+        let geometry = state.frame.geometry;
+        let snapshot = &state.frame.snapshot;
+        if snapshot.columns != geometry.columns as usize
+            || snapshot.screen_lines != geometry.lines as usize
+        {
+            log::debug!(
+                "[agent_terminal] skipped stale terminal frame generation={} snapshot={}x{} geometry={}x{}",
+                state.frame.generation,
+                snapshot.columns,
+                snapshot.screen_lines,
+                geometry.columns,
+                geometry.lines,
+            );
+            return;
+        }
+
         let text_style = window.text_style();
         let font = text_style.font();
         let font_size = text_style.font_size.to_pixels(window.rem_size());
-        let line_height = px(state.geometry.line_height);
-        let cell_width = px(state.geometry.cell_width);
-        let origin_x = px(state.geometry.origin_x);
-        let origin_y = px(state.geometry.origin_y);
+        let line_height = px(geometry.line_height);
+        let cell_width = px(geometry.cell_width);
+        let origin_x = px(geometry.origin_x);
+        let origin_y = px(geometry.origin_y);
         for region in state.plan.backgrounds {
-            let color = terminal_color_to_hsla(region.color, &state.palette, colors);
+            let color = terminal_color_to_hsla(
+                region.color,
+                &snapshot.palette,
+                colors,
+            );
             let origin = point(
-                origin_x + px(region.start_column as f32 * state.geometry.cell_width),
-                origin_y + px(region.line as f32 * state.geometry.line_height),
+                origin_x + px(region.start_column as f32 * geometry.cell_width),
+                origin_y + px(region.line as f32 * geometry.line_height),
             );
             let region_bounds = Bounds::new(
                 origin,
                 size(
                     px((region.end_column - region.start_column + 1) as f32
-                        * state.geometry.cell_width),
+                        * geometry.cell_width),
                     line_height,
                 ),
             );
@@ -354,14 +373,14 @@ fn paint_styled_terminal(
 
         for region in state.plan.selections {
             let origin = point(
-                origin_x + px(region.start_column as f32 * state.geometry.cell_width),
-                origin_y + px(region.line as f32 * state.geometry.line_height),
+                origin_x + px(region.start_column as f32 * geometry.cell_width),
+                origin_y + px(region.line as f32 * geometry.line_height),
             );
             let region_bounds = Bounds::new(
                 origin,
                 size(
                     px((region.end_column - region.start_column) as f32
-                        * state.geometry.cell_width),
+                        * geometry.cell_width),
                     line_height,
                 ),
             );
@@ -376,7 +395,7 @@ fn paint_styled_terminal(
             let text = SharedString::from(run.text.clone());
             let mut foreground = terminal_color_to_hsla(
                 run.style.foreground,
-                &state.palette,
+                &snapshot.palette,
                 colors,
             );
             if CellFlags::from_bits_retain(run.style.flags)
@@ -397,8 +416,8 @@ fn paint_styled_terminal(
                 Some(cell_width),
             );
             let origin = point(
-                origin_x + px(run.column as f32 * state.geometry.cell_width),
-                origin_y + px(run.line as f32 * state.geometry.line_height),
+                origin_x + px(run.column as f32 * geometry.cell_width),
+                origin_y + px(run.line as f32 * geometry.line_height),
             );
             if let Err(error) = shaped.paint(
                 origin,
@@ -435,8 +454,8 @@ fn paint_styled_terminal(
                     Some(cell_width),
                 );
                 let origin = point(
-                    origin_x + px(run.column as f32 * state.geometry.cell_width),
-                    origin_y + px(run.line as f32 * state.geometry.line_height),
+                    origin_x + px(run.column as f32 * geometry.cell_width),
+                    origin_y + px(run.line as f32 * geometry.line_height),
                 );
                 let _ = fallback.paint(
                     origin,
@@ -450,13 +469,13 @@ fn paint_styled_terminal(
         }
 
         if let Some((line, column)) = state.plan.cursor
-            && line < state.geometry.lines as usize
-            && column < state.geometry.columns as usize
+            && line < geometry.lines as usize
+            && column < geometry.columns as usize
         {
             let cursor_bounds = Bounds::new(
                 point(
-                    origin_x + px(column as f32 * state.geometry.cell_width),
-                    origin_y + px(line as f32 * state.geometry.line_height),
+                    origin_x + px(column as f32 * geometry.cell_width),
+                    origin_y + px(line as f32 * geometry.line_height),
                 ),
                 size(cell_width, line_height),
             );

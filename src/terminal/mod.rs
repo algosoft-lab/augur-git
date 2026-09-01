@@ -452,15 +452,6 @@ impl TerminalBackend {
         events
     }
 
-    pub(crate) fn snapshot(&self) -> TerminalSnapshot {
-        let terminal = self.terminal.lock();
-        TerminalSnapshot::from_renderable(
-            terminal.renderable_content(),
-            terminal.columns(),
-            terminal.screen_lines(),
-        )
-    }
-
     fn geometry(&self) -> TerminalGeometry {
         self.geometry
             .lock()
