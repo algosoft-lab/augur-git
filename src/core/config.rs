@@ -10,6 +10,8 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use crate::agent::AgentSettings;
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub enum LanguagePreference {
     #[serde(rename = "system")]
@@ -310,6 +312,9 @@ pub struct AppConfig {
     pub typography: TypographySettings,
     #[serde(default)]
     pub recent_repos: Vec<String>,
+    /// External Agent CLI profiles and executable overrides.
+    #[serde(default)]
+    pub agent: AgentSettings,
 }
 
 impl AppConfig {
@@ -360,6 +365,8 @@ struct RawAppConfig {
     #[serde(default)]
     recent_repos: Vec<String>,
     #[serde(default)]
+    agent: AgentSettings,
+    #[serde(default)]
     repo: LegacyRepoConfig,
 }
 
@@ -379,6 +386,7 @@ impl From<RawAppConfig> for AppConfig {
             view: raw.view,
             typography: raw.typography,
             recent_repos: raw.recent_repos,
+            agent: raw.agent,
         };
 
         if config.open_tabs.is_empty() && !raw.repo.path.is_empty() {
@@ -698,6 +706,45 @@ mod tests {
             serde_json::from_str::<RawAppConfig>(json).unwrap(),
         );
         assert_eq!(config.language, LanguagePreference::SimplifiedChinese);
+    }
+
+    #[test]
+    fn missing_agent_settings_migrate_to_built_in_default() {
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(r#"{}"#).unwrap(),
+        );
+        assert_eq!(config.agent.default_profile_id(), "codex");
+        assert!(config.agent.custom_profiles.is_empty());
+    }
+
+    #[test]
+    fn agent_settings_round_trip_with_custom_profile() {
+        let json = r#"{
+            "agent": {
+                "default_profile_id": "reviewer",
+                "custom_profiles": [{
+                    "id": "reviewer",
+                    "name": "Reviewer",
+                    "executable": "review-agent",
+                    "args": ["--interactive"],
+                    "prompt_mode": {"Flag": "--prompt"}
+                }]
+            }
+        }"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(config.agent.default_profile_id(), "reviewer");
+        let profile = config.agent.profile("reviewer").expect("profile");
+        assert_eq!(profile.args, vec!["--interactive"]);
+        assert_eq!(
+            profile.launch_spec(PathBuf::from("task.md")).args,
+            vec![
+                "--interactive",
+                "--prompt",
+                "Read the complete Augur Git task from the file path in AUGUR_GIT_TASK_FILE, follow it, and keep this interactive session open for follow-up questions."
+            ]
+        );
     }
 
     #[test]
