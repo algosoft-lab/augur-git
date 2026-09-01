@@ -333,13 +333,13 @@ fn paint_styled_terminal(
         let font_size = text_style.font_size.to_pixels(window.rem_size());
         let line_height = px(state.geometry.line_height);
         let cell_width = px(state.geometry.cell_width);
+        let origin_x = px(state.geometry.origin_x);
+        let origin_y = px(state.geometry.origin_y);
         for region in state.plan.backgrounds {
             let color = terminal_color_to_hsla(region.color, &state.palette, colors);
             let origin = point(
-                bounds.origin.x
-                    + px(region.start_column as f32 * state.geometry.cell_width),
-                bounds.origin.y
-                    + px(region.line as f32 * state.geometry.line_height),
+                origin_x + px(region.start_column as f32 * state.geometry.cell_width),
+                origin_y + px(region.line as f32 * state.geometry.line_height),
             );
             let region_bounds = Bounds::new(
                 origin,
@@ -354,10 +354,8 @@ fn paint_styled_terminal(
 
         for region in state.plan.selections {
             let origin = point(
-                bounds.origin.x
-                    + px(region.start_column as f32 * state.geometry.cell_width),
-                bounds.origin.y
-                    + px(region.line as f32 * state.geometry.line_height),
+                origin_x + px(region.start_column as f32 * state.geometry.cell_width),
+                origin_y + px(region.line as f32 * state.geometry.line_height),
             );
             let region_bounds = Bounds::new(
                 origin,
@@ -399,10 +397,8 @@ fn paint_styled_terminal(
                 Some(cell_width),
             );
             let origin = point(
-                bounds.origin.x
-                    + px(run.column as f32 * state.geometry.cell_width),
-                bounds.origin.y
-                    + px(run.line as f32 * state.geometry.line_height),
+                origin_x + px(run.column as f32 * state.geometry.cell_width),
+                origin_y + px(run.line as f32 * state.geometry.line_height),
             );
             if let Err(error) = shaped.paint(
                 origin,
@@ -439,10 +435,8 @@ fn paint_styled_terminal(
                     Some(cell_width),
                 );
                 let origin = point(
-                    bounds.origin.x
-                        + px(run.column as f32 * state.geometry.cell_width),
-                    bounds.origin.y
-                        + px(run.line as f32 * state.geometry.line_height),
+                    origin_x + px(run.column as f32 * state.geometry.cell_width),
+                    origin_y + px(run.line as f32 * state.geometry.line_height),
                 );
                 let _ = fallback.paint(
                     origin,
@@ -461,10 +455,8 @@ fn paint_styled_terminal(
         {
             let cursor_bounds = Bounds::new(
                 point(
-                    bounds.origin.x
-                        + px(column as f32 * state.geometry.cell_width),
-                    bounds.origin.y
-                        + px(line as f32 * state.geometry.line_height),
+                    origin_x + px(column as f32 * state.geometry.cell_width),
+                    origin_y + px(line as f32 * state.geometry.line_height),
                 ),
                 size(cell_width, line_height),
             );
