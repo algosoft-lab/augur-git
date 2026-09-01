@@ -80,13 +80,6 @@ pub(crate) struct TerminalSnapshot {
     /// for that entry. Keeping the palette in the snapshot prevents a later
     /// paint pass from racing with terminal escape-sequence updates.
     pub palette: Vec<Option<TerminalColor>>,
-
-    // Transitional compatibility for the existing renderer. The fixed-grid
-    // renderer will consume `cells` directly and these fields can then be
-    // removed without changing the PTY model again.
-    pub rows: Vec<String>,
-    pub cell_rows: Vec<Vec<TerminalCellSnapshot>>,
-    pub legacy_cursor: Option<(usize, usize)>,
 }
 
 impl TerminalSnapshot {
@@ -104,18 +97,11 @@ impl TerminalSnapshot {
             mode,
         } = content;
         let palette = copy_palette(colors);
-        let (cells, rows, cell_rows) = collect_cells(display_iter, &palette);
+        let cells = collect_cells(display_iter, &palette);
         let cursor = match cursor.shape {
             CursorShape::Hidden => None,
             _ => Some(TerminalPointSnapshot::new(cursor.point)),
         };
-        let legacy_cursor = cursor.map(|point| {
-            (
-                (point.line + display_offset as i32).max(0) as usize,
-                point.column,
-            )
-        });
-
         Self {
             columns,
             screen_lines,
@@ -125,9 +111,6 @@ impl TerminalSnapshot {
             alternate_screen: mode.contains(TermMode::ALT_SCREEN),
             selection,
             palette,
-            rows,
-            cell_rows,
-            legacy_cursor,
         }
     }
 }
@@ -141,24 +124,11 @@ fn copy_palette(colors: &Colors) -> Vec<Option<TerminalColor>> {
 fn collect_cells(
     display_iter: GridIterator<'_, alacritty_terminal::term::cell::Cell>,
     palette: &[Option<TerminalColor>],
-) -> (
-    Vec<TerminalCellSnapshot>,
-    Vec<String>,
-    Vec<Vec<TerminalCellSnapshot>>,
-) {
+) -> Vec<TerminalCellSnapshot> {
     let mut cells = Vec::new();
-    let mut rows = Vec::<String>::new();
-    let mut cell_rows = Vec::<Vec<TerminalCellSnapshot>>::new();
-    let mut current_line = None;
 
     for indexed in display_iter {
         let line = indexed.point.line.0;
-        if current_line != Some(line) {
-            rows.push(String::new());
-            cell_rows.push(Vec::new());
-            current_line = Some(line);
-        }
-
         let cell = indexed.cell;
         let snapshot = TerminalCellSnapshot {
             line,
@@ -173,25 +143,10 @@ fn collect_cells(
             background: snapshot_color(cell.bg, palette),
             flags: cell.flags.bits(),
         };
-        cells.push(snapshot.clone());
-
-        // These compatibility rows intentionally preserve the old compressed
-        // representation. The coordinate-rich `cells` vector above is the
-        // authoritative model for the fixed-grid renderer.
-        if !cell.flags.contains(CellFlags::WIDE_CHAR_SPACER) {
-            if let Some(row) = rows.last_mut() {
-                row.push(snapshot.character);
-                if !cell.flags.contains(CellFlags::HIDDEN) {
-                    row.extend(snapshot.zero_width.iter().copied());
-                }
-            }
-            if let Some(row) = cell_rows.last_mut() {
-                row.push(snapshot);
-            }
-        }
+        cells.push(snapshot);
     }
 
-    (cells, rows, cell_rows)
+    cells
 }
 
 fn snapshot_color(
@@ -278,7 +233,7 @@ mod tests {
             5,
         );
         assert!(snapshot.columns == 20 && snapshot.screen_lines == 5);
-        assert!(snapshot.rows.iter().any(|row| row.contains("alt")));
+        assert!(snapshot.cells.iter().any(|cell| cell.character == 'a'));
         assert!(snapshot.alternate_screen);
         assert_eq!(
             snapshot.cursor.map(|cursor| (cursor.line, cursor.column)),

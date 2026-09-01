@@ -6,7 +6,6 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::ops::Range;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
@@ -17,7 +16,7 @@ use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::event_loop::{EventLoop, EventLoopSender, Msg};
 use alacritty_terminal::grid::{Dimensions, Grid};
 use alacritty_terminal::index::{Column, Point as TerminalPoint, Side};
-use alacritty_terminal::selection::{Selection, SelectionRange, SelectionType};
+use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::cell::Cell;
 use alacritty_terminal::term::cell::Flags as CellFlags;
@@ -25,15 +24,17 @@ use alacritty_terminal::term::{Config as TerminalConfig, Term, TermMode};
 use alacritty_terminal::tty::{self, Options as PtyOptions, Shell};
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::{ActiveTheme, v_flex};
+use gpui_component::ActiveTheme;
 
 use crate::agent::{AgentLaunchSpec, AgentTestDirectory};
 
 mod geometry;
 mod model;
+mod render;
 
 use geometry::TerminalGeometry;
-use model::{TerminalCellSnapshot, TerminalColor, TerminalSnapshot};
+use model::{TerminalColor, TerminalSnapshot};
+use render::{PlainRenderPlan, build_plain_render_plan};
 
 const DEFAULT_COLUMNS: usize = 120;
 const DEFAULT_LINES: usize = 32;
@@ -314,6 +315,7 @@ impl TerminalBackend {
     /// mouse reporting. Coordinates are viewport-relative and clamped by the
     /// terminal state machine before being converted to grid coordinates.
     pub fn begin_selection(&self, position: Point<Pixels>) -> bool {
+        let geometry = self.geometry();
         let mut terminal = self.terminal.lock();
         if terminal.mode().contains(TermMode::MOUSE_MODE) {
             return false;
@@ -321,6 +323,7 @@ impl TerminalBackend {
         let point = viewport_point(
             self.local_position(position),
             terminal.grid().display_offset(),
+            geometry,
         );
         terminal.selection =
             Some(Selection::new(SelectionType::Simple, point, Side::Left));
@@ -328,6 +331,7 @@ impl TerminalBackend {
     }
 
     pub fn update_selection(&self, position: Point<Pixels>) -> bool {
+        let geometry = self.geometry();
         let mut terminal = self.terminal.lock();
         if terminal.selection.is_none() {
             return false;
@@ -335,6 +339,7 @@ impl TerminalBackend {
         let point = viewport_point(
             self.local_position(position),
             terminal.grid().display_offset(),
+            geometry,
         );
         if let Some(selection) = terminal.selection.as_mut() {
             selection.update(point, Side::Right);
@@ -517,12 +522,7 @@ impl Drop for TerminalBackend {
 /// GPUI rendering and input bridge for one visible Agent test.
 pub struct TerminalView {
     backend: Arc<TerminalBackend>,
-    rows: Vec<String>,
-    cell_rows: Vec<Vec<TerminalCellSnapshot>>,
-    cursor: Option<(usize, usize)>,
-    alternate_screen: bool,
-    display_offset: usize,
-    selection: Option<SelectionRange>,
+    snapshot: TerminalSnapshot,
     focus_handle: FocusHandle,
     _poll_task: Option<Task<()>>,
     child_exit: Option<Option<i32>>,
@@ -557,12 +557,7 @@ impl TerminalView {
         });
         Self {
             backend,
-            rows: Vec::new(),
-            cell_rows: Vec::new(),
-            cursor: None,
-            alternate_screen: false,
-            display_offset: 0,
-            selection: None,
+            snapshot: TerminalSnapshot::default(),
             focus_handle,
             _poll_task: Some(poll_task),
             child_exit: None,
@@ -576,12 +571,7 @@ impl TerminalView {
         events: Vec<TerminalEvent>,
         cx: &mut Context<Self>,
     ) {
-        self.rows = snapshot.rows;
-        self.cell_rows = snapshot.cell_rows;
-        self.cursor = snapshot.legacy_cursor;
-        self.alternate_screen = snapshot.alternate_screen;
-        self.display_offset = snapshot.display_offset;
-        self.selection = snapshot.selection;
+        self.snapshot = snapshot;
         for event in events {
             match event {
                 TerminalEvent::ChildExit(code) => self.child_exit = Some(code),
@@ -605,74 +595,6 @@ impl TerminalView {
             self.backend.send_bytes(bytes);
         }
     }
-
-    fn render_rows(&self, cx: &Context<Self>) -> impl IntoElement {
-        let colors = cx.theme().colors.clone();
-        let mono = cx.theme().mono_font_family.clone();
-        let rows = self.rows.iter().enumerate().map(|(index, row)| {
-            let selected = self.selection.is_some_and(|selection| {
-                let start = selection.start.line.0 + self.display_offset as i32;
-                let end = selection.end.line.0 + self.display_offset as i32;
-                let (start, end) = if start <= end {
-                    (start, end)
-                } else {
-                    (end, start)
-                };
-                (start..=end).contains(&(index as i32))
-            });
-            let cells = self.cell_rows.get(index).map(Vec::as_slice);
-            let (text, highlights) = styled_row(cells, row, &colors);
-            let highlights = if selected {
-                highlights
-                    .into_iter()
-                    .map(|(range, mut style)| {
-                        style.background_color = None;
-                        (range, style)
-                    })
-                    .collect()
-            } else {
-                highlights
-            };
-            let mut text = if text.is_empty() { row.clone() } else { text };
-            if self.cursor.is_some_and(|(line, _)| line == index) {
-                text.push(' ');
-            }
-            let mut line = div()
-                .id(SharedString::from(format!("agent-terminal-line-{index}")))
-                .w_full()
-                .h(px(CELL_HEIGHT as f32))
-                .flex_shrink_0()
-                .relative()
-                .font_family(mono.clone())
-                .text_size(px(13.))
-                .text_color(colors.foreground)
-                .whitespace_nowrap()
-                .when(selected, |element| element.bg(colors.selection))
-                .child(
-                    StyledText::new(SharedString::from(text))
-                        .with_highlights(highlights),
-                );
-            if let Some((_, column)) =
-                self.cursor.filter(|(line, _)| *line == index)
-            {
-                line = line.child(
-                    div()
-                        .absolute()
-                        .left(px(column as f32 * CELL_WIDTH as f32))
-                        .top_0()
-                        .w(px(CELL_WIDTH as f32))
-                        .h(px(CELL_HEIGHT as f32))
-                        .bg(colors.foreground.opacity(0.35)),
-                );
-            }
-            line
-        });
-        v_flex()
-            .w_full()
-            .min_h_0()
-            .font_family(mono.clone())
-            .children(rows)
-    }
 }
 
 impl Render for TerminalView {
@@ -687,12 +609,23 @@ impl Render for TerminalView {
         let backend = self.backend.clone();
         let geometry_backend = backend.clone();
         let mono = cx.theme().mono_font_family.clone();
-        let geometry_probe = canvas(
+        let plan = build_plain_render_plan(&self.snapshot);
+        let terminal_colors = colors;
+        let terminal_canvas = canvas(
             move |bounds, window, _cx| {
                 let geometry = terminal_geometry_for_bounds(bounds, window);
                 geometry_backend.update_geometry(geometry);
+                PlainCanvasState { geometry, plan }
             },
-            |_bounds, _state, _window, _cx| {},
+            move |bounds, state, window, cx| {
+                paint_plain_terminal(
+                    bounds,
+                    state,
+                    &terminal_colors,
+                    window,
+                    cx,
+                );
+            },
         )
         .size_full()
         .absolute()
@@ -857,8 +790,7 @@ impl Render for TerminalView {
                     .overflow_hidden()
                     .font_family(mono)
                     .text_size(px(13.))
-                    .child(geometry_probe)
-                    .child(self.render_rows(cx)),
+                    .child(terminal_canvas),
             );
         if let Some(error) = error {
             surface = surface.child(
@@ -873,6 +805,85 @@ impl Render for TerminalView {
         }
         surface
     }
+}
+
+struct PlainCanvasState {
+    geometry: TerminalGeometry,
+    plan: PlainRenderPlan,
+}
+
+fn paint_plain_terminal(
+    bounds: Bounds<Pixels>,
+    state: PlainCanvasState,
+    colors: &gpui_component::theme::ThemeColor,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    window.with_content_mask(Some(ContentMask { bounds }), |window| {
+        window.paint_quad(fill(bounds, colors.background));
+
+        let text_style = window.text_style();
+        let font = text_style.font();
+        let font_size = text_style.font_size.to_pixels(window.rem_size());
+        let line_height = px(state.geometry.line_height);
+        let cell_width = px(state.geometry.cell_width);
+        for run in state.plan.runs {
+            if run.text.is_empty() || run.cell_count == 0 {
+                continue;
+            }
+            let width = px(state.geometry.cell_width * run.cell_count as f32);
+            let text = SharedString::from(run.text);
+            let text_run = TextRun {
+                len: text.len(),
+                font: font.clone(),
+                color: colors.foreground,
+                ..TextRun::default()
+            };
+            let shaped = window.text_system().shape_line(
+                text,
+                font_size,
+                &[text_run],
+                Some(width),
+            );
+            let origin = point(
+                bounds.origin.x
+                    + px(run.column as f32 * state.geometry.cell_width),
+                bounds.origin.y
+                    + px(run.line as f32 * state.geometry.line_height),
+            );
+            if let Err(error) = shaped.paint(
+                origin,
+                line_height,
+                TextAlign::Left,
+                None,
+                window,
+                cx,
+            ) {
+                log::debug!(
+                    "[agent_terminal] plain text paint failed: {error}"
+                );
+            }
+        }
+
+        if let Some((line, column)) = state.plan.cursor
+            && line < state.geometry.lines as usize
+            && column < state.geometry.columns as usize
+        {
+            let cursor_bounds = Bounds::new(
+                point(
+                    bounds.origin.x
+                        + px(column as f32 * state.geometry.cell_width),
+                    bounds.origin.y
+                        + px(line as f32 * state.geometry.line_height),
+                ),
+                size(cell_width, line_height),
+            );
+            window.paint_quad(fill(
+                cursor_bounds,
+                colors.foreground.opacity(0.35),
+            ));
+        }
+    });
 }
 
 fn terminal_geometry_for_bounds(
@@ -905,11 +916,12 @@ fn terminal_geometry_for_bounds(
 fn viewport_point(
     position: Point<Pixels>,
     display_offset: usize,
+    geometry: TerminalGeometry,
 ) -> TerminalPoint {
-    let column = (f32::from(position.x) / f32::from(CELL_WIDTH))
+    let column = (f32::from(position.x) / geometry.cell_width)
         .floor()
         .max(0.) as usize;
-    let line = (f32::from(position.y) / f32::from(CELL_HEIGHT))
+    let line = (f32::from(position.y) / geometry.line_height)
         .floor()
         .max(0.) as usize;
     alacritty_terminal::term::viewport_to_point(
@@ -974,83 +986,6 @@ fn grid_contains_text(grid: &Grid<Cell>, needle: &str) -> bool {
     }
     all_text.push_str(&row);
     all_text.contains(needle)
-}
-
-fn styled_row(
-    cells: Option<&[TerminalCellSnapshot]>,
-    fallback: &str,
-    colors: &gpui_component::theme::ThemeColor,
-) -> (String, Vec<(Range<usize>, HighlightStyle)>) {
-    let Some(cells) = cells else {
-        return (String::new(), Vec::new());
-    };
-
-    let mut text = String::new();
-    let mut highlights = Vec::new();
-    let mut current: Option<(usize, HighlightStyle)> = None;
-    for cell in cells {
-        let start = text.len();
-        text.push(cell.character);
-        text.extend(cell.zero_width.iter().copied());
-        let style = terminal_cell_style(cell, colors);
-        if let Some((run_start, run_style)) = current.take() {
-            if run_style == style {
-                current = Some((run_start, run_style));
-            } else {
-                highlights.push((run_start..start, run_style));
-                current = Some((start, style));
-            }
-        } else {
-            current = Some((start, style));
-        }
-    }
-    if let Some((run_start, run_style)) = current {
-        if run_start < text.len() {
-            highlights.push((run_start..text.len(), run_style));
-        }
-    }
-    if text.is_empty() {
-        (fallback.to_string(), Vec::new())
-    } else {
-        (text, highlights)
-    }
-}
-
-fn terminal_cell_style(
-    cell: &TerminalCellSnapshot,
-    colors: &gpui_component::theme::ThemeColor,
-) -> HighlightStyle {
-    let flags = CellFlags::from_bits_retain(cell.flags);
-    let mut foreground = terminal_color_to_hsla(cell.foreground, colors);
-    let mut background = terminal_color_to_hsla(cell.background, colors);
-    if flags.contains(CellFlags::INVERSE) {
-        std::mem::swap(&mut foreground, &mut background);
-    }
-    HighlightStyle {
-        color: Some(foreground),
-        background_color: Some(background),
-        font_weight: flags
-            .contains(CellFlags::BOLD)
-            .then_some(FontWeight::BOLD),
-        font_style: flags
-            .contains(CellFlags::ITALIC)
-            .then_some(FontStyle::Italic),
-        underline: flags.intersects(CellFlags::ALL_UNDERLINES).then_some(
-            UnderlineStyle {
-                thickness: px(1.),
-                color: Some(foreground),
-                wavy: flags.contains(CellFlags::UNDERCURL),
-            },
-        ),
-        strikethrough: flags.contains(CellFlags::STRIKEOUT).then_some(
-            StrikethroughStyle {
-                thickness: px(1.),
-                color: Some(foreground),
-            },
-        ),
-        fade_out: flags.contains(CellFlags::DIM).then_some(0.4),
-        ..HighlightStyle::default()
-    }
 }
 
 fn terminal_color_to_hsla(
