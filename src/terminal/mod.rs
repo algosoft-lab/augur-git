@@ -34,7 +34,10 @@ mod render;
 
 use geometry::TerminalGeometry;
 use model::{TerminalColor, TerminalSnapshot};
-use render::{PlainRenderPlan, build_plain_render_plan};
+use render::{
+    StyledRenderPlan, build_styled_render_plan, terminal_color_to_hsla,
+    terminal_text_run,
+};
 
 const DEFAULT_COLUMNS: usize = 120;
 const DEFAULT_LINES: usize = 32;
@@ -609,16 +612,21 @@ impl Render for TerminalView {
         let backend = self.backend.clone();
         let geometry_backend = backend.clone();
         let mono = cx.theme().mono_font_family.clone();
-        let plan = build_plain_render_plan(&self.snapshot);
+        let plan = build_styled_render_plan(&self.snapshot);
+        let palette = self.snapshot.palette.clone();
         let terminal_colors = colors;
         let terminal_canvas = canvas(
             move |bounds, window, _cx| {
                 let geometry = terminal_geometry_for_bounds(bounds, window);
                 geometry_backend.update_geometry(geometry);
-                PlainCanvasState { geometry, plan }
+                StyledCanvasState {
+                    geometry,
+                    plan,
+                    palette,
+                }
             },
             move |bounds, state, window, cx| {
-                paint_plain_terminal(
+                paint_styled_terminal(
                     bounds,
                     state,
                     &terminal_colors,
@@ -807,14 +815,15 @@ impl Render for TerminalView {
     }
 }
 
-struct PlainCanvasState {
+struct StyledCanvasState {
     geometry: TerminalGeometry,
-    plan: PlainRenderPlan,
+    plan: StyledRenderPlan,
+    palette: Vec<Option<TerminalColor>>,
 }
 
-fn paint_plain_terminal(
+fn paint_styled_terminal(
     bounds: Bounds<Pixels>,
-    state: PlainCanvasState,
+    state: StyledCanvasState,
     colors: &gpui_component::theme::ThemeColor,
     window: &mut Window,
     cx: &mut App,
@@ -827,20 +836,67 @@ fn paint_plain_terminal(
         let font_size = text_style.font_size.to_pixels(window.rem_size());
         let line_height = px(state.geometry.line_height);
         let cell_width = px(state.geometry.cell_width);
+        for region in state.plan.backgrounds {
+            let color = terminal_color_to_hsla(region.color, &state.palette, colors);
+            let origin = point(
+                bounds.origin.x
+                    + px(region.start_column as f32 * state.geometry.cell_width),
+                bounds.origin.y
+                    + px(region.line as f32 * state.geometry.line_height),
+            );
+            let region_bounds = Bounds::new(
+                origin,
+                size(
+                    px((region.end_column - region.start_column + 1) as f32
+                        * state.geometry.cell_width),
+                    line_height,
+                ),
+            );
+            window.paint_quad(fill(region_bounds, color));
+        }
+
+        for region in state.plan.selections {
+            let origin = point(
+                bounds.origin.x
+                    + px(region.start_column as f32 * state.geometry.cell_width),
+                bounds.origin.y
+                    + px(region.line as f32 * state.geometry.line_height),
+            );
+            let region_bounds = Bounds::new(
+                origin,
+                size(
+                    px((region.end_column - region.start_column) as f32
+                        * state.geometry.cell_width),
+                    line_height,
+                ),
+            );
+            window.paint_quad(fill(region_bounds, colors.selection));
+        }
+
         for run in state.plan.runs {
             if run.text.is_empty() || run.cell_count == 0 {
                 continue;
             }
             let width = px(state.geometry.cell_width * run.cell_count as f32);
             let text = SharedString::from(run.text);
-            let text_run = TextRun {
-                len: text.len(),
-                font: font.clone(),
-                color: colors.foreground,
-                ..TextRun::default()
-            };
+            let mut foreground = terminal_color_to_hsla(
+                run.style.foreground,
+                &state.palette,
+                colors,
+            );
+            if CellFlags::from_bits_retain(run.style.flags)
+                .contains(CellFlags::DIM)
+            {
+                foreground.fade_out(0.4);
+            }
+            let text_run = terminal_text_run(
+                run.style,
+                text.len(),
+                font.clone(),
+                foreground,
+            );
             let shaped = window.text_system().shape_line(
-                text,
+                text.clone(),
                 font_size,
                 &[text_run],
                 Some(width),
@@ -860,7 +916,27 @@ fn paint_plain_terminal(
                 cx,
             ) {
                 log::debug!(
-                    "[agent_terminal] plain text paint failed: {error}"
+                    "[agent_terminal] styled text paint failed; using plain fallback: {error}"
+                );
+                let fallback_run = TextRun {
+                    len: text.len(),
+                    font: font.clone(),
+                    color: colors.foreground,
+                    ..TextRun::default()
+                };
+                let fallback = window.text_system().shape_line(
+                    text,
+                    font_size,
+                    &[fallback_run],
+                    Some(width),
+                );
+                let _ = fallback.paint(
+                    origin,
+                    line_height,
+                    TextAlign::Left,
+                    None,
+                    window,
+                    cx,
                 );
             }
         }
@@ -988,79 +1064,6 @@ fn grid_contains_text(grid: &Grid<Cell>, needle: &str) -> bool {
     all_text.contains(needle)
 }
 
-fn terminal_color_to_hsla(
-    color: TerminalColor,
-    colors: &gpui_component::theme::ThemeColor,
-) -> Hsla {
-    match color {
-        TerminalColor::Rgb { r, g, b } => rgb_color(r, g, b),
-        TerminalColor::Indexed(index) => {
-            let (r, g, b) = xterm_rgb(index);
-            rgb_color(r, g, b)
-        }
-        TerminalColor::Named(index) => match index {
-            256 | 267 | 268 => colors.foreground,
-            257 => colors.background,
-            258 => colors.foreground,
-            259..=266 => {
-                let base = index.saturating_sub(259);
-                let (r, g, b) = xterm_rgb(base as u8);
-                rgb_color(r / 2, g / 2, b / 2)
-            }
-            _ => {
-                let (r, g, b) = xterm_rgb(index.min(255) as u8);
-                rgb_color(r, g, b)
-            }
-        },
-    }
-}
-
-fn rgb_color(r: u8, g: u8, b: u8) -> Hsla {
-    Rgba {
-        r: f32::from(r) / 255.,
-        g: f32::from(g) / 255.,
-        b: f32::from(b) / 255.,
-        a: 1.,
-    }
-    .into()
-}
-
-fn xterm_rgb(index: u8) -> (u8, u8, u8) {
-    match index {
-        0 => (0, 0, 0),
-        1 => (205, 49, 49),
-        2 => (13, 188, 121),
-        3 => (229, 229, 16),
-        4 => (36, 114, 200),
-        5 => (188, 63, 188),
-        6 => (17, 168, 205),
-        7 => (229, 229, 229),
-        8 => (102, 102, 102),
-        9 => (241, 76, 76),
-        10 => (35, 209, 139),
-        11 => (245, 245, 67),
-        12 => (59, 142, 234),
-        13 => (214, 112, 214),
-        14 => (41, 184, 219),
-        15 => (255, 255, 255),
-        16..=231 => {
-            let value = index - 16;
-            let r = value / 36;
-            let g = (value % 36) / 6;
-            let b = value % 6;
-            (cube_component(r), cube_component(g), cube_component(b))
-        }
-        232..=255 => {
-            let value = 8 + (index - 232) * 10;
-            (value, value, value)
-        }
-    }
-}
-
-fn cube_component(value: u8) -> u8 {
-    if value == 0 { 0 } else { value * 40 + 55 }
-}
-
 fn encode_paste(text: &str, bracketed: bool) -> Vec<u8> {
     if text.is_empty() {
         return Vec::new();
@@ -1148,9 +1151,10 @@ fn encode_key(event: &KeyDownEvent) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    use super::render::xterm_rgb;
     use super::{
         TerminalConfig, TerminalDimensions, encode_key, encode_paste,
-        grid_contains_text, xterm_rgb,
+        grid_contains_text,
     };
     use alacritty_terminal::event::VoidListener;
     use alacritty_terminal::term::Term;
