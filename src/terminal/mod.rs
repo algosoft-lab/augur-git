@@ -29,8 +29,10 @@ use gpui_component::{ActiveTheme, v_flex};
 
 use crate::agent::{AgentLaunchSpec, AgentTestDirectory};
 
+mod geometry;
 mod model;
 
+use geometry::TerminalGeometry;
 use model::{TerminalCellSnapshot, TerminalColor, TerminalSnapshot};
 
 const DEFAULT_COLUMNS: usize = 120;
@@ -145,6 +147,7 @@ pub struct TerminalBackend {
     child_exit_seen: Arc<AtomicBool>,
     _test_directory: Option<AgentTestDirectory>,
     shutdown_requested: AtomicBool,
+    geometry: Mutex<TerminalGeometry>,
 }
 
 impl TerminalBackend {
@@ -245,6 +248,7 @@ impl TerminalBackend {
             child_exit_seen,
             _test_directory: test_directory,
             shutdown_requested: AtomicBool::new(false),
+            geometry: Mutex::new(TerminalGeometry::default()),
         })
     }
 
@@ -314,7 +318,10 @@ impl TerminalBackend {
         if terminal.mode().contains(TermMode::MOUSE_MODE) {
             return false;
         }
-        let point = viewport_point(position, terminal.grid().display_offset());
+        let point = viewport_point(
+            self.local_position(position),
+            terminal.grid().display_offset(),
+        );
         terminal.selection =
             Some(Selection::new(SelectionType::Simple, point, Side::Left));
         true
@@ -325,7 +332,10 @@ impl TerminalBackend {
         if terminal.selection.is_none() {
             return false;
         }
-        let point = viewport_point(position, terminal.grid().display_offset());
+        let point = viewport_point(
+            self.local_position(position),
+            terminal.grid().display_offset(),
+        );
         if let Some(selection) = terminal.selection.as_mut() {
             selection.update(point, Side::Right);
         }
@@ -363,6 +373,7 @@ impl TerminalBackend {
         pressed: bool,
         modifiers: Modifiers,
     ) -> bool {
+        let position = self.local_position(position);
         let terminal = self.terminal.lock();
         let mode = *terminal.mode();
         let reports_clicks = mode.contains(TermMode::MOUSE_REPORT_CLICK);
@@ -381,11 +392,12 @@ impl TerminalBackend {
         if modifiers.control {
             code = code.saturating_add(16);
         }
-        let column = (f32::from(position.x) / f32::from(CELL_WIDTH))
+        let geometry = self.geometry();
+        let column = (f32::from(position.x) / geometry.cell_width)
             .floor()
             .max(0.) as u16
             + 1;
-        let row = (f32::from(position.y) / f32::from(CELL_HEIGHT))
+        let row = (f32::from(position.y) / geometry.line_height)
             .floor()
             .max(0.) as u16
             + 1;
@@ -438,6 +450,55 @@ impl TerminalBackend {
         )
     }
 
+    fn geometry(&self) -> TerminalGeometry {
+        self.geometry
+            .lock()
+            .map(|geometry| *geometry)
+            .unwrap_or_default()
+    }
+
+    fn line_delta(&self, pixels: f32) -> f32 {
+        self.geometry().line_delta(pixels)
+    }
+
+    fn local_position(&self, position: Point<Pixels>) -> Point<Pixels> {
+        let geometry = self.geometry();
+        let (x, y) = geometry
+            .local_position(f32::from(position.x), f32::from(position.y));
+        point(px(x), px(y))
+    }
+
+    fn update_geometry(&self, geometry: TerminalGeometry) {
+        let changed = self
+            .geometry
+            .lock()
+            .map(|mut current| {
+                if *current == geometry {
+                    false
+                } else {
+                    *current = geometry;
+                    true
+                }
+            })
+            .unwrap_or(false);
+        if !changed {
+            return;
+        }
+        log::debug!(
+            "[agent_terminal] viewport geometry columns={} rows={} cell_width={:.2} line_height={:.2}",
+            geometry.columns,
+            geometry.lines,
+            geometry.cell_width,
+            geometry.line_height,
+        );
+        self.resize(
+            geometry.columns,
+            geometry.lines,
+            geometry.cell_width.round().max(1.) as u16,
+            geometry.line_height.round().max(1.) as u16,
+        );
+    }
+
     /// Search the bounded terminal grid without retaining a separate
     /// transcript. This includes scrollback and the active alternate screen,
     /// while preserving the same character filtering used for rendering.
@@ -462,7 +523,6 @@ pub struct TerminalView {
     alternate_screen: bool,
     display_offset: usize,
     selection: Option<SelectionRange>,
-    terminal_size: (u16, u16),
     focus_handle: FocusHandle,
     _poll_task: Option<Task<()>>,
     child_exit: Option<Option<i32>>,
@@ -503,7 +563,6 @@ impl TerminalView {
             alternate_screen: false,
             display_offset: 0,
             selection: None,
-            terminal_size: (DEFAULT_COLUMNS as u16, DEFAULT_LINES as u16),
             focus_handle,
             _poll_task: Some(poll_task),
             child_exit: None,
@@ -619,14 +678,30 @@ impl TerminalView {
 impl Render for TerminalView {
     fn render(
         &mut self,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        self.resize_to_window(window);
         let colors = cx.theme().colors.clone();
         let this = cx.entity();
         let focus = self.focus_handle.clone();
         let backend = self.backend.clone();
+        let geometry_backend = backend.clone();
+        let mono = cx.theme().mono_font_family.clone();
+        let geometry_probe = canvas(
+            move |bounds, window, _cx| {
+                let geometry = terminal_geometry_for_bounds(bounds, window);
+                geometry_backend.update_geometry(geometry);
+            },
+            |_bounds, _state, _window, _cx| {},
+        )
+        .size_full()
+        .absolute()
+        .top_0()
+        .left_0()
+        .right_0()
+        .bottom_0()
+        .font_family(mono.clone())
+        .text_size(px(13.));
         let backend_for_mouse = backend.clone();
         let backend_for_keyboard = backend.clone();
         let error = self.error.clone();
@@ -755,7 +830,7 @@ impl Render for TerminalView {
                     let delta = match event.delta {
                         ScrollDelta::Lines(point) => point.y,
                         ScrollDelta::Pixels(point) => {
-                            f32::from(point.y) / CELL_HEIGHT as f32
+                            backend.line_delta(f32::from(point.y))
                         }
                     };
                     if delta.abs() > f32::EPSILON {
@@ -778,6 +853,11 @@ impl Render for TerminalView {
                     .size_full()
                     .min_h_0()
                     .p_2()
+                    .relative()
+                    .overflow_hidden()
+                    .font_family(mono)
+                    .text_size(px(13.))
+                    .child(geometry_probe)
                     .child(self.render_rows(cx)),
             );
         if let Some(error) = error {
@@ -795,21 +875,31 @@ impl Render for TerminalView {
     }
 }
 
-impl TerminalView {
-    fn resize_to_window(&mut self, window: &Window) {
-        let viewport = window.viewport_size();
-        let columns = (f32::from(viewport.width) / f32::from(CELL_WIDTH))
-            .floor()
-            .max(2.) as u16;
-        let lines = (f32::from(viewport.height) / f32::from(CELL_HEIGHT))
-            .floor()
-            .max(1.) as u16;
-        if self.terminal_size == (columns, lines) {
-            return;
-        }
-        self.terminal_size = (columns, lines);
-        self.backend.resize(columns, lines, CELL_WIDTH, CELL_HEIGHT);
-    }
+fn terminal_geometry_for_bounds(
+    bounds: Bounds<Pixels>,
+    window: &Window,
+) -> TerminalGeometry {
+    let text_style = window.text_style();
+    let font_id = window.text_system().resolve_font(&text_style.font());
+    let font_size = text_style.font_size.to_pixels(window.rem_size());
+    let cell_width = window
+        .text_system()
+        .advance(font_id, font_size, 'm')
+        .map(|advance| f32::from(advance.width))
+        .ok()
+        .filter(|width| width.is_finite() && *width > 0.)
+        .unwrap_or(f32::from(CELL_WIDTH));
+    let line_height =
+        f32::from(text_style.line_height_in_pixels(window.rem_size()));
+    TerminalGeometry::from_bounds(
+        f32::from(bounds.origin.x),
+        f32::from(bounds.origin.y),
+        f32::from(bounds.size.width),
+        f32::from(bounds.size.height),
+        cell_width,
+        line_height,
+        window.scale_factor(),
+    )
 }
 
 fn viewport_point(
