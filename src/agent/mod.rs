@@ -311,9 +311,13 @@ impl ResolvedAgentProfile {
 
 /// A unique empty directory owned by one connectivity test.
 ///
-/// The directory is created below the platform temporary directory and is
-/// removed after the test process exits or the test window is dropped. A
-/// shared cleanup state lets the PTY and UI retry cleanup independently.
+/// On macOS and Linux the directory lives below the user's local application
+/// data directory. This keeps the working directory inside the user's home
+/// tree, which is accessible to external Agent CLIs whose sandboxes reject
+/// system temporary locations. Other platforms continue to use the system
+/// temporary directory. The directory is removed after the test process exits
+/// or the test window is dropped. A shared cleanup state lets the PTY and UI
+/// retry cleanup independently.
 #[derive(Clone, Debug)]
 pub struct AgentTestDirectory {
     path: PathBuf,
@@ -329,7 +333,9 @@ struct AgentTestDirectoryCleanup {
 impl AgentTestDirectory {
     pub fn create() -> anyhow::Result<Self> {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let base = std::env::temp_dir();
+        let base = agent_test_directory_root()?;
+        fs::create_dir_all(&base)?;
+        set_private_directory_permissions(&base);
         let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -371,6 +377,25 @@ impl AgentTestDirectory {
             }
             Err(error) => Err(error.into()),
         }
+    }
+}
+
+fn agent_test_directory_root() -> anyhow::Result<PathBuf> {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        let data_dir = dirs::data_local_dir()
+            .or_else(dirs::home_dir)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "could not locate a per-user data directory for the Agent test"
+                )
+            })?;
+        return Ok(data_dir.join("augur-git").join("agent-tests"));
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        Ok(std::env::temp_dir())
     }
 }
 
@@ -650,6 +675,21 @@ mod tests {
         directory.cleanup().expect("cleanup");
         second.cleanup().expect("second cleanup");
         assert!(!path.exists());
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn connectivity_test_directory_uses_per_user_agent_root() {
+        let directory = AgentTestDirectory::create().expect("test directory");
+        let expected_root = dirs::data_local_dir()
+            .or_else(dirs::home_dir)
+            .expect("per-user data directory")
+            .join("augur-git")
+            .join("agent-tests");
+
+        assert_eq!(directory.path().parent(), Some(expected_root.as_path()));
+        assert!(directory.path().starts_with(&expected_root));
+        directory.cleanup().expect("cleanup");
     }
 
     #[cfg(unix)]

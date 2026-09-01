@@ -115,7 +115,10 @@ The system `git` executable is the only runtime dependency for repository
 operations; Augur Git does not embed or emulate a separate Git implementation.
 Agent connectivity tests are optional and require the corresponding CLI to be
 installed by the user. Each test runs in a fresh empty temporary directory and
-does not touch an open repository.
+does not touch an open repository. On macOS and Linux, the directory is placed
+under the per-user application data directory so Agent CLIs that restrict
+system temporary locations can access it; Windows keeps using the system
+temporary directory.
 
 The Agent terminal is intentionally dedicated to visible connectivity tests
 rather than a general-purpose shell. Test state and terminal transcripts are

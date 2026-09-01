@@ -31,16 +31,23 @@ edit, and remove custom profiles; fixed arguments are entered one per line and
 the prompt can be a trailing argument or a named flag. Invalid custom profiles
 are shown with an error and are not launchable. Each valid profile also has a
 **Test launch** action. It opens a separate, visible interactive terminal and
-runs a fixed connectivity challenge in a new empty system temporary directory.
-The test never uses the current repository, does not initialize Git, and does
-not offer an editable prompt. The terminal remains available for provider
-login, approvals, and follow-up input. Augur Git marks the test as having
-received a response only after the challenge's per-run reversed token appears
-in the bounded terminal buffer.
+runs a fixed connectivity challenge in a new empty per-user directory. On
+Linux this is below `$XDG_DATA_HOME/augur-git/agent-tests` (normally
+`~/.local/share/augur-git/agent-tests`); on macOS it is below
+`~/Library/Application Support/augur-git/agent-tests`. Other platforms use the
+system temporary directory. Keeping the directory under the user's home tree
+allows Agent CLIs that restrict access to system temporary locations to start
+normally. The test never uses the current repository, does not initialize Git,
+and does not offer an editable prompt. The terminal remains available for
+provider login, approvals, and follow-up input. Augur Git marks the test as
+having received a response only after the challenge's per-run reversed token
+appears in the bounded terminal buffer.
 
 The temporary directory is shown in the test window and is removed after the
-child exits. Closing the window or pressing **Stop test** sends Ctrl-C and then
-closes the PTY; cleanup failures are non-fatal and never target a user-selected
+child exits. The per-user parent directory is retained for later tests, while
+each test directory itself starts empty and is private to the current user.
+Closing the window or pressing **Stop test** sends Ctrl-C and then closes the
+PTY; cleanup failures are non-fatal and never target a user-selected
 directory. Test prompts, transcript contents, and provider session IDs are not
 persisted.
 
