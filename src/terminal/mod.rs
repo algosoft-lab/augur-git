@@ -691,15 +691,17 @@ fn encode_key(event: &KeyDownEvent) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    use super::geometry::TerminalGeometry;
     use super::render::xterm_rgb;
     use super::{
         TerminalConfig, TerminalDimensions, encode_key, encode_paste,
-        grid_contains_text,
+        grid_contains_text, viewport_point,
     };
     use alacritty_terminal::event::VoidListener;
+    use alacritty_terminal::index::{Line, Point as TerminalPoint};
     use alacritty_terminal::term::Term;
     use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
-    use gpui::{KeyDownEvent, Keystroke, Modifiers};
+    use gpui::{KeyDownEvent, Keystroke, Modifiers, point, px};
 
     fn key(
         key: &str,
@@ -746,6 +748,17 @@ mod tests {
             b"\x1b[200~a\nb\x1b[201~".to_vec()
         );
         assert!(encode_paste("", true).is_empty());
+    }
+
+    #[test]
+    fn viewport_points_share_the_grid_and_clamp_edges() {
+        let geometry =
+            TerminalGeometry::from_bounds(10., 20., 80., 40., 8., 20., 1.);
+        let point = viewport_point(point(px(999.), px(999.)), 0, geometry);
+        assert_eq!(
+            point,
+            TerminalPoint::new(Line(1), alacritty_terminal::index::Column(9))
+        );
     }
 
     #[test]
