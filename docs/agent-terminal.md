@@ -44,6 +44,12 @@ closes the PTY; cleanup failures are non-fatal and never target a user-selected
 directory. Test prompts, transcript contents, and provider session IDs are not
 persisted.
 
+The test window keeps the profile, status, and stop control in a compact header.
+Executable, arguments, working directory, and diagnostic prompt remain visible
+inside a bounded scrollable details area so wrapped metadata cannot consume the
+entire terminal viewport at small window sizes. The terminal is given a minimum
+usable height and still receives its actual measured rows and columns.
+
 The profile editor stores the same structured values in `config.json`. For
 example, a profile that runs a local wrapper with two fixed arguments uses:
 
@@ -84,13 +90,18 @@ forwarded to the host application.
 
 Rendering is driven by a coordinate-preserving snapshot of the parsed grid.
 The view measures the actual terminal element bounds and active monospace font,
-then resizes the PTY only when the resulting cell grid changes. Glyphs are
-shaped with the measured per-cell width and painted at explicit row and column
-origins; backgrounds and selection rectangles are painted from the same grid
-before glyphs. This keeps wide characters, combining marks, ANSI backgrounds,
-alternate-screen layouts, and mouse coordinates aligned when the window is
-resized or displayed at high DPI. If a styled paint operation fails, the view
-keeps the coordinate grid visible through a plain-text fallback.
+then synchronizes both the local Alacritty grid and the PTY whenever the cell
+grid changes. The local grid is resized before the PTY notification, so an
+Agent redraw and the parser observe the same rows and columns. Each canvas
+frame captures its snapshot after that synchronization and rejects a frame
+whose grid dimensions do not match its geometry.
+
+Glyphs are shaped with the measured per-cell width and painted at explicit row
+and column origins; backgrounds and selection rectangles are painted from the
+same grid before glyphs. This keeps wide characters, combining marks, ANSI
+backgrounds, alternate-screen layouts, and mouse coordinates aligned when the
+window is resized or displayed at high DPI. If a styled paint operation fails,
+the view keeps the coordinate grid visible through a plain-text fallback.
 
 The view is not a general shell. It should be treated as a host for the three
 supported coding-agent CLIs and compatible custom profiles during connectivity
