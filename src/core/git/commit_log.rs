@@ -80,8 +80,9 @@ pub(super) fn log_args(
     }
     args.push(format!("--max-count={LOG_PAGE_SIZE}"));
     args.push("--date=format:%Y-%m-%d %H:%M".to_string());
+    args.push("-z".to_string());
     args.push(
-        "--pretty=format:%H%x00%h%x00%an%x00%ai%x00%at%x00%s%x00%D%x00%P"
+        "--pretty=format:%H%x00%h%x00%an%x00%ai%x00%at%x00%s%x00%D%x00%P%x00%B"
             .to_string(),
     );
     args
@@ -205,35 +206,30 @@ pub(super) fn request_more(
 /// Each line starts with a 40-character hexadecimal object id followed by
 /// NUL-separated commit fields. Malformed records are ignored defensively.
 pub(super) fn parse_log(text: &str) -> Vec<LogRow> {
+    const FIELD_COUNT: usize = 9;
+    let fields = text.split('\0').collect::<Vec<_>>();
     let mut rows = Vec::new();
-    for line in text.lines() {
-        let fields: Vec<&str> = line.split('\0').collect();
-        let Some(oid) = fields.first().copied() else {
+    for record in fields.chunks(FIELD_COUNT) {
+        if record.len() < FIELD_COUNT {
             continue;
-        };
+        }
+        let oid = record[0];
         if oid.len() != 40 || !oid.bytes().all(|b| b.is_ascii_hexdigit()) {
             continue;
         }
-        if fields.len() < 6 {
-            continue;
-        }
-        let parents = fields
-            .get(7)
-            .copied()
-            .unwrap_or("")
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect();
+        let parents =
+            record[7].split_whitespace().map(str::to_string).collect();
         // `%at` is the author timestamp used for relative-time display.
-        let timestamp = fields.get(4).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let timestamp = record[4].parse().unwrap_or(0);
         rows.push(LogRow {
             oid: oid.to_string(),
-            short: fields[1].to_string(),
-            author: fields[2].to_string(),
-            date: fields[3].to_string(),
+            short: record[1].to_string(),
+            author: record[2].to_string(),
+            date: record[3].to_string(),
             timestamp,
-            subject: fields[5].to_string(),
-            decorations: fields.get(6).copied().unwrap_or("").to_string(),
+            subject: record[5].to_string(),
+            message: record[8].to_string(),
+            decorations: record[6].to_string(),
             parents,
         });
     }
@@ -313,19 +309,20 @@ mod tests {
 
     #[test]
     fn parse_log_plain() {
-        let text = "0123456789abcdef0123456789abcdef01234567\0short\0Lionel Fung\02026-08-13 20:00\01756123456\0M0 框架\0HEAD -> main\0\n";
+        let text = "0123456789abcdef0123456789abcdef01234567\0short\0Lionel Fung\02026-08-13 20:00\01756123456\0M0 框架\0HEAD -> main\0\0M0 框架\n\0";
         let rows = parse_log(text);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].oid, "0123456789abcdef0123456789abcdef01234567");
         assert_eq!(rows[0].subject, "M0 框架");
         assert_eq!(rows[0].decorations, "HEAD -> main");
         assert_eq!(rows[0].timestamp, 17_561_234_56);
+        assert_eq!(rows[0].message, "M0 框架\n");
         assert!(rows[0].parents.is_empty());
     }
 
     #[test]
     fn parse_log_with_parents() {
-        let text = "0123456789abcdef0123456789abcdef01234567\0s\0a\0d\01756123456\0merge 分支\0HEAD -> main\089abcdef0123456789abcdef0123456789abcdef ffff0123456789abcdef0123456789abcdef01\n";
+        let text = "0123456789abcdef0123456789abcdef01234567\0s\0a\0d\01756123456\0merge 分支\0HEAD -> main\089abcdef0123456789abcdef0123456789abcdef ffff0123456789abcdef0123456789abcdef01\0merge 分支\n\0";
         let rows = parse_log(text);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].subject, "merge 分支");
@@ -338,7 +335,8 @@ mod tests {
 
     #[test]
     fn parse_log_skips_bad_lines() {
-        let text = "garbage\n0123456789abcdef0123456789abcdef01234567\0s\0a\0d\0提交\0\n";
+        let text = "garbage\0s\0a\0d\00\0bad\0\0\0body\0\
+0123456789abcdef0123456789abcdef01234567\0s\0a\0d\00\0提交\0\0\0提交\0";
         let rows = parse_log(text);
         assert_eq!(rows.len(), 1);
     }

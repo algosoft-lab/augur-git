@@ -22,6 +22,8 @@ pub struct LogRow {
     /// Author timestamp in Unix seconds.
     pub timestamp: i64,
     pub subject: String,
+    /// Complete raw commit message, including the subject and body.
+    pub message: String,
     /// Ref decorations such as `HEAD -> main, origin/main`.
     pub decorations: String,
     /// Parent object ids in Git's first-parent order.
@@ -342,6 +344,7 @@ mod tests {
             date: "2026-01-01 00:00".into(),
             timestamp: 0,
             subject: format!("Commit {oid_byte}"),
+            message: format!("Commit {oid_byte}"),
             decorations: decorations.into(),
             parents: parents.iter().map(|b| format!("{b:040x}")).collect(),
         }

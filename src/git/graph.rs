@@ -1,23 +1,26 @@
 //! Commit graph presentation with delayed full-message previews.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::time::Duration;
 
-use crate::core::git::CheckoutTarget;
-use crate::core::git::CommitMessage;
+use crate::core::git::{CheckoutTarget, CommitMessage};
 use crate::git::commit_message_dialog::CommitMessageDialog;
 use crate::git::commit_preview::CommitHoverPreview;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
     ActiveTheme, IconName, WindowExt, h_flex,
+    input::{InputEvent, InputState},
     menu::{ContextMenuExt, PopupMenuItem},
     theme::ThemeColor,
     tooltip::Tooltip,
     v_flex,
 };
 
+use crate::core::commit_search::{
+    CommitSearchField, CommitSearchMode, search_log_rows,
+};
 use crate::core::graph::{
     AUTHOR_COL_WIDTH, DATE_COL_WIDTH, GraphRow, HASH_COL_WIDTH, LogRow,
     RefKind, RefLabel, column_visibility, compute_graph, format_relative_time,
@@ -28,6 +31,8 @@ use crate::git::shared;
 
 #[path = "graph_painter.rs"]
 mod graph_painter;
+#[path = "graph_search.rs"]
+mod graph_search;
 
 /// 提交树行高（h_9=36px：圆心距 36，节点直径 24，边缘间距 12 = 半径，验证项目同比例）
 pub const ROW_HEIGHT: f32 = 36.0;
@@ -58,9 +63,13 @@ pub enum GraphEvent {
     CopyCommitMessage(String),
     /// The visible list approached the last loaded commit; fetch the next page.
     MoreLogPageRequested,
+    /// Clear the bottom commit details because the selected row is hidden.
+    SelectionCleared,
 }
 
 pub struct GraphView {
+    /// All commits loaded by the worker, before the local search filter.
+    all_rows: Vec<LogRow>,
     rows: Vec<LogRow>,
     layout: Vec<GraphRow>,
     /// Whether the worker reported another commit page for the scope.
@@ -69,7 +78,12 @@ pub struct GraphView {
     page_in_flight: bool,
     /// Configured remote names for classifying ref decorations.
     remote_names: Vec<String>,
+    history_count: usize,
     selected: Option<usize>,
+    search_input: Entity<InputState>,
+    search_field: CommitSearchField,
+    search_mode: CommitSearchMode,
+    search_query: String,
     /// Full messages cached after selection or hover requests.
     commit_messages: HashMap<String, CommitMessage>,
     /// Commit preview entity shared by every graph-row tooltip.
@@ -103,16 +117,47 @@ struct GraphRenderOptions {
 impl EventEmitter<GraphEvent> for GraphView {}
 
 impl GraphView {
-    pub fn new(tab_id: u64, locale: Locale, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        tab_id: u64,
+        locale: Locale,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let hover_preview = cx.new(|_| CommitHoverPreview::new(locale));
         let message_dialog = cx.new(|_| CommitMessageDialog::new(locale));
+        let search_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(i18n::text(locale, "commit-search-placeholder"))
+        });
+        let search_input_entity = search_input.clone();
+        cx.subscribe(&search_input_entity, |graph, _event, event, cx| {
+            if matches!(event, InputEvent::Change) {
+                graph.search_query = graph.search_input.read(cx).value().to_string();
+                graph.rebuild_rows(cx);
+                log::debug!(
+                    "[commit_search] input changed: field={:?}, mode={:?}, matches={}/{}",
+                    graph.search_field,
+                    graph.search_mode,
+                    graph.rows.len(),
+                    graph.history_count
+                );
+                cx.notify();
+            }
+        })
+        .detach();
         Self {
+            all_rows: Vec::new(),
             rows: Vec::new(),
             layout: Vec::new(),
             has_more: false,
             page_in_flight: false,
             remote_names: Vec::new(),
+            history_count: 0,
             selected: None,
+            search_input,
+            search_field: CommitSearchField::Subject,
+            search_mode: CommitSearchMode::Loose,
+            search_query: String::new(),
             commit_messages: HashMap::new(),
             hover_preview,
             message_dialog,
@@ -126,8 +171,20 @@ impl GraphView {
     }
 
     /// Synchronize the locale with the workspace.
-    pub fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
+    pub fn set_locale(
+        &mut self,
+        locale: Locale,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.locale = locale;
+        self.search_input.update(cx, |input, cx| {
+            input.set_placeholder(
+                i18n::text(locale, "commit-search-placeholder"),
+                window,
+                cx,
+            );
+        });
         self.hover_preview.update(cx, |preview, cx| {
             preview.set_locale(locale, cx);
         });
@@ -160,7 +217,7 @@ impl GraphView {
 
     /// Snapshot of the loaded commits, used by the branch comparison view.
     pub fn log_rows(&self) -> Vec<LogRow> {
-        self.rows.clone()
+        self.all_rows.clone()
     }
 
     /// Apply one worker log page. `replace` restarts the list after a refresh
@@ -175,18 +232,18 @@ impl GraphView {
         self.page_in_flight = false;
         self.has_more = has_more;
         if replace {
-            self.rows = rows;
+            self.all_rows = rows;
         } else {
             // Refs can move between page requests; skip OIDs already shown.
             let known = self
-                .rows
+                .all_rows
                 .iter()
                 .map(|row| row.oid.as_str())
                 .collect::<std::collections::HashSet<_>>();
             rows.retain(|row| !known.contains(row.oid.as_str()));
-            self.rows.extend(rows);
+            self.all_rows.extend(rows);
         }
-        self.rebuild_layout(cx);
+        self.rebuild_rows(cx);
         log::debug!(
             "[graph_perf] graph layout cached: rows={}",
             self.layout.len()
@@ -194,14 +251,52 @@ impl GraphView {
         cx.notify();
     }
 
-    fn rebuild_layout(&mut self, cx: &mut Context<Self>) {
+    fn rebuild_rows(&mut self, cx: &mut Context<Self>) {
+        let had_selection = self.selected.is_some();
         let selected_oid = self
             .selected
             .and_then(|index| self.rows.get(index))
             .map(|row| row.oid.clone());
-        self.layout = compute_graph(&self.rows);
+        self.history_count = self.all_rows.len();
+        self.rows = search_log_rows(
+            &self.all_rows,
+            &self.search_query,
+            self.search_field,
+            self.search_mode,
+        );
+        log::info!(
+            "[commit_search] rows rebuilt: source={}, history={}, matches={}, active={}, field={:?}, mode={:?}",
+            self.all_rows.len(),
+            self.history_count,
+            self.rows.len(),
+            !self.search_query.is_empty(),
+            self.search_field,
+            self.search_mode
+        );
+        let visible_oids = self
+            .rows
+            .iter()
+            .map(|row| row.oid.as_str())
+            .collect::<HashSet<_>>();
+        let layout_rows = self
+            .rows
+            .iter()
+            .cloned()
+            .map(|mut row| {
+                if !self.search_query.is_empty() {
+                    row.parents.retain(|parent| {
+                        visible_oids.contains(parent.as_str())
+                    });
+                }
+                row
+            })
+            .collect::<Vec<_>>();
+        self.layout = compute_graph(&layout_rows);
         self.selected = selected_oid
             .and_then(|oid| self.rows.iter().position(|row| row.oid == oid));
+        if had_selection && self.selected.is_none() {
+            cx.emit(GraphEvent::SelectionCleared);
+        }
         if self
             .hovered_oid
             .as_ref()
@@ -221,6 +316,46 @@ impl GraphView {
             && self.has_more
             && !self.page_in_flight
             && rendered_end + LOAD_AHEAD_ROWS >= self.rows.len()
+    }
+
+    fn set_search_field(
+        &mut self,
+        field: CommitSearchField,
+        cx: &mut Context<Self>,
+    ) {
+        if self.search_field == field {
+            return;
+        }
+        self.search_field = field;
+        self.rebuild_rows(cx);
+        self.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
+        log::debug!(
+            "[commit_search] field changed: field={field:?}, mode={:?}, matches={}/{}",
+            self.search_mode,
+            self.rows.len(),
+            self.history_count
+        );
+        cx.notify();
+    }
+
+    fn set_search_mode(
+        &mut self,
+        mode: CommitSearchMode,
+        cx: &mut Context<Self>,
+    ) {
+        if self.search_mode == mode {
+            return;
+        }
+        self.search_mode = mode;
+        self.rebuild_rows(cx);
+        self.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
+        log::debug!(
+            "[commit_search] mode changed: field={:?}, mode={mode:?}, matches={}/{}",
+            self.search_field,
+            self.rows.len(),
+            self.history_count
+        );
+        cx.notify();
     }
 
     /// Cache an asynchronous message response and update the active preview
@@ -342,32 +477,6 @@ impl Render for GraphView {
     ) -> impl IntoElement {
         let colors = cx.theme().colors;
         let mono = cx.theme().mono_font_family.clone();
-
-        if self.rows.is_empty() {
-            return v_flex()
-                .id("graph-view")
-                .size_full()
-                .items_center()
-                .justify_center()
-                .gap_1()
-                .bg(colors.background)
-                // 空态也持续测量宽度：首批行到达时列显隐即正确
-                .child(measure_width_canvas(cx.entity()))
-                .child(
-                    div()
-                        .size(px(24.))
-                        .text_color(colors.muted_foreground)
-                        .child(crate::git::lucide("git-commit-horizontal")),
-                )
-                .child(
-                    div()
-                        .text_size(crate::theme::scaled_text_size(11.))
-                        .text_color(colors.muted_foreground)
-                        .child(shared(i18n::text(self.locale, "graph-empty"))),
-                )
-                .into_any_element();
-        }
-
         let max_lanes = self
             .layout
             .iter()
@@ -385,47 +494,88 @@ impl Render for GraphView {
             .unwrap_or(0);
 
         let lane_colors = crate::theme::lane_colors(cx);
-        let render_options = GraphRenderOptions {
-            tree_w,
-            show_author,
-            show_message,
-            now,
-            colors,
-            mono,
-            lane_colors,
+        let body = if self.rows.is_empty() {
+            let empty_key = if self.search_query.is_empty() {
+                "graph-empty"
+            } else {
+                "commit-search-no-results"
+            };
+            v_flex()
+                .flex_1()
+                .items_center()
+                .justify_center()
+                .gap_1()
+                .child(
+                    div()
+                        .size(px(24.))
+                        .text_color(colors.muted_foreground)
+                        .child(crate::git::lucide("git-commit-horizontal")),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text(self.locale, empty_key))),
+                )
+        } else {
+            let render_options = GraphRenderOptions {
+                tree_w,
+                show_author,
+                show_message,
+                now,
+                colors,
+                mono,
+                lane_colors,
+            };
+            let rows = uniform_list(
+                self.list_id.clone(),
+                self.rows.len(),
+                cx.processor(move |graph, range: Range<usize>, _window, cx| {
+                    if graph.wants_more_rows(range.end) {
+                        // Reserve the request before emitting so repeated render
+                        // passes cannot queue the same page twice.
+                        graph.page_in_flight = true;
+                        cx.emit(GraphEvent::MoreLogPageRequested);
+                    }
+                    range
+                        .map(|index| {
+                            graph.render_row(index, &render_options, cx)
+                        })
+                        .collect()
+                }),
+            )
+            .track_scroll(&self.scroll_handle)
+            .flex_1()
+            .min_h_0();
+            v_flex()
+                .flex_1()
+                .min_h_0()
+                .child(self.column_header(
+                    &colors,
+                    tree_w,
+                    show_author,
+                    show_message,
+                ))
+                .child(rows)
         };
-        let rows = uniform_list(
-            self.list_id.clone(),
-            self.rows.len(),
-            cx.processor(move |graph, range: Range<usize>, _window, cx| {
-                if graph.wants_more_rows(range.end) {
-                    // Reserve the request before emitting so repeated render
-                    // passes cannot queue the same page twice.
-                    graph.page_in_flight = true;
-                    cx.emit(GraphEvent::MoreLogPageRequested);
-                }
-                range
-                    .map(|index| graph.render_row(index, &render_options, cx))
-                    .collect()
-            }),
-        )
-        .track_scroll(&self.scroll_handle)
-        .flex_1()
-        .min_h_0();
 
         v_flex()
             .id("graph-view")
             .size_full()
             .bg(colors.background)
-            // 宽度测量：0 高 canvas 每帧回写自身宽（变化才 notify，收敛不循环）
             .child(measure_width_canvas(cx.entity()))
-            .child(self.column_header(
-                &colors,
-                tree_w,
-                show_author,
-                show_message,
+            .child(graph_search::render(
+                cx.entity(),
+                &self.search_input,
+                self.locale,
+                self.search_field,
+                self.search_mode,
+                &self.search_query,
+                self.rows.len(),
+                self.history_count,
+                colors,
             ))
-            .child(rows)
+            .child(body)
             .into_any_element()
     }
 }

@@ -66,6 +66,12 @@ toolbar-busy = 操作中…
 
 # ===== 提交图 =====
 graph-empty = 暂无提交
+commit-search-placeholder = 搜索提交信息…
+commit-search-subject = 标题
+commit-search-full-message = 完整信息
+commit-search-strict = 严格匹配
+commit-search-results = { $matches } / { $total }
+commit-search-no-results = 没有匹配的提交
 col-graph = 图形
 col-hash = 哈希
 col-message = 信息

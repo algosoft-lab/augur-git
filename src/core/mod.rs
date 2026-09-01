@@ -3,6 +3,7 @@
 
 pub mod build_info;
 pub mod commit_diff;
+pub mod commit_search;
 pub mod config;
 pub mod diff;
 pub mod git;

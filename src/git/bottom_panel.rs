@@ -216,6 +216,23 @@ impl BottomPanel {
         cx.notify();
     }
 
+    /// Clear commit-specific details without disturbing a working-tree diff.
+    pub fn clear_commit(&mut self, cx: &mut Context<Self>) {
+        if self.commit.take().is_none() {
+            return;
+        }
+        self.merge_parent = None;
+        self.files.clear();
+        self.selected = None;
+        self.diff = None;
+        self.diff_cache = None;
+        self.all_diffs.clear();
+        self.show_all_files = false;
+        self.all_diff_loading = false;
+        self.diff_loading = false;
+        cx.notify();
+    }
+
     pub fn set_files(
         &mut self,
         oid: &str,

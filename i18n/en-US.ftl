@@ -67,6 +67,12 @@ toolbar-busy = Working…
 
 # ===== Commit graph =====
 graph-empty = No commits
+commit-search-placeholder = Search commit messages…
+commit-search-subject = Subject
+commit-search-full-message = Full message
+commit-search-strict = Strict
+commit-search-results = { $matches } / { $total }
+commit-search-no-results = No matching commits
 col-graph = Graph
 col-hash = Hash
 col-message = Message

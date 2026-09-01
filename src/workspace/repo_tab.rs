@@ -107,7 +107,7 @@ impl RepoTab {
         layout.normalize();
         let git_view = cx.new(|cx| GitView::new(locale, cx));
         let sidebar = cx.new(|cx| Sidebar::new(window, cx, locale));
-        let graph = cx.new(|cx| GraphView::new(id, locale, cx));
+        let graph = cx.new(|cx| GraphView::new(id, locale, window, cx));
         let toolbar = cx.new(|_cx| Toolbar::new(locale));
         let commit = cx.new(|cx| CommitPanel::new(window, cx, locale));
         let changes = cx.new(|_cx| ChangesPanel::new(locale));
@@ -228,6 +228,11 @@ impl RepoTab {
                 tab.git_view.update(cx, |view, _| {
                     view.commit_files(oid.clone());
                     view.commit_message(oid.clone());
+                });
+            }
+            GraphEvent::SelectionCleared => {
+                tab.bottom.update(cx, |bottom, cx| {
+                    bottom.clear_commit(cx);
                 });
             }
             GraphEvent::CommitMessageRequested(oid) => {
@@ -837,7 +842,7 @@ impl RepoTab {
             toolbar.set_locale(locale, cx);
         });
         self.graph.update(cx, |graph, cx| {
-            graph.set_locale(locale, cx);
+            graph.set_locale(locale, window, cx);
         });
         self.commit.update(cx, |commit, cx| {
             commit.set_locale(locale, window, cx);
