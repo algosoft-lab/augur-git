@@ -4,6 +4,8 @@
 //! by an independent `RepoTab` entity, including its Git worker and panels.
 
 mod about;
+mod agent_lifecycle;
+mod agent_profiles;
 mod app_menu;
 mod focus_refresh;
 mod persistence;
@@ -28,6 +30,7 @@ use gpui_component::{
 use crate::core::config::{self, AppConfig, UiState};
 use crate::core::i18n::{self, Locale};
 
+use self::agent_lifecycle::PendingWorkspaceClose;
 use self::app_menu::{AppMenu, AppMenuEvent};
 use self::persistence::{
     installed_font_families, normalize_typography, normalized_path, repo_key,
@@ -37,7 +40,7 @@ use self::repo_tab::{RepoTab, RepoTabEvent};
 use self::settings::{SettingsPanel, SettingsPanelEvent};
 use self::tabs::{
     RepoTabBar, RepoTabBarEvent, TabId, TabState, TabSummary,
-    fallback_after_close, should_refresh_after_switch,
+    should_refresh_after_switch,
 };
 use crate::theme;
 
@@ -89,7 +92,13 @@ pub fn run(app: Application) {
         // the registry's global observer reads Theme::global.
         Theme::change(ThemeMode::Dark, None, cx);
         theme::init(config.theme, &config.typography, cx);
-        cx.on_action(|_: &app_menu::Quit, cx| cx.quit());
+        cx.on_action(|_: &app_menu::Quit, cx| {
+            if !update_active_workspace(cx, |workspace, cx| {
+                workspace.request_application_quit(cx);
+            }) {
+                cx.quit();
+            }
+        });
         cx.on_action(|_: &app_menu::OpenAbout, cx| {
             log::info!("[app_menu] routing global open about action");
             update_active_workspace(cx, |workspace, cx| {
@@ -126,16 +135,17 @@ impl Global for ActiveWorkspace {}
 fn update_active_workspace(
     cx: &mut App,
     update: impl FnOnce(&mut Workspace, &mut Context<Workspace>),
-) {
+) -> bool {
     let workspace = cx
         .try_global::<ActiveWorkspace>()
         .and_then(|active| active.workspace.upgrade());
     let Some(workspace) = workspace else {
         log::warn!("[app_menu] no active workspace for application action");
-        return;
+        return false;
     };
 
     workspace.update(cx, update);
+    true
 }
 
 fn open_main_window(
@@ -189,6 +199,7 @@ pub struct Workspace {
     locale: Locale,
     config_saver: config::ConfigSaveQueue,
     show_settings: bool,
+    pending_close: Option<PendingWorkspaceClose>,
     about_window: Option<WindowHandle<about::AboutWindow>>,
     restoring: bool,
     last_focus_refresh: Option<Instant>,
@@ -202,6 +213,14 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        crate::agent::TaskStore::default().cleanup_stale();
+        if let Err(errors) = config.agent.validate() {
+            for error in errors {
+                log::warn!(
+                    "[agent_terminal] invalid configured profile: {error}"
+                );
+            }
+        }
         let locale = i18n::resolve(&config.language);
         let config_saver = config::ConfigSaveQueue::new();
         let tab_bar = cx.new(|_cx| RepoTabBar::new());
@@ -259,6 +278,33 @@ impl Workspace {
                 SettingsPanelEvent::DiffFontSizeChanged(size) => {
                     workspace.set_diff_font_size(*size, cx);
                 }
+                SettingsPanelEvent::AgentDefaultProfileChanged(profile_id) => {
+                    workspace.set_agent_default_profile(profile_id.clone(), cx);
+                }
+                SettingsPanelEvent::AgentExecutableOverrideChanged {
+                    agent,
+                    executable,
+                } => {
+                    workspace.set_agent_executable_override(
+                        *agent,
+                        executable.clone(),
+                        cx,
+                    );
+                }
+                SettingsPanelEvent::AgentProfileSaved {
+                    previous_id,
+                    profile,
+                } => {
+                    workspace.save_agent_profile(
+                        previous_id.clone(),
+                        profile.clone(),
+                        window,
+                        cx,
+                    );
+                }
+                SettingsPanelEvent::AgentProfileRemoved(profile_id) => {
+                    workspace.remove_agent_profile(profile_id, window, cx);
+                }
             },
         )
         .detach();
@@ -290,6 +336,7 @@ impl Workspace {
             locale,
             config_saver,
             show_settings: false,
+            pending_close: None,
             about_window: None,
             restoring: true,
             // The startup load starts here (restore_tabs -> open), so the
@@ -297,6 +344,12 @@ impl Workspace {
             // trigger a duplicate refresh.
             last_focus_refresh: Some(Instant::now()),
         };
+        let workspace_for_close = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |_window, app| {
+            workspace_for_close
+                .update(app, |workspace, cx| workspace.request_window_close(cx))
+                .unwrap_or(true)
+        });
         workspace.restore_tabs(window, cx);
         workspace.restore_active_tab();
         if let Some(active) = workspace.active_tab {
@@ -387,6 +440,7 @@ impl Workspace {
                 self.config.view.diff_layout.into(),
                 self.config.view.graph_history,
                 self.ui_state.layout.clone(),
+                self.config.agent.clone(),
                 window,
                 cx,
             )
@@ -454,6 +508,7 @@ impl Workspace {
                 self.config.view.diff_layout.into(),
                 self.config.view.graph_history,
                 self.ui_state.layout.clone(),
+                self.config.agent.clone(),
                 window,
                 cx,
             )
@@ -630,26 +685,7 @@ impl Workspace {
     }
 
     fn close_tab(&mut self, id: TabId, cx: &mut Context<Self>) {
-        let Some(index) = self.tabs.iter().position(|tab| tab.id == id) else {
-            return;
-        };
-        let order = self.tabs.iter().map(|tab| tab.id).collect::<Vec<_>>();
-        let fallback = fallback_after_close(&order, self.active_tab, id);
-        let entry = self.tabs.remove(index);
-        if let TabContent::Repo(tab) = &entry.content {
-            tab.update(cx, |tab, cx| tab.close(cx));
-        }
-        let was_active = self.active_tab == Some(id);
-        if was_active {
-            self.active_tab = None;
-        }
-        self.active_tab = fallback;
-        if let Some(active) = fallback {
-            self.activate_tab(active, cx);
-        }
-        self.persist_config();
-        self.refresh_tab_bar(cx);
-        cx.notify();
+        self.request_tab_close(id, cx);
     }
 
     fn active_tab_entity(&self) -> Option<Entity<RepoTab>> {
@@ -927,6 +963,9 @@ impl Render for Workspace {
             .child(content)
             .when(self.show_settings, |element| {
                 element.child(self.settings_overlay())
+            })
+            .when(self.pending_close.is_some(), |element| {
+                element.child(self.close_confirmation_overlay(cx))
             })
             .children(dialog_layer)
     }

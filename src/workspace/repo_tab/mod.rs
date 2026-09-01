@@ -1,7 +1,9 @@
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::v_flex;
+use std::time::{Duration, Instant};
 
+use crate::agent::{AgentSettings, ReviewContext, TaskStore};
 use crate::core::config::{GraphHistoryPreference, LayoutSettings};
 use crate::core::git::{
     CheckoutTarget, LogScope, WorkingTreeAction, WorkingTreeScope,
@@ -17,6 +19,7 @@ use crate::git::{GitStatus, GitView};
 
 use super::tabs::{TabId, TabState, TabSummary};
 
+mod agent_sessions;
 mod branch_compare;
 mod branch_ops;
 mod dialogs;
@@ -41,6 +44,14 @@ enum PendingConfirmation {
         scope: WorkingTreeScope,
         tracked_count: usize,
         untracked_count: usize,
+    },
+    AgentSharedTree {
+        profile_id: String,
+        request: String,
+        context: ReviewContext,
+    },
+    AgentSessionClose {
+        id: u64,
     },
 }
 
@@ -89,10 +100,23 @@ pub struct RepoTab {
     working_diff_request_id: u64,
     working_tree_operation_id: u64,
     operation_busy: bool,
+    /// A session exit requests a refresh even when a Git operation currently
+    /// owns the worker. The request is consumed when that operation finishes.
+    agent_refresh_pending: bool,
+    /// Coalesce the exit notification and the explicit Review-tab refresh
+    /// into one Git snapshot request.
+    last_agent_refresh: Option<Instant>,
     layout: LayoutSettings,
     confirmation: Option<PendingConfirmation>,
     dialogs: branch_ops::BranchDialogs,
     locale: Locale,
+    agent_settings: AgentSettings,
+    task_store: TaskStore,
+    agent_sessions: Vec<Entity<agent_sessions::AgentSession>>,
+    active_agent_session: Option<u64>,
+    next_agent_session_id: u64,
+    agent_composer: Option<Entity<agent_sessions::AgentTaskComposer>>,
+    review_context: ReviewContext,
 }
 
 impl EventEmitter<RepoTabEvent> for RepoTab {}
@@ -105,6 +129,7 @@ impl RepoTab {
         diff_layout: DiffLayoutMode,
         graph_history: GraphHistoryPreference,
         mut layout: LayoutSettings,
+        agent_settings: AgentSettings,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -119,11 +144,11 @@ impl RepoTab {
             BottomPanel::new(locale, diff_layout, layout.file_list_ratio)
         });
         let compare = branch_compare::new_view(window, cx, locale, diff_layout);
-        branch_compare::subscribe(&compare, cx);
+        branch_compare::subscribe(&compare, window, cx);
 
         subscriptions::wire(
             &git_view, &sidebar, &toolbar, &graph, &commit, &changes, &bottom,
-            cx,
+            window, cx,
         );
 
         Self {
@@ -154,10 +179,19 @@ impl RepoTab {
             working_diff_request_id: 0,
             working_tree_operation_id: 0,
             operation_busy: false,
+            agent_refresh_pending: false,
+            last_agent_refresh: None,
             layout,
             confirmation: None,
             dialogs: branch_ops::BranchDialogs::default(),
             locale,
+            agent_settings,
+            task_store: TaskStore::default(),
+            agent_sessions: Vec::new(),
+            active_agent_session: None,
+            next_agent_session_id: 1,
+            agent_composer: None,
+            review_context: ReviewContext::default(),
         }
     }
 
@@ -192,6 +226,19 @@ impl RepoTab {
         self.git_view.update(cx, |view, _| view.refresh());
     }
 
+    fn request_agent_refresh(&mut self, cx: &mut Context<Self>) {
+        if self
+            .last_agent_refresh
+            .is_some_and(|last| last.elapsed() < Duration::from_millis(250))
+        {
+            return;
+        }
+        self.last_agent_refresh = Some(Instant::now());
+        if !self.refresh_if_ready(cx) {
+            self.agent_refresh_pending = true;
+        }
+    }
+
     fn set_operation_busy(&mut self, busy: bool, cx: &mut Context<Self>) {
         if self.operation_busy == busy {
             return;
@@ -212,6 +259,10 @@ impl RepoTab {
         self.changes.update(cx, |changes, cx| {
             changes.set_busy(busy, cx);
         });
+        if !busy && self.agent_refresh_pending {
+            self.agent_refresh_pending = false;
+            self.refresh_repository(cx);
+        }
     }
 
     fn start_working_tree_operation(
@@ -318,6 +369,10 @@ impl RepoTab {
 
     pub fn close(&mut self, cx: &mut Context<Self>) {
         branch_compare::close(self, cx);
+        self.terminate_agent_sessions(cx);
+        self.agent_sessions.clear();
+        self.agent_composer = None;
+        self.active_agent_session = None;
         self.git_view.update(cx, |view, _| view.close_repo());
         self.opened = false;
         // A reopened repository starts a fresh worker on AllBranches, so the
@@ -462,6 +517,9 @@ impl Render for RepoTab {
             .when(self.dialogs.pending.is_some(), |element| {
                 element
                     .children(RepoTab::render_branch_dialog(self, window, cx))
+            })
+            .when_some(self.agent_composer.clone(), |element, composer| {
+                element.child(composer)
             })
     }
 }

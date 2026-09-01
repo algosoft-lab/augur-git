@@ -99,6 +99,10 @@ Coding agent or editor
   authors, relative dates, changed-file lists, and commit diffs.
 - **Revision comparison** — compare branches, tags, commits, or manually entered
   revisions in a dedicated comparison window.
+- **External Agent sessions** — start Codex, Claude Code, OpenCode, or a
+  configured custom CLI in a repository-scoped interactive terminal. Augur Git
+  supplies task and review references while the selected CLI keeps its own
+  account, model, approval, and sandbox configuration.
 - **Repository operations** — browse branches, remotes, tags, and stashes, and
   run explicit fetch, pull, push, checkout, branch, and commit operations.
 - **Multiple repositories** — keep several repositories open as tabs and return
@@ -109,6 +113,15 @@ Coding agent or editor
 
 The system `git` executable is the only runtime dependency for repository
 operations; Augur Git does not embed or emulate a separate Git implementation.
+Agent sessions are optional and require the corresponding CLI to be installed
+and authenticated by the user. They run in the repository's current working
+tree, so parallel sessions can overwrite or conflict with one another.
+
+The Agent terminal is intentionally dedicated to interactive coding-agent
+sessions rather than a general-purpose shell. Session state and terminal
+transcripts are not persisted across application restarts. See
+[`docs/agent-terminal.md`](docs/agent-terminal.md) for profile configuration,
+task-file behavior, lifecycle rules, and troubleshooting.
 
 ## Supported platforms
 
@@ -161,6 +174,8 @@ src/
 ├── workspace/       # Tabs, repository state, dialogs, settings, and windows
 ├── core/            # Configuration, Git worker, parsers, graph, diff, and i18n
 ├── git/             # GPUI presentation for Git history, changes, and diffs
+├── agent/            # External Agent profiles, task context, and secure launch specs
+├── terminal/         # Alacritty PTY state machine and Agent terminal view
 └── theme.rs         # Embedded themes and runtime theme switching
 i18n/                # English and Simplified Chinese translations
 assets/              # Logos, interface icons, and theme definitions

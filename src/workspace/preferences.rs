@@ -1,5 +1,6 @@
 use gpui::*;
 
+use crate::agent::{AgentSettings, BuiltInAgent, CustomAgentProfile};
 use crate::core::config::{
     DiffLayoutPreference, GraphHistoryPreference, LanguagePreference,
     ThemePreference, normalized_diff_font_size, normalized_ui_font_size,
@@ -212,6 +213,181 @@ impl Workspace {
         self.config.view.auto_refresh_on_focus = enabled;
         self.config_saver.schedule(&self.config);
         log::info!("[workspace] auto refresh on focus: {enabled}");
+        cx.notify();
+    }
+
+    pub(super) fn set_agent_default_profile(
+        &mut self,
+        profile_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.config.agent.profile(&profile_id).is_none() {
+            log::warn!(
+                "[agent_terminal] ignoring unknown default profile: {profile_id}"
+            );
+            return;
+        }
+        if self.config.agent.default_profile_id.as_deref() == Some(&profile_id)
+        {
+            return;
+        }
+        self.config.agent.default_profile_id = Some(profile_id.clone());
+        let settings = self.config.agent.clone();
+        for entry in &self.tabs {
+            if let TabContent::Repo(tab) = &entry.content {
+                tab.update(cx, |tab, _| {
+                    tab.set_agent_settings(settings.clone())
+                });
+            }
+        }
+        self.config_saver.schedule(&self.config);
+        log::info!("[agent_terminal] default profile changed: {profile_id}");
+        cx.notify();
+    }
+
+    pub(super) fn set_agent_executable_override(
+        &mut self,
+        agent: BuiltInAgent,
+        executable: Option<std::path::PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
+        if executable.as_ref().is_some_and(|path| {
+            path.as_os_str().is_empty()
+                || path.to_string_lossy().chars().any(char::is_control)
+        }) {
+            log::warn!(
+                "[agent_terminal] ignoring invalid executable override for {}",
+                agent.id()
+            );
+            return;
+        }
+        if executable.as_ref()
+            == self.config.agent.executable_overrides.get(&agent)
+        {
+            return;
+        }
+        match executable {
+            Some(path) => {
+                self.config.agent.executable_overrides.insert(agent, path);
+            }
+            None => {
+                self.config.agent.executable_overrides.remove(&agent);
+            }
+        }
+        let settings = self.config.agent.clone();
+        for entry in &self.tabs {
+            if let TabContent::Repo(tab) = &entry.content {
+                tab.update(cx, |tab, _| {
+                    tab.set_agent_settings(settings.clone())
+                });
+            }
+        }
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.update_agent_settings(settings.clone(), cx);
+        });
+        self.config_saver.schedule(&self.config);
+        log::info!(
+            "[agent_terminal] executable override changed: {}",
+            agent.id()
+        );
+        cx.notify();
+    }
+
+    pub(super) fn save_agent_profile(
+        &mut self,
+        previous_id: Option<String>,
+        profile: CustomAgentProfile,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut settings = self.config.agent.clone();
+        if let Some(previous_id) = previous_id.as_deref() {
+            if settings.default_profile_id.as_deref() == Some(previous_id) {
+                settings.default_profile_id = Some(profile.id.clone());
+            }
+            settings
+                .custom_profiles
+                .retain(|entry| entry.id != previous_id);
+        }
+        settings.custom_profiles.push(profile.clone());
+        if let Err(errors) = settings.validate() {
+            log::warn!(
+                "[agent_terminal] rejected custom profile update: {}",
+                errors
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or("invalid profile")
+            );
+            return;
+        }
+        self.config.agent = settings.clone();
+        for entry in &self.tabs {
+            if let TabContent::Repo(tab) = &entry.content {
+                tab.update(cx, |tab, _| {
+                    tab.set_agent_settings(settings.clone())
+                });
+            }
+        }
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.set_agent_settings(settings.clone(), window, cx);
+        });
+        self.config_saver.schedule(&self.config);
+        log::info!("[agent_terminal] custom profile saved: id={}", profile.id);
+        cx.notify();
+    }
+
+    pub(super) fn remove_agent_profile(
+        &mut self,
+        profile_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let before = self.config.agent.custom_profiles.len();
+        self.config
+            .agent
+            .custom_profiles
+            .retain(|profile| profile.id != profile_id);
+        if self.config.agent.custom_profiles.len() == before {
+            return;
+        }
+        if self.config.agent.default_profile_id.as_deref() == Some(profile_id) {
+            self.config.agent.default_profile_id = None;
+        }
+        let settings = self.config.agent.clone();
+        for entry in &self.tabs {
+            if let TabContent::Repo(tab) = &entry.content {
+                tab.update(cx, |tab, _| {
+                    tab.set_agent_settings(settings.clone())
+                });
+            }
+        }
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.set_agent_settings(settings.clone(), window, cx);
+        });
+        self.config_saver.schedule(&self.config);
+        log::info!("[agent_terminal] custom profile removed: id={profile_id}");
+        cx.notify();
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn set_agent_settings(
+        &mut self,
+        settings: AgentSettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.config.agent = settings.clone();
+        for entry in &self.tabs {
+            if let TabContent::Repo(tab) = &entry.content {
+                tab.update(cx, |tab, _| {
+                    tab.set_agent_settings(settings.clone())
+                });
+            }
+        }
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.set_agent_settings(settings.clone(), window, cx);
+        });
+        self.config_saver.schedule(&self.config);
         cx.notify();
     }
 }

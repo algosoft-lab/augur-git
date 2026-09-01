@@ -2,8 +2,9 @@
 //! shared workspace state. Each `wire_*` function owns the `cx.subscribe`
 //! channel for one panel; `RepoTab::new` only calls [`wire`].
 
-use gpui::{Context, Entity};
+use gpui::{Context, Entity, Window};
 
+use crate::agent::ReviewSelection;
 use crate::core::git::{
     WorkingTreeAction, WorkingTreeDiffKind, WorkingTreeScopeKind,
 };
@@ -30,10 +31,11 @@ pub(super) fn wire(
     commit: &Entity<CommitPanel>,
     changes: &Entity<ChangesPanel>,
     bottom: &Entity<BottomPanel>,
+    window: &mut Window,
     cx: &mut Context<RepoTab>,
 ) {
     wire_sidebar(sidebar, cx);
-    wire_toolbar(toolbar, cx);
+    wire_toolbar(toolbar, window, cx);
     wire_graph(graph, cx);
     wire_commit(commit, cx);
     wire_changes(changes, cx);
@@ -48,95 +50,110 @@ fn wire_sidebar(sidebar: &Entity<Sidebar>, cx: &mut Context<RepoTab>) {
     .detach();
 }
 
-fn wire_toolbar(toolbar: &Entity<Toolbar>, cx: &mut Context<RepoTab>) {
-    cx.subscribe(toolbar, |tab, _event, event, cx| match event {
-        ToolbarEvent::Fetch => {
-            if tab.operation_busy {
-                return;
+fn wire_toolbar(
+    toolbar: &Entity<Toolbar>,
+    window: &mut Window,
+    cx: &mut Context<RepoTab>,
+) {
+    cx.subscribe_in(toolbar, window, |tab, _event, event, window, cx| {
+        match event {
+            ToolbarEvent::Fetch => {
+                if tab.operation_busy {
+                    return;
+                }
+                tab.git_view.update(cx, |view, _| {
+                    view.run(
+                        "fetch --all --prune",
+                        vec!["fetch".into(), "--all".into(), "--prune".into()],
+                    );
+                });
+                tab.set_operation_busy(true, cx);
             }
-            tab.git_view.update(cx, |view, _| {
-                view.run(
-                    "fetch --all --prune",
-                    vec!["fetch".into(), "--all".into(), "--prune".into()],
+            ToolbarEvent::PullMerge => {
+                if tab.operation_busy {
+                    return;
+                }
+                tab.git_view.update(cx, |view, _| {
+                    view.run("pull", vec!["pull".into()]);
+                });
+                tab.set_operation_busy(true, cx);
+            }
+            ToolbarEvent::PullRebase => {
+                if tab.operation_busy {
+                    return;
+                }
+                tab.git_view.update(cx, |view, _| {
+                    view.run(
+                        "pull --rebase",
+                        vec!["pull".into(), "--rebase".into()],
+                    );
+                });
+                tab.set_operation_busy(true, cx);
+            }
+            ToolbarEvent::Push => {
+                if tab.operation_busy {
+                    return;
+                }
+                // Publish a branch that has no upstream through a confirmed
+                // `--set-upstream` push instead of letting plain push fail.
+                if tab.request_push_upstream(cx) {
+                    return;
+                }
+                tab.git_view.update(cx, |view, _| {
+                    view.run("push", vec!["push".into()]);
+                });
+                tab.set_operation_busy(true, cx);
+            }
+            ToolbarEvent::PushForce => {
+                // Never run directly: open the confirmation dialog first.
+                if !tab.operation_busy {
+                    tab.confirmation = Some(PendingConfirmation::ForcePush);
+                    cx.notify();
+                }
+            }
+            ToolbarEvent::BranchNew => {
+                tab.open_branch_dialog(
+                    branch_ops::PendingBranchDialog::NewBranch,
+                    cx,
                 );
-            });
-            tab.set_operation_busy(true, cx);
-        }
-        ToolbarEvent::PullMerge => {
-            if tab.operation_busy {
-                return;
             }
-            tab.git_view.update(cx, |view, _| {
-                view.run("pull", vec!["pull".into()]);
-            });
-            tab.set_operation_busy(true, cx);
-        }
-        ToolbarEvent::PullRebase => {
-            if tab.operation_busy {
-                return;
-            }
-            tab.git_view.update(cx, |view, _| {
-                view.run(
-                    "pull --rebase",
-                    vec!["pull".into(), "--rebase".into()],
+            ToolbarEvent::BranchRename => tab.open_branch_dialog(
+                branch_ops::PendingBranchDialog::Rename {
+                    old: tab.branch.clone(),
+                },
+                cx,
+            ),
+            ToolbarEvent::Stash => {
+                tab.open_branch_dialog(
+                    branch_ops::PendingBranchDialog::Stash,
+                    cx,
                 );
-            });
-            tab.set_operation_busy(true, cx);
-        }
-        ToolbarEvent::Push => {
-            if tab.operation_busy {
-                return;
             }
-            // Publish a branch that has no upstream through a confirmed
-            // `--set-upstream` push instead of letting plain push fail.
-            if tab.request_push_upstream(cx) {
-                return;
+            ToolbarEvent::StashPop => {
+                tab.start_stash_pop(None, cx);
             }
-            tab.git_view.update(cx, |view, _| {
-                view.run("push", vec!["push".into()]);
-            });
-            tab.set_operation_busy(true, cx);
-        }
-        ToolbarEvent::PushForce => {
-            // Never run directly: open the confirmation dialog first.
-            if !tab.operation_busy {
-                tab.confirmation = Some(PendingConfirmation::ForcePush);
-                cx.notify();
+            ToolbarEvent::Merge { no_ff } => {
+                tab.open_branch_dialog(
+                    branch_ops::PendingBranchDialog::Merge { no_ff: *no_ff },
+                    cx,
+                );
             }
-        }
-        ToolbarEvent::BranchNew => {
-            tab.open_branch_dialog(
-                branch_ops::PendingBranchDialog::NewBranch,
-                cx,
-            );
-        }
-        ToolbarEvent::BranchRename => tab.open_branch_dialog(
-            branch_ops::PendingBranchDialog::Rename {
-                old: tab.branch.clone(),
-            },
-            cx,
-        ),
-        ToolbarEvent::Stash => {
-            tab.open_branch_dialog(branch_ops::PendingBranchDialog::Stash, cx);
-        }
-        ToolbarEvent::StashPop => {
-            tab.start_stash_pop(None, cx);
-        }
-        ToolbarEvent::Merge { no_ff } => {
-            tab.open_branch_dialog(
-                branch_ops::PendingBranchDialog::Merge { no_ff: *no_ff },
-                cx,
-            );
-        }
-        ToolbarEvent::Rebase => {
-            tab.open_branch_dialog(branch_ops::PendingBranchDialog::Rebase, cx);
-        }
-        ToolbarEvent::Compare => branch_compare::open(tab, cx),
-        ToolbarEvent::Refresh => {
-            tab.refresh_repository(cx);
-        }
-        ToolbarEvent::Settings => {
-            cx.emit(RepoTabEvent::RequestSettings);
+            ToolbarEvent::Rebase => {
+                tab.open_branch_dialog(
+                    branch_ops::PendingBranchDialog::Rebase,
+                    cx,
+                );
+            }
+            ToolbarEvent::Compare => branch_compare::open(tab, cx),
+            ToolbarEvent::NewAgentTask => {
+                tab.open_agent_composer(tab.review_context.clone(), window, cx);
+            }
+            ToolbarEvent::Refresh => {
+                tab.refresh_repository(cx);
+            }
+            ToolbarEvent::Settings => {
+                cx.emit(RepoTabEvent::RequestSettings);
+            }
         }
     })
     .detach();
@@ -150,6 +167,8 @@ fn wire_graph(graph: &Entity<GraphView>, cx: &mut Context<RepoTab>) {
             subject,
             ..
         } => {
+            tab.review_context.selection =
+                ReviewSelection::Commit { oid: oid.clone() };
             tab.bottom.update(cx, |bottom, cx| {
                 bottom.set_commit(oid, short, subject, cx);
             });
@@ -159,6 +178,7 @@ fn wire_graph(graph: &Entity<GraphView>, cx: &mut Context<RepoTab>) {
             });
         }
         GraphEvent::SelectionCleared => {
+            tab.review_context.selection = ReviewSelection::None;
             tab.bottom.update(cx, |bottom, cx| {
                 bottom.clear_commit(cx);
             });
@@ -206,6 +226,10 @@ fn wire_commit(commit: &Entity<CommitPanel>, cx: &mut Context<RepoTab>) {
 fn wire_changes(changes: &Entity<ChangesPanel>, cx: &mut Context<RepoTab>) {
     cx.subscribe(changes, |tab, _event, event, cx| match event {
         ChangesPanelEvent::FileSelected { staged, file } => {
+            tab.review_context.selection = ReviewSelection::WorkingTreeFile {
+                staged: *staged,
+                path: file.path.clone(),
+            };
             tab.working_diff_request_id =
                 tab.working_diff_request_id.wrapping_add(1).max(1);
             let request_id = tab.working_diff_request_id;
@@ -244,6 +268,10 @@ fn wire_bottom(bottom: &Entity<BottomPanel>, cx: &mut Context<RepoTab>) {
             merge_parent,
             file,
         } => {
+            tab.review_context.selection = ReviewSelection::CommitFile {
+                oid: oid.clone(),
+                path: file.path.clone(),
+            };
             tab.git_view.update(cx, |view, _| {
                 view.file_diff(oid.clone(), merge_parent.clone(), file.clone());
             });
@@ -253,6 +281,8 @@ fn wire_bottom(bottom: &Entity<BottomPanel>, cx: &mut Context<RepoTab>) {
             merge_parent,
             files,
         } => {
+            tab.review_context.selection =
+                ReviewSelection::Commit { oid: oid.clone() };
             tab.git_view.update(cx, |view, _| {
                 view.file_diffs(
                     oid.clone(),
@@ -302,6 +332,7 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 let unstaged_text = unstaged_count.to_string();
 
                 tab.branch = branch_name;
+                tab.review_context.branch = branch.clone();
                 tab.upstream = upstream.clone();
                 tab.local_branches = branches
                     .iter()

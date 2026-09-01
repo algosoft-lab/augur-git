@@ -4,6 +4,7 @@ use gpui_component::{
     ActiveTheme, IconName, IndexPath, Sizable,
     button::{Button, ButtonVariants},
     h_flex,
+    input::{Input, InputEvent, InputState},
     scroll::ScrollableElement,
     searchable_list::{SearchableListItem, SearchableVec},
     select::{Select, SelectEvent, SelectState},
@@ -11,6 +12,7 @@ use gpui_component::{
     v_flex,
 };
 
+use crate::agent::{AgentSettings, BuiltInAgent, CustomAgentProfile};
 use crate::core::config::{
     AppConfig, DiffLayoutPreference, GraphHistoryPreference,
     LanguagePreference, MAX_DIFF_FONT_SIZE, MAX_UI_FONT_SIZE,
@@ -18,6 +20,8 @@ use crate::core::config::{
 };
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
+
+use super::agent_profiles::{AgentProfileEditor, AgentProfileEditorEvent};
 
 #[derive(Clone, Debug)]
 pub enum SettingsPanelEvent {
@@ -31,6 +35,16 @@ pub enum SettingsPanelEvent {
     MonoFontChanged(Option<String>),
     UiFontSizeChanged(f32),
     DiffFontSizeChanged(f32),
+    AgentDefaultProfileChanged(String),
+    AgentExecutableOverrideChanged {
+        agent: BuiltInAgent,
+        executable: Option<std::path::PathBuf>,
+    },
+    AgentProfileSaved {
+        previous_id: Option<String>,
+        profile: CustomAgentProfile,
+    },
+    AgentProfileRemoved(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,6 +52,7 @@ enum SettingsSection {
     General,
     Appearance,
     Layout,
+    Agents,
 }
 
 #[derive(Clone, Debug)]
@@ -79,6 +94,9 @@ pub struct SettingsPanel {
     mono_font: Option<String>,
     ui_font_size: f32,
     diff_font_size: f32,
+    agent_settings: AgentSettings,
+    agent_probe_results: Vec<(String, Option<Result<String, String>>)>,
+    agent_probe_generation: u64,
     font_families: Vec<String>,
     language_state:
         Entity<SelectState<Vec<SettingsOption<LanguagePreference>>>>,
@@ -94,6 +112,10 @@ pub struct SettingsPanel {
         Entity<SelectState<SearchableVec<SettingsOption<Option<String>>>>>,
     ui_font_size_state: Entity<SliderState>,
     diff_font_size_state: Entity<SliderState>,
+    agent_default_profile_state:
+        Entity<SelectState<Vec<SettingsOption<String>>>>,
+    agent_executable_inputs: Vec<(BuiltInAgent, Entity<InputState>)>,
+    agent_profile_editor: Option<Entity<AgentProfileEditor>>,
 }
 
 impl EventEmitter<SettingsPanelEvent> for SettingsPanel {}
@@ -115,6 +137,8 @@ impl SettingsPanel {
         let mono_font = config.typography.mono_font_family.clone();
         let ui_font_size = config.typography.ui_font_size;
         let diff_font_size = config.typography.diff_font_size;
+        let agent_settings = config.agent.clone();
+        let agent_default_profile = agent_settings.default_profile_id();
 
         let language_state = cx.new(|cx| {
             SelectState::new(
@@ -193,8 +217,34 @@ impl SettingsPanel {
                 .step(1.0)
                 .default_value(diff_font_size)
         });
+        let agent_default_profile_state = cx.new(|cx| {
+            let options = agent_profile_options(locale, &agent_settings);
+            SelectState::new(
+                options.clone(),
+                selected_index(&options, &agent_default_profile),
+                window,
+                cx,
+            )
+        });
+        let agent_executable_inputs = BuiltInAgent::ALL
+            .iter()
+            .copied()
+            .map(|agent| {
+                let value = agent_settings
+                    .executable_overrides
+                    .get(&agent)
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default();
+                let input = cx.new(|cx| {
+                    InputState::new(window, cx)
+                        .default_value(value)
+                        .placeholder(agent.executable())
+                });
+                (agent, input)
+            })
+            .collect::<Vec<_>>();
 
-        let panel = Self {
+        let mut panel = Self {
             locale,
             section: SettingsSection::General,
             language,
@@ -206,6 +256,9 @@ impl SettingsPanel {
             mono_font,
             ui_font_size,
             diff_font_size,
+            agent_settings,
+            agent_probe_results: Vec::new(),
+            agent_probe_generation: 0,
             font_families,
             language_state,
             auto_refresh_state,
@@ -216,6 +269,9 @@ impl SettingsPanel {
             mono_font_state,
             ui_font_size_state,
             diff_font_size_state,
+            agent_default_profile_state,
+            agent_executable_inputs,
+            agent_profile_editor: None,
         };
 
         let language_state_for_events = panel.language_state.clone();
@@ -325,7 +381,142 @@ impl SettingsPanel {
         )
         .detach();
 
+        let agent_default_profile_state_for_events =
+            panel.agent_default_profile_state.clone();
+        cx.subscribe(
+            &agent_default_profile_state_for_events,
+            |panel, _, event, cx| {
+                let SelectEvent::Confirm(Some(value)) = event else {
+                    return;
+                };
+                if panel.agent_settings.default_profile_id.as_deref()
+                    == Some(value.as_str())
+                {
+                    return;
+                }
+                panel.agent_settings.default_profile_id = Some(value.clone());
+                cx.emit(SettingsPanelEvent::AgentDefaultProfileChanged(
+                    value.clone(),
+                ));
+            },
+        )
+        .detach();
+
+        for (agent, input) in &panel.agent_executable_inputs {
+            let agent = *agent;
+            let input = input.clone();
+            cx.subscribe(&input, move |_panel, state, event, cx| {
+                if !matches!(event, InputEvent::Change) {
+                    return;
+                }
+                let value = state.read(cx).value().trim().to_string();
+                let executable = (!value.is_empty())
+                    .then(|| std::path::PathBuf::from(value));
+                cx.emit(SettingsPanelEvent::AgentExecutableOverrideChanged {
+                    agent,
+                    executable,
+                });
+            })
+            .detach();
+        }
+
+        panel.start_agent_probes(cx);
         panel
+    }
+
+    fn open_agent_profile_editor(
+        &mut self,
+        profile_id: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_profile_editor.is_some() {
+            return;
+        }
+        let profile = profile_id.as_deref().and_then(|id| {
+            self.agent_settings
+                .custom_profiles
+                .iter()
+                .find(|profile| profile.id == id)
+                .cloned()
+        });
+        let editor = cx.new(|cx| {
+            AgentProfileEditor::new(profile, self.locale, window, cx)
+        });
+        cx.subscribe_in(
+            &editor,
+            window,
+            |panel, _editor, event, _window, cx| match event {
+                AgentProfileEditorEvent::Cancel => {
+                    panel.agent_profile_editor = None;
+                    cx.notify();
+                }
+                AgentProfileEditorEvent::Save {
+                    previous_id,
+                    profile,
+                } => {
+                    let mut candidate = panel.agent_settings.clone();
+                    if let Some(previous_id) = previous_id {
+                        if candidate.default_profile_id.as_deref()
+                            == Some(previous_id)
+                        {
+                            candidate.default_profile_id =
+                                Some(profile.id.clone());
+                        }
+                        candidate
+                            .custom_profiles
+                            .retain(|entry| entry.id != *previous_id);
+                    }
+                    candidate.custom_profiles.push(profile.clone());
+                    if let Err(errors) = candidate.validate() {
+                        if let Some(editor) = panel.agent_profile_editor.clone()
+                        {
+                            editor.update(cx, |editor, cx| {
+                                let error =
+                                    errors.into_iter().next().unwrap_or_else(
+                                        || "invalid Agent profile".to_string(),
+                                    );
+                                editor.set_error(
+                                    i18n::text_args(
+                                        panel.locale,
+                                        "agent-profile-validation-error",
+                                        &[("error", &error)],
+                                    ),
+                                    cx,
+                                );
+                            });
+                        }
+                        return;
+                    }
+                    panel.agent_profile_editor = None;
+                    cx.emit(SettingsPanelEvent::AgentProfileSaved {
+                        previous_id: previous_id.clone(),
+                        profile: profile.clone(),
+                    });
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+        self.agent_profile_editor = Some(editor);
+        cx.notify();
+    }
+
+    fn remove_agent_profile(
+        &mut self,
+        profile_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self
+            .agent_settings
+            .custom_profiles
+            .iter()
+            .all(|profile| profile.id != profile_id)
+        {
+            return;
+        }
+        self.agent_profile_editor = None;
+        cx.emit(SettingsPanelEvent::AgentProfileRemoved(profile_id));
     }
 
     pub fn set_locale(
@@ -335,6 +526,7 @@ impl SettingsPanel {
         cx: &mut Context<Self>,
     ) {
         self.locale = locale;
+        self.agent_profile_editor = None;
         let language = self.language;
         let auto_refresh_on_focus = self.auto_refresh_on_focus;
         let theme = self.theme;
@@ -343,6 +535,8 @@ impl SettingsPanel {
         let ui_font = self.ui_font.clone();
         let mono_font = self.mono_font.clone();
         let fonts = self.font_families.clone();
+        let agent_settings = self.agent_settings.clone();
+        let agent_default_profile = agent_settings.default_profile_id();
 
         self.language_state.update(cx, |state, cx| {
             let options = language_options(locale);
@@ -379,7 +573,102 @@ impl SettingsPanel {
             state.set_items(SearchableVec::from(options), window, cx);
             state.set_selected_value(&mono_font, window, cx);
         });
+        self.agent_default_profile_state.update(cx, |state, cx| {
+            let options = agent_profile_options(locale, &agent_settings);
+            state.set_items(options.clone(), window, cx);
+            state.set_selected_value(&agent_default_profile, window, cx);
+        });
         cx.notify();
+    }
+
+    pub fn set_agent_settings(
+        &mut self,
+        settings: AgentSettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.agent_settings = settings.clone();
+        self.agent_profile_editor = None;
+        self.start_agent_probes(cx);
+        let selected = settings.default_profile_id();
+        let options = agent_profile_options(self.locale, &settings);
+        self.agent_default_profile_state.update(cx, |state, cx| {
+            state.set_items(options.clone(), window, cx);
+            state.set_selected_value(&selected, window, cx);
+        });
+        for (agent, input) in &self.agent_executable_inputs {
+            let value = settings
+                .executable_overrides
+                .get(agent)
+                .map(|path| path.display().to_string())
+                .unwrap_or_default();
+            input.update(cx, |state, cx| {
+                state.set_value(value, window, cx);
+            });
+        }
+        cx.notify();
+    }
+
+    fn start_agent_probes(&mut self, cx: &mut Context<Self>) {
+        self.agent_probe_generation =
+            self.agent_probe_generation.wrapping_add(1);
+        let generation = self.agent_probe_generation;
+        let profiles = agent_profile_options(self.locale, &self.agent_settings)
+            .into_iter()
+            .filter_map(|option| {
+                self.agent_settings
+                    .profile(&option.value)
+                    .map(|profile| (option.value, profile))
+            })
+            .collect::<Vec<_>>();
+        self.agent_probe_results =
+            profiles.iter().map(|(id, _)| (id.clone(), None)).collect();
+        let panel = cx.entity();
+        cx.spawn(async move |_, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(200))
+                .await;
+            let current_generation =
+                panel.read_with(cx, |panel, _| panel.agent_probe_generation);
+            if current_generation != generation {
+                return;
+            }
+            let results = cx
+                .background_spawn(async move {
+                    profiles
+                        .into_iter()
+                        .map(|(id, profile)| {
+                            let result = crate::agent::probe_profile(&profile)
+                                .map(|version| first_line(&version).to_string())
+                                .map_err(|error| {
+                                    first_line(&error.to_string()).to_string()
+                                });
+                            (id, result)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await;
+            let _ = panel.update(cx, |panel, cx| {
+                if panel.agent_probe_generation != generation {
+                    return;
+                }
+                panel.agent_probe_results = results
+                    .into_iter()
+                    .map(|(id, result)| (id, Some(result)))
+                    .collect();
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub fn update_agent_settings(
+        &mut self,
+        settings: AgentSettings,
+        cx: &mut Context<Self>,
+    ) {
+        self.agent_settings = settings;
+        self.start_agent_probes(cx);
     }
 
     fn select_section(
@@ -392,6 +681,7 @@ impl SettingsPanel {
     }
 
     fn close(&mut self, cx: &mut Context<Self>) {
+        self.agent_profile_editor = None;
         cx.emit(SettingsPanelEvent::Close);
     }
 
@@ -629,6 +919,213 @@ impl SettingsPanel {
                         ))),
                 )
                 .into_any_element(),
+            SettingsSection::Agents => {
+                let profiles =
+                    agent_profile_options(self.locale, &self.agent_settings);
+                let this = cx.entity();
+                let profile_rows = profiles.iter().map(|profile| {
+                    let resolved = self.agent_settings.profile(&profile.value);
+                    let executable = resolved
+                        .as_ref()
+                        .map(|profile| profile.executable.display().to_string())
+                        .unwrap_or_else(|| {
+                            i18n::text(self.locale, "agent-profile-invalid")
+                        });
+                    let probe_label = if resolved.is_none() {
+                        i18n::text(self.locale, "agent-profile-invalid")
+                    } else {
+                        let probe = self
+                            .agent_probe_results
+                            .iter()
+                            .find(|(id, _)| id == &profile.value)
+                            .and_then(|(_, result)| result.as_ref());
+                        match probe {
+                            Some(Ok(version)) => version.clone(),
+                            Some(Err(error)) => i18n::text_args(
+                                self.locale,
+                                "agent-probe-unavailable",
+                                &[("error", error)],
+                            ),
+                            None => {
+                                i18n::text(self.locale, "agent-probe-checking")
+                            }
+                        }
+                    };
+                    let custom_id = self
+                        .agent_settings
+                        .custom_profiles
+                        .iter()
+                        .find(|custom| custom.id == profile.value)
+                        .map(|_| profile.value.clone());
+                    let mut row = v_flex()
+                        .w_full()
+                        .gap_1()
+                        .px_3()
+                        .py_2()
+                        .rounded_md()
+                        .bg(colors.secondary)
+                        .child(
+                            div()
+                                .text_color(colors.foreground)
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(profile.label.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_color(colors.muted_foreground)
+                                .text_size(crate::theme::scaled_text_size(11.))
+                                .child(SharedString::from(executable)),
+                        )
+                        .child(
+                            div()
+                                .text_color(colors.muted_foreground)
+                                .text_size(crate::theme::scaled_text_size(11.))
+                                .child(SharedString::from(probe_label)),
+                        );
+                    if let Some(id) = custom_id {
+                        let edit = this.clone();
+                        let remove = this.clone();
+                        let edit_id = id.clone();
+                        let remove_id = id.clone();
+                        row = row.child(
+                            h_flex()
+                                .w_full()
+                                .justify_end()
+                                .gap_1()
+                                .child(
+                                    Button::new(SharedString::from(format!(
+                                        "agent-profile-edit-{id}"
+                                    )))
+                                    .label(i18n::text(
+                                        self.locale,
+                                        "agent-profile-edit",
+                                    ))
+                                    .ghost()
+                                    .xsmall()
+                                    .on_click(move |_event, window, cx| {
+                                        edit.update(cx, |panel, cx| {
+                                            panel.open_agent_profile_editor(
+                                                Some(edit_id.clone()),
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }),
+                                )
+                                .child(
+                                    Button::new(SharedString::from(format!(
+                                        "agent-profile-remove-{id}"
+                                    )))
+                                    .label(i18n::text(
+                                        self.locale,
+                                        "agent-profile-remove",
+                                    ))
+                                    .ghost()
+                                    .xsmall()
+                                    .on_click(move |_event, _window, cx| {
+                                        remove.update(cx, |panel, cx| {
+                                            panel.remove_agent_profile(
+                                                remove_id.clone(),
+                                                cx,
+                                            );
+                                        });
+                                    }),
+                                ),
+                        );
+                    }
+                    row
+                });
+                let new_profile = this.clone();
+                v_flex()
+                    .w_full()
+                    .gap_4()
+                    .child(
+                        div()
+                            .text_size(crate::theme::scaled_text_size(20.))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(colors.foreground)
+                            .child(shared(i18n::text(
+                                self.locale,
+                                "settings-agents",
+                            ))),
+                    )
+                    .child(Self::field(
+                        i18n::text(self.locale, "agent-default-profile-title"),
+                        Select::new(&self.agent_default_profile_state)
+                            .w_full()
+                            .into_any_element(),
+                        colors.foreground,
+                    ))
+                    .child(
+                        div()
+                            .text_size(crate::theme::scaled_text_size(12.))
+                            .text_color(colors.muted_foreground)
+                            .child(shared(i18n::text(
+                                self.locale,
+                                "agent-profiles-description",
+                            ))),
+                    )
+                    .child(
+                        div()
+                            .text_color(colors.foreground)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(shared(i18n::text(
+                                self.locale,
+                                "agent-executable-title",
+                            ))),
+                    )
+                    .children(self.agent_executable_inputs.iter().map(
+                        |(agent, input)| {
+                            v_flex()
+                                .w_full()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .text_color(colors.muted_foreground)
+                                        .text_size(
+                                            crate::theme::scaled_text_size(12.),
+                                        )
+                                        .child(SharedString::from(
+                                            agent.display_name(),
+                                        )),
+                                )
+                                .child(Input::new(input).w_full())
+                        },
+                    ))
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_color(colors.foreground)
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(shared(i18n::text(
+                                        self.locale,
+                                        "agent-custom-profiles-title",
+                                    ))),
+                            )
+                            .child(
+                                Button::new("agent-profile-add")
+                                    .label(i18n::text(
+                                        self.locale,
+                                        "agent-profile-add",
+                                    ))
+                                    .ghost()
+                                    .small()
+                                    .on_click(move |_event, window, cx| {
+                                        new_profile.update(cx, |panel, cx| {
+                                            panel.open_agent_profile_editor(
+                                                None, window, cx,
+                                            );
+                                        });
+                                    }),
+                            ),
+                    )
+                    .children(profile_rows)
+                    .into_any_element()
+            }
         }
     }
 }
@@ -694,6 +1191,12 @@ impl Render for SettingsPanel {
                         "settings-category-layout",
                         i18n::text(self.locale, "settings-layout"),
                         SettingsSection::Layout,
+                        cx,
+                    ))
+                    .child(self.category_button(
+                        "settings-category-agents",
+                        i18n::text(self.locale, "settings-agents"),
+                        SettingsSection::Agents,
                         cx,
                     )),
             )
@@ -763,6 +1266,9 @@ impl Render for SettingsPanel {
                 this.update(cx, |panel, cx| panel.close(cx));
             })
             .child(card)
+            .when_some(self.agent_profile_editor.clone(), |element, editor| {
+                element.child(editor)
+            })
     }
 }
 
@@ -871,4 +1377,30 @@ fn font_options(
             .map(|family| SettingsOption::new(Some(family.clone()), family)),
     );
     options
+}
+
+fn agent_profile_options(
+    _locale: Locale,
+    settings: &AgentSettings,
+) -> Vec<SettingsOption<String>> {
+    let mut options = BuiltInAgent::ALL
+        .iter()
+        .map(|agent| {
+            SettingsOption::new(agent.id().to_string(), agent.display_name())
+        })
+        .collect::<Vec<_>>();
+    for profile in &settings.custom_profiles {
+        if options.iter().any(|option| option.value == profile.id) {
+            continue;
+        }
+        options.push(SettingsOption::new(
+            profile.id.clone(),
+            profile.name.clone(),
+        ));
+    }
+    options
+}
+
+fn first_line(value: &str) -> &str {
+    value.lines().next().unwrap_or(value)
 }

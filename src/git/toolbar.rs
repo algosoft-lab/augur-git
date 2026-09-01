@@ -1,9 +1,9 @@
-//! M1：Toolbar 工具栏（镜像 rgitui toolbar.rs；M1.5 图标化 ghost 风格）
+//! M1: Toolbar controls (mirrors rgitui toolbar.rs; M1.5 iconified ghost style).
 //!
-//! 左组：Branch 下拉菜单（新建/重命名/贮藏/合并/变基）+ Fetch/Pull/Push
-//! + ahead/behind 徽标 + Compare
-//! 右组：busy Spinner / 刷新 / 设置
-//! 动作经 ToolbarEvent 事件链下发 Workspace → GitCommand（git 子进程后台执行）
+//! Left group: Branch menu (new/rename/stash/merge/rebase) + Fetch/Pull/Push.
+//! + ahead/behind badges + Compare.
+//! Right group: busy spinner / refresh / settings.
+//! Actions flow through ToolbarEvent to Workspace → GitCommand (Git runs in the background).
 
 use gpui::prelude::*;
 use gpui::*;
@@ -18,20 +18,20 @@ use gpui_component::{
 use crate::core::i18n::{self, Locale};
 use crate::git::{lucide, shared};
 
-/// Branch 菜单各入口的可用性（RepoTab 依据仓库状态同步）
+/// Availability of Branch menu entries, synchronized from repository state.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BranchMenuContext {
-    /// 存在当前分支（重命名需要）
+    /// Whether a current branch exists (required for rename).
     pub can_rename: bool,
-    /// 存在至少一个非当前本地分支（合并/变基需要）
+    /// Whether at least one other local branch exists (required for merge/rebase).
     pub can_integrate: bool,
-    /// 工作区存在可贮藏的改动
+    /// Whether the working tree has changes that can be stashed.
     pub can_stash: bool,
-    /// stash 记录数（弹出贮藏需要）
+    /// Number of stash entries (required for stash pop).
     pub stash_count: usize,
 }
 
-/// Toolbar → Workspace 事件
+/// Toolbar-to-Workspace events.
 #[derive(Clone, Debug)]
 pub enum ToolbarEvent {
     BranchNew,
@@ -46,6 +46,7 @@ pub enum ToolbarEvent {
     Push,
     PushForce,
     Compare,
+    NewAgentTask,
     Refresh,
     Settings,
 }
@@ -53,13 +54,13 @@ pub enum ToolbarEvent {
 pub struct Toolbar {
     ahead: usize,
     behind: usize,
-    /// 是否有远程（无远程时 fetch/pull/push 禁用）
+    /// Whether a remote exists (fetch/pull/push are disabled without one).
     has_remote: bool,
-    /// 操作进行中（右侧 Spinner）
+    /// Whether an operation is in progress (right-side spinner).
     busy: bool,
-    /// Branch 菜单入口可用性
+    /// Branch menu entry availability.
     branch_ctx: BranchMenuContext,
-    /// 界面语言（Workspace 切换语言时同步）
+    /// UI locale, synchronized when Workspace changes language.
     locale: Locale,
 }
 
@@ -77,13 +78,13 @@ impl Toolbar {
         }
     }
 
-    /// 切换语言（Workspace::set_language 同步）
+    /// Change the locale, synchronized by Workspace::set_language.
     pub fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
         self.locale = locale;
         cx.notify();
     }
 
-    /// 同步 Branch 菜单入口可用性（RepoTab 在状态/引用刷新后调用）
+    /// Synchronize Branch menu availability after repository status/ref refreshes.
     pub fn set_branch_context(
         &mut self,
         ctx: BranchMenuContext,
@@ -117,7 +118,7 @@ impl Toolbar {
         }
     }
 
-    /// 工具按钮：图标(14px)+文字(12px) ghost 风格（无常态底色，hover 提亮）
+    /// Toolbar button: 14px icon + 12px text in ghost style (no resting fill; hover highlight).
     fn tool_button(
         &self,
         id: &'static str,
@@ -273,7 +274,7 @@ impl Toolbar {
             })
     }
 
-    /// ahead/behind 徽标（箭头图标 + 计数，11px 微字号）
+    /// Ahead/behind badges (arrow icon + count in an 11px label).
     fn count_badge(
         &self,
         id: &'static str,
@@ -379,7 +380,16 @@ impl Render for Toolbar {
                 ToolbarEvent::Compare,
                 cx,
             ))
-            // ahead/behind 徽标
+            .child(self.tool_button(
+                "tb-agent-task",
+                Icon::new(IconName::Bot),
+                "toolbar-agent-task",
+                &colors,
+                !self.busy,
+                ToolbarEvent::NewAgentTask,
+                cx,
+            ))
+            // Ahead/behind badges.
             .child(self.count_badge(
                 "tb-ahead",
                 IconName::ArrowUp,
@@ -395,7 +405,7 @@ impl Render for Toolbar {
                 &colors,
             ))
             .child(div().flex_1())
-            // 忙碌指示（动画 Spinner 替代静态文字）
+            // Busy indicator (animated spinner instead of static text).
             .when(self.busy, |el| {
                 el.child(Spinner::new().with_size(px(14.)).color(colors.blue))
             })

@@ -150,8 +150,139 @@ impl RepoTab {
             Some(PendingConfirmation::Discard { .. }) => {
                 self.discard_confirm_overlay(cx)
             }
+            Some(PendingConfirmation::AgentSharedTree { .. }) => {
+                self.agent_shared_tree_confirm_overlay(cx)
+            }
+            Some(PendingConfirmation::AgentSessionClose { .. }) => {
+                self.agent_session_close_confirm_overlay(cx)
+            }
             None => div().into_any_element(),
         }
+    }
+
+    fn agent_shared_tree_confirm_overlay(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let colors = cx.theme().colors.clone();
+        let this = cx.entity();
+        let cancel = this.clone();
+        let confirm = this.clone();
+        self.overlay_card(
+            cx,
+            "agent-shared-tree-overlay",
+            "agent-shared-tree-card",
+            h_flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    Icon::new(IconName::TriangleAlert)
+                        .text_color(colors.warning),
+                )
+                .child(
+                    div()
+                        .text_color(colors.foreground)
+                        .font_weight(FontWeight::BOLD)
+                        .child(shared(i18n::text(
+                            self.locale,
+                            "agent-shared-tree-title",
+                        ))),
+                ),
+            div()
+                .text_color(colors.muted_foreground)
+                .text_size(crate::theme::scaled_text_size(12.))
+                .child(shared(i18n::text(
+                    self.locale,
+                    "agent-shared-tree-warning",
+                ))),
+            h_flex()
+                .w_full()
+                .gap_2()
+                .child(
+                    Button::new("agent-shared-tree-cancel")
+                        .label(i18n::text(self.locale, "agent-cancel"))
+                        .ghost()
+                        .flex_1()
+                        .on_click(move |_event, _window, cx| {
+                            cancel.update(cx, |tab, cx| {
+                                tab.cancel_confirmation(cx)
+                            });
+                        }),
+                )
+                .child(
+                    Button::new("agent-shared-tree-confirm")
+                        .label(i18n::text(self.locale, "agent-start"))
+                        .danger()
+                        .flex_1()
+                        .on_click(move |_event, _window, cx| {
+                            confirm.update(cx, |tab, cx| {
+                                tab.confirm_agent_shared_tree(cx);
+                            });
+                        }),
+                ),
+        )
+        .into_any_element()
+    }
+
+    fn agent_session_close_confirm_overlay(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let colors = cx.theme().colors.clone();
+        let this = cx.entity();
+        let cancel = this.clone();
+        let confirm = this.clone();
+        self.overlay_card(
+            cx,
+            "agent-close-overlay",
+            "agent-close-card",
+            h_flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    Icon::new(IconName::TriangleAlert)
+                        .text_color(colors.warning),
+                )
+                .child(
+                    div()
+                        .text_color(colors.foreground)
+                        .font_weight(FontWeight::BOLD)
+                        .child(shared(i18n::text(
+                            self.locale,
+                            "agent-close-title",
+                        ))),
+                ),
+            div()
+                .text_color(colors.muted_foreground)
+                .text_size(crate::theme::scaled_text_size(12.))
+                .child(shared(i18n::text(self.locale, "agent-close-warning"))),
+            h_flex()
+                .w_full()
+                .gap_2()
+                .child(
+                    Button::new("agent-close-cancel")
+                        .label(i18n::text(self.locale, "agent-cancel"))
+                        .ghost()
+                        .flex_1()
+                        .on_click(move |_event, _window, cx| {
+                            cancel.update(cx, |tab, cx| {
+                                tab.cancel_confirmation(cx)
+                            });
+                        }),
+                )
+                .child(
+                    Button::new("agent-close-confirm")
+                        .label(i18n::text(self.locale, "agent-close-confirm"))
+                        .danger()
+                        .flex_1()
+                        .on_click(move |_event, _window, cx| {
+                            confirm.update(cx, |tab, cx| {
+                                tab.confirm_agent_close(cx)
+                            });
+                        }),
+                ),
+        )
+        .into_any_element()
     }
 
     fn push_upstream_confirm_overlay(

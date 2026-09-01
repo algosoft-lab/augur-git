@@ -4,6 +4,7 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{Root, TitleBar};
 
+use crate::agent::ReviewSelection;
 use crate::core::i18n::Locale;
 use crate::git::GitUiEvent;
 use crate::git::branch_compare::{
@@ -23,21 +24,37 @@ pub(super) fn new_view(
 
 pub(super) fn subscribe(
     compare: &Entity<BranchCompareView>,
+    window: &mut Window,
     cx: &mut Context<RepoTab>,
 ) {
-    cx.subscribe(compare, |tab, _event, event, cx| match event {
-        BranchCompareEvent::Cancel => {
-            tab.git_view
-                .update(cx, |view, _| view.cancel_branch_compare());
-        }
-        BranchCompareEvent::Compare {
-            request_id,
-            base,
-            target,
-        } => {
-            tab.git_view.update(cx, |view, _| {
-                view.branch_compare(*request_id, base.clone(), target.clone());
-            });
+    cx.subscribe_in(compare, window, |tab, _event, event, window, cx| {
+        match event {
+            BranchCompareEvent::Cancel => {
+                tab.git_view
+                    .update(cx, |view, _| view.cancel_branch_compare());
+            }
+            BranchCompareEvent::Compare {
+                request_id,
+                base,
+                target,
+            } => {
+                tab.review_context.selection = ReviewSelection::Comparison {
+                    base: base.full_name.clone(),
+                    target: target.full_name.clone(),
+                    path: None,
+                };
+                tab.git_view.update(cx, |view, _| {
+                    view.branch_compare(
+                        *request_id,
+                        base.clone(),
+                        target.clone(),
+                    );
+                });
+            }
+            BranchCompareEvent::NewAgentTask(context) => {
+                window.activate_window();
+                tab.open_agent_composer(context.clone(), window, cx);
+            }
         }
     })
     .detach();
@@ -224,5 +241,8 @@ pub(super) fn render(
     window: &mut Window,
     cx: &mut Context<RepoTab>,
 ) -> AnyElement {
-    tab.main_content(window, cx).into_any_element()
+    // Keep the Review tab visible even before the first Agent session. This
+    // makes the repository content area stable while sessions are opened and
+    // closed, and gives every review context the same New Agent entry point.
+    tab.render_agent_content(window, cx)
 }
