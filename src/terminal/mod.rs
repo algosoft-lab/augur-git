@@ -7,7 +7,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -149,6 +149,7 @@ pub struct TerminalBackend {
     _test_directory: Option<AgentTestDirectory>,
     shutdown_requested: AtomicBool,
     geometry: Mutex<TerminalGeometry>,
+    viewport_generation: AtomicU64,
 }
 
 impl TerminalBackend {
@@ -250,6 +251,7 @@ impl TerminalBackend {
             _test_directory: test_directory,
             shutdown_requested: AtomicBool::new(false),
             geometry: Mutex::new(TerminalGeometry::default()),
+            viewport_generation: AtomicU64::new(0),
         })
     }
 
@@ -291,7 +293,7 @@ impl TerminalBackend {
         });
     }
 
-    pub fn resize(
+    fn send_resize(
         &self,
         columns: u16,
         lines: u16,
@@ -450,7 +452,7 @@ impl TerminalBackend {
         events
     }
 
-    pub fn snapshot(&self) -> TerminalSnapshot {
+    pub(crate) fn snapshot(&self) -> TerminalSnapshot {
         let terminal = self.terminal.lock();
         TerminalSnapshot::from_renderable(
             terminal.renderable_content(),
@@ -477,37 +479,67 @@ impl TerminalBackend {
         point(px(x), px(y))
     }
 
-    fn update_geometry(&self, geometry: TerminalGeometry) {
-        let needs_resize = self
+    pub(crate) fn synchronize_viewport(
+        &self,
+        geometry: TerminalGeometry,
+    ) -> (u64, TerminalSnapshot) {
+        let (previous, grid_changed, pty_changed) = self
             .geometry
             .lock()
             .map(|mut current| {
-                let needs_resize = current.columns != geometry.columns
-                    || current.lines != geometry.lines
+                let grid_changed = current.columns != geometry.columns
+                    || current.lines != geometry.lines;
+                let pty_changed = grid_changed
                     || (current.cell_width - geometry.cell_width).abs()
                         > f32::EPSILON
                     || (current.line_height - geometry.line_height).abs()
                         > f32::EPSILON;
+                let previous = *current;
                 *current = geometry;
-                needs_resize
+                (previous, grid_changed, pty_changed)
             })
-            .unwrap_or(false);
-        if !needs_resize {
-            return;
+            .unwrap_or((geometry, false, false));
+        let generation = if pty_changed {
+            self.viewport_generation.fetch_add(1, Ordering::AcqRel) + 1
+        } else {
+            self.viewport_generation.load(Ordering::Acquire)
+        };
+
+        let snapshot = {
+            let mut terminal = self.terminal.lock();
+            if grid_changed {
+                terminal.resize(TerminalDimensions {
+                    columns: geometry.columns as usize,
+                    lines: geometry.lines as usize,
+                });
+            }
+            TerminalSnapshot::from_renderable(
+                terminal.renderable_content(),
+                terminal.columns(),
+                terminal.screen_lines(),
+            )
+        };
+
+        if pty_changed {
+            log::debug!(
+                "[agent_terminal] viewport resize generation={} grid={}x{} -> {}x{} cell_width={:.2} line_height={:.2}",
+                generation,
+                previous.columns,
+                previous.lines,
+                geometry.columns,
+                geometry.lines,
+                geometry.cell_width,
+                geometry.line_height,
+            );
+            self.send_resize(
+                geometry.columns,
+                geometry.lines,
+                geometry.cell_width.round().max(1.) as u16,
+                geometry.line_height.round().max(1.) as u16,
+            );
         }
-        log::debug!(
-            "[agent_terminal] viewport geometry columns={} rows={} cell_width={:.2} line_height={:.2}",
-            geometry.columns,
-            geometry.lines,
-            geometry.cell_width,
-            geometry.line_height,
-        );
-        self.resize(
-            geometry.columns,
-            geometry.lines,
-            geometry.cell_width.round().max(1.) as u16,
-            geometry.line_height.round().max(1.) as u16,
-        );
+
+        (generation, snapshot)
     }
 
     /// Search the bounded terminal grid without retaining a separate
@@ -692,12 +724,14 @@ fn encode_key(event: &KeyDownEvent) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::geometry::TerminalGeometry;
+    use super::model::TerminalSnapshot;
     use super::render::xterm_rgb;
     use super::{
-        TerminalConfig, TerminalDimensions, encode_key, encode_paste,
-        grid_contains_text, viewport_point,
+        Cell, CellFlags, TerminalConfig, TerminalDimensions, encode_key,
+        encode_paste, grid_contains_text, viewport_point,
     };
     use alacritty_terminal::event::VoidListener;
+    use alacritty_terminal::grid::Dimensions;
     use alacritty_terminal::index::{Line, Point as TerminalPoint};
     use alacritty_terminal::term::Term;
     use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
@@ -797,5 +831,114 @@ mod tests {
 
         processor.advance(&mut terminal, b"\x1b[?1049h\x1b[2Jalternate marker");
         assert!(grid_contains_text(&terminal.grid(), "alternate marker"));
+    }
+
+    #[test]
+    fn resizing_parser_grid_tracks_viewport_and_reflows_primary_screen() {
+        let initial = TerminalDimensions {
+            columns: 120,
+            lines: 32,
+        };
+        let mut terminal = Term::new(
+            TerminalConfig {
+                scrolling_history: 64,
+                ..TerminalConfig::default()
+            },
+            &initial,
+            VoidListener,
+        );
+        let mut processor = Processor::<StdSyncHandler>::new();
+        let mut output = b"prefix-".to_vec();
+        output.extend(std::iter::repeat_n(b'x', 140));
+        output.extend_from_slice(b"-suffix");
+        processor.advance(&mut terminal, &output);
+
+        terminal.resize(TerminalDimensions {
+            columns: 60,
+            lines: 16,
+        });
+        let compact = TerminalSnapshot::from_renderable(
+            terminal.renderable_content(),
+            terminal.columns(),
+            terminal.screen_lines(),
+        );
+        assert_eq!((terminal.columns(), terminal.screen_lines()), (60, 16));
+        assert_eq!((compact.columns, compact.screen_lines), (60, 16));
+        assert!(compact.cells.iter().all(|cell| {
+            cell.column < compact.columns
+                && cell.line >= -(compact.screen_lines as i32)
+                && cell.line < compact.screen_lines as i32
+        }));
+        assert!(all_grid_text(&terminal.grid()).contains("prefix-"));
+        assert!(all_grid_text(&terminal.grid()).contains("-suffix"));
+
+        terminal.resize(TerminalDimensions {
+            columns: 160,
+            lines: 40,
+        });
+        let expanded = TerminalSnapshot::from_renderable(
+            terminal.renderable_content(),
+            terminal.columns(),
+            terminal.screen_lines(),
+        );
+        assert_eq!((expanded.columns, expanded.screen_lines), (160, 40));
+        assert!(expanded.cells.iter().all(|cell| cell.column < 160));
+        assert!(all_grid_text(&terminal.grid()).contains("prefix-"));
+        assert!(all_grid_text(&terminal.grid()).contains("-suffix"));
+    }
+
+    #[test]
+    fn resizing_alternate_screen_keeps_cells_inside_new_grid() {
+        let initial = TerminalDimensions {
+            columns: 120,
+            lines: 32,
+        };
+        let mut terminal =
+            Term::new(TerminalConfig::default(), &initial, VoidListener);
+        let mut processor = Processor::<StdSyncHandler>::new();
+        processor.advance(
+            &mut terminal,
+            b"\x1b[?1049h\x1b[2J\x1b[Halternate-screen",
+        );
+
+        terminal.resize(TerminalDimensions {
+            columns: 48,
+            lines: 12,
+        });
+        let snapshot = TerminalSnapshot::from_renderable(
+            terminal.renderable_content(),
+            terminal.columns(),
+            terminal.screen_lines(),
+        );
+        assert!(snapshot.alternate_screen);
+        assert_eq!((snapshot.columns, snapshot.screen_lines), (48, 12));
+        assert!(snapshot.cells.iter().all(|cell| {
+            cell.column < snapshot.columns
+                && cell.line >= 0
+                && cell.line < snapshot.screen_lines as i32
+        }));
+        assert!(all_grid_text(&terminal.grid()).contains("alternate-screen"));
+    }
+
+    fn all_grid_text(grid: &alacritty_terminal::grid::Grid<Cell>) -> String {
+        let mut text = String::new();
+        for line in grid.topmost_line().0..=grid.bottommost_line().0 {
+            for column in 0..grid.columns() {
+                let cell = &grid[Line(line)]
+                    [alacritty_terminal::index::Column(column)];
+                if cell.flags.contains(CellFlags::WIDE_CHAR_SPACER) {
+                    continue;
+                }
+                if cell.flags.contains(CellFlags::HIDDEN) {
+                    text.push(' ');
+                } else {
+                    text.push(cell.c);
+                    if let Some(zerowidth) = cell.zerowidth() {
+                        text.extend(zerowidth.iter().copied());
+                    }
+                }
+            }
+        }
+        text
     }
 }

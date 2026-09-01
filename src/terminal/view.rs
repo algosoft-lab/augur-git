@@ -113,7 +113,7 @@ impl Render for TerminalView {
         let terminal_canvas = canvas(
             move |bounds, window, _cx| {
                 let geometry = terminal_geometry_for_bounds(bounds, window);
-                geometry_backend.update_geometry(geometry);
+                let _ = geometry_backend.synchronize_viewport(geometry);
                 StyledCanvasState {
                     geometry,
                     plan,
