@@ -393,31 +393,6 @@ impl Render for AgentConnectivityWindow {
                     .min_h_0()
                     .gap_2()
                     .p_4()
-                    .child(self.metadata_row(
-                        i18n::text(self.locale, "agent-test-profile"),
-                        self.profile.name.clone(),
-                        &colors,
-                    ))
-                    .child(self.metadata_row(
-                        i18n::text(self.locale, "agent-test-executable"),
-                        self.spec.executable.display().to_string(),
-                        &colors,
-                    ))
-                    .child(self.metadata_row(
-                        i18n::text(self.locale, "agent-test-arguments"),
-                        argv.join("\n"),
-                        &colors,
-                    ))
-                    .child(self.metadata_row(
-                        i18n::text(self.locale, "agent-test-working-directory"),
-                        cwd,
-                        &colors,
-                    ))
-                    .child(self.metadata_row(
-                        i18n::text(self.locale, "agent-test-prompt"),
-                        self.challenge.prompt.clone(),
-                        &colors,
-                    ))
                     .child(
                         h_flex()
                             .w_full()
@@ -431,11 +406,32 @@ impl Render for AgentConnectivityWindow {
                                     ))
                                     .child(i18n::text(
                                         self.locale,
+                                        "agent-test-profile",
+                                    )),
+                            )
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_color(colors.foreground)
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(self.profile.name.clone()),
+                            )
+                            .child(div().flex_1())
+                            .child(
+                                div()
+                                    .text_color(colors.muted_foreground)
+                                    .text_size(crate::theme::scaled_text_size(
+                                        12.,
+                                    ))
+                                    .child(i18n::text(
+                                        self.locale,
                                         "agent-test-status-label",
                                     )),
                             )
                             .child(
                                 div()
+                                    .min_w_0()
+                                    .flex_1()
                                     .text_color(
                                         if matches!(
                                             self.state,
@@ -469,6 +465,55 @@ impl Render for AgentConnectivityWindow {
                     )
                     .child(
                         div()
+                            .id("agent-connectivity-details")
+                            .w_full()
+                            .max_h(px(140.))
+                            .flex_shrink_0()
+                            .overflow_y_scroll()
+                            .child(
+                                v_flex()
+                                    .gap_2()
+                                    .child(
+                                        self.metadata_row(
+                                            i18n::text(
+                                                self.locale,
+                                                "agent-test-executable",
+                                            ),
+                                            self.spec
+                                                .executable
+                                                .display()
+                                                .to_string(),
+                                            &colors,
+                                        ),
+                                    )
+                                    .child(self.metadata_row(
+                                        i18n::text(
+                                            self.locale,
+                                            "agent-test-arguments",
+                                        ),
+                                        argv.join("\n"),
+                                        &colors,
+                                    ))
+                                    .child(self.metadata_row(
+                                        i18n::text(
+                                            self.locale,
+                                            "agent-test-working-directory",
+                                        ),
+                                        cwd,
+                                        &colors,
+                                    ))
+                                    .child(self.metadata_row(
+                                        i18n::text(
+                                            self.locale,
+                                            "agent-test-prompt",
+                                        ),
+                                        self.challenge.prompt.clone(),
+                                        &colors,
+                                    )),
+                            ),
+                    )
+                    .child(
+                        div()
                             .text_color(colors.muted_foreground)
                             .text_size(crate::theme::scaled_text_size(11.))
                             .child(i18n::text(
@@ -488,7 +533,8 @@ impl Render for AgentConnectivityWindow {
                         div()
                             .id("agent-connectivity-terminal")
                             .flex_1()
-                            .min_h_0()
+                            .min_h(px(220.))
+                            .min_w_0()
                             .border_1()
                             .border_color(colors.border)
                             .child(terminal),
