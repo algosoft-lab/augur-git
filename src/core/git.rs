@@ -731,7 +731,12 @@ fn refresh_status(repo_path: &str, event_tx: &Sender<GitEvent>) {
     }
 }
 
-/// 执行 git 命令（子进程阻塞，只在工作线程跑）
+/// Execute a git command (blocking subprocess; worker thread only).
+///
+/// Logs every invocation at the worker boundary: successes at info level
+/// (visible with `RUST_LOG=info`), failures at warn level with the full
+/// arguments, exit status, and git output so `debug.log` keeps an actionable
+/// trail even under the default filter.
 fn run_git(
     repo_path: &str,
     label: &str,
@@ -739,20 +744,56 @@ fn run_git(
     event_tx: &Sender<GitEvent>,
 ) {
     let output = git_command().arg("-C").arg(repo_path).args(args).output();
-    let event = match output {
-        Ok(output) if output.status.success() => GitEvent::CommandDone {
-            label: label.to_string(),
-            success: true,
-            message: String::from_utf8_lossy(&output.stdout).into_owned(),
-        },
-        Ok(output) => GitEvent::CommandDone {
-            label: label.to_string(),
-            success: false,
-            message: String::from_utf8_lossy(&output.stderr).into_owned(),
-        },
-        Err(e) => GitEvent::Error(GitError::new("err-git-run", e.to_string())),
-    };
-    let _ = event_tx.send(event);
+    match output {
+        Ok(output) if output.status.success() => {
+            log::info!(
+                "[git_command] command ok: label={label}, args={args:?}, {}",
+                truncated(&String::from_utf8_lossy(&output.stdout))
+            );
+            let _ = event_tx.send(GitEvent::CommandDone {
+                label: label.to_string(),
+                success: true,
+                message: String::from_utf8_lossy(&output.stdout).into_owned(),
+            });
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+            log::warn!(
+                "[git_command] command failed: label={label}, args={args:?}, \
+                 exit={:?}, stderr={}, stdout={}",
+                output.status.code(),
+                truncated(&stderr),
+                truncated(&String::from_utf8_lossy(&output.stdout))
+            );
+            let _ = event_tx.send(GitEvent::CommandDone {
+                label: label.to_string(),
+                success: false,
+                message: stderr,
+            });
+        }
+        Err(e) => {
+            log::warn!(
+                "[git_command] command spawn failed: label={label}, \
+                 args={args:?}, error={e}"
+            );
+            let _ = event_tx.send(GitEvent::Error(GitError::new(
+                "err-git-run",
+                e.to_string(),
+            )));
+        }
+    }
+}
+
+/// Bound logged git output so a chatty command cannot flood debug.log.
+fn truncated(text: &str) -> String {
+    const LIMIT: usize = 2000;
+    let text = text.trim();
+    if text.chars().count() <= LIMIT {
+        format!("output={text:?}")
+    } else {
+        let head: String = text.chars().take(LIMIT).collect();
+        format!("output={head:?}…(truncated)")
+    }
 }
 
 fn checkout_args(target: CheckoutTarget) -> Vec<String> {
@@ -1351,6 +1392,16 @@ fn parse_stashes(text: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn truncated_keeps_short_output_and_bounds_long_output() {
+        assert_eq!(truncated("  hello\n"), "output=\"hello\"");
+        let long = "x".repeat(3000);
+        let logged = truncated(&long);
+        assert!(logged.starts_with("output=\""));
+        assert!(logged.ends_with("(truncated)"));
+        assert!(logged.len() < long.len());
+    }
 
     #[test]
     fn commit_revision_constructor_trims_and_validates_hex_ids() {
