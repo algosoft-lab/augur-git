@@ -264,7 +264,7 @@ impl GraphView {
             self.search_field,
             self.search_mode,
         );
-        log::info!(
+        log::debug!(
             "[commit_search] rows rebuilt: source={}, history={}, matches={}, active={}, field={:?}, mode={:?}",
             self.all_rows.len(),
             self.history_count,
@@ -390,7 +390,7 @@ impl GraphView {
         cx: &mut Context<Self>,
     ) {
         let cached = self.commit_messages.get(&row.oid).cloned();
-        log::info!(
+        log::debug!(
             "[commit_message_dialog] open requested: oid={}, cached={}",
             row.oid,
             cached.is_some()
@@ -405,7 +405,7 @@ impl GraphView {
             cx.emit(GraphEvent::CommitMessageRequested(row.oid.clone()));
         }
         if window.has_active_dialog(cx) {
-            log::info!(
+            log::debug!(
                 "[commit_message_dialog] skip open: another dialog is active"
             );
             return;

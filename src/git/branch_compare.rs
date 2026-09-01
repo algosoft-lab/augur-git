@@ -205,7 +205,7 @@ impl BranchCompareView {
             );
             return;
         }
-        log::info!(
+        log::debug!(
             "[git_compare] UI accepted metadata: request_id={}, files={}",
             request_id,
             files.len()
@@ -274,7 +274,7 @@ impl BranchCompareView {
         ));
         self.documents
             .insert(identity, CompareDocument { document, cache });
-        log::info!(
+        log::debug!(
             "[git_compare] UI accepted file: request_id={}, path={}, patch_bytes={}, rows={}, old_source_bytes={}, new_source_bytes={}, binary={}",
             request_id,
             file.path,
@@ -311,7 +311,7 @@ impl BranchCompareView {
         if request_id == self.request_id {
             self.loading = false;
             self.finished = true;
-            log::info!(
+            log::debug!(
                 "[git_compare] UI finished: request_id={}, files={}, documents={}, file_errors={}",
                 request_id,
                 self.files.len(),
@@ -785,7 +785,7 @@ impl BranchCompareView {
                     }
                 })
                 .sum::<usize>();
-            log::info!(
+            log::debug!(
                 "[git_compare] render aggregate: request_id={}, layout={layout:?}, sections={}, documents={}, total_rows={}",
                 self.request_id,
                 sections.len(),

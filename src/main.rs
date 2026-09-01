@@ -76,7 +76,9 @@ fn main() {
 /// Initialize file-only logging without making startup depend on log-file creation.
 fn init_logging() {
     let mut builder = env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info"),
+        // Normal runs keep only actionable diagnostics in debug.log. Use
+        // `RUST_LOG=info` or `RUST_LOG=debug` when investigating behavior.
+        env_logger::Env::default().default_filter_or("warn"),
     );
     builder
         .target(env_logger::Target::Pipe(logging_writer()))

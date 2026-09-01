@@ -54,7 +54,7 @@ impl Workspace {
         };
         if tab.update(cx, |tab, cx| tab.refresh_on_focus(cx)) {
             self.last_focus_refresh = Some(now);
-            log::info!("[workspace] focus refresh requested");
+            log::debug!("[workspace] focus refresh requested");
         } else {
             log::debug!("[workspace] focus refresh skipped: tab busy");
         }

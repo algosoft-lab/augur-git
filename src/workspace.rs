@@ -609,7 +609,7 @@ impl Workspace {
                 let refresh_requested = next_tab
                     .update(cx, |tab, cx| tab.refresh_on_tab_switch(cx));
                 if refresh_requested {
-                    log::info!(
+                    log::debug!(
                         "[tab_switch_refresh] refresh requested for tab {id}"
                     );
                 } else {

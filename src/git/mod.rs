@@ -176,7 +176,7 @@ impl GitView {
                 self.poll_task = None;
             }
             if self.poll_task.is_none() {
-                log::info!(
+                log::debug!(
                     "[workspace_tabs] GitView event polling started: {}",
                     dir_name(&self.repo_path)
                 );
@@ -195,7 +195,7 @@ impl GitView {
                 }));
             }
         } else if self.poll_task.take().is_some() {
-            log::info!(
+            log::debug!(
                 "[workspace_tabs] GitView event polling stopped: {}",
                 dir_name(&self.repo_path)
             );
@@ -446,7 +446,7 @@ impl GitView {
                     ahead,
                     behind,
                 } => {
-                    log::info!(
+                    log::debug!(
                         "[git_view] status refreshed: branch={branch}, upstream={upstream:?}, files={}, branches={}, ahead={ahead}, behind={behind}",
                         files.len(),
                         branches.len()
@@ -470,7 +470,7 @@ impl GitView {
                     replace,
                     has_more,
                 } => {
-                    log::info!(
+                    log::debug!(
                         "[git_view] log page received: {} rows, replace={replace}, has_more={has_more}",
                         rows.len()
                     );
@@ -481,7 +481,7 @@ impl GitView {
                     });
                 }
                 GitEvent::Refs(refs) => {
-                    log::info!(
+                    log::debug!(
                         "[git_view] refs refreshed: remotes={}, remote_branches={}, comparison_revisions={}, tags={}, stashes={}",
                         refs.remotes.len(),
                         refs.remote_branches.len(),
@@ -496,7 +496,7 @@ impl GitView {
                     files,
                     merge_parent,
                 } => {
-                    log::info!(
+                    log::debug!(
                         "[git_view] commit file list received: oid={oid}, files={}, merge_parent={}",
                         files.len(),
                         merge_parent.is_some()
@@ -508,7 +508,7 @@ impl GitView {
                     });
                 }
                 GitEvent::CommitMessage { oid, message } => {
-                    log::info!(
+                    log::debug!(
                         "[git_view] commit message received: oid={oid}, body_lines={}, co_authors={}",
                         message.body.lines().count(),
                         message.co_authors.len()
@@ -522,7 +522,7 @@ impl GitView {
                     old_source,
                     new_source,
                 } => {
-                    log::info!(
+                    log::debug!(
                         "[git_view] commit file diff received: oid={oid}, lines={}",
                         patch.lines().count()
                     );
@@ -542,7 +542,7 @@ impl GitView {
                     old_source,
                     new_source,
                 } => {
-                    log::info!(
+                    log::debug!(
                         "[git_view] working-tree file diff received: request_id={}, kind={kind:?}, lines={}",
                         request_id,
                         patch.lines().count()
@@ -574,7 +574,7 @@ impl GitView {
                     });
                 }
                 GitEvent::BranchCompareFiles { request_id, files } => {
-                    log::info!(
+                    log::debug!(
                         "[git_view] branch comparison files received: request_id={}, files={}",
                         request_id,
                         files.len()
@@ -591,7 +591,7 @@ impl GitView {
                     old_source,
                     new_source,
                 } => {
-                    log::info!(
+                    log::debug!(
                         "[git_view] branch comparison file received: request_id={}, path={}, patch_bytes={}, old_source_bytes={}, new_source_bytes={}",
                         request_id,
                         file.path,

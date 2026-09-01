@@ -241,7 +241,7 @@ fn run_comparison(
         }
     };
 
-    log::info!(
+    log::debug!(
         "[git_compare] metadata loaded: request_id={}, files={}, with_stats={}, binary_files={}",
         request_id,
         files.len(),
@@ -279,7 +279,7 @@ fn run_comparison(
                             .and_then(|oid| read_blob_limited(repo_path, oid)),
                     )
                 };
-                log::info!(
+                log::debug!(
                     "[git_compare] file loaded: request_id={}, path={}, patch_bytes={}, old_source_bytes={}, new_source_bytes={}, binary={}",
                     request_id,
                     file.path,
