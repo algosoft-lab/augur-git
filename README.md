@@ -172,26 +172,6 @@ without a GUI or a live repository. Repository operations that can change user
 data are only initiated by explicit user actions, and their results or errors
 are surfaced in the UI.
 
-## Development
-
-```bash
-cargo fmt --all
-cargo test
-cargo check --all-targets
-```
-
-Debug builds write logs to `debug.log`. To investigate an area, run the app,
-exercise the relevant flow, and filter by the module's log prefix:
-
-```bash
-cargo run
-rg "\[(git_view|workspace|git_command|git_worktree)\]" debug.log > git-debug.log
-```
-
-Engineering policy, architecture rules, and validation requirements are
-described in [AGENTS.md](AGENTS.md). Design documents and feature plans belong
-in dedicated documents under `docs/` when needed.
-
 ## Open source
 
 Augur Git is licensed under the [Apache License 2.0](LICENSE). Contributions,
