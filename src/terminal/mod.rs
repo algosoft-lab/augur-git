@@ -15,10 +15,11 @@ use std::time::{Duration, Instant};
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::event_loop::{EventLoop, EventLoopSender, Msg};
-use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::grid::{Dimensions, Grid};
 use alacritty_terminal::index::{Column, Point as TerminalPoint, Side};
 use alacritty_terminal::selection::{Selection, SelectionRange, SelectionType};
 use alacritty_terminal::sync::FairMutex;
+use alacritty_terminal::term::cell::Cell;
 use alacritty_terminal::term::cell::Flags as CellFlags;
 use alacritty_terminal::term::{Config as TerminalConfig, Term, TermMode};
 use alacritty_terminal::tty::{self, Options as PtyOptions, Shell};
@@ -27,7 +28,9 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{ActiveTheme, v_flex};
 
-use crate::agent::{AgentLaunchSpec, TaskFile, task_file_env};
+use crate::agent::{
+    AgentLaunchSpec, AgentTestDirectory, TaskFile, task_file_env,
+};
 
 const DEFAULT_COLUMNS: usize = 120;
 const DEFAULT_LINES: usize = 32;
@@ -71,12 +74,28 @@ pub struct TerminalSnapshot {
 #[derive(Clone)]
 struct TerminalProxy {
     events: Sender<TerminalEvent>,
-    task_file: std::path::PathBuf,
+    task_file: Option<std::path::PathBuf>,
+    test_directory: Option<AgentTestDirectory>,
     /// The terminal parser emits responses to device queries as `PtyWrite`.
     /// Keep those responses inside the PTY; only OSC and other host side
     /// effects are intentionally discarded.
     input_sender: Arc<Mutex<Option<EventLoopSender>>>,
     child_exit_seen: Arc<AtomicBool>,
+}
+
+impl TerminalProxy {
+    fn cleanup_resources(&self) {
+        if let Some(task_file) = &self.task_file {
+            let _ = std::fs::remove_file(task_file);
+        }
+        if let Some(test_directory) = &self.test_directory {
+            if test_directory.cleanup().is_err() {
+                log::debug!(
+                    "[agent_terminal] temporary test directory cleanup deferred"
+                );
+            }
+        }
+    }
 }
 
 impl EventListener for TerminalProxy {
@@ -87,7 +106,7 @@ impl EventListener for TerminalProxy {
             }
             Event::ChildExit(status) => {
                 if !self.child_exit_seen.swap(true, Ordering::AcqRel) {
-                    let _ = std::fs::remove_file(&self.task_file);
+                    self.cleanup_resources();
                     let _ = self
                         .events
                         .send(TerminalEvent::ChildExit(status.code()));
@@ -97,6 +116,7 @@ impl EventListener for TerminalProxy {
                 // `Term::exit` follows the PTY child notification. Preserve
                 // an unknown exit status when a platform cannot provide one.
                 if !self.child_exit_seen.swap(true, Ordering::AcqRel) {
+                    self.cleanup_resources();
                     let _ = self.events.send(TerminalEvent::ChildExit(None));
                 }
             }
@@ -154,13 +174,15 @@ pub struct TerminalBackend {
     events_sender: Sender<TerminalEvent>,
     child_exit_seen: Arc<AtomicBool>,
     _task_file: Option<TaskFile>,
+    _test_directory: Option<AgentTestDirectory>,
     shutdown_requested: AtomicBool,
 }
 
 impl TerminalBackend {
     pub fn spawn(
         spec: &AgentLaunchSpec,
-        task_file: TaskFile,
+        task_file: Option<TaskFile>,
+        test_directory: Option<AgentTestDirectory>,
         working_directory: &Path,
         window_id: u64,
     ) -> anyhow::Result<Self> {
@@ -170,7 +192,10 @@ impl TerminalBackend {
         let child_exit_seen = Arc::new(AtomicBool::new(false));
         let proxy = TerminalProxy {
             events: events_tx,
-            task_file: task_file.path().to_path_buf(),
+            task_file: task_file
+                .as_ref()
+                .map(|task_file| task_file.path().to_path_buf()),
+            test_directory: test_directory.clone(),
             input_sender: input_sender.clone(),
             child_exit_seen,
         };
@@ -189,11 +214,13 @@ impl TerminalBackend {
         )));
 
         let mut env = HashMap::new();
-        let (env_key, env_value) = task_file_env(task_file.path());
-        env.insert(
-            env_key.to_string_lossy().into_owned(),
-            env_value.to_string_lossy().into_owned(),
-        );
+        if let Some(task_file) = task_file.as_ref() {
+            let (env_key, env_value) = task_file_env(task_file.path());
+            env.insert(
+                env_key.to_string_lossy().into_owned(),
+                env_value.to_string_lossy().into_owned(),
+            );
+        }
         env.insert("TERM".to_string(), "xterm-256color".to_string());
         env.insert("COLORTERM".to_string(), "truecolor".to_string());
 
@@ -231,11 +258,23 @@ impl TerminalBackend {
         }
         let event_loop_join = event_loop.spawn();
         let child_exit_for_join = child_exit_seen.clone();
-        let task_file_for_join = task_file.path().to_path_buf();
+        let task_file_for_join = task_file
+            .as_ref()
+            .map(|task_file| task_file.path().to_path_buf());
+        let test_directory_for_join = test_directory.clone();
         std::thread::spawn(move || {
             let _ = event_loop_join.join();
             if !child_exit_for_join.swap(true, Ordering::AcqRel) {
-                let _ = std::fs::remove_file(task_file_for_join);
+                if let Some(task_file) = task_file_for_join {
+                    let _ = std::fs::remove_file(task_file);
+                }
+                if let Some(test_directory) = test_directory_for_join {
+                    if test_directory.cleanup().is_err() {
+                        log::debug!(
+                            "[agent_terminal] temporary test directory cleanup deferred"
+                        );
+                    }
+                }
                 log::error!(
                     "[agent_terminal] PTY event loop stopped before child exit"
                 );
@@ -251,7 +290,8 @@ impl TerminalBackend {
             events: Arc::new(Mutex::new(events_rx)),
             events_sender,
             child_exit_seen,
-            _task_file: Some(task_file),
+            _task_file: task_file,
+            _test_directory: test_directory,
             shutdown_requested: AtomicBool::new(false),
         })
     }
@@ -281,11 +321,19 @@ impl TerminalBackend {
             ._task_file
             .as_ref()
             .map(|task_file| task_file.path().to_path_buf());
+        let test_directory = self._test_directory.clone();
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(150));
             if !child_exit_seen.swap(true, Ordering::AcqRel) {
                 if let Some(task_file) = task_file {
                     let _ = std::fs::remove_file(task_file);
+                }
+                if let Some(test_directory) = test_directory {
+                    if test_directory.cleanup().is_err() {
+                        log::debug!(
+                            "[agent_terminal] temporary test directory cleanup deferred"
+                        );
+                    }
                 }
                 let _ = events_sender.send(TerminalEvent::ChildExit(None));
             }
@@ -500,6 +548,14 @@ impl TerminalBackend {
             selection: content.selection,
             cell_rows,
         }
+    }
+
+    /// Search the bounded terminal grid without retaining a separate
+    /// transcript. This includes scrollback and the active alternate screen,
+    /// while preserving the same character filtering used for rendering.
+    pub fn contains_text(&self, needle: &str) -> bool {
+        let terminal = self.terminal.lock();
+        grid_contains_text(terminal.grid(), needle)
     }
 }
 
@@ -919,6 +975,47 @@ fn terminal_color(color: AnsiColor) -> TerminalColor {
     }
 }
 
+fn grid_contains_text(grid: &Grid<Cell>, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    let mut current_line = None;
+    let mut row = String::new();
+    let mut all_text = String::new();
+    for indexed in
+        grid.iter_from(TerminalPoint::new(grid.topmost_line(), Column(0)))
+    {
+        let line = indexed.point.line.0;
+        if current_line != Some(line) {
+            if current_line.is_some() {
+                if row.contains(needle) {
+                    return true;
+                }
+                all_text.push_str(&row);
+            }
+            row.clear();
+            current_line = Some(line);
+        }
+        let cell = indexed.cell;
+        if cell.flags.contains(CellFlags::WIDE_CHAR_SPACER) {
+            continue;
+        }
+        if cell.flags.contains(CellFlags::HIDDEN) {
+            row.push(' ');
+        } else {
+            row.push(cell.c);
+            if let Some(zerowidth) = cell.zerowidth() {
+                row.extend(zerowidth.iter().copied());
+            }
+        }
+    }
+    if row.contains(needle) {
+        return true;
+    }
+    all_text.push_str(&row);
+    all_text.contains(needle)
+}
+
 fn styled_row(
     cells: Option<&[TerminalCellSnapshot]>,
     fallback: &str,
@@ -1156,7 +1253,13 @@ fn encode_key(event: &KeyDownEvent) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_key, encode_paste, xterm_rgb};
+    use super::{
+        TerminalConfig, TerminalDimensions, encode_key, encode_paste,
+        grid_contains_text, xterm_rgb,
+    };
+    use alacritty_terminal::event::VoidListener;
+    use alacritty_terminal::term::Term;
+    use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
     use gpui::{KeyDownEvent, Keystroke, Modifiers};
 
     fn key(
@@ -1215,5 +1318,32 @@ mod tests {
         assert_eq!(xterm_rgb(231), (255, 255, 255));
         assert_eq!(xterm_rgb(232), (8, 8, 8));
         assert_eq!(xterm_rgb(255), (238, 238, 238));
+    }
+
+    #[test]
+    fn marker_search_handles_ansi_unicode_scrollback_and_alternate_screen() {
+        let dimensions = TerminalDimensions {
+            columns: 40,
+            lines: 3,
+        };
+        let mut terminal = Term::new(
+            TerminalConfig {
+                scrolling_history: 32,
+                ..TerminalConfig::default()
+            },
+            &dimensions,
+            VoidListener,
+        );
+        let mut processor = Processor::<StdSyncHandler>::new();
+        let unicode = "中文";
+        let mut output = b"\x1b[31mold output\x1b[0m\r\n".to_vec();
+        output.extend_from_slice(unicode.as_bytes());
+        output.extend_from_slice(b"\r\nscrollback marker");
+        processor.advance(&mut terminal, &output);
+        assert!(grid_contains_text(&terminal.grid(), "scrollback marker"));
+        assert!(grid_contains_text(&terminal.grid(), unicode));
+
+        processor.advance(&mut terminal, b"\x1b[?1049h\x1b[2Jalternate marker");
+        assert!(grid_contains_text(&terminal.grid(), "alternate marker"));
     }
 }

@@ -4,6 +4,7 @@
 //! by an independent `RepoTab` entity, including its Git worker and panels.
 
 mod about;
+mod agent_connectivity;
 mod agent_lifecycle;
 mod agent_profiles;
 mod app_menu;
@@ -201,6 +202,10 @@ pub struct Workspace {
     show_settings: bool,
     pending_close: Option<PendingWorkspaceClose>,
     about_window: Option<WindowHandle<about::AboutWindow>>,
+    agent_connectivity_windows: Vec<(
+        String,
+        WindowHandle<agent_connectivity::AgentConnectivityWindow>,
+    )>,
     restoring: bool,
     last_focus_refresh: Option<Instant>,
 }
@@ -291,6 +296,11 @@ impl Workspace {
                         cx,
                     );
                 }
+                SettingsPanelEvent::AgentConnectivityTestRequested(
+                    profile_id,
+                ) => {
+                    agent_connectivity::open(workspace, profile_id.clone(), cx);
+                }
                 SettingsPanelEvent::AgentProfileSaved {
                     previous_id,
                     profile,
@@ -338,6 +348,7 @@ impl Workspace {
             show_settings: false,
             pending_close: None,
             about_window: None,
+            agent_connectivity_windows: Vec::new(),
             restoring: true,
             // The startup load starts here (restore_tabs -> open), so the
             // activation delivered right after window creation must not

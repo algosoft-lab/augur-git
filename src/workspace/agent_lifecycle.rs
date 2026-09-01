@@ -31,7 +31,8 @@ impl Workspace {
         if self.pending_close.is_some() {
             return;
         }
-        let count = self.running_agent_session_count(cx);
+        let count = self.running_agent_session_count(cx)
+            + super::agent_connectivity::running_count(self, cx);
         if count == 0 {
             cx.quit();
         } else {
@@ -53,7 +54,8 @@ impl Workspace {
         if self.pending_close.is_some() {
             return false;
         }
-        let count = self.running_agent_session_count(cx);
+        let count = self.running_agent_session_count(cx)
+            + super::agent_connectivity::running_count(self, cx);
         if count == 0 {
             true
         } else {
@@ -145,6 +147,7 @@ impl Workspace {
                         });
                     }
                 }
+                super::agent_connectivity::stop_all(self, cx);
                 log::info!("[agent_terminal] confirmed application close");
                 // `TerminalBackend::shutdown` gives each child a short grace
                 // period before closing its PTY. Keep the app alive for that
@@ -180,17 +183,23 @@ impl Workspace {
         };
         let colors = cx.theme().colors.clone();
         let session_labels = match pending {
-            PendingWorkspaceClose::Application => self
-                .tabs
-                .iter()
-                .filter_map(|entry| match &entry.content {
-                    TabContent::Repo(tab) => {
-                        Some(tab.read(cx).running_agent_session_labels(cx))
-                    }
-                    TabContent::Welcome => None,
-                })
-                .flatten()
-                .collect::<Vec<_>>(),
+            PendingWorkspaceClose::Application => {
+                let mut labels = self
+                    .tabs
+                    .iter()
+                    .filter_map(|entry| match &entry.content {
+                        TabContent::Repo(tab) => {
+                            Some(tab.read(cx).running_agent_session_labels(cx))
+                        }
+                        TabContent::Welcome => None,
+                    })
+                    .flatten()
+                    .collect::<Vec<_>>();
+                labels.extend(super::agent_connectivity::running_labels(
+                    self, cx,
+                ));
+                labels
+            }
             PendingWorkspaceClose::Tab(id) => self
                 .tabs
                 .iter()

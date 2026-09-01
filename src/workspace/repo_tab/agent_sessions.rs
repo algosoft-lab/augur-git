@@ -657,7 +657,8 @@ impl RepoTab {
         let spec = profile.launch_spec(task_file.path().to_path_buf());
         match TerminalBackend::spawn(
             &spec,
-            task_file,
+            Some(task_file),
+            None,
             Path::new(&self.repo_path),
             id,
         ) {

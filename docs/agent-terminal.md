@@ -27,7 +27,20 @@ background task. A missing CLI is reported as unavailable and does not prevent
 other profiles from being used. The Agents section lets users add, edit, and
 remove custom profiles; fixed arguments are entered one per line and the prompt
 can be a trailing argument or a named flag. Invalid custom profiles are shown
-with an error and are not launchable.
+with an error and are not launchable. Each valid profile also has a **Test
+launch** action. It opens a separate, visible interactive terminal and runs a
+fixed connectivity challenge in a new empty system temporary directory. The
+test never uses the current repository, does not initialize Git, does not write
+`AUGUR_GIT_TASK_FILE`, and does not offer an editable prompt. The terminal
+remains available for provider login, approvals, and follow-up input. Augur Git
+marks the test as having received a response only after the challenge's
+per-run reversed token appears in the bounded terminal buffer.
+
+The temporary directory is shown in the test window and is removed after the
+child exits. Closing the window or pressing **Stop test** sends Ctrl-C and then
+closes the PTY; cleanup failures are non-fatal and never target a user-selected
+directory. Test prompts, transcript contents, and provider session IDs are not
+persisted.
 
 The profile editor stores the same structured values in `config.json`. For
 example, a profile that runs a local wrapper with two fixed arguments uses:
@@ -98,7 +111,10 @@ CLI itself.
 2. If the probe is unavailable, install the CLI and ensure the GUI process can
    see the same `PATH` as the shell where it works, or set an absolute path
    override.
-3. Start a task and complete any provider login prompt in the terminal.
+3. Click **Test launch** for the profile. The separate terminal shows the
+   complete startup, login, approval, and response flow. Complete any provider
+   login prompt there; a process that starts but exits before the reversed
+   challenge token is shown as an incomplete test.
 4. For lifecycle diagnostics, run the application in a debug build and filter
    the feature log:
 

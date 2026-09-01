@@ -9,7 +9,8 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -22,6 +23,7 @@ const TASK_FILE_ENV: &str = "AUGUR_GIT_TASK_FILE";
 const TASK_DIRECTORY: &str = "agent-tasks";
 const BOOTSTRAP_PROMPT: &str = "Read the complete Augur Git task from the file path in AUGUR_GIT_TASK_FILE, follow it, and keep this interactive session open for follow-up questions.";
 const STALE_TASK_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+const TEST_DIRECTORY_PREFIX: &str = "augur-git-agent-test";
 
 /// Built-in providers supported by the first-party UI.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -274,7 +276,38 @@ pub struct ResolvedAgentProfile {
 pub struct AgentLaunchSpec {
     pub executable: PathBuf,
     pub args: Vec<String>,
-    pub task_file: PathBuf,
+    pub task_file: Option<PathBuf>,
+}
+
+/// A fixed, non-destructive challenge used to verify that an Agent receives a
+/// prompt and can return a response through the visible terminal.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AgentConnectivityChallenge {
+    pub prompt: String,
+    pub expected_response: String,
+}
+
+impl AgentConnectivityChallenge {
+    pub fn new() -> Self {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let token =
+            format!("augur-git-check-{}-{counter:016x}", std::process::id());
+        let expected_response = token.chars().rev().collect::<String>();
+        let prompt = format!(
+            "Augur Git connectivity diagnostic. Do not read, create, edit, delete, or execute anything in this directory. Reverse this token and reply with the reversed token only: {token}. Then remain in the interactive session."
+        );
+        Self {
+            prompt,
+            expected_response,
+        }
+    }
+}
+
+impl Default for AgentConnectivityChallenge {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Lifecycle status surfaced by the session tab. The terminal intentionally
@@ -289,14 +322,25 @@ pub enum AgentSessionState {
 
 impl ResolvedAgentProfile {
     pub fn launch_spec(&self, task_file: PathBuf) -> AgentLaunchSpec {
+        self.launch_spec_with_prompt(BOOTSTRAP_PROMPT, Some(task_file))
+    }
+
+    /// Build a direct-prompt launch without a task-file environment variable.
+    pub fn launch_spec_for_prompt(&self, prompt: &str) -> AgentLaunchSpec {
+        self.launch_spec_with_prompt(prompt, None)
+    }
+
+    fn launch_spec_with_prompt(
+        &self,
+        prompt: &str,
+        task_file: Option<PathBuf>,
+    ) -> AgentLaunchSpec {
         let mut args = self.args.clone();
         match &self.prompt_mode {
-            PromptMode::TrailingArgument => {
-                args.push(BOOTSTRAP_PROMPT.to_string())
-            }
+            PromptMode::TrailingArgument => args.push(prompt.to_string()),
             PromptMode::Flag(flag) => {
                 args.push(flag.clone());
-                args.push(BOOTSTRAP_PROMPT.to_string());
+                args.push(prompt.to_string());
             }
         }
         AgentLaunchSpec {
@@ -404,6 +448,81 @@ impl TaskFile {
 impl Drop for TaskFile {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.path);
+    }
+}
+
+/// A unique empty directory owned by one connectivity test.
+///
+/// The directory is created below the platform temporary directory and is
+/// removed after the test process exits or the test window is dropped. A
+/// shared cleanup state lets the PTY and UI retry cleanup independently.
+#[derive(Clone, Debug)]
+pub struct AgentTestDirectory {
+    path: PathBuf,
+    cleanup: Arc<AgentTestDirectoryCleanup>,
+}
+
+#[derive(Debug)]
+struct AgentTestDirectoryCleanup {
+    path: PathBuf,
+    cleaned: AtomicBool,
+}
+
+impl AgentTestDirectory {
+    pub fn create() -> anyhow::Result<Self> {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let base = std::env::temp_dir();
+        let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let path = base.join(format!(
+            "{TEST_DIRECTORY_PREFIX}-{}-{timestamp}-{counter}",
+            std::process::id()
+        ));
+        fs::create_dir(&path)?;
+        set_private_directory_permissions(&path);
+        Ok(Self {
+            cleanup: Arc::new(AgentTestDirectoryCleanup {
+                path: path.clone(),
+                cleaned: AtomicBool::new(false),
+            }),
+            path,
+        })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Remove the directory once, returning an error so callers can retry
+    /// after a platform releases an open working-directory handle.
+    pub fn cleanup(&self) -> anyhow::Result<()> {
+        if self.cleanup.cleaned.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        match fs::remove_dir_all(&self.cleanup.path) {
+            Ok(()) => {
+                self.cleanup.cleaned.store(true, Ordering::Release);
+                Ok(())
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.cleanup.cleaned.store(true, Ordering::Release);
+                Ok(())
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+}
+
+impl Drop for AgentTestDirectory {
+    fn drop(&mut self) {
+        if self.cleanup().is_err() {
+            log::debug!(
+                "[agent_terminal] temporary test directory cleanup deferred"
+            );
+        }
     }
 }
 
@@ -699,5 +818,78 @@ mod tests {
             ..Default::default()
         };
         assert!(settings.validate().is_err());
+    }
+
+    #[test]
+    fn connectivity_challenge_does_not_contain_expected_response() {
+        let challenge = AgentConnectivityChallenge::new();
+        assert!(!challenge.prompt.contains(&challenge.expected_response));
+        assert!(!challenge.expected_response.is_empty());
+        let token = challenge
+            .prompt
+            .split_once(": ")
+            .and_then(|(_, rest)| rest.split_once(". Then"))
+            .map(|(token, _)| token)
+            .expect("challenge token");
+        assert_eq!(
+            token.chars().rev().collect::<String>(),
+            challenge.expected_response
+        );
+    }
+
+    #[test]
+    fn connectivity_prompt_uses_structured_arguments_without_task_file() {
+        let settings = AgentSettings {
+            custom_profiles: vec![CustomAgentProfile {
+                id: "flag-agent".into(),
+                name: "Flag Agent".into(),
+                executable: PathBuf::from("flag-agent"),
+                args: vec!["--mode".into(), "interactive".into()],
+                prompt_mode: PromptMode::Flag("--prompt".into()),
+            }],
+            ..Default::default()
+        };
+        let profile = settings.profile("flag-agent").expect("profile");
+        let spec = profile.launch_spec_for_prompt("diagnostic prompt");
+        assert_eq!(
+            spec.args,
+            vec!["--mode", "interactive", "--prompt", "diagnostic prompt"]
+        );
+        assert_eq!(spec.task_file, None);
+
+        let codex = settings.profile("codex").expect("codex profile");
+        let spec = codex.launch_spec_for_prompt("diagnostic prompt");
+        assert_eq!(spec.args, vec!["diagnostic prompt"]);
+        assert_eq!(spec.task_file, None);
+    }
+
+    #[test]
+    fn connectivity_test_directory_starts_empty_and_can_be_cleaned() {
+        let directory = AgentTestDirectory::create().expect("test directory");
+        let second = AgentTestDirectory::create().expect("second directory");
+        let path = directory.path().to_path_buf();
+        assert!(path.is_dir());
+        assert_ne!(path, second.path());
+        assert_eq!(fs::read_dir(&path).expect("directory entries").count(), 0);
+        directory.cleanup().expect("cleanup");
+        second.cleanup().expect("second cleanup");
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn connectivity_test_directory_uses_private_unix_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = AgentTestDirectory::create().expect("test directory");
+        assert_eq!(
+            fs::metadata(directory.path())
+                .expect("directory metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        directory.cleanup().expect("cleanup");
     }
 }

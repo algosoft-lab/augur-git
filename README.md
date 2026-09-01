@@ -103,6 +103,10 @@ Coding agent or editor
   configured custom CLI in a repository-scoped interactive terminal. Augur Git
   supplies task and review references while the selected CLI keeps its own
   account, model, approval, and sandbox configuration.
+- **Visible Agent connectivity tests** — test any valid configured CLI from
+  Settings in a separate interactive terminal and a fresh empty temporary
+  directory. The fixed diagnostic challenge does not touch the current
+  repository or persist its prompt and transcript.
 - **Repository operations** — browse branches, remotes, tags, and stashes, and
   run explicit fetch, pull, push, checkout, branch, and commit operations.
 - **Multiple repositories** — keep several repositories open as tabs and return

@@ -1,7 +1,7 @@
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, IconName, IndexPath, Sizable,
+    ActiveTheme, Disableable, IconName, IndexPath, Sizable,
     button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputEvent, InputState},
@@ -40,6 +40,7 @@ pub enum SettingsPanelEvent {
         agent: BuiltInAgent,
         executable: Option<std::path::PathBuf>,
     },
+    AgentConnectivityTestRequested(String),
     AgentProfileSaved {
         previous_id: Option<String>,
         profile: CustomAgentProfile,
@@ -925,6 +926,14 @@ impl SettingsPanel {
                 let this = cx.entity();
                 let profile_rows = profiles.iter().map(|profile| {
                     let resolved = self.agent_settings.profile(&profile.value);
+                    let executable_path_missing = resolved
+                        .as_ref()
+                        .is_some_and(|profile| explicit_executable_path_missing(&profile.executable));
+                    let probe_result = self
+                        .agent_probe_results
+                        .iter()
+                        .find(|(id, _)| id == &profile.value)
+                        .and_then(|(_, result)| result.as_ref());
                     let executable = resolved
                         .as_ref()
                         .map(|profile| profile.executable.display().to_string())
@@ -933,13 +942,10 @@ impl SettingsPanel {
                         });
                     let probe_label = if resolved.is_none() {
                         i18n::text(self.locale, "agent-profile-invalid")
+                    } else if executable_path_missing {
+                        i18n::text(self.locale, "agent-executable-not-found")
                     } else {
-                        let probe = self
-                            .agent_probe_results
-                            .iter()
-                            .find(|(id, _)| id == &profile.value)
-                            .and_then(|(_, result)| result.as_ref());
-                        match probe {
+                        match probe_result {
                             Some(Ok(version)) => version.clone(),
                             Some(Err(error)) => i18n::text_args(
                                 self.locale,
@@ -957,6 +963,11 @@ impl SettingsPanel {
                         .iter()
                         .find(|custom| custom.id == profile.value)
                         .map(|_| profile.value.clone());
+                    let can_test = resolved.is_some()
+                        && !executable_path_missing
+                        && !matches!(probe_result, Some(Err(_)));
+                    let test = this.clone();
+                    let test_id = profile.value.clone();
                     let mut row = v_flex()
                         .w_full()
                         .gap_1()
@@ -982,17 +993,41 @@ impl SettingsPanel {
                                 .text_size(crate::theme::scaled_text_size(11.))
                                 .child(SharedString::from(probe_label)),
                         );
+                    let mut actions = h_flex()
+                        .w_full()
+                        .justify_end()
+                        .gap_1()
+                        .child(
+                            Button::new(SharedString::from(format!(
+                                "agent-profile-test-{}",
+                                profile.value
+                            )))
+                            .label(i18n::text(
+                                self.locale,
+                                "agent-profile-test",
+                            ))
+                            .ghost()
+                            .xsmall()
+                            .disabled(!can_test)
+                            .on_click(move |_event, _window, cx| {
+                                if can_test {
+                                    test.update(cx, |_panel, cx| {
+                                        cx.emit(
+                                            SettingsPanelEvent::AgentConnectivityTestRequested(
+                                                test_id.clone(),
+                                            ),
+                                        );
+                                    });
+                                }
+                            }),
+                        );
                     if let Some(id) = custom_id {
                         let edit = this.clone();
                         let remove = this.clone();
                         let edit_id = id.clone();
                         let remove_id = id.clone();
-                        row = row.child(
-                            h_flex()
-                                .w_full()
-                                .justify_end()
-                                .gap_1()
-                                .child(
+                        actions = actions
+                            .child(
                                     Button::new(SharedString::from(format!(
                                         "agent-profile-edit-{id}"
                                     )))
@@ -1012,7 +1047,7 @@ impl SettingsPanel {
                                         });
                                     }),
                                 )
-                                .child(
+                            .child(
                                     Button::new(SharedString::from(format!(
                                         "agent-profile-remove-{id}"
                                     )))
@@ -1030,9 +1065,9 @@ impl SettingsPanel {
                                             );
                                         });
                                     }),
-                                ),
-                        );
+                                );
                     }
+                    row = row.child(actions);
                     row
                 });
                 let new_profile = this.clone();
@@ -1063,6 +1098,15 @@ impl SettingsPanel {
                             .child(shared(i18n::text(
                                 self.locale,
                                 "agent-profiles-description",
+                            ))),
+                    )
+                    .child(
+                        div()
+                            .text_size(crate::theme::scaled_text_size(12.))
+                            .text_color(colors.muted_foreground)
+                            .child(shared(i18n::text(
+                                self.locale,
+                                "agent-test-description",
                             ))),
                     )
                     .child(
@@ -1403,4 +1447,10 @@ fn agent_profile_options(
 
 fn first_line(value: &str) -> &str {
     value.lines().next().unwrap_or(value)
+}
+
+fn explicit_executable_path_missing(path: &std::path::Path) -> bool {
+    let has_directory_component =
+        path.is_absolute() || path.components().count() > 1;
+    has_directory_component && !path.is_file()
 }

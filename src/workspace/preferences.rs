@@ -10,6 +10,7 @@ use crate::git::diff_view::DiffLayoutMode;
 use crate::theme;
 
 use super::about;
+use super::agent_connectivity;
 use super::app_menu;
 use super::{TabContent, Workspace};
 
@@ -66,6 +67,7 @@ impl Workspace {
                 self.about_window = None;
             }
         }
+        agent_connectivity::set_locale(self, locale, cx);
         self.config.language = preference;
         self.settings_panel.update(cx, |panel, cx| {
             panel.set_locale(self.locale, window, cx);
