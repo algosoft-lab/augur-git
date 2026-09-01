@@ -311,6 +311,13 @@ struct TerminalFrame {
     generation: u64,
 }
 
+impl TerminalFrame {
+    fn matches_geometry(&self) -> bool {
+        self.snapshot.columns == self.geometry.columns as usize
+            && self.snapshot.screen_lines == self.geometry.lines as usize
+    }
+}
+
 struct StyledCanvasState {
     frame: TerminalFrame,
     plan: StyledRenderPlan,
@@ -329,9 +336,7 @@ fn paint_styled_terminal(
 
         let geometry = state.frame.geometry;
         let snapshot = &state.frame.snapshot;
-        if snapshot.columns != geometry.columns as usize
-            || snapshot.screen_lines != geometry.lines as usize
-        {
+        if !state.frame.matches_geometry() {
             log::debug!(
                 "[agent_terminal] skipped stale terminal frame generation={} snapshot={}x{} geometry={}x{}",
                 state.frame.generation,
@@ -512,4 +517,35 @@ fn terminal_geometry_for_bounds(
         line_height,
         window.scale_factor(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TerminalFrame, TerminalGeometry, TerminalSnapshot};
+
+    #[test]
+    fn rejects_snapshot_from_a_previous_grid_size() {
+        let geometry =
+            TerminalGeometry::from_bounds(0., 0., 640., 400., 8., 20., 1.);
+        let stale = TerminalFrame {
+            geometry,
+            snapshot: TerminalSnapshot {
+                columns: 120,
+                screen_lines: 32,
+                ..TerminalSnapshot::default()
+            },
+            generation: 1,
+        };
+        assert!(!stale.matches_geometry());
+
+        let current = TerminalFrame {
+            snapshot: TerminalSnapshot {
+                columns: geometry.columns as usize,
+                screen_lines: geometry.lines as usize,
+                ..TerminalSnapshot::default()
+            },
+            ..stale
+        };
+        assert!(current.matches_geometry());
+    }
 }

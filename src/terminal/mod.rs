@@ -293,19 +293,10 @@ impl TerminalBackend {
         });
     }
 
-    fn send_resize(
-        &self,
-        columns: u16,
-        lines: u16,
-        cell_width: u16,
-        cell_height: u16,
-    ) {
-        let _ = self.sender.send(Msg::Resize(WindowSize {
-            num_lines: lines.max(1),
-            num_cols: columns.max(2),
-            cell_width: cell_width.max(1),
-            cell_height: cell_height.max(1),
-        }));
+    fn send_resize(&self, geometry: TerminalGeometry) {
+        let _ = self
+            .sender
+            .send(Msg::Resize(window_size_for_geometry(geometry)));
     }
 
     pub fn scroll_lines(&self, lines: i32) {
@@ -478,14 +469,9 @@ impl TerminalBackend {
             .geometry
             .lock()
             .map(|mut current| {
-                let grid_changed = current.columns != geometry.columns
-                    || current.lines != geometry.lines;
-                let pty_changed = grid_changed
-                    || (current.cell_width - geometry.cell_width).abs()
-                        > f32::EPSILON
-                    || (current.line_height - geometry.line_height).abs()
-                        > f32::EPSILON;
                 let previous = *current;
+                let grid_changed = previous.grid_size_changed(geometry);
+                let pty_changed = previous.pty_size_changed(geometry);
                 *current = geometry;
                 (previous, grid_changed, pty_changed)
             })
@@ -522,12 +508,7 @@ impl TerminalBackend {
                 geometry.cell_width,
                 geometry.line_height,
             );
-            self.send_resize(
-                geometry.columns,
-                geometry.lines,
-                geometry.cell_width.round().max(1.) as u16,
-                geometry.line_height.round().max(1.) as u16,
-            );
+            self.send_resize(geometry);
         }
 
         (generation, snapshot)
@@ -539,6 +520,15 @@ impl TerminalBackend {
     pub fn contains_text(&self, needle: &str) -> bool {
         let terminal = self.terminal.lock();
         grid_contains_text(terminal.grid(), needle)
+    }
+}
+
+fn window_size_for_geometry(geometry: TerminalGeometry) -> WindowSize {
+    WindowSize {
+        num_lines: geometry.lines.max(1),
+        num_cols: geometry.columns.max(2),
+        cell_width: geometry.cell_width.round().max(1.) as u16,
+        cell_height: geometry.line_height.round().max(1.) as u16,
     }
 }
 
@@ -720,6 +710,7 @@ mod tests {
     use super::{
         Cell, CellFlags, TerminalConfig, TerminalDimensions, encode_key,
         encode_paste, grid_contains_text, viewport_point,
+        window_size_for_geometry,
     };
     use alacritty_terminal::event::VoidListener;
     use alacritty_terminal::grid::Dimensions;
@@ -784,6 +775,17 @@ mod tests {
             point,
             TerminalPoint::new(Line(1), alacritty_terminal::index::Column(9))
         );
+    }
+
+    #[test]
+    fn pty_resize_request_matches_the_measured_geometry() {
+        let geometry =
+            TerminalGeometry::from_bounds(0., 0., 640., 320., 8.5, 19.5, 1.);
+        let size = window_size_for_geometry(geometry);
+        assert_eq!(size.num_cols, geometry.columns);
+        assert_eq!(size.num_lines, geometry.lines);
+        assert_eq!(size.cell_width, 9);
+        assert_eq!(size.cell_height, 20);
     }
 
     #[test]

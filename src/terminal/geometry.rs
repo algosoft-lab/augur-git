@@ -68,6 +68,16 @@ impl TerminalGeometry {
     pub(crate) fn line_delta(&self, pixels: f32) -> f32 {
         pixels / self.line_height.max(1.)
     }
+
+    pub(crate) fn grid_size_changed(&self, other: Self) -> bool {
+        self.columns != other.columns || self.lines != other.lines
+    }
+
+    pub(crate) fn pty_size_changed(&self, other: Self) -> bool {
+        self.grid_size_changed(other)
+            || (self.cell_width - other.cell_width).abs() > f32::EPSILON
+            || (self.line_height - other.line_height).abs() > f32::EPSILON
+    }
 }
 
 pub(crate) fn grid_count(size: f32, cell: f32, minimum: u16) -> u16 {
@@ -111,5 +121,27 @@ mod tests {
         assert_eq!(grid_count(100., 0., 2), 2);
         assert_eq!(grid_count(f32::NAN, 8., 2), 2);
         assert_eq!(grid_count(1., 8., 2), 2);
+    }
+
+    #[test]
+    fn separates_grid_changes_from_pixel_metric_changes() {
+        let base =
+            TerminalGeometry::from_bounds(0., 0., 800., 400., 8., 20., 1.);
+        assert!(!base.grid_size_changed(base));
+        assert!(!base.pty_size_changed(base));
+        let moved =
+            TerminalGeometry::from_bounds(120., 80., 800., 400., 8., 20., 1.);
+        assert!(!base.grid_size_changed(moved));
+        assert!(!base.pty_size_changed(moved));
+
+        let font_changed =
+            TerminalGeometry::from_bounds(0., 0., 900., 400., 9., 20., 1.);
+        assert!(!base.grid_size_changed(font_changed));
+        assert!(base.pty_size_changed(font_changed));
+
+        let viewport_changed =
+            TerminalGeometry::from_bounds(0., 0., 640., 320., 8., 20., 1.);
+        assert!(base.grid_size_changed(viewport_changed));
+        assert!(base.pty_size_changed(viewport_changed));
     }
 }
