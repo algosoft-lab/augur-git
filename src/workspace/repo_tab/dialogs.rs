@@ -54,6 +54,58 @@ impl RepoTab {
         cx.notify();
     }
 
+    /// Offer to publish the current branch when it has no upstream yet.
+    ///
+    /// Returns whether the confirmation dialog was opened. The dialog is
+    /// skipped for detached or unborn HEAD states and when no remote exists,
+    /// so a plain push can surface Git's own error in those cases.
+    pub(super) fn request_push_upstream(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.branch.is_empty() || self.branch.starts_with("HEAD") {
+            return false;
+        }
+        if self.upstream.is_some() {
+            return false;
+        }
+        let Some(remote) = default_push_remote(&self.remotes) else {
+            return false;
+        };
+        log::info!(
+            "[git_push] branch '{}' has no upstream; offering to publish to '{remote}'",
+            self.branch
+        );
+        self.confirmation = Some(PendingConfirmation::PushSetUpstream {
+            branch: self.branch.clone(),
+            remote,
+        });
+        cx.notify();
+        true
+    }
+
+    pub(super) fn start_push_upstream(&mut self, cx: &mut Context<Self>) {
+        let Some(PendingConfirmation::PushSetUpstream { branch, remote }) =
+            self.confirmation.take()
+        else {
+            return;
+        };
+        if self.operation_busy {
+            return;
+        }
+        log::info!(
+            "[git_push] publishing branch '{branch}' to '{remote}' with --set-upstream"
+        );
+        self.git_view.update(cx, |view, _| {
+            view.run(
+                "push --set-upstream",
+                vec!["push".into(), "--set-upstream".into(), remote, branch],
+            );
+        });
+        self.set_operation_busy(true, cx);
+        cx.notify();
+    }
+
     pub(super) fn confirm_discard(&mut self, cx: &mut Context<Self>) {
         let Some(PendingConfirmation::Discard { scope, .. }) =
             self.confirmation.take()
@@ -92,11 +144,87 @@ impl RepoTab {
             Some(PendingConfirmation::ForcePush) => {
                 self.force_push_confirm_overlay(cx).into_any_element()
             }
+            Some(PendingConfirmation::PushSetUpstream { .. }) => {
+                self.push_upstream_confirm_overlay(cx)
+            }
             Some(PendingConfirmation::Discard { .. }) => {
                 self.discard_confirm_overlay(cx)
             }
             None => div().into_any_element(),
         }
+    }
+
+    fn push_upstream_confirm_overlay(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let colors = cx.theme().colors.clone();
+        let locale = self.locale;
+        let this = cx.entity();
+        let Some(PendingConfirmation::PushSetUpstream { branch, remote }) =
+            self.confirmation.as_ref()
+        else {
+            return div().into_any_element();
+        };
+
+        let title_row = h_flex()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    .text_size(crate::theme::scaled_text_size(16.))
+                    .text_color(colors.blue)
+                    .child(Icon::new(IconName::ArrowUp)),
+            )
+            .child(
+                div()
+                    .text_size(crate::theme::scaled_text_size(14.))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(colors.foreground)
+                    .child(shared(i18n::text(locale, "push-upstream-title"))),
+            );
+
+        let cancel_btn = {
+            let this = this.clone();
+            Button::new("push-upstream-cancel")
+                .label(i18n::text(locale, "push-upstream-cancel"))
+                .ghost()
+                .flex_1()
+                .on_click(move |_event, _window, cx| {
+                    this.update(cx, |tab, cx| tab.cancel_confirmation(cx));
+                })
+        };
+        let confirm_btn = {
+            let this = this.clone();
+            Button::new("push-upstream-confirm")
+                .label(i18n::text(locale, "push-upstream-confirm"))
+                .primary()
+                .flex_1()
+                .on_click(move |_event, _window, cx| {
+                    this.update(cx, |tab, cx| tab.start_push_upstream(cx));
+                })
+        };
+
+        self.overlay_card(
+            cx,
+            "push-upstream-overlay",
+            "push-upstream-card",
+            title_row,
+            div()
+                .text_size(crate::theme::scaled_text_size(12.))
+                .text_color(colors.muted_foreground)
+                .child(shared(i18n::text_args(
+                    locale,
+                    "push-upstream-warning",
+                    &[("branch", branch), ("remote", remote)],
+                ))),
+            h_flex()
+                .w_full()
+                .gap_2()
+                .child(cancel_btn)
+                .child(confirm_btn),
+        )
+        .into_any_element()
     }
 
     fn force_push_confirm_overlay(
@@ -309,5 +437,60 @@ impl RepoTab {
                     .child(warning)
                     .child(buttons),
             )
+    }
+}
+
+/// Pick the remote used to publish a branch without an upstream.
+///
+/// Prefers `origin` when configured and otherwise falls back to the first
+/// configured remote, mirroring what most Git clients assume.
+fn default_push_remote(remotes: &[String]) -> Option<String> {
+    if remotes.iter().any(|remote| remote == "origin") {
+        Some("origin".to_string())
+    } else {
+        remotes.first().cloned()
+    }
+}
+
+/// Whether a failed `git push` stderr reports that the current branch has no
+/// upstream, which means a `--set-upstream` push can publish it.
+pub(super) fn push_error_missing_upstream(message: &str) -> bool {
+    message.contains("has no upstream branch")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{default_push_remote, push_error_missing_upstream};
+
+    #[test]
+    fn default_push_remote_prefers_origin_then_first_entry() {
+        let multi = vec![
+            "upstream".to_string(),
+            "origin".to_string(),
+            "fork".to_string(),
+        ];
+        assert_eq!(default_push_remote(&multi).as_deref(), Some("origin"));
+
+        let no_origin = vec!["upstream".to_string(), "fork".to_string()];
+        assert_eq!(
+            default_push_remote(&no_origin).as_deref(),
+            Some("upstream")
+        );
+
+        let empty: Vec<String> = Vec::new();
+        assert_eq!(default_push_remote(&empty), None);
+    }
+
+    #[test]
+    fn push_error_missing_upstream_matches_git_message_only() {
+        let stderr = concat!(
+            "fatal: The current branch feature/x has no upstream branch.\n",
+            "To push the current branch and set the remote as upstream, use\n",
+        );
+        assert!(push_error_missing_upstream(stderr));
+        assert!(!push_error_missing_upstream(
+            "fatal: unable to access 'https://example.com': connection refused"
+        ));
+        assert!(!push_error_missing_upstream(""));
     }
 }

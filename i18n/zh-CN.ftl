@@ -51,6 +51,10 @@ push-force-title = 强制推送？
 push-force-warning = 强制推送会覆盖远程分支 { $branch } 的历史，仅存在于远程的提交可能丢失。
 push-force-confirm = 强制推送
 push-force-cancel = 取消
+push-upstream-title = 发布分支？
+push-upstream-warning = 分支 { $branch } 在 { $remote } 上还不存在，将推送该分支并设置 { $remote }/{ $branch } 为其上游。
+push-upstream-confirm = 推送分支
+push-upstream-cancel = 取消
 
 # ===== 工具栏 =====
 toolbar-fetch = 获取

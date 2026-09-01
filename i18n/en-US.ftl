@@ -52,6 +52,10 @@ push-force-title = Force push?
 push-force-warning = Force pushing overwrites the remote history of { $branch }. Commits that exist only on the remote may be lost.
 push-force-confirm = Force Push
 push-force-cancel = Cancel
+push-upstream-title = Publish branch?
+push-upstream-warning = Branch { $branch } does not exist on { $remote } yet. This will push it there and set { $remote }/{ $branch } as its upstream.
+push-upstream-confirm = Push Branch
+push-upstream-cancel = Cancel
 
 # ===== Toolbar =====
 toolbar-fetch = Fetch

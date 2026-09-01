@@ -35,6 +35,10 @@ pub enum RepoTabEvent {
 
 enum PendingConfirmation {
     ForcePush,
+    PushSetUpstream {
+        branch: String,
+        remote: String,
+    },
     Discard {
         scope: WorkingTreeScope,
         tracked_count: usize,
@@ -59,6 +63,8 @@ pub struct RepoTab {
     branch: String,
     /// Tracked upstream of the current branch from the latest status.
     upstream: Option<String>,
+    /// Configured remote names from the latest refs snapshot.
+    remotes: Vec<String>,
     /// Persisted commit-graph history scope chosen in settings.
     graph_history: GraphHistoryPreference,
     /// Log scope last sent to the Git worker (None until first status).
@@ -158,6 +164,11 @@ impl RepoTab {
             }
             ToolbarEvent::Push => {
                 if tab.operation_busy {
+                    return;
+                }
+                // Publish a branch that has no upstream through a confirmed
+                // `--set-upstream` push instead of letting plain push fail.
+                if tab.request_push_upstream(cx) {
                     return;
                 }
                 tab.git_view.update(cx, |view, _| {
@@ -429,6 +440,7 @@ impl RepoTab {
             }
             GitUiEvent::RefsChanged(refs) => {
                 tab.stash_count = refs.stashes.len();
+                tab.remotes = refs.remotes.clone();
                 tab.sync_branch_menu_context(cx);
                 tab.graph.update(cx, |graph, cx| {
                     graph.set_remote_names(refs.remotes.clone(), cx);
@@ -553,6 +565,15 @@ impl RepoTab {
                 }
                 let copy_commit_message = label == "copy-commit-message";
                 tab.set_operation_busy(false, cx);
+                // A stale status snapshot can hide a missing upstream, so a
+                // plain push may still fail that way; offer the same dialog.
+                if !*success
+                    && label == "push"
+                    && dialogs::push_error_missing_upstream(message)
+                    && tab.request_push_upstream(cx)
+                {
+                    return;
+                }
                 if copy_commit_message {
                     if *success {
                         tab.finish_copy_commit_message(message, cx);
@@ -575,6 +596,7 @@ impl RepoTab {
                             | "pull --rebase"
                             | "push"
                             | "push --force"
+                            | "push --set-upstream"
                             | "push --rename"
                             | "push --delete"
                             | "switch"
@@ -638,6 +660,7 @@ impl RepoTab {
             opened: false,
             branch: String::new(),
             upstream: None,
+            remotes: Vec::new(),
             graph_history,
             log_scope: None,
             local_branches: Vec::new(),
