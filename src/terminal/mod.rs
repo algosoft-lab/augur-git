@@ -477,19 +477,21 @@ impl TerminalBackend {
     }
 
     fn update_geometry(&self, geometry: TerminalGeometry) {
-        let changed = self
+        let needs_resize = self
             .geometry
             .lock()
             .map(|mut current| {
-                if *current == geometry {
-                    false
-                } else {
-                    *current = geometry;
-                    true
-                }
+                let needs_resize = current.columns != geometry.columns
+                    || current.lines != geometry.lines
+                    || (current.cell_width - geometry.cell_width).abs()
+                        > f32::EPSILON
+                    || (current.line_height - geometry.line_height).abs()
+                        > f32::EPSILON;
+                *current = geometry;
+                needs_resize
             })
             .unwrap_or(false);
-        if !changed {
+        if !needs_resize {
             return;
         }
         log::debug!(
