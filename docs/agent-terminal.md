@@ -82,6 +82,16 @@ navigation, function, and text keys. OSC 52 clipboard access, notifications,
 downloads, hyperlinks, and embedded-image side effects are deliberately not
 forwarded to the host application.
 
+Rendering is driven by a coordinate-preserving snapshot of the parsed grid.
+The view measures the actual terminal element bounds and active monospace font,
+then resizes the PTY only when the resulting cell grid changes. Glyphs are
+shaped with the measured per-cell width and painted at explicit row and column
+origins; backgrounds and selection rectangles are painted from the same grid
+before glyphs. This keeps wide characters, combining marks, ANSI backgrounds,
+alternate-screen layouts, and mouse coordinates aligned when the window is
+resized or displayed at high DPI. If a styled paint operation fails, the view
+keeps the coordinate grid visible through a plain-text fallback.
+
 The view is not a general shell. It should be treated as a host for the three
 supported coding-agent CLIs and compatible custom profiles during connectivity
 testing. Terminal behavior that depends on a vendor's private TUI protocol is
