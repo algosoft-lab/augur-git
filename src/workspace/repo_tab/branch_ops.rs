@@ -1,6 +1,6 @@
 //! Branch operations launched from the toolbar Branch menu and the sidebar
 //! context menus: create/rename/delete a branch, delete a tag,
-//! rename/delete a remote branch, stash/stash pop, merge, and rebase.
+//! rename/delete a remote branch, stash/stash pop/drop, merge, and rebase.
 //!
 //! Dialog state lives on `RepoTab` (`dialogs`). Text inputs are created
 //! lazily during render because `InputState` needs a `Window` handle, which
@@ -35,6 +35,10 @@ pub(super) enum PendingBranchDialog {
         old: String,
     },
     Stash,
+    /// Drop a stash after explicit confirmation; the payload is its selector.
+    DropStash {
+        reference: String,
+    },
     Merge {
         no_ff: bool,
     },
@@ -163,6 +167,20 @@ fn merge_args(source: &str, no_ff: bool) -> (&'static str, Vec<String>) {
     }
 }
 
+/// Build arguments for popping the latest stash or one explicit stash entry.
+fn stash_pop_args(stash_ref: Option<&str>) -> Vec<String> {
+    let mut args = vec!["stash".into(), "pop".into()];
+    if let Some(stash_ref) = stash_ref {
+        args.push(stash_ref.into());
+    }
+    args
+}
+
+/// Build arguments for permanently dropping one explicit stash entry.
+fn stash_drop_args(stash_ref: &str) -> Vec<String> {
+    vec!["stash".into(), "drop".into(), stash_ref.into()]
+}
+
 /// Command label and arguments for renaming a remote branch. Git has no
 /// native remote rename, so a single push creates the new branch and
 /// deletes the old ref. The source of the create refspec is the local
@@ -256,6 +274,9 @@ impl RepoTab {
             PendingBranchDialog::NewBranch => true,
             PendingBranchDialog::Rename { old } => !old.is_empty(),
             PendingBranchDialog::Stash => self.local_change_count > 0,
+            PendingBranchDialog::DropStash { reference } => {
+                !reference.is_empty() && self.stash_count > 0
+            }
             PendingBranchDialog::Merge { .. } | PendingBranchDialog::Rebase => {
                 !self.local_branches.is_empty()
             }
@@ -346,6 +367,7 @@ impl RepoTab {
                 }
             }
             PendingBranchDialog::Stash => (true, None),
+            PendingBranchDialog::DropStash { .. } => (true, None),
             PendingBranchDialog::Merge { .. } | PendingBranchDialog::Rebase => {
                 (tab.dialogs.merge_source.is_some(), None)
             }
@@ -473,6 +495,20 @@ impl RepoTab {
                         ))),
                 )
                 .into_any_element(),
+            PendingBranchDialog::DropStash { reference } => v_flex()
+                .w_full()
+                .gap_2()
+                .child(
+                    div()
+                        .text_size(crate::theme::scaled_text_size(12.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text_args(
+                            locale,
+                            "stash-drop-warning",
+                            &[("reference", reference)],
+                        ))),
+                )
+                .into_any_element(),
         };
 
         let title_icon = match &pending {
@@ -492,6 +528,9 @@ impl RepoTab {
             }
             PendingBranchDialog::DeleteRef { .. }
             | PendingBranchDialog::DeleteRemote { .. } => {
+                crate::git::lucide("trash-2")
+            }
+            PendingBranchDialog::DropStash { .. } => {
                 crate::git::lucide("trash-2")
             }
         };
@@ -526,6 +565,9 @@ impl RepoTab {
             ),
             PendingBranchDialog::DeleteRemote { .. } => {
                 i18n::text(locale, "delete-remote-branch-title")
+            }
+            PendingBranchDialog::DropStash { .. } => {
+                i18n::text(locale, "stash-drop-title")
             }
         };
 
@@ -566,6 +608,7 @@ impl RepoTab {
                 PendingBranchDialog::Rebase
                     | PendingBranchDialog::DeleteRef { .. }
                     | PendingBranchDialog::DeleteRemote { .. }
+                    | PendingBranchDialog::DropStash { .. }
             ) {
                 btn.danger()
             } else {
@@ -600,13 +643,18 @@ impl RepoTab {
 
     /// Execute `git stash pop` on the worker (guarded by busy and stash
     /// availability).
-    pub(super) fn start_stash_pop(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn start_stash_pop(
+        &mut self,
+        stash_ref: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         if self.operation_busy || self.stash_count == 0 {
             return;
         }
-        log::info!("[branch_ops] stash pop requested");
+        log::info!("[branch_ops] stash pop requested: target={stash_ref:?}");
+        let args = stash_pop_args(stash_ref.as_deref());
         self.git_view.update(cx, |view, _| {
-            view.run("stash pop", vec!["stash".into(), "pop".into()]);
+            view.run("stash pop", args);
         });
         self.set_operation_busy(true, cx);
     }
@@ -658,6 +706,17 @@ pub(super) fn handle_sidebar_event(
         }
         SidebarEvent::CopyRef(value) => {
             tab.copy_ref(value, cx);
+        }
+        SidebarEvent::PopStash(stash_ref) => {
+            tab.start_stash_pop(Some(stash_ref.clone()), cx);
+        }
+        SidebarEvent::DropStash(stash_ref) => {
+            tab.open_branch_dialog(
+                PendingBranchDialog::DropStash {
+                    reference: stash_ref.clone(),
+                },
+                cx,
+            );
         }
         SidebarEvent::RenameBranch(name) => {
             tab.open_branch_dialog(
@@ -893,6 +952,9 @@ fn confirm_branch_dialog(tab: &mut RepoTab, cx: &mut Context<RepoTab>) {
         PendingBranchDialog::DeleteRemote { remote, branch } => {
             delete_remote_args(&remote, &branch)
         }
+        PendingBranchDialog::DropStash { reference } => {
+            ("stash drop", stash_drop_args(&reference))
+        }
     };
     tab.dialogs.close();
     log::info!("[branch_ops] command queued: {label}, args={args:?}");
@@ -935,7 +997,8 @@ fn validated_name_in(
 mod tests {
     use super::{
         NameError, delete_args, delete_remote_args, merge_args, rename_args,
-        rename_remote_args, validate_branch_name,
+        rename_remote_args, stash_drop_args, stash_pop_args,
+        validate_branch_name,
     };
 
     fn existing(names: &[&str]) -> Vec<String> {
@@ -1029,6 +1092,23 @@ mod tests {
         let (label, args) = merge_args("feature", true);
         assert_eq!(label, "merge --no-ff");
         assert_eq!(args, vec!["merge", "feature", "--no-ff"]);
+    }
+
+    #[test]
+    fn stash_pop_args_target_latest_or_explicit_entry() {
+        assert_eq!(stash_pop_args(None), vec!["stash", "pop"]);
+        assert_eq!(
+            stash_pop_args(Some("stash@{2}")),
+            vec!["stash", "pop", "stash@{2}"]
+        );
+    }
+
+    #[test]
+    fn stash_drop_args_target_the_explicit_entry() {
+        assert_eq!(
+            stash_drop_args("stash@{2}"),
+            vec!["stash", "drop", "stash@{2}"]
+        );
     }
 
     #[test]

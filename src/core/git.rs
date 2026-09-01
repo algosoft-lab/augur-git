@@ -134,7 +134,16 @@ pub struct CommitMessage {
     pub co_authors: Vec<CoAuthor>,
 }
 
-/// 引用快照（remote / 远程分支 / 标签 / stash 清单，侧栏分区显示）
+/// Repository refs snapshot used by the sidebar and comparison picker.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StashInfo {
+    /// Stable Git selector, such as `stash@{0}`.
+    pub reference: String,
+    /// User-visible stash description without the selector prefix.
+    pub description: String,
+}
+
+/// Repository refs snapshot used by the sidebar and comparison picker.
 #[derive(Clone, Debug, Default)]
 pub struct RefsInfo {
     /// 远程名清单（git remote）
@@ -144,8 +153,8 @@ pub struct RefsInfo {
     pub remote_branches: Vec<String>,
     /// 标签名（按创建时间倒序）
     pub tags: Vec<String>,
-    /// stash 描述（"stash@{n}: " 前缀已剥除）
-    pub stashes: Vec<String>,
+    /// Stash entries with both their Git selectors and display descriptions.
+    pub stashes: Vec<StashInfo>,
     /// Local/remote branches and tags available to revision comparison.
     pub comparison_revisions: Vec<CompareRevision>,
 }
@@ -1379,14 +1388,29 @@ fn parse_remote_branches(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// 解析 `git stash list`："stash@{0}: WIP on main: abc x" → "WIP on main: abc x"
-/// （无 ": " 的畸形行跳过）
-fn parse_stashes(text: &str) -> Vec<String> {
+/// Parse `git stash list` while retaining the selector needed by mutations.
+fn parse_stashes(text: &str) -> Vec<StashInfo> {
     text.lines()
         .filter_map(|l| {
-            l.split_once(": ").map(|(_, desc)| desc.trim().to_string())
+            let (reference, description) = l.split_once(": ")?;
+            let reference = reference.trim();
+            is_stash_reference(reference).then(|| StashInfo {
+                reference: reference.to_string(),
+                description: description.trim().to_string(),
+            })
         })
         .collect()
+}
+
+/// Accept only the numeric selectors emitted by `git stash list`.
+fn is_stash_reference(value: &str) -> bool {
+    let Some(index) = value
+        .strip_prefix("stash@{")
+        .and_then(|value| value.strip_suffix('}'))
+    else {
+        return false;
+    };
+    !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 #[cfg(test)]
@@ -1751,15 +1775,33 @@ mod tests {
     }
 
     #[test]
-    fn parse_stashes_strips_prefix() {
+    fn parse_stashes_preserves_references_and_descriptions() {
         let text = "stash@{0}: WIP on main: ab1234 x\nstash@{1}: On dev: fix\n";
         assert_eq!(
             parse_stashes(text),
-            vec!["WIP on main: ab1234 x", "On dev: fix"]
+            vec![
+                StashInfo {
+                    reference: "stash@{0}".to_string(),
+                    description: "WIP on main: ab1234 x".to_string(),
+                },
+                StashInfo {
+                    reference: "stash@{1}".to_string(),
+                    description: "On dev: fix".to_string(),
+                },
+            ]
         );
-        // 畸形行跳过
-        assert!(parse_stashes("").is_empty());
-        assert!(parse_stashes("no-colon-line\n").is_empty());
+    }
+
+    #[test]
+    fn parse_stashes_skips_malformed_references() {
+        let text = "stash@{x}: invalid\nnot-a-stash: invalid\nstash@{2} missing delimiter\n";
+        assert!(parse_stashes(text).is_empty());
+    }
+
+    #[test]
+    fn parse_stashes_keeps_colons_in_descriptions() {
+        let stashes = parse_stashes("stash@{3}: message: with: colons\n");
+        assert_eq!(stashes[0].description, "message: with: colons");
     }
 
     #[test]

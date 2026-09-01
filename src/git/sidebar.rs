@@ -14,7 +14,7 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::core::git::{BranchInfo, CheckoutTarget, RefsInfo};
+use crate::core::git::{BranchInfo, CheckoutTarget, RefsInfo, StashInfo};
 use crate::core::i18n::{self, Locale};
 use crate::core::refs::{RemoteBranchGroup, group_remote_branches};
 use crate::git::shared;
@@ -27,6 +27,10 @@ pub enum SidebarEvent {
     CheckoutRef(CheckoutTarget),
     /// Copy a displayed ref name to the system clipboard.
     CopyRef(String),
+    /// Pop a specific stash by its Git selector.
+    PopStash(String),
+    /// Drop a specific stash by its Git selector after confirmation.
+    DropStash(String),
     /// Rename a local branch (its current name is carried as payload).
     RenameBranch(String),
     /// Delete a local branch.
@@ -217,11 +221,7 @@ impl Sidebar {
                         "section-tags",
                         &self.refs.tags,
                     ))
-                    .child(self.list_section(
-                        cx,
-                        "section-stashes",
-                        &self.refs.stashes,
-                    )),
+                    .child(self.stash_list_section(cx, &self.refs.stashes)),
             )
     }
 
@@ -296,23 +296,74 @@ impl Sidebar {
             .when(!self.is_collapsed("section-branches"), |s| s.children(rows))
     }
 
-    /// Read-only list section for stashes.
-    fn list_section(
+    /// Stash list section with a context-menu action for each entry.
+    fn stash_list_section(
         &self,
         cx: &Context<Self>,
-        key: &str,
-        items: &[String],
+        items: &[StashInfo],
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
+        let sidebar = cx.entity();
+        let locale = self.locale;
+        let busy = self.busy;
         let rows = items
             .iter()
-            .map(|item| {
-                ref_row(&colors, SharedString::from(format!("{key}-{item}")))
-                    .child(ref_marker(&colors, false))
-                    .child(ref_label(&colors, item.clone(), false))
+            .map(|stash| {
+                let reference = stash.reference.clone();
+                let description = stash.description.clone();
+                let sidebar_for_menu = sidebar.clone();
+                let row = ref_row(
+                    &colors,
+                    SharedString::from(format!("stash-{reference}")),
+                )
+                .child(ref_marker(&colors, false))
+                .child(ref_label(&colors, description, false));
+
+                row.context_menu(move |menu, _window, _cx| {
+                    let sidebar_for_pop = sidebar_for_menu.clone();
+                    let sidebar_for_drop = sidebar_for_menu.clone();
+                    let reference_for_pop = reference.clone();
+                    let reference_for_drop = reference.clone();
+                    menu.item(
+                        PopupMenuItem::new(i18n::text(
+                            locale,
+                            "menu-stash-pop",
+                        ))
+                        .icon(crate::git::lucide("archive-restore"))
+                        .disabled(busy)
+                        .on_click(
+                            move |_event, _window, cx| {
+                                sidebar_for_pop.update(cx, |_sidebar, cx| {
+                                    cx.emit(SidebarEvent::PopStash(
+                                        reference_for_pop.clone(),
+                                    ));
+                                });
+                            },
+                        ),
+                    )
+                    .separator()
+                    .item(
+                        PopupMenuItem::new(i18n::text(
+                            locale,
+                            "menu-stash-drop",
+                        ))
+                        .icon(crate::git::lucide("trash-2"))
+                        .disabled(busy)
+                        .on_click(
+                            move |_event, _window, cx| {
+                                sidebar_for_drop.update(cx, |_sidebar, cx| {
+                                    cx.emit(SidebarEvent::DropStash(
+                                        reference_for_drop.clone(),
+                                    ));
+                                });
+                            },
+                        ),
+                    )
+                })
             })
             .collect::<Vec<_>>();
 
+        let key = "section-stashes";
         let collapsed = self.is_collapsed(key);
         v_flex()
             .id(SharedString::from(format!("list-{key}")))

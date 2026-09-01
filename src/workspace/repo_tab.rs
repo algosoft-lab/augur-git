@@ -191,7 +191,7 @@ impl RepoTab {
                 );
             }
             ToolbarEvent::StashPop => {
-                tab.start_stash_pop(cx);
+                tab.start_stash_pop(None, cx);
             }
             ToolbarEvent::Merge { no_ff } => {
                 tab.open_branch_dialog(
@@ -584,6 +584,7 @@ impl RepoTab {
                             | "tag -d"
                             | "stash"
                             | "stash pop"
+                            | "stash drop"
                             | "merge"
                             | "merge --no-ff"
                             | "rebase"
