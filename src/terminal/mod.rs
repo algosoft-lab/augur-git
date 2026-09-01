@@ -400,11 +400,15 @@ impl TerminalBackend {
         let geometry = self.geometry();
         let column = (f32::from(position.x) / geometry.cell_width)
             .floor()
-            .max(0.) as u16
+            .max(0.)
+            .min(f32::from(geometry.columns.saturating_sub(1)))
+            as u16
             + 1;
         let row = (f32::from(position.y) / geometry.line_height)
             .floor()
-            .max(0.) as u16
+            .max(0.)
+            .min(f32::from(geometry.lines.saturating_sub(1)))
+            as u16
             + 1;
         let column = column.min(223);
         let row = row.min(223);
@@ -528,10 +532,14 @@ fn viewport_point(
 ) -> TerminalPoint {
     let column = (f32::from(position.x) / geometry.cell_width)
         .floor()
-        .max(0.) as usize;
+        .max(0.)
+        .min(f32::from(geometry.columns.saturating_sub(1)))
+        as usize;
     let line = (f32::from(position.y) / geometry.line_height)
         .floor()
-        .max(0.) as usize;
+        .max(0.)
+        .min(f32::from(geometry.lines.saturating_sub(1)))
+        as usize;
     alacritty_terminal::term::viewport_to_point(
         display_offset,
         TerminalPoint::new(line, Column(column)),
