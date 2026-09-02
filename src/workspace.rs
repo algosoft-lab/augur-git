@@ -349,6 +349,10 @@ impl Workspace {
                     workspace.remove_agent_profile(profile_id, window, cx);
                 }
                 SettingsPanelEvent::AgentBuiltinAddRequested(agent) => {
+                    log::info!(
+                        "[agent_settings] built-in add event received: {}",
+                        agent.id()
+                    );
                     workspace.add_agent_builtin(*agent, window, cx);
                 }
                 SettingsPanelEvent::AgentBuiltinRemoveRequested(agent) => {

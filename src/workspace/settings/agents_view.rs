@@ -85,6 +85,10 @@ impl SettingsPanel {
                             .justify_start()
                             .small()
                             .on_click(move |_event, _window, cx| {
+                                log::info!(
+                                    "[agent_settings] add menu item clicked: {}",
+                                    agent.id()
+                                );
                                 add.update(cx, |panel, cx| {
                                     panel.agent_add_open = false;
                                     cx.emit(
@@ -463,12 +467,11 @@ impl SettingsPanel {
                         .child(actions),
                 );
             if expanded {
-                card =
-                    card.child(self.render_agent_card_body(
-                        &profile_id,
-                        built_in,
-                        cx,
-                    ));
+                card = card.child(self.render_agent_card_body(
+                    &profile_id,
+                    built_in,
+                    cx,
+                ));
             }
             card
         });
