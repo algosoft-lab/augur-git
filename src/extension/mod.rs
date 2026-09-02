@@ -8,12 +8,14 @@ mod host;
 mod manager;
 mod storage;
 
+#[allow(unused_imports)]
 pub use api::{
     AgentPromptOptions, AgentRequest, ExtensionHost, ExtensionInvocation,
     ExtensionRuntime, ExtensionRuntimeError, ExtensionTrigger, HostRequest,
     HostResponse, LuaRepository, RepositoryOperation, RepositorySnapshot,
 };
 pub use builtin::bundled_definitions;
+#[allow(unused_imports)]
 pub use history::{append_run_history, load_run_history};
 pub use host::{HostBridge, HostEvent};
 pub use manager::{

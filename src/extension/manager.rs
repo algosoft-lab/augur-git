@@ -539,3 +539,126 @@ fn dispatcher_loop(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::sync::mpsc::RecvTimeoutError;
+    use std::time::Duration;
+
+    use super::*;
+    use crate::core::extension::{
+        ExtensionManifest, ExtensionPackage, ExtensionSource,
+    };
+    use crate::extension::api::{
+        ExtensionHostRequest, HostRequest, HostResponse,
+    };
+
+    struct BlockingHost {
+        started: Sender<()>,
+        release: Arc<std::sync::Barrier>,
+    }
+
+    impl ExtensionHost for BlockingHost {
+        fn request(
+            &self,
+            request: ExtensionHostRequest,
+        ) -> Result<HostResponse, String> {
+            if matches!(request.request, HostRequest::Log { .. }) {
+                let _ = self.started.send(());
+                self.release.wait();
+            }
+            Ok(HostResponse::Json(serde_json::json!({ "ok": true })))
+        }
+    }
+
+    fn definition(id: &str, source: &str) -> ExtensionDefinition {
+        let manifest = ExtensionManifest::parse(&format!(
+            "id=\"{id}\"\nversion=\"1.0.0\"\napi_version=1\nname=\"{id}\"\ndescription=\"test\"\nmanual_handler=\"on_run\""
+        ))
+        .expect("test manifest");
+        ExtensionDefinition {
+            package: ExtensionPackage {
+                manifest,
+                root: None,
+                source: ExtensionSource::Bundled,
+                fingerprint: id.into(),
+                bundled: true,
+            },
+            source: source.into(),
+        }
+    }
+
+    fn request(id: &str) -> ExtensionRunRequest {
+        ExtensionRunRequest {
+            extension_id: id.into(),
+            trigger: ExtensionTrigger::Manual,
+            scheduled_at: None,
+            settings: BTreeMap::new(),
+            repositories: Vec::new(),
+            handler: "on_run".into(),
+        }
+    }
+
+    #[test]
+    fn coalesces_overlapping_runs_for_one_extension() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let release = Arc::new(std::sync::Barrier::new(2));
+        let host: Arc<dyn ExtensionHost> = Arc::new(BlockingHost {
+            started: started_tx,
+            release: release.clone(),
+        });
+        let (manager, events) = ExtensionManager::new(
+            vec![definition(
+                "test-extension",
+                r#"local augur = require("augur"); return {on_run = function() augur.log("info", "started") return {ok=true} end}"#,
+            )],
+            host,
+        )
+        .expect("manager");
+        assert!(manager.run(request("test-extension")).unwrap().is_some());
+        started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("first run should reach host");
+        assert!(manager.run(request("test-extension")).unwrap().is_none());
+        release.wait();
+        loop {
+            match events.recv_timeout(Duration::from_secs(2)) {
+                Ok(ExtensionEvent::RunFinished { .. }) => break,
+                Ok(_) => {}
+                Err(RecvTimeoutError::Timeout) => panic!("run did not finish"),
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!("manager event stream disconnected")
+                }
+            }
+        }
+        manager.shutdown();
+    }
+
+    #[test]
+    fn invalid_source_is_deferred_until_first_run() {
+        let host: Arc<dyn ExtensionHost> = Arc::new(BlockingHost {
+            started: mpsc::channel().0,
+            release: Arc::new(std::sync::Barrier::new(1)),
+        });
+        let (manager, events) = ExtensionManager::new(
+            vec![definition("invalid-extension", "return {")],
+            host,
+        )
+        .expect("worker startup must not evaluate source");
+        assert!(manager.run(request("invalid-extension")).unwrap().is_some());
+        let mut saw_error = false;
+        for _ in 0..4 {
+            match events.recv_timeout(Duration::from_secs(2)) {
+                Ok(ExtensionEvent::RunFinished { error: Some(_), .. }) => {
+                    saw_error = true;
+                    break;
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        assert!(saw_error, "invalid source should fail on invocation");
+        manager.shutdown();
+    }
+}

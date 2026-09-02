@@ -11,12 +11,11 @@ use std::time::{Duration, Instant};
 
 use crate::agent::AgentLaunchSpec;
 
-use super::api::HostResponse;
+use super::api::{HostResponse, MAX_AGENT_TRANSCRIPT_BYTES};
 use super::host::HostEvent;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
 const AGENT_ATTENTION_IDLE: Duration = Duration::from_secs(60);
-const MAX_AGENT_TRANSCRIPT_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub(super) struct AgentResult {

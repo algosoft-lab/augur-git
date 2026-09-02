@@ -118,7 +118,7 @@ impl Workspace {
                 if !extension::should_fire_daily(previous, now, time) {
                     continue;
                 }
-                let occurrence_date = now.date_naive().to_string();
+                let occurrence_date = extension::local_date_string(now);
                 if settings.last_scheduled_date.as_deref()
                     == Some(&occurrence_date)
                 {
