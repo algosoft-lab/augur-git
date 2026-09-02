@@ -22,7 +22,8 @@ use crate::core::git::automation;
 use super::agent_runner::{AgentResult, agent_response, run_agent_process};
 use super::api::{
     AgentPromptOptions, AgentRequest, ExtensionHost, ExtensionHostRequest,
-    HostRequest, HostResponse, RepositoryOperation, RepositorySnapshot,
+    ExtensionRunAdmission, HostRequest, HostResponse, RepositoryOperation,
+    RepositorySnapshot,
 };
 use super::storage::ExtensionStorage;
 
@@ -739,7 +740,7 @@ impl ExtensionHost for HostBridge {
         extension_id: &str,
         run_id: u64,
         repositories: &[RepositorySnapshot],
-    ) -> Result<(), String> {
+    ) -> Result<ExtensionRunAdmission, String> {
         let mut state = self
             .state
             .lock()
@@ -751,22 +752,58 @@ impl ExtensionHost for HostBridge {
                 continue;
             }
             if !state.repositories.contains_key(&repository.tab_id) {
-                return Err("repository tab is no longer open".into());
+                return Ok(ExtensionRunAdmission::Rejected {
+                    code: "tab_closed".into(),
+                    summary: "repository tab is no longer open".into(),
+                });
             }
             if let Some(owner) = state.owners.get(&repository.tab_id) {
-                return Err(format!(
-                    "repository is already owned by extension run {}",
-                    owner.1
-                ));
+                return Ok(ExtensionRunAdmission::Rejected {
+                    code: "repository_busy".into(),
+                    summary: format!(
+                        "repository is already owned by extension run {}",
+                        owner.1
+                    ),
+                });
             }
-            paths.push((repository.tab_id, repository.path.clone()));
+            let path = state
+                .repositories
+                .get(&repository.tab_id)
+                .map(|entry| entry.snapshot.path.clone())
+                .ok_or_else(|| {
+                    "repository tab is no longer open".to_string()
+                })?;
+            paths.push((repository.tab_id, path, repository.clone()));
         }
         let mut identities = Vec::new();
-        for (tab_id, path) in paths {
-            let captured =
-                automation::capture(Path::new(&path)).map_err(|summary| {
-                    format!("failed to capture repository: {summary}")
-                })?;
+        for (tab_id, path, snapshot) in paths {
+            let captured = match automation::capture(Path::new(&path)) {
+                Ok(captured) => captured,
+                Err(summary) => {
+                    return Ok(ExtensionRunAdmission::Rejected {
+                        code: "status_failed".into(),
+                        summary: format!(
+                            "failed to capture repository: {summary}"
+                        ),
+                    });
+                }
+            };
+            if (!snapshot.branch.is_empty()
+                && captured.branch != snapshot.branch)
+                || (snapshot.head.is_some() && captured.head != snapshot.head)
+            {
+                let code = if !snapshot.branch.is_empty()
+                    && captured.branch != snapshot.branch
+                {
+                    "branch_changed"
+                } else {
+                    "head_changed"
+                };
+                return Ok(ExtensionRunAdmission::Rejected {
+                    code: code.into(),
+                    summary: "repository branch or HEAD changed since the trigger snapshot".into(),
+                });
+            }
             identities.push((tab_id, captured.branch, captured.head));
         }
         for tab_id in touched.drain() {
@@ -780,7 +817,7 @@ impl ExtensionHost for HostBridge {
                 (branch, head),
             );
         }
-        Ok(())
+        Ok(ExtensionRunAdmission::Accepted)
     }
 
     fn finish_run(&self, extension_id: &str, run_id: u64) {

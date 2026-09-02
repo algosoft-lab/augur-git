@@ -124,6 +124,15 @@ pub enum HostResponse {
     Failure { code: String, summary: String },
 }
 
+/// Admission result for a queued run. Repository races are expected business
+/// failures and are surfaced in run history instead of being raised as Lua
+/// errors.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExtensionRunAdmission {
+    Accepted,
+    Rejected { code: String, summary: String },
+}
+
 /// Implemented by Workspace. Calls are synchronous from Lua's perspective,
 /// but the implementation may wait for an asynchronous GPUI/Git operation.
 pub trait ExtensionHost: Send + Sync {
@@ -140,8 +149,8 @@ pub trait ExtensionHost: Send + Sync {
         _extension_id: &str,
         _run_id: u64,
         _repositories: &[RepositorySnapshot],
-    ) -> Result<(), String> {
-        Ok(())
+    ) -> Result<ExtensionRunAdmission, String> {
+        Ok(ExtensionRunAdmission::Accepted)
     }
 
     /// Release reservations made by `begin_run`.

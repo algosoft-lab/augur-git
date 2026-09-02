@@ -14,8 +14,9 @@ use crate::core::extension::{
 };
 
 use super::api::{
-    ExtensionHost, ExtensionInvocation, ExtensionRuntime,
-    ExtensionRuntimeError, ExtensionTrigger, RepositorySnapshot,
+    ExtensionHost, ExtensionInvocation, ExtensionRunAdmission,
+    ExtensionRuntime, ExtensionRuntimeError, ExtensionTrigger,
+    RepositorySnapshot,
 };
 
 /// A package source plus the validated package metadata used to start a VM.
@@ -397,7 +398,14 @@ fn dispatcher_loop(
             &request.repositories,
         ) {
             Err(error) => Err(ExtensionRuntimeError::Lua(error)),
-            Ok(()) => {
+            Ok(ExtensionRunAdmission::Rejected { code, summary }) => {
+                Ok(serde_json::json!({
+                    "ok": false,
+                    "code": code,
+                    "summary": summary,
+                }))
+            }
+            Ok(ExtensionRunAdmission::Accepted) => {
                 let _ = event_tx.send(ExtensionEvent::RunStarted {
                     extension_id: job.extension_id.clone(),
                     run_id: job.run_id,
@@ -488,6 +496,11 @@ fn dispatcher_loop(
                     .and_then(serde_json::Value::as_bool)
                     .map(|ok| !ok)
                     .unwrap_or(error.is_some());
+                let top_level_code = handler_result
+                    .as_ref()
+                    .and_then(|value| value.get("code"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("extension_error");
                 let result_summary = detail
                     .and_then(|item| item.get("summary"))
                     .and_then(serde_json::Value::as_str)
@@ -504,7 +517,7 @@ fn dispatcher_loop(
                             code: detail
                                 .and_then(|item| item.get("code"))
                                 .and_then(serde_json::Value::as_str)
-                                .unwrap_or("extension_error")
+                                .unwrap_or(top_level_code)
                                 .to_string(),
                             summary: result_summary,
                         }

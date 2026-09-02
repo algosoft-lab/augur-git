@@ -11,8 +11,9 @@ mod storage;
 #[allow(unused_imports)]
 pub use api::{
     AgentPromptOptions, AgentRequest, ExtensionHost, ExtensionInvocation,
-    ExtensionRuntime, ExtensionRuntimeError, ExtensionTrigger, HostRequest,
-    HostResponse, LuaRepository, RepositoryOperation, RepositorySnapshot,
+    ExtensionRunAdmission, ExtensionRuntime, ExtensionRuntimeError,
+    ExtensionTrigger, HostRequest, HostResponse, LuaRepository,
+    RepositoryOperation, RepositorySnapshot,
 };
 pub use builtin::bundled_definitions;
 #[allow(unused_imports)]
