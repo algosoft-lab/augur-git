@@ -276,10 +276,12 @@ jobs:
 
           releases_api="repos/${REPOSITORY}/releases"
           release_id=""
+          release_body="Automated nightly build for commit ${COMMIT_SHA}."
+          release_body+=$'\n\n## ⚠️ Note for macOS users\n\nBuilds are unsigned (no Apple Developer ID). After dragging Augur Git into Applications, clear the quarantine flag once:\n\n```\nxattr -cr "/Applications/Augur Git.app"\n```'
           if release_id="$(gh api "${releases_api}/tags/nightly" --jq '.id' 2>/dev/null)"; then
             gh api --method PATCH "${releases_api}/${release_id}" \
               -f name="Augur Git Nightly" \
-              -f "body=Automated nightly build for commit ${COMMIT_SHA}." \
+              -f "body=${release_body}" \
               -F draft=true \
               -F prerelease=true \
               -f make_latest=false >/dev/null
@@ -287,7 +289,7 @@ jobs:
             release_id="$(gh api --method POST "${releases_api}" \
               -f tag_name=nightly \
               -f name="Augur Git Nightly" \
-              -f "body=Automated nightly build for commit ${COMMIT_SHA}." \
+              -f "body=${release_body}" \
               -F draft=true \
               -F prerelease=true \
               -f make_latest=false \
