@@ -821,6 +821,7 @@ pub fn daily_occurrence_between(
 }
 
 /// Whether a daily trigger should fire between two local instants.
+#[allow(dead_code)]
 pub fn should_fire_daily(
     last_check: DateTime<Local>,
     now: DateTime<Local>,
