@@ -6,6 +6,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,6 +31,7 @@ use super::api::{
 use super::storage::ExtensionStorage;
 
 const DEFAULT_AGENT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const AGENT_ATTENTION_IDLE: Duration = Duration::from_secs(60);
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
 const MAX_AGENT_TRANSCRIPT_BYTES: usize = 1024 * 1024;
 
@@ -303,7 +305,13 @@ impl HostBridge {
                 }
             }
             RepositoryOperation::AgentCommit { hint } => self
-                .agent_commit(path, &current, hint.as_deref(), cancelled)
+                .agent_commit(
+                    &request.extension_id,
+                    path,
+                    &current,
+                    hint.as_deref(),
+                    cancelled,
+                )
                 .unwrap_or_else(|summary| HostResponse::Failure {
                     code: "agent_commit_failed".into(),
                     summary,
@@ -318,11 +326,19 @@ impl HostBridge {
                         });
                     }
                 };
-                self.agent_merge(path, &current, &target, cancelled)
-                    .unwrap_or_else(|summary| HostResponse::Failure {
+                self.agent_merge(
+                    &request.extension_id,
+                    path,
+                    &current,
+                    &target,
+                    cancelled,
+                )
+                .unwrap_or_else(|summary| {
+                    HostResponse::Failure {
                         code: "agent_merge_failed".into(),
                         summary,
-                    })
+                    }
+                })
             }
             RepositoryOperation::AgentRebase { source } => {
                 let upstream = match resolve_commit(path, &source) {
@@ -334,20 +350,38 @@ impl HostBridge {
                         });
                     }
                 };
-                self.agent_rebase(path, &current, &upstream, cancelled)
-                    .unwrap_or_else(|summary| HostResponse::Failure {
+                self.agent_rebase(
+                    &request.extension_id,
+                    path,
+                    &current,
+                    &upstream,
+                    cancelled,
+                )
+                .unwrap_or_else(|summary| {
+                    HostResponse::Failure {
                         code: "agent_rebase_failed".into(),
                         summary,
-                    })
+                    }
+                })
             }
             RepositoryOperation::ResolveMerge => self
-                .agent_resolve_merge(path, &current, cancelled)
+                .agent_resolve_merge(
+                    &request.extension_id,
+                    path,
+                    &current,
+                    cancelled,
+                )
                 .unwrap_or_else(|summary| HostResponse::Failure {
                     code: "merge_recovery_failed".into(),
                     summary,
                 }),
             RepositoryOperation::ResolveRebase => self
-                .agent_resolve_rebase(path, &current, cancelled)
+                .agent_resolve_rebase(
+                    &request.extension_id,
+                    path,
+                    &current,
+                    cancelled,
+                )
                 .unwrap_or_else(|summary| HostResponse::Failure {
                     code: "rebase_recovery_failed".into(),
                     summary,
@@ -402,6 +436,7 @@ impl HostBridge {
 
     fn agent_commit(
         &self,
+        extension_id: &str,
         path: &Path,
         before: &automation::RepositoryState,
         hint: Option<&str>,
@@ -412,8 +447,13 @@ impl HostBridge {
         let prompt = operation
             .prompt_with_challenge(hint, &challenge)
             .map_err(|error| error.to_string())?;
-        let result =
-            self.run_agent(path, &prompt, DEFAULT_AGENT_TIMEOUT, cancelled)?;
+        let result = self.run_agent(
+            extension_id,
+            path,
+            &prompt,
+            DEFAULT_AGENT_TIMEOUT,
+            cancelled,
+        )?;
         let after =
             automation::capture(path).map_err(|error| error.to_string())?;
         let verified = result.completed
@@ -430,6 +470,7 @@ impl HostBridge {
 
     fn agent_merge(
         &self,
+        extension_id: &str,
         path: &Path,
         before: &automation::RepositoryState,
         target: &str,
@@ -440,6 +481,7 @@ impl HostBridge {
             baseline_head: before.head.clone(),
         };
         self.run_verified_operation(
+            extension_id,
             path,
             before,
             operation,
@@ -450,6 +492,7 @@ impl HostBridge {
 
     fn agent_rebase(
         &self,
+        extension_id: &str,
         path: &Path,
         before: &automation::RepositoryState,
         upstream: &str,
@@ -460,6 +503,7 @@ impl HostBridge {
             baseline_head: before.head.clone(),
         };
         self.run_verified_operation(
+            extension_id,
             path,
             before,
             operation,
@@ -470,6 +514,7 @@ impl HostBridge {
 
     fn agent_resolve_merge(
         &self,
+        extension_id: &str,
         path: &Path,
         before: &automation::RepositoryState,
         cancelled: &AtomicBool,
@@ -486,6 +531,7 @@ impl HostBridge {
             baseline_head: before.head.clone(),
         };
         self.run_verified_operation(
+            extension_id,
             path,
             before,
             operation,
@@ -496,6 +542,7 @@ impl HostBridge {
 
     fn agent_resolve_rebase(
         &self,
+        extension_id: &str,
         path: &Path,
         before: &automation::RepositoryState,
         cancelled: &AtomicBool,
@@ -512,6 +559,7 @@ impl HostBridge {
             baseline_head: before.head.clone(),
         };
         self.run_verified_operation(
+            extension_id,
             path,
             before,
             operation,
@@ -522,6 +570,7 @@ impl HostBridge {
 
     fn run_verified_operation(
         &self,
+        extension_id: &str,
         path: &Path,
         before: &automation::RepositoryState,
         operation: AgentOperation,
@@ -532,8 +581,13 @@ impl HostBridge {
         let prompt = operation
             .prompt_with_challenge(None, &challenge)
             .map_err(|error| error.to_string())?;
-        let result =
-            self.run_agent(path, &prompt, DEFAULT_AGENT_TIMEOUT, cancelled)?;
+        let result = self.run_agent(
+            extension_id,
+            path,
+            &prompt,
+            DEFAULT_AGENT_TIMEOUT,
+            cancelled,
+        )?;
         let after =
             automation::capture(path).map_err(|error| error.to_string())?;
         let verified = result.completed && verify(&after);
@@ -548,6 +602,7 @@ impl HostBridge {
 
     fn run_agent(
         &self,
+        extension_id: &str,
         repository: &Path,
         prompt: &str,
         timeout: Duration,
@@ -566,7 +621,14 @@ impl HostBridge {
         let spec = profile
             .launch_spec_for_prompt_with_overrides(prompt, &overrides)
             .map_err(|error| error.to_string())?;
-        run_agent_process(spec, Some(repository), timeout, cancelled)
+        run_agent_process(
+            extension_id,
+            spec,
+            Some(repository),
+            timeout,
+            cancelled,
+            &self.event_tx,
+        )
     }
 }
 
@@ -609,6 +671,7 @@ impl ExtensionHost for HostBridge {
                     })
                     .transpose()?;
                 let result = match self.run_agent(
+                    &request.extension_id,
                     path.as_deref()
                         .map(Path::new)
                         .unwrap_or_else(|| Path::new(".")),
@@ -767,10 +830,12 @@ fn agent_response(
 }
 
 fn run_agent_process(
+    extension_id: &str,
     spec: AgentLaunchSpec,
     cwd: Option<&Path>,
     timeout: Duration,
     cancelled: &AtomicBool,
+    event_tx: &Sender<HostEvent>,
 ) -> Result<AgentResult, String> {
     let mut command = std::process::Command::new(&spec.executable);
     command
@@ -790,8 +855,22 @@ fn run_agent_process(
         .spawn()
         .map_err(|error| format!("failed to start Agent: {error}"))?;
     let started = Instant::now();
+    let last_activity = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let stdout_activity = last_activity.clone();
+    let stderr_activity = last_activity.clone();
+    let stdout = child.stdout.take().map(|stdout| {
+        thread::spawn(move || {
+            collect_agent_output(stdout, stdout_activity, started)
+        })
+    });
+    let stderr = child.stderr.take().map(|stderr| {
+        thread::spawn(move || {
+            collect_agent_output(stderr, stderr_activity, started)
+        })
+    });
     let mut was_cancelled = false;
     let mut timed_out = false;
+    let mut attention_sent = false;
     loop {
         if cancelled.load(Ordering::Acquire) {
             was_cancelled = true;
@@ -803,6 +882,20 @@ fn run_agent_process(
             let _ = child.kill();
             break;
         }
+        let activity_at =
+            Duration::from_millis(last_activity.load(Ordering::Acquire));
+        if !attention_sent
+            && started.elapsed().saturating_sub(activity_at)
+                >= AGENT_ATTENTION_IDLE
+        {
+            attention_sent = true;
+            let _ = event_tx.send(HostEvent::Notify {
+                extension_id: extension_id.to_string(),
+                level: "warning".into(),
+                title: "Agent needs attention".into(),
+                body: "An extension Agent has produced no output for 60 seconds; review the repository or cancel the run.".into(),
+            });
+        }
         match child.try_wait() {
             Ok(Some(_)) => break,
             Ok(None) => thread::sleep(POLL_INTERVAL),
@@ -812,30 +905,29 @@ fn run_agent_process(
             }
         }
     }
-    let output = child
-        .wait_with_output()
+    let status = child
+        .wait()
         .map_err(|error| format!("failed to collect Agent output: {error}"))?;
-    let transcript = bounded_transcript(&output.stdout, &output.stderr);
+    let stdout = stdout
+        .and_then(|reader| reader.join().ok())
+        .unwrap_or_default();
+    let stderr = stderr
+        .and_then(|reader| reader.join().ok())
+        .unwrap_or_default();
+    let transcript = bounded_transcript(&stdout, &stderr);
     let completed = transcript
         .lines()
         .any(|line| line.trim().starts_with("AUGUR_GIT_DONE:"));
     let result = AgentResult {
-        ok: output.status.success()
-            && completed
-            && !was_cancelled
-            && !timed_out,
+        ok: status.success() && completed && !was_cancelled && !timed_out,
         completed,
-        exit_code: output.status.code(),
+        exit_code: status.code(),
         cancelled: was_cancelled,
         timed_out,
-        summary: if output.status.success() {
+        summary: if status.success() {
             "Agent exited without a verified completion marker".into()
         } else {
-            summarize_agent_output(
-                &output.stderr,
-                &output.stdout,
-                output.status.code(),
-            )
+            summarize_agent_output(&stderr, &stdout, status.code())
         },
         transcript,
     };
@@ -848,6 +940,32 @@ fn run_agent_process(
         result.timed_out
     );
     Ok(result)
+}
+
+fn collect_agent_output<R: Read>(
+    mut reader: R,
+    activity: Arc<std::sync::atomic::AtomicU64>,
+    started: Instant,
+) -> Vec<u8> {
+    let mut output = Vec::new();
+    let mut buffer = [0u8; 8192];
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => {
+                activity.store(
+                    started.elapsed().as_millis() as u64,
+                    Ordering::Release,
+                );
+                if output.len() < MAX_AGENT_TRANSCRIPT_BYTES {
+                    let remaining = MAX_AGENT_TRANSCRIPT_BYTES - output.len();
+                    output.extend_from_slice(&buffer[..read.min(remaining)]);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    output
 }
 
 fn bounded_transcript(stdout: &[u8], stderr: &[u8]) -> String {

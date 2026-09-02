@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -17,10 +17,12 @@ use super::{FileStatus, GitError, git_command, run_status};
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Result of one structured Git invocation.
 #[derive(Clone, Debug, Serialize)]
 pub struct CommandResult {
+    pub request_id: u64,
     pub ok: bool,
     pub code: Option<i32>,
     pub stdout: String,
@@ -32,7 +34,12 @@ pub struct CommandResult {
 
 impl CommandResult {
     fn failure(summary: impl Into<String>) -> Self {
+        Self::failure_with_id(next_request_id(), summary)
+    }
+
+    fn failure_with_id(request_id: u64, summary: impl Into<String>) -> Self {
         Self {
+            request_id,
             ok: false,
             code: None,
             stdout: String::new(),
@@ -274,6 +281,7 @@ fn run_command(
     timeout: Duration,
     cancelled: &AtomicBool,
 ) -> CommandResult {
+    let request_id = next_request_id();
     let mut command = git_command();
     command
         .arg("-C")
@@ -285,8 +293,13 @@ fn run_command(
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            log::warn!("[extension_sync] git spawn failed: {error}");
-            return CommandResult::failure(error.to_string());
+            log::warn!(
+                "[git_command] request_id={request_id} git spawn failed: {error}"
+            );
+            return CommandResult::failure_with_id(
+                request_id,
+                error.to_string(),
+            );
         }
     };
     let started = Instant::now();
@@ -319,6 +332,7 @@ fn run_command(
     let stdout = bounded_text(&output.stdout);
     let stderr = bounded_text(&output.stderr);
     let result = CommandResult {
+        request_id,
         ok: output.status.success() && !was_cancelled && !timed_out,
         code: output.status.code(),
         stdout,
@@ -329,13 +343,18 @@ fn run_command(
     }
     .with_summary();
     log::info!(
-        "[git_command] extension command finished: ok={}, code={:?}, cancelled={}, timed_out={}",
+        "[git_command] request_id={}, extension command finished: ok={}, code={:?}, cancelled={}, timed_out={}",
+        result.request_id,
         result.ok,
         result.code,
         result.cancelled,
         result.timed_out
     );
     result
+}
+
+fn next_request_id() -> u64 {
+    NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed)
 }
 
 fn bounded_text(bytes: &[u8]) -> String {
