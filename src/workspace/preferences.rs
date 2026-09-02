@@ -474,6 +474,47 @@ impl Workspace {
         cx.notify();
     }
 
+    pub(super) fn add_agent_builtin(
+        &mut self,
+        agent: BuiltInAgent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.config.agent.enabled_builtins().contains(&agent) {
+            return;
+        }
+        self.config.agent.set_builtin_enabled(agent, true);
+        let settings = self.config.agent.clone();
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.set_agent_settings(settings.clone(), window, cx);
+        });
+        self.config_saver.schedule(&self.config);
+        log::info!("[agent_terminal] built-in agent added: {}", agent.id());
+        cx.notify();
+    }
+
+    pub(super) fn remove_agent_builtin(
+        &mut self,
+        agent: BuiltInAgent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.config.agent.enabled_builtins().contains(&agent) {
+            return;
+        }
+        self.config.agent.set_builtin_enabled(agent, false);
+        if self.config.agent.default_profile_id.as_deref() == Some(agent.id()) {
+            self.config.agent.default_profile_id = None;
+        }
+        let settings = self.config.agent.clone();
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.set_agent_settings(settings.clone(), window, cx);
+        });
+        self.config_saver.schedule(&self.config);
+        log::info!("[agent_terminal] built-in agent removed: {}", agent.id());
+        cx.notify();
+    }
+
     pub(super) fn remove_agent_profile(
         &mut self,
         profile_id: &str,

@@ -2352,6 +2352,28 @@ fn open_session_window(
 
 /// Open or activate the visible Agent session that performs one repository
 /// commit using the fixed operation prompt.
+/// With opt-in presets the agent list can legitimately be empty. Instead of
+/// opening a session window that immediately fails, send the user straight
+/// to the Agents settings section. Returns false when nothing is configured.
+fn ensure_agent_enabled(
+    workspace: &mut Workspace,
+    cx: &mut Context<Workspace>,
+) -> bool {
+    let profile_id = workspace.config.agent.default_profile_id();
+    if workspace.config.agent.profile(&profile_id).is_some() {
+        return true;
+    }
+    log::info!(
+        "[agent_terminal] no agent profile enabled; opening Agents settings"
+    );
+    workspace.show_settings = true;
+    workspace.settings_panel.update(cx, |panel, cx| {
+        panel.reveal_agents(cx);
+    });
+    cx.notify();
+    false
+}
+
 pub(super) fn open_commit(
     workspace: &mut Workspace,
     tab_id: TabId,
@@ -2359,6 +2381,9 @@ pub(super) fn open_commit(
     hint: String,
     cx: &mut Context<Workspace>,
 ) {
+    if !ensure_agent_enabled(workspace, cx) {
+        return;
+    }
     workspace
         .agent_sessions
         .retain(|(_, handle)| handle.update(cx, |_, _, _| ()).is_ok());
@@ -2646,6 +2671,9 @@ pub(super) fn open_merge(
     log::info!(
         "[agent_terminal] Merge by AI requested: tab={tab_id}, source_present=true"
     );
+    if !ensure_agent_enabled(workspace, cx) {
+        return;
+    }
     open_merge_preflight(workspace, tab_id, repo_path, Some(source), cx);
 }
 
@@ -2661,6 +2689,9 @@ pub(super) fn open_merge_resolution(
     log::info!(
         "[agent_terminal] merge conflict resolution requested: tab={tab_id}"
     );
+    if !ensure_agent_enabled(workspace, cx) {
+        return;
+    }
     let key = merge_key(&repo_path);
     workspace
         .agent_sessions
@@ -2942,6 +2973,9 @@ pub(super) fn open_rebase(
     source: String,
     cx: &mut Context<Workspace>,
 ) {
+    if !ensure_agent_enabled(workspace, cx) {
+        return;
+    }
     open_rebase_preflight(workspace, tab_id, repo_path, source, cx);
 }
 
@@ -2956,6 +2990,9 @@ pub(super) fn open_rebase_resolution(
     baseline_head: Option<String>,
     cx: &mut Context<Workspace>,
 ) {
+    if !ensure_agent_enabled(workspace, cx) {
+        return;
+    }
     let key = rebase_key(&repo_path);
     workspace
         .agent_sessions
