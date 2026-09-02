@@ -278,6 +278,11 @@ impl ExtensionManager {
     }
 
     pub fn shutdown(&self) {
+        if let Ok(cancellations) = self.cancellations.lock() {
+            for cancelled in cancellations.values() {
+                cancelled.store(true, Ordering::Release);
+            }
+        }
         let _ = self.queue_tx.send(QueueCommand::Shutdown);
         if let Ok(workers) = self.workers.lock() {
             for worker in workers.values() {

@@ -115,10 +115,12 @@ impl Workspace {
                 let Ok(time) = extension::parse_daily_time(time) else {
                     continue;
                 };
-                if !extension::should_fire_daily(previous, now, time) {
+                let Some(occurrence) =
+                    extension::daily_occurrence_between(previous, now, time)
+                else {
                     continue;
-                }
-                let occurrence_date = extension::local_date_string(now);
+                };
+                let occurrence_date = extension::local_date_string(occurrence);
                 if settings.last_scheduled_date.as_deref()
                     == Some(&occurrence_date)
                 {

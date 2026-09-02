@@ -786,31 +786,47 @@ pub fn daily_occurrence(
     }
 }
 
+/// Return the first daily occurrence in the open/closed interval
+/// `(last_check, now]`.
+///
+/// The occurrence date is needed by the scheduler when an application wakes
+/// after midnight: recording `now`'s date could incorrectly suppress the
+/// later occurrence for the current local day.
+pub fn daily_occurrence_between(
+    last_check: DateTime<Local>,
+    now: DateTime<Local>,
+    time: NaiveTime,
+) -> Option<DateTime<Local>> {
+    if now <= last_check {
+        return None;
+    }
+    let mut date = last_check.date_naive();
+    let final_date = now.date_naive();
+    loop {
+        if date > final_date {
+            break;
+        }
+        if let Some(occurrence) = daily_occurrence(date, time)
+            && occurrence > last_check
+            && occurrence <= now
+        {
+            return Some(occurrence);
+        }
+        let Some(next) = date.succ_opt() else {
+            break;
+        };
+        date = next;
+    }
+    None
+}
+
 /// Whether a daily trigger should fire between two local instants.
 pub fn should_fire_daily(
     last_check: DateTime<Local>,
     now: DateTime<Local>,
     time: NaiveTime,
 ) -> bool {
-    if now <= last_check {
-        return false;
-    }
-    let mut date = last_check.date_naive();
-    while date <= now.date_naive() {
-        if let Some(occurrence) = daily_occurrence(date, time)
-            && occurrence > last_check
-            && occurrence <= now
-        {
-            return true;
-        }
-        date = date.succ_opt().unwrap_or(now.date_naive());
-        if date == now.date_naive()
-            && now.date_naive() == last_check.date_naive()
-        {
-            break;
-        }
-    }
-    false
+    daily_occurrence_between(last_check, now, time).is_some()
 }
 
 pub fn local_date_string(value: DateTime<Local>) -> String {
@@ -933,6 +949,14 @@ handler = "run"
         let date = now.date_naive();
         let time = now.time();
         let occurrence = daily_occurrence(date, time).unwrap();
+        assert_eq!(
+            daily_occurrence_between(
+                occurrence - chrono::Duration::minutes(1),
+                occurrence,
+                time,
+            ),
+            Some(occurrence)
+        );
         assert!(should_fire_daily(
             occurrence - chrono::Duration::minutes(1),
             occurrence,
