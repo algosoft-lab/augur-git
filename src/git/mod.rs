@@ -38,6 +38,7 @@ pub enum GitUiEvent {
     /// Repository status snapshot.
     StatusChanged {
         branch: String,
+        head: Option<String>,
         upstream: Option<String>,
         ahead: usize,
         behind: usize,
@@ -440,6 +441,7 @@ impl GitView {
             match evt {
                 GitEvent::Status {
                     branch,
+                    head,
                     upstream,
                     files,
                     branches,
@@ -458,6 +460,7 @@ impl GitView {
                     );
                     cx.emit(GitUiEvent::StatusChanged {
                         branch,
+                        head,
                         upstream,
                         ahead,
                         behind,

@@ -166,6 +166,8 @@ pub enum GitEvent {
     /// Repository status, tracked upstream, changed files, and branch list.
     Status {
         branch: String,
+        /// Current commit id, or `None` for an unborn branch.
+        head: Option<String>,
         /// Tracked upstream ref, when the current branch has one.
         upstream: Option<String>,
         files: Vec<FileStatus>,
@@ -728,6 +730,7 @@ fn refresh_status(repo_path: &str, event_tx: &Sender<GitEvent>) {
         Ok((branch, upstream, files, ahead, behind)) => {
             let _ = event_tx.send(GitEvent::Status {
                 branch,
+                head: read_head(repo_path),
                 upstream,
                 files,
                 branches,
@@ -740,6 +743,18 @@ fn refresh_status(repo_path: &str, event_tx: &Sender<GitEvent>) {
             let _ = event_tx.send(GitEvent::StatusError(error));
         }
     }
+}
+
+fn read_head(repo_path: &str) -> Option<String> {
+    let output = git_command()
+        .args(["-C", repo_path, "rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let head = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!head.is_empty()).then_some(head)
 }
 
 /// Execute a git command (blocking subprocess; worker thread only).

@@ -307,6 +307,7 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
         match event {
             GitUiEvent::StatusChanged {
                 branch,
+                head,
                 upstream,
                 ahead,
                 behind,
@@ -334,6 +335,7 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 let unstaged_text = unstaged_count.to_string();
 
                 tab.branch = branch_name;
+                tab.head = head.clone();
                 tab.upstream = upstream.clone();
                 tab.local_branches = branches
                     .iter()

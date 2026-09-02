@@ -129,6 +129,7 @@ pub struct RepoTab {
     repo_path: String,
     opened: bool,
     branch: String,
+    head: Option<String>,
     /// Tracked upstream of the current branch from the latest status.
     upstream: Option<String>,
     /// Configured remote names from the latest refs snapshot.
@@ -218,6 +219,7 @@ impl RepoTab {
             repo_path,
             opened: false,
             branch: String::new(),
+            head: None,
             upstream: None,
             remotes: Vec::new(),
             graph_history,
@@ -951,7 +953,7 @@ impl RepoTab {
             path: self.repo_path.clone(),
             display_name: repo_title(&self.repo_path),
             branch: self.branch.clone(),
-            head: None,
+            head: self.head.clone(),
             upstream: self.upstream.clone(),
             dirty: self.local_change_count > 0,
             conflicts: self.has_unresolved_conflicts,
