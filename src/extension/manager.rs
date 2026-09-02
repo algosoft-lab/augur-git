@@ -66,7 +66,7 @@ enum WorkerCommand {
     Run {
         invocation: ExtensionInvocation,
         handler: String,
-        completed: Sender<Result<(), ExtensionRuntimeError>>,
+        completed: Sender<Result<serde_json::Value, ExtensionRuntimeError>>,
     },
     Shutdown,
 }
@@ -365,26 +365,80 @@ fn dispatcher_loop(
             }
         };
         host.finish_run(&job.extension_id, job.run_id);
-        let (error, summary) = match result {
-            Ok(()) => (None, "extension completed".to_string()),
-            Err(error) => (Some(error.to_string()), error.to_string()),
+        let (error, summary, handler_result) = match result {
+            Ok(value) => {
+                let ok = value
+                    .get("ok")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(true);
+                let summary = value
+                    .get("summary")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("extension completed")
+                    .to_string();
+                let error = (!ok).then(|| summary.clone());
+                (error, summary, Some(value))
+            }
+            Err(error) => (Some(error.to_string()), error.to_string(), None),
         };
         let repositories = request
             .repositories
             .iter()
-            .map(|repository| RepositoryRunRecord {
-                display_name: repository.display_name.clone(),
-                result: if error.is_none() {
-                    RepositoryRunResult::Success {
-                        summary: "extension handler completed".into(),
-                    }
-                } else {
-                    RepositoryRunResult::Failed {
-                        code: "extension_error".into(),
-                        summary: summary.clone(),
-                    }
-                },
-                steps: Vec::new(),
+            .map(|repository| {
+                let detail = handler_result
+                    .as_ref()
+                    .and_then(|value| value.get("repositories"))
+                    .and_then(serde_json::Value::as_array)
+                    .and_then(|items| {
+                        items.iter().find(|item| {
+                            item.get("repository")
+                                .and_then(serde_json::Value::as_str)
+                                == Some(repository.display_name.as_str())
+                        })
+                    });
+                let steps = detail
+                    .and_then(|item| item.get("steps"))
+                    .and_then(serde_json::Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .map(ToString::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let failed = detail
+                    .and_then(|item| item.get("ok"))
+                    .and_then(serde_json::Value::as_bool)
+                    .map(|ok| !ok)
+                    .unwrap_or(error.is_some());
+                let result_summary = detail
+                    .and_then(|item| item.get("summary"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(if failed {
+                        &summary
+                    } else {
+                        "extension completed"
+                    })
+                    .to_string();
+                RepositoryRunRecord {
+                    display_name: repository.display_name.clone(),
+                    result: if failed {
+                        RepositoryRunResult::Failed {
+                            code: detail
+                                .and_then(|item| item.get("code"))
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or("extension_error")
+                                .to_string(),
+                            summary: result_summary,
+                        }
+                    } else {
+                        RepositoryRunResult::Success {
+                            summary: result_summary,
+                        }
+                    },
+                    steps,
+                }
             })
             .collect();
         let record = ExtensionRunRecord {

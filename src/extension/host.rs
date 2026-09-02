@@ -659,6 +659,7 @@ impl ExtensionHost for HostBridge {
             .lock()
             .map_err(|_| "extension host state is poisoned".to_string())?;
         let mut touched = HashSet::new();
+        let mut paths = Vec::new();
         for repository in repositories {
             if !touched.insert(repository.tab_id) {
                 continue;
@@ -672,26 +673,26 @@ impl ExtensionHost for HostBridge {
                     owner.1
                 ));
             }
+            paths.push((repository.tab_id, repository.path.clone()));
         }
-        for tab_id in touched {
+        let mut identities = Vec::new();
+        for (tab_id, path) in paths {
+            let captured =
+                automation::capture(Path::new(&path)).map_err(|summary| {
+                    format!("failed to capture repository: {summary}")
+                })?;
+            identities.push((tab_id, captured.branch, captured.head));
+        }
+        for tab_id in touched.drain() {
             state
                 .owners
                 .insert(tab_id, (extension_id.to_string(), run_id));
-            if let Some(path) = state
-                .repositories
-                .get(&tab_id)
-                .map(|repository| repository.snapshot.path.clone())
-            {
-                let captured = automation::capture(Path::new(&path)).map_err(
-                    |summary| {
-                        format!("failed to capture repository: {summary}")
-                    },
-                )?;
-                state.run_identities.insert(
-                    (extension_id.to_string(), run_id, tab_id),
-                    (captured.branch, captured.head),
-                );
-            }
+        }
+        for (tab_id, branch, head) in identities {
+            state.run_identities.insert(
+                (extension_id.to_string(), run_id, tab_id),
+                (branch, head),
+            );
         }
         Ok(())
     }
@@ -887,7 +888,13 @@ fn resolve_marker(path: &Path, marker: &str) -> Option<String> {
     if !git_dir.ok {
         return None;
     }
-    fs::read_to_string(git_dir.stdout.trim())
+    let marker_path = PathBuf::from(git_dir.stdout.trim());
+    let marker_path = if marker_path.is_absolute() {
+        marker_path
+    } else {
+        Path::new(path).join(marker_path)
+    };
+    fs::read_to_string(marker_path)
         .ok()
         .map(|value| value.trim().to_string())
 }
