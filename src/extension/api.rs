@@ -670,6 +670,17 @@ impl UserData for LuaRepository {
                 })?,
             )
         });
+        methods.add_method("merge", |lua, repository, source: String| {
+            response_to_lua(
+                lua,
+                repository.state.request(HostRequest::Repository {
+                    tab_id: repository.snapshot.tab_id,
+                    operation: RepositoryOperation::AgentMerge { source },
+                    expected_branch: repository.snapshot.branch.clone(),
+                    expected_head: repository.snapshot.head.clone(),
+                })?,
+            )
+        });
         methods.add_method(
             "agent_rebase",
             |lua, repository, source: String| {
@@ -684,6 +695,17 @@ impl UserData for LuaRepository {
                 )
             },
         );
+        methods.add_method("rebase", |lua, repository, source: String| {
+            response_to_lua(
+                lua,
+                repository.state.request(HostRequest::Repository {
+                    tab_id: repository.snapshot.tab_id,
+                    operation: RepositoryOperation::AgentRebase { source },
+                    expected_branch: repository.snapshot.branch.clone(),
+                    expected_head: repository.snapshot.head.clone(),
+                })?,
+            )
+        });
         methods.add_method("resolve_merge", |lua, repository, ()| {
             response_to_lua(
                 lua,

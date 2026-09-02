@@ -280,21 +280,34 @@ impl HostBridge {
                 self.command_response(tab_id, result)
             }
             RepositoryOperation::PullRebase => {
-                let result = automation::pull_rebase(path, cancelled)?;
-                self.command_response(tab_id, result)
+                match automation::pull_rebase(path, cancelled) {
+                    Ok(result) => self.command_response(tab_id, result),
+                    Err(summary) => HostResponse::Failure {
+                        code: "pull_status_failed".into(),
+                        summary,
+                    },
+                }
             }
             RepositoryOperation::Push { remote, branch } => {
-                let result = automation::push(
+                match automation::push(
                     path,
                     remote.as_deref(),
                     branch.as_deref(),
                     cancelled,
-                )?;
-                self.command_response(tab_id, result)
+                ) {
+                    Ok(result) => self.command_response(tab_id, result),
+                    Err(summary) => HostResponse::Failure {
+                        code: "push_status_failed".into(),
+                        summary,
+                    },
+                }
             }
-            RepositoryOperation::AgentCommit { hint } => {
-                self.agent_commit(path, &current, hint.as_deref(), cancelled)?
-            }
+            RepositoryOperation::AgentCommit { hint } => self
+                .agent_commit(path, &current, hint.as_deref(), cancelled)
+                .unwrap_or_else(|summary| HostResponse::Failure {
+                    code: "agent_commit_failed".into(),
+                    summary,
+                }),
             RepositoryOperation::AgentMerge { source } => {
                 let target = match resolve_commit(path, &source) {
                     Ok(target) => target,
@@ -305,7 +318,11 @@ impl HostBridge {
                         });
                     }
                 };
-                self.agent_merge(path, &current, &target, cancelled)?
+                self.agent_merge(path, &current, &target, cancelled)
+                    .unwrap_or_else(|summary| HostResponse::Failure {
+                        code: "agent_merge_failed".into(),
+                        summary,
+                    })
             }
             RepositoryOperation::AgentRebase { source } => {
                 let upstream = match resolve_commit(path, &source) {
@@ -317,14 +334,24 @@ impl HostBridge {
                         });
                     }
                 };
-                self.agent_rebase(path, &current, &upstream, cancelled)?
+                self.agent_rebase(path, &current, &upstream, cancelled)
+                    .unwrap_or_else(|summary| HostResponse::Failure {
+                        code: "agent_rebase_failed".into(),
+                        summary,
+                    })
             }
-            RepositoryOperation::ResolveMerge => {
-                self.agent_resolve_merge(path, &current, cancelled)?
-            }
-            RepositoryOperation::ResolveRebase => {
-                self.agent_resolve_rebase(path, &current, cancelled)?
-            }
+            RepositoryOperation::ResolveMerge => self
+                .agent_resolve_merge(path, &current, cancelled)
+                .unwrap_or_else(|summary| HostResponse::Failure {
+                    code: "merge_recovery_failed".into(),
+                    summary,
+                }),
+            RepositoryOperation::ResolveRebase => self
+                .agent_resolve_rebase(path, &current, cancelled)
+                .unwrap_or_else(|summary| HostResponse::Failure {
+                    code: "rebase_recovery_failed".into(),
+                    summary,
+                }),
         };
         let _ = self.event_tx.send(HostEvent::RepositoryChanged { tab_id });
         if let Ok(after) = automation::capture(path) {
@@ -581,18 +608,24 @@ impl ExtensionHost for HostBridge {
                         self.repository(tab_id).map(|snapshot| snapshot.path)
                     })
                     .transpose()?;
-                let result = self.run_agent(
+                let result = match self.run_agent(
                     path.as_deref()
                         .map(Path::new)
                         .unwrap_or_else(|| Path::new(".")),
                     &prompt,
                     Duration::from_secs(timeout_seconds.clamp(1, 30 * 60)),
                     request.cancelled.as_ref(),
-                )?;
-                json_response(
-                    serde_json::to_value(result)
-                        .map_err(|error| error.to_string())?,
-                )
+                ) {
+                    Ok(result) => json_response(
+                        serde_json::to_value(result)
+                            .map_err(|error| error.to_string())?,
+                    ),
+                    Err(summary) => HostResponse::Failure {
+                        code: "agent_prompt_failed".into(),
+                        summary,
+                    },
+                };
+                result
             }
             HostRequest::TimeNow => json_response(serde_json::json!({
                 "unix_ms": Utc::now().timestamp_millis(),

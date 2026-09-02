@@ -193,12 +193,16 @@ pub fn push(
     }
     let after = capture(path)?;
     if after.branch != selected_branch
+        || before.head != after.head
+        || (before.upstream.is_some() && after.upstream.is_none())
+        || after.upstream.is_none() && before.upstream.is_none()
         || after.operation.is_some()
         || after.conflicts
+        || after.ahead != 0
     {
         return Ok(CommandResult {
             ok: false,
-            summary: "push completed but repository verification failed".into(),
+            summary: "push completed but repository verification failed (branch, HEAD, upstream, or ahead state changed)".into(),
             ..result
         });
     }
