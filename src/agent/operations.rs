@@ -1,4 +1,6 @@
-//! Fixed prompts for user-invoked Git operations performed by external Agents.
+//! Fixed prompts and completion protocol for user-invoked Git operations.
+
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// An operation that Augur Git can delegate to an external Agent.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -11,6 +13,38 @@ pub enum AgentOperation {
 pub enum CommitPromptError {
     HintTooLong { max_bytes: usize },
     HintContainsControlCharacter,
+}
+
+/// A per-session marker that lets Augur detect when an interactive Agent has
+/// finished its Git operation without depending on the Agent exiting its TUI.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AgentCommitChallenge {
+    pub prompt: String,
+    pub expected_marker: String,
+}
+
+impl AgentCommitChallenge {
+    pub fn new() -> Self {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let token =
+            format!("augur-git-commit-{}-{counter:016x}", std::process::id());
+        let reversed = token.chars().rev().collect::<String>();
+        let expected_marker = format!("AUGUR_GIT_DONE:{reversed}");
+        let prompt = format!(
+            "When all checks and the Git operation are complete, report the result and output exactly one standalone line in the form `AUGUR_GIT_DONE:<reversed-token>`, using the reverse of this token: {token}. Do not output that line before the operation is complete. Do not attempt to exit the interactive session; Augur Git will close it after detecting the marker."
+        );
+        Self {
+            prompt,
+            expected_marker,
+        }
+    }
+}
+
+impl Default for AgentCommitChallenge {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl std::fmt::Display for CommitPromptError {
@@ -30,7 +64,7 @@ impl std::error::Error for CommitPromptError {}
 
 const MAX_COMMIT_HINT_BYTES: usize = 4 * 1024;
 
-const COMMIT_PROMPT: &str = "You are Augur Git's commit agent operating in the current repository. Inspect the entire working tree, including staged, unstaged, and untracked changes. If there are merge conflicts or no changes, explain the situation and do not commit. Otherwise stage all current changes with git add --all, review the staged diff, generate one concise Conventional Commit message, and run exactly one git commit. Do not edit file contents, delete files, reset, checkout, amend, merge, rebase, or push. Do not run commands outside this repository. After reporting the result, exit the interactive session.";
+const COMMIT_PROMPT: &str = "You are Augur Git's commit agent operating in the current repository. Inspect the entire working tree, including staged, unstaged, and untracked changes. If there are merge conflicts or no changes, explain the situation and do not commit. Otherwise stage all current changes with git add --all, review the staged diff, generate one concise Conventional Commit message, and run exactly one git commit. Do not edit file contents, delete files, reset, checkout, amend, merge, rebase, or push. Do not run commands outside this repository.";
 
 impl AgentOperation {
     /// Build the fixed prompt for this operation and an optional user hint.
@@ -45,6 +79,16 @@ impl AgentOperation {
         match self {
             Self::Commit => commit_prompt(hint),
         }
+    }
+
+    /// Build the fixed commit prompt with a session completion marker.
+    pub fn prompt_with_challenge(
+        self,
+        hint: Option<&str>,
+        challenge: &AgentCommitChallenge,
+    ) -> Result<String, CommitPromptError> {
+        let base = self.prompt(hint)?;
+        Ok(format!("{base}\n\n{}", challenge.prompt))
     }
 }
 
@@ -78,6 +122,7 @@ mod tests {
         let prompt = AgentOperation::Commit.prompt(None).unwrap();
         assert!(prompt.contains("git add --all"));
         assert!(prompt.contains("run exactly one git commit"));
+        assert!(!prompt.contains("exit the interactive session"));
         assert!(!prompt.contains("Optional commit-message hint"));
     }
 
@@ -110,6 +155,38 @@ mod tests {
         assert_eq!(
             AgentOperation::Commit.prompt(Some(&hint)),
             Err(CommitPromptError::HintTooLong { max_bytes: 4096 })
+        );
+    }
+
+    #[test]
+    fn completion_marker_is_not_embedded_in_the_prompt() {
+        let challenge = super::AgentCommitChallenge::new();
+        let prompt = AgentOperation::Commit
+            .prompt_with_challenge(None, &challenge)
+            .unwrap();
+        assert!(!prompt.contains(&challenge.expected_marker));
+        assert!(prompt.contains("AUGUR_GIT_DONE:<reversed-token>"));
+    }
+
+    #[test]
+    fn completion_markers_are_unique_and_reversed() {
+        let first = super::AgentCommitChallenge::new();
+        let second = super::AgentCommitChallenge::new();
+        assert_ne!(first.expected_marker, second.expected_marker);
+        let token = first
+            .prompt
+            .split("reverse of this token: ")
+            .nth(1)
+            .unwrap()
+            .split('.')
+            .next()
+            .unwrap();
+        assert_eq!(
+            first.expected_marker,
+            format!(
+                "AUGUR_GIT_DONE:{}",
+                token.chars().rev().collect::<String>()
+            )
         );
     }
 }

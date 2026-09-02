@@ -29,6 +29,7 @@ pub use crate::core::diff::{
 use crate::core::diff::{merge_numstat, parse_numstat, parse_raw_records};
 use crate::core::graph::LogRow;
 
+pub mod agent_operation;
 mod branch_compare;
 mod commit_log;
 mod working_tree;

@@ -147,12 +147,23 @@ operation prompt.
 
 The operation instructs the Agent to inspect staged, unstaged, and untracked
 changes, stop when conflicts or no changes are present, run `git add --all`,
-review the staged diff, create one concise Conventional Commit, report the
-result, and exit. It must not edit file contents, amend, merge, rebase, reset,
+review the staged diff, create one concise Conventional Commit, and report the
+result. A per-session completion marker is requested after the operation; the
+Agent remains in its interactive TUI and Augur Git stops it after the marker is
+observed. It must not edit file contents, amend, merge, rebase, reset,
 checkout, or push. Augur Git disables other repository operations while this
-session runs and refreshes status and history after the process exits. The
-process exit code is shown separately from the refreshed Git state; an exit
+session runs. When the Git probe observes a changed HEAD, the repository status
+and history refresh immediately, while controls stay locked until completion.
+The process exit code is shown separately from the refreshed Git state; an exit
 code alone is not treated as proof that a commit was created.
+
+On a verified commit, Augur Git stops the interactive process and closes the
+Agent window automatically. If the operation reports no changes, encounters a
+conflict, fails, is cancelled, or exits without verification, Augur Git also
+stops the process and refreshes the repository but keeps the terminal open for
+diagnostics; the button becomes **Close**. If a changed HEAD is observed but
+the marker is missing, a bounded fallback accepts the commit only after 30
+seconds and at least 3 seconds without PTY activity.
 
 Only one active Commit by AI session is allowed per repository. Starting it
 again focuses the existing window. Closing the window, repository tab, or
@@ -189,6 +200,15 @@ The view is not a general shell. It should be treated as a host for the three
 supported coding-agent CLIs and compatible custom profiles during connectivity
 testing. Terminal behavior that depends on a vendor's private TUI protocol is
 intentionally left to the CLI itself.
+
+## Coordination boundaries
+
+The Git status probe and porcelain-v2 parser live in
+`src/core/git/agent_operation.rs`, keeping repository inspection on the Git
+worker boundary. Commit outcomes and probe classification are pure logic in
+`src/workspace/agent_commit.rs`. The visible session coordinator owns the
+shared PTY window, monitor, marker handling, and lifecycle callbacks; it does
+not duplicate Git parsing or provider-specific command construction.
 
 ## Troubleshooting
 

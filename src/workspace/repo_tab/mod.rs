@@ -15,6 +15,7 @@ use crate::git::sidebar::Sidebar;
 use crate::git::toolbar::Toolbar;
 use crate::git::{GitStatus, GitView};
 
+use super::agent_commit::AgentCommitOutcome;
 use super::tabs::{TabId, TabState, TabSummary};
 
 mod branch_compare;
@@ -98,6 +99,7 @@ pub struct RepoTab {
     working_tree_operation_id: u64,
     operation_busy: bool,
     agent_commit_session_id: Option<u64>,
+    agent_commit_observed_head: Option<String>,
     pending_agent_refresh: bool,
     layout: LayoutSettings,
     confirmation: Option<PendingConfirmation>,
@@ -165,6 +167,7 @@ impl RepoTab {
             working_tree_operation_id: 0,
             operation_busy: false,
             agent_commit_session_id: None,
+            agent_commit_observed_head: None,
             pending_agent_refresh: false,
             layout,
             confirmation: None,
@@ -248,28 +251,76 @@ impl RepoTab {
             return;
         }
         self.agent_commit_session_id = Some(session_id);
+        self.agent_commit_observed_head = None;
         self.sync_busy_controls(cx);
+        cx.notify();
+    }
+
+    pub(super) fn observe_agent_commit(
+        &mut self,
+        session_id: u64,
+        oid: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_commit_session_id != Some(session_id)
+            || self.agent_commit_observed_head.as_deref() == Some(&oid)
+        {
+            return;
+        }
+        self.agent_commit_observed_head = Some(oid.clone());
+        self.status_message = Some(i18n::text_args(
+            self.locale,
+            "agent-commit-observed",
+            &[("oid", &short_oid(&oid))],
+        ));
+        self.status_message_ok = None;
+        self.refresh_repository(cx);
         cx.notify();
     }
 
     pub(super) fn finish_agent_commit(
         &mut self,
         session_id: u64,
-        code: Option<i32>,
+        outcome: AgentCommitOutcome,
         cx: &mut Context<Self>,
     ) {
         if self.agent_commit_session_id != Some(session_id) {
             return;
         }
         self.agent_commit_session_id = None;
-        self.status_message = Some(i18n::text_args(
-            self.locale,
-            "agent-commit-session-exited",
-            &[("code", &format_exit_code(code))],
-        ));
-        // An Agent exit code describes the process only. The refreshed Git
-        // state remains the source of truth for whether a commit exists.
-        self.status_message_ok = None;
+        self.agent_commit_observed_head = None;
+        let (message, ok) = match &outcome {
+            AgentCommitOutcome::Committed { oid } => (
+                i18n::text_args(
+                    self.locale,
+                    "agent-commit-created",
+                    &[("oid", &short_oid(oid))],
+                ),
+                true,
+            ),
+            AgentCommitOutcome::NoChanges => {
+                (i18n::text(self.locale, "agent-commit-no-changes"), false)
+            }
+            AgentCommitOutcome::Conflict => {
+                (i18n::text(self.locale, "agent-commit-conflict"), false)
+            }
+            AgentCommitOutcome::Failed => {
+                (i18n::text(self.locale, "agent-commit-failed"), false)
+            }
+            AgentCommitOutcome::Cancelled => {
+                (i18n::text(self.locale, "agent-commit-cancelled"), false)
+            }
+            AgentCommitOutcome::ExitedUnverified { code } => (
+                i18n::text_args(
+                    self.locale,
+                    "agent-commit-unverified",
+                    &[("code", &format_exit_code(*code))],
+                ),
+                false,
+            ),
+        };
+        self.status_message = Some(message);
+        self.status_message_ok = Some(ok);
         if self.operation_busy {
             self.pending_agent_refresh = true;
         } else {
@@ -505,6 +556,10 @@ impl RepoTab {
     fn emit_summary(&self, cx: &mut Context<Self>) {
         cx.emit(RepoTabEvent::SummaryChanged(self.summary()));
     }
+}
+
+fn short_oid(oid: &str) -> String {
+    oid.get(..7).unwrap_or(oid).to_string()
 }
 
 impl Render for RepoTab {

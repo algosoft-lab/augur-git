@@ -17,7 +17,7 @@ use std::os::windows::process::CommandExt;
 use serde::{Deserialize, Serialize};
 
 pub mod operations;
-pub use operations::AgentOperation;
+pub use operations::{AgentCommitChallenge, AgentOperation};
 
 const TEST_DIRECTORY_PREFIX: &str = "augur-git-agent-test";
 

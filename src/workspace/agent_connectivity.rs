@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
 use gpui::*;
@@ -17,15 +17,17 @@ use gpui_component::{
 };
 
 use crate::agent::{
-    AgentConnectivityChallenge, AgentLaunchSpec, AgentOperation,
-    AgentTestDirectory, ResolvedAgentProfile,
+    AgentCommitChallenge, AgentConnectivityChallenge, AgentLaunchSpec,
+    AgentOperation, AgentTestDirectory, ResolvedAgentProfile,
 };
+use crate::core::git::agent_operation::{AgentCommitProbe, probe_agent_commit};
 use crate::core::i18n::{self, Locale};
 use crate::terminal::{
     TerminalBackend, TerminalView, normalize_working_directory,
 };
 
 use super::Workspace;
+use super::agent_commit::{AgentCommitOutcome, classify_probe};
 use super::tabs::TabId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -46,6 +48,12 @@ enum ConnectivityState {
     Starting,
     WaitingForResponse,
     ResponseReceived,
+    CommitDetected {
+        oid: String,
+    },
+    CommitCompleted {
+        outcome: AgentCommitOutcome,
+    },
     Exited {
         code: Option<i32>,
         response_received: bool,
@@ -63,11 +71,18 @@ pub(super) struct AgentSessionWindow {
     test_directory: Option<AgentTestDirectory>,
     working_directory: PathBuf,
     commit_completion: Option<CommitCompletion>,
+    session_id: Option<u64>,
     backend: Option<Arc<TerminalBackend>>,
     terminal: Option<Entity<TerminalView>>,
     state: ConnectivityState,
     response_received: bool,
     stop_requested: bool,
+    commit_challenge: Option<AgentCommitChallenge>,
+    commit_baseline: Option<AgentCommitProbe>,
+    commit_head_observed: Option<String>,
+    commit_head_observed_at: Option<Instant>,
+    commit_completed: bool,
+    window_id: u64,
     // Keep the polling task owned by the window for its whole lifetime.
     _monitor_task: Option<Task<()>>,
 }
@@ -98,6 +113,8 @@ impl AgentSessionWindow {
             None,
             startup_error,
             Some(challenge),
+            None,
+            false,
             window_id,
             cx,
         )
@@ -110,6 +127,7 @@ impl AgentSessionWindow {
         prompt: String,
         working_directory: PathBuf,
         completion: Option<CommitCompletion>,
+        challenge: AgentCommitChallenge,
         startup_error: Option<String>,
         window_id: u64,
         cx: &mut Context<Self>,
@@ -125,6 +143,8 @@ impl AgentSessionWindow {
             completion,
             startup_error,
             None,
+            Some(challenge),
+            true,
             window_id,
             cx,
         )
@@ -141,157 +161,23 @@ impl AgentSessionWindow {
         commit_completion: Option<CommitCompletion>,
         startup_error: Option<String>,
         challenge: Option<AgentConnectivityChallenge>,
+        commit_challenge: Option<AgentCommitChallenge>,
+        defer_start: bool,
         window_id: u64,
         cx: &mut Context<Self>,
     ) -> Self {
-        let mut backend = None;
-        let mut terminal = None;
         let mut state = ConnectivityState::Starting;
-        let mut monitor_task = None;
         let working_directory = normalize_working_directory(&working_directory);
+        let has_startup_error = startup_error.is_some();
+        let session_id = commit_completion
+            .as_ref()
+            .map(|completion| completion.session_id);
 
         if let Some(error) = startup_error {
             state = ConnectivityState::Failed(error);
-        } else {
-            match TerminalBackend::spawn(
-                &spec,
-                test_directory.clone(),
-                &working_directory,
-                window_id,
-            ) {
-                Ok(value) => {
-                    let value = Arc::new(value);
-                    let terminal_entity =
-                        cx.new(|cx| TerminalView::new(value.clone(), cx));
-                    let window_entity = cx.entity();
-                    let terminal_for_monitor = terminal_entity.clone();
-                    let backend_for_monitor = value.clone();
-                    let expected_response = challenge
-                        .as_ref()
-                        .map(|challenge| challenge.expected_response.clone());
-                    let profile_id_for_monitor = profile.id.clone();
-                    let kind_for_monitor = kind;
-                    monitor_task = Some(cx.spawn(async move |_, cx| {
-                        loop {
-                            cx.background_executor()
-                                .timer(Duration::from_millis(100))
-                                .await;
-                            let completion = terminal_for_monitor
-                                .read_with(cx, |terminal, _| {
-                                    terminal.completion()
-                                });
-                            let response_received = expected_response
-                                .as_deref()
-                                .is_some_and(|expected| {
-                                    backend_for_monitor.contains_text(expected)
-                                });
-                            let finished = completion.is_some();
-                            let mut commit_completion = None;
-                            let _ = window_entity.update(cx, |window, cx| {
-                                if response_received && !window.response_received {
-                                    window.response_received = true;
-                                    if kind_for_monitor
-                                        == AgentSessionKind::Connectivity
-                                    {
-                                        log::info!(
-                                            "[agent_terminal] connectivity test response received: profile={}",
-                                            profile_id_for_monitor
-                                        );
-                                    }
-                                }
-                                if let Some(result) = completion.clone() {
-                                    window.state = match result {
-                                        Ok(code) => {
-                                            log::info!(
-                                                "[agent_terminal] {} exited: profile={}, code={code:?}",
-                                                session_kind_label(kind_for_monitor),
-                                                profile_id_for_monitor
-                                            );
-                                            ConnectivityState::Exited {
-                                                code,
-                                                response_received: window
-                                                    .response_received,
-                                            }
-                                        }
-                                        Err(summary) => {
-                                            log::error!(
-                                                "[agent_terminal] {} failed: profile={}",
-                                                session_kind_label(kind_for_monitor),
-                                                profile_id_for_monitor
-                                            );
-                                            ConnectivityState::Failed(summary)
-                                        }
-                                    };
-                                    if kind_for_monitor
-                                        == AgentSessionKind::Commit
-                                    {
-                                        let code = match completion.as_ref() {
-                                            Some(Ok(code)) => *code,
-                                            _ => None,
-                                        };
-                                        commit_completion = window
-                                            .commit_completion
-                                            .take()
-                                            .map(|completion| {
-                                                (completion, code)
-                                            });
-                                    }
-                                } else if window.response_received {
-                                    window.state =
-                                        ConnectivityState::ResponseReceived;
-                                } else if matches!(
-                                    window.state,
-                                    ConnectivityState::Starting
-                                ) {
-                                    window.state =
-                                        ConnectivityState::WaitingForResponse;
-                                }
-                                cx.notify();
-                            });
-                            if let Some((completion, code)) = commit_completion {
-                                let tab_id = completion.tab_id;
-                                let session_id = completion.session_id;
-                                let _ = completion.workspace.update(
-                                    cx,
-                                    move |workspace, cx| {
-                                        workspace.finish_agent_commit(
-                                            tab_id,
-                                            session_id,
-                                            code,
-                                            cx,
-                                        );
-                                    },
-                                );
-                            }
-                            if finished {
-                                break;
-                            }
-                        }
-                    }));
-                    backend = Some(value);
-                    terminal = Some(terminal_entity);
-                    log::info!(
-                        "[agent_terminal] {} started: profile={}",
-                        session_kind_label(kind),
-                        profile.id
-                    );
-                }
-                Err(error) => {
-                    state = ConnectivityState::Failed(
-                        first_line(&error.to_string()).to_string(),
-                    );
-                    if let Some(directory) = test_directory.as_ref() {
-                        if directory.cleanup().is_err() {
-                            log::debug!(
-                                "[agent_terminal] temporary test directory cleanup deferred"
-                            );
-                        }
-                    }
-                }
-            }
         }
 
-        Self {
+        let mut session = Self {
             kind,
             locale,
             profile,
@@ -300,13 +186,379 @@ impl AgentSessionWindow {
             test_directory,
             working_directory,
             commit_completion,
-            backend,
-            terminal,
+            session_id,
+            backend: None,
+            terminal: None,
             state,
             response_received: false,
             stop_requested: false,
-            _monitor_task: monitor_task,
+            commit_challenge,
+            commit_baseline: None,
+            commit_head_observed: None,
+            commit_head_observed_at: None,
+            commit_completed: false,
+            window_id,
+            _monitor_task: None,
+        };
+
+        if !has_startup_error {
+            if defer_start {
+                let entity = cx.entity();
+                let repo_path = session.working_directory.clone();
+                session._monitor_task = Some(cx.spawn(async move |_, cx| {
+                    let result = cx
+                        .background_executor()
+                        .spawn(async move { probe_agent_commit(&repo_path) })
+                        .await;
+                    let _ = entity.update(cx, |window, cx| {
+                        window.start_commit_after_probe(result, cx);
+                    });
+                }));
+            } else {
+                session.start_terminal(challenge, cx);
+            }
         }
+
+        session
+    }
+
+    fn start_commit_after_probe(
+        &mut self,
+        result: Result<AgentCommitProbe, String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.stop_requested || self.commit_completed {
+            return;
+        }
+        match result {
+            Ok(baseline) => {
+                self.commit_baseline = Some(baseline);
+                self.start_terminal(None, cx);
+            }
+            Err(error) => {
+                self.state =
+                    ConnectivityState::Failed(first_line(&error).to_string());
+                self.finish_commit(AgentCommitOutcome::Failed, cx);
+            }
+        }
+    }
+
+    fn start_terminal(
+        &mut self,
+        challenge: Option<AgentConnectivityChallenge>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.backend.is_some() || self.stop_requested {
+            return;
+        }
+        let result = TerminalBackend::spawn(
+            &self.spec,
+            self.test_directory.clone(),
+            &self.working_directory,
+            self.window_id,
+        );
+        let value = match result {
+            Ok(value) => Arc::new(value),
+            Err(error) => {
+                let summary = first_line(&error.to_string()).to_string();
+                self.state = ConnectivityState::Failed(summary);
+                if let Some(directory) = self.test_directory.as_ref() {
+                    if directory.cleanup().is_err() {
+                        log::debug!(
+                            "[agent_terminal] temporary test directory cleanup deferred"
+                        );
+                    }
+                }
+                if self.kind == AgentSessionKind::Commit {
+                    self.finish_commit(AgentCommitOutcome::Failed, cx);
+                }
+                return;
+            }
+        };
+
+        let terminal_entity = cx.new(|cx| TerminalView::new(value.clone(), cx));
+        let window_entity = cx.entity();
+        let terminal_for_monitor = terminal_entity.clone();
+        let backend_for_monitor = value.clone();
+        let expected_response = challenge
+            .as_ref()
+            .map(|challenge| challenge.expected_response.clone());
+        let expected_marker = self
+            .commit_challenge
+            .as_ref()
+            .map(|challenge| challenge.expected_marker.clone());
+        let profile_id_for_monitor = self.profile.id.clone();
+        let kind_for_monitor = self.kind;
+        let repo_path = self.working_directory.clone();
+        self.backend = Some(value.clone());
+        self.terminal = Some(terminal_entity);
+        self._monitor_task = Some(cx.spawn(async move |_, cx| {
+            let mut last_probe_at = Instant::now() - Duration::from_secs(1);
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(100))
+                    .await;
+                let completion = terminal_for_monitor
+                    .read_with(cx, |terminal, _| terminal.completion());
+                let response_received =
+                    expected_response.as_deref().is_some_and(|expected| {
+                        backend_for_monitor.contains_text(expected)
+                    });
+                let marker_seen =
+                    expected_marker.as_deref().is_some_and(|marker| {
+                        backend_for_monitor.contains_text(marker)
+                    });
+                let probe = if kind_for_monitor == AgentSessionKind::Commit
+                    && (marker_seen
+                        || completion.is_some()
+                        || last_probe_at.elapsed()
+                            >= Duration::from_millis(500))
+                {
+                    last_probe_at = Instant::now();
+                    let path = repo_path.clone();
+                    Some(
+                        cx.background_executor()
+                            .spawn(async move { probe_agent_commit(&path) })
+                            .await,
+                    )
+                } else {
+                    None
+                };
+                let finished = completion.is_some();
+                let mut should_break = false;
+                let _ = window_entity.update(cx, |window, cx| {
+                    if kind_for_monitor == AgentSessionKind::Connectivity {
+                        window.handle_connectivity_tick(
+                            response_received,
+                            completion.clone(),
+                            &profile_id_for_monitor,
+                            cx,
+                        );
+                    } else {
+                        window.handle_commit_tick(
+                            probe,
+                            marker_seen,
+                            completion.clone(),
+                            cx,
+                        );
+                    }
+                    should_break = finished || window.commit_completed;
+                    cx.notify();
+                });
+                if should_break {
+                    break;
+                }
+            }
+        }));
+        log::info!(
+            "[agent_terminal] {} started: profile={}",
+            session_kind_label(self.kind),
+            self.profile.id
+        );
+    }
+
+    fn handle_connectivity_tick(
+        &mut self,
+        response_received: bool,
+        completion: Option<Result<Option<i32>, String>>,
+        profile_id: &str,
+        _cx: &mut Context<Self>,
+    ) {
+        if response_received && !self.response_received {
+            self.response_received = true;
+            log::info!(
+                "[agent_terminal] connectivity test response received: profile={profile_id}"
+            );
+        }
+        if let Some(result) = completion {
+            self.state = match result {
+                Ok(code) => {
+                    log::info!(
+                        "[agent_terminal] connectivity test exited: profile={profile_id}, code={code:?}"
+                    );
+                    ConnectivityState::Exited {
+                        code,
+                        response_received: self.response_received,
+                    }
+                }
+                Err(summary) => {
+                    log::error!(
+                        "[agent_terminal] connectivity test failed: profile={profile_id}"
+                    );
+                    ConnectivityState::Failed(summary)
+                }
+            };
+        } else if self.response_received {
+            self.state = ConnectivityState::ResponseReceived;
+        } else if matches!(self.state, ConnectivityState::Starting) {
+            self.state = ConnectivityState::WaitingForResponse;
+        }
+    }
+
+    fn handle_commit_tick(
+        &mut self,
+        probe: Option<Result<AgentCommitProbe, String>>,
+        marker_seen: bool,
+        completion: Option<Result<Option<i32>, String>>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.commit_completed {
+            return;
+        }
+        let mut current_probe = None;
+        if let Some(result) = probe {
+            match result {
+                Ok(probe) => {
+                    if let Some(baseline) = self.commit_baseline.as_ref()
+                        && baseline.head != probe.head
+                    {
+                        if self.commit_head_observed.is_none() {
+                            if let Some(oid) = probe.head.clone() {
+                                self.commit_head_observed = Some(oid.clone());
+                                self.commit_head_observed_at =
+                                    Some(Instant::now());
+                                log::info!(
+                                    "[agent_terminal] commit HEAD changed: profile={}",
+                                    self.profile.id
+                                );
+                                self.state =
+                                    ConnectivityState::CommitDetected {
+                                        oid: oid.clone(),
+                                    };
+                                if let Some(completion) =
+                                    self.commit_completion.as_ref()
+                                {
+                                    let tab_id = completion.tab_id;
+                                    let session_id = completion.session_id;
+                                    let _ = completion.workspace.update(
+                                        cx,
+                                        move |workspace, cx| {
+                                            workspace.observe_agent_commit(
+                                                tab_id, session_id, oid, cx,
+                                            );
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    current_probe = Some(probe);
+                }
+                Err(_error) => {
+                    log::debug!(
+                        "[agent_terminal] commit probe unavailable: profile={}",
+                        self.profile.id
+                    );
+                }
+            }
+        }
+
+        if marker_seen {
+            let outcome = current_probe
+                .as_ref()
+                .and_then(|probe| self.classify_commit_probe(probe))
+                .unwrap_or(AgentCommitOutcome::Failed);
+            self.finish_commit(outcome, cx);
+            return;
+        }
+
+        if let Some(result) = completion {
+            let code = result.as_ref().ok().copied().flatten();
+            log::info!(
+                "[agent_terminal] commit PTY exited: profile={}, code={code:?}",
+                self.profile.id
+            );
+            let outcome = current_probe
+                .as_ref()
+                .and_then(|probe| self.classify_commit_probe(probe))
+                .unwrap_or_else(|| match result {
+                    Ok(code) => AgentCommitOutcome::ExitedUnverified { code },
+                    Err(_) => {
+                        AgentCommitOutcome::ExitedUnverified { code: None }
+                    }
+                });
+            self.finish_commit(outcome, cx);
+            return;
+        }
+
+        if let (Some(observed_at), Some(backend)) =
+            (self.commit_head_observed_at, self.backend.as_ref())
+            && observed_at.elapsed() >= Duration::from_secs(30)
+            && backend.last_activity().elapsed() >= Duration::from_secs(3)
+        {
+            if let Some(oid) = self.commit_head_observed.clone() {
+                log::warn!(
+                    "[agent_terminal] commit marker timeout; using verified HEAD: profile={}",
+                    self.profile.id
+                );
+                self.finish_commit(AgentCommitOutcome::Committed { oid }, cx);
+            }
+        }
+    }
+
+    fn classify_commit_probe(
+        &self,
+        probe: &AgentCommitProbe,
+    ) -> Option<AgentCommitOutcome> {
+        self.commit_baseline
+            .as_ref()
+            .and_then(|baseline| classify_probe(baseline, probe))
+    }
+
+    fn finish_commit(
+        &mut self,
+        outcome: AgentCommitOutcome,
+        cx: &mut Context<Self>,
+    ) {
+        if self.commit_completed {
+            return;
+        }
+        self.commit_completed = true;
+        self.stop_requested = true;
+        let success = matches!(&outcome, AgentCommitOutcome::Committed { .. });
+        log::info!(
+            "[agent_terminal] commit operation completed: profile={}, outcome={}",
+            self.profile.id,
+            commit_outcome_label(&outcome)
+        );
+        if !(matches!(&self.state, ConnectivityState::Failed(_))
+            && matches!(&outcome, AgentCommitOutcome::Failed))
+        {
+            self.state = ConnectivityState::CommitCompleted {
+                outcome: outcome.clone(),
+            };
+        }
+        if let Some(backend) = &self.backend {
+            backend.shutdown();
+        }
+        let Some(completion) = self.commit_completion.take() else {
+            cx.notify();
+            return;
+        };
+        let tab_id = completion.tab_id;
+        let session_id = completion.session_id;
+        let workspace = completion.workspace.clone();
+        let _ = workspace.update(cx, move |workspace, cx| {
+            workspace.finish_agent_commit(
+                tab_id,
+                session_id,
+                outcome.clone(),
+                cx,
+            );
+        });
+        if success {
+            let _ = cx
+                .spawn(async move |_, cx| {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(300))
+                        .await;
+                    let _ = workspace.update(cx, move |workspace, cx| {
+                        workspace.close_agent_session(session_id, cx);
+                    });
+                })
+                .detach();
+        }
+        cx.notify();
     }
 
     pub(super) fn is_running(&self) -> bool {
@@ -315,6 +567,7 @@ impl AgentSessionWindow {
             ConnectivityState::Starting
                 | ConnectivityState::WaitingForResponse
                 | ConnectivityState::ResponseReceived
+                | ConnectivityState::CommitDetected { .. }
         ) && !self.stop_requested
     }
 
@@ -327,12 +580,21 @@ impl AgentSessionWindow {
         }
     }
 
-    pub(super) fn started(&self) -> bool {
-        self.backend.is_some()
+    pub(super) fn session_id(&self) -> Option<u64> {
+        self.session_id
     }
 
     pub(super) fn stop(&mut self, cx: &mut Context<Self>) {
         if !self.is_running() {
+            return;
+        }
+        if self.kind == AgentSessionKind::Commit {
+            self.finish_commit(AgentCommitOutcome::Cancelled, cx);
+            log::info!(
+                "[agent_terminal] commit termination requested: profile={}",
+                self.profile.id,
+            );
+            cx.notify();
             return;
         }
         self.stop_requested = true;
@@ -343,22 +605,6 @@ impl AgentSessionWindow {
             code: None,
             response_received: self.response_received,
         };
-        if let Some(completion) = self.commit_completion.take() {
-            let tab_id = completion.tab_id;
-            let session_id = completion.session_id;
-            let _ = cx
-                .spawn(async move |_, cx| {
-                    let _ = completion.workspace.update(
-                        cx,
-                        move |workspace, cx| {
-                            workspace.finish_agent_commit(
-                                tab_id, session_id, None, cx,
-                            );
-                        },
-                    );
-                })
-                .detach();
-        }
         log::info!(
             "[agent_terminal] {} termination requested: profile={}",
             session_kind_label(self.kind),
@@ -377,6 +623,48 @@ impl AgentSessionWindow {
                 | ConnectivityState::ResponseReceived => {
                     i18n::text(self.locale, "agent-commit-status-running")
                 }
+                ConnectivityState::CommitDetected { oid } => i18n::text_args(
+                    self.locale,
+                    "agent-commit-status-detected",
+                    &[("oid", oid)],
+                ),
+                ConnectivityState::CommitCompleted { outcome } => match outcome
+                {
+                    AgentCommitOutcome::Committed { oid } => i18n::text_args(
+                        self.locale,
+                        "agent-commit-status-committed",
+                        &[("oid", oid)],
+                    ),
+                    AgentCommitOutcome::NoChanges => i18n::text(
+                        self.locale,
+                        "agent-commit-status-no-changes",
+                    ),
+                    AgentCommitOutcome::Conflict => {
+                        i18n::text(self.locale, "agent-commit-status-conflict")
+                    }
+                    AgentCommitOutcome::Failed => i18n::text(
+                        self.locale,
+                        "agent-commit-status-failed-generic",
+                    ),
+                    AgentCommitOutcome::Cancelled => {
+                        i18n::text(self.locale, "agent-commit-status-cancelled")
+                    }
+                    AgentCommitOutcome::ExitedUnverified { code } => {
+                        let suffix = code
+                            .map(|code| code.to_string())
+                            .unwrap_or_else(|| {
+                                i18n::text(
+                                    self.locale,
+                                    "agent-test-exit-unknown",
+                                )
+                            });
+                        i18n::text_args(
+                            self.locale,
+                            "agent-commit-status-unverified",
+                            &[("code", &suffix)],
+                        )
+                    }
+                },
                 ConnectivityState::Exited { code, .. } => {
                     let suffix = code
                         .map(|code| code.to_string())
@@ -405,6 +693,10 @@ impl AgentSessionWindow {
             }
             ConnectivityState::ResponseReceived => {
                 i18n::text(self.locale, "agent-test-status-response")
+            }
+            ConnectivityState::CommitDetected { .. }
+            | ConnectivityState::CommitCompleted { .. } => {
+                i18n::text(self.locale, "agent-test-status-exited")
             }
             ConnectivityState::Exited {
                 code,
@@ -500,6 +792,8 @@ impl Render for AgentSessionWindow {
         let stop = this.clone();
         let status = self.state_label();
         let can_stop = self.is_running();
+        let is_commit = self.kind == AgentSessionKind::Commit;
+        let can_close = is_commit && !can_stop;
         let cwd = if self.working_directory.as_os_str().is_empty() {
             i18n::text(self.locale, "agent-test-temp-directory-unavailable")
         } else {
@@ -618,44 +912,63 @@ impl Render for AgentSessionWindow {
                                 div()
                                     .min_w_0()
                                     .flex_1()
-                                    .text_color(
-                                        if matches!(
-                                            self.state,
-                                            ConnectivityState::Failed(_)
+                                    .text_color(if matches!(
+                                        self.state,
+                                        ConnectivityState::Failed(_)
+                                    ) || matches!(
+                                        &self.state,
+                                        ConnectivityState::CommitCompleted {
+                                            outcome: AgentCommitOutcome::Conflict
+                                                | AgentCommitOutcome::Failed
+                                                | AgentCommitOutcome::Cancelled
+                                                | AgentCommitOutcome::NoChanges
+                                                | AgentCommitOutcome::ExitedUnverified { .. },
+                                        }
+                                    ) {
+                                        colors.red
+                                    } else if self.response_received
+                                        || matches!(
+                                            &self.state,
+                                            ConnectivityState::CommitCompleted {
+                                                outcome: AgentCommitOutcome::Committed { .. },
+                                            }
                                         ) {
-                                            colors.red
-                                        } else if self.response_received {
-                                            colors.green
-                                        } else {
-                                            colors.foreground
-                                        },
-                                    )
+                                        colors.green
+                                    } else {
+                                        colors.foreground
+                                    })
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(SharedString::from(status)),
                             )
                             .child(
                                 Button::new("agent-connectivity-stop")
-                                    .label(
-                                        if self.kind == AgentSessionKind::Commit
-                                        {
-                                            i18n::text(
-                                                self.locale,
-                                                "agent-commit-stop",
-                                            )
-                                        } else {
-                                            i18n::text(
-                                                self.locale,
-                                                "agent-test-stop",
-                                            )
-                                        },
-                                    )
+                                    .label(if can_close {
+                                        i18n::text(
+                                            self.locale,
+                                            "agent-commit-close",
+                                        )
+                                    } else if is_commit {
+                                        i18n::text(
+                                            self.locale,
+                                            "agent-commit-stop",
+                                        )
+                                    } else {
+                                        i18n::text(
+                                            self.locale,
+                                            "agent-test-stop",
+                                        )
+                                    })
                                     .danger()
                                     .small()
-                                    .disabled(!can_stop)
-                                    .on_click(move |_event, _window, cx| {
-                                        stop.update(cx, |test, cx| {
-                                            test.stop(cx)
-                                        });
+                                    .disabled(!can_close && !can_stop)
+                                    .on_click(move |_event, window, cx| {
+                                        if can_close {
+                                            window.remove_window();
+                                        } else {
+                                            stop.update(cx, |test, cx| {
+                                                test.stop(cx)
+                                            });
+                                        }
                                     }),
                             ),
                     )
@@ -847,6 +1160,17 @@ fn session_kind_label(kind: AgentSessionKind) -> &'static str {
     }
 }
 
+fn commit_outcome_label(outcome: &AgentCommitOutcome) -> &'static str {
+    match outcome {
+        AgentCommitOutcome::Committed { .. } => "committed",
+        AgentCommitOutcome::NoChanges => "no-changes",
+        AgentCommitOutcome::Conflict => "conflict",
+        AgentCommitOutcome::Failed => "failed",
+        AgentCommitOutcome::Cancelled => "cancelled",
+        AgentCommitOutcome::ExitedUnverified { .. } => "exited-unverified",
+    }
+}
+
 fn connectivity_key(profile_id: &str) -> String {
     format!("connectivity:{profile_id}")
 }
@@ -912,6 +1236,7 @@ fn open_session_window(
     test_directory: Option<AgentTestDirectory>,
     working_directory: PathBuf,
     completion: Option<CommitCompletion>,
+    commit_challenge: Option<AgentCommitChallenge>,
     startup_error: Option<String>,
     begin_agent: Option<(TabId, u64)>,
     cx: &mut Context<Workspace>,
@@ -933,6 +1258,7 @@ fn open_session_window(
     let directory_for_window = test_directory.clone();
     let working_directory_for_window = working_directory.clone();
     let completion_for_window = completion.clone();
+    let commit_challenge_for_window = commit_challenge.clone();
     let startup_error_for_window = startup_error.clone();
     log::info!(
         "[agent_terminal] opening {}: profile={}",
@@ -964,6 +1290,7 @@ fn open_session_window(
                 prompt_for_window,
                 working_directory_for_window,
                 completion_for_window,
+                commit_challenge_for_window.unwrap_or_default(),
                 startup_error_for_window,
                 window.window_handle().window_id().as_u64(),
                 cx,
@@ -978,11 +1305,9 @@ fn open_session_window(
         session
     }) {
         Ok(handle) => {
-            let started =
-                handle.read(cx).is_ok_and(|session| session.started());
             workspace.agent_sessions.push((key, handle));
             if let Some((tab_id, session_id)) = begin_agent
-                && started
+                && startup_error.is_none()
             {
                 workspace.begin_agent_commit(tab_id, session_id, cx);
             }
@@ -1029,8 +1354,10 @@ pub(super) fn open_commit(
 
     let locale = workspace.locale;
     let session_id = next_session_id();
-    let fixed_prompt =
-        AgentOperation::Commit.prompt(None).unwrap_or_else(|_| {
+    let challenge = AgentCommitChallenge::new();
+    let fixed_prompt = AgentOperation::Commit
+        .prompt_with_challenge(None, &challenge)
+        .unwrap_or_else(|_| {
             "Commit the current repository changes.".to_string()
         });
     let profile_id = workspace.config.agent.default_profile_id();
@@ -1039,7 +1366,9 @@ pub(super) fn open_commit(
         .agent
         .profile(&profile_id)
     {
-        Some(profile) => match AgentOperation::Commit.prompt(Some(&hint)) {
+        Some(profile) => match AgentOperation::Commit
+            .prompt_with_challenge(Some(&hint), &challenge)
+        {
             Ok(prompt) => {
                 let (spec, launch_error) =
                     launch_for_profile(workspace, &profile, &prompt, cx);
@@ -1096,6 +1425,7 @@ pub(super) fn open_commit(
         None,
         PathBuf::from(repo_path),
         Some(completion),
+        Some(challenge),
         startup_error,
         Some((tab_id, session_id)),
         cx,
@@ -1214,20 +1544,52 @@ impl Workspace {
         }
     }
 
-    pub(super) fn finish_agent_commit(
+    pub(super) fn observe_agent_commit(
         &mut self,
         tab_id: TabId,
         session_id: u64,
-        code: Option<i32>,
+        oid: String,
         cx: &mut Context<Self>,
     ) {
         if let Some(entry) = self.tabs.iter().find(|entry| entry.id == tab_id)
             && let super::TabContent::Repo(tab) = &entry.content
         {
             tab.update(cx, |tab, cx| {
-                tab.finish_agent_commit(session_id, code, cx)
+                tab.observe_agent_commit(session_id, oid, cx)
             });
         }
+    }
+
+    pub(super) fn finish_agent_commit(
+        &mut self,
+        tab_id: TabId,
+        session_id: u64,
+        outcome: AgentCommitOutcome,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(entry) = self.tabs.iter().find(|entry| entry.id == tab_id)
+            && let super::TabContent::Repo(tab) = &entry.content
+        {
+            tab.update(cx, |tab, cx| {
+                tab.finish_agent_commit(session_id, outcome, cx)
+            });
+        }
+    }
+
+    pub(super) fn close_agent_session(
+        &mut self,
+        session_id: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(index) = self.agent_sessions.iter().position(|(_, handle)| {
+            handle
+                .read(cx)
+                .is_ok_and(|session| session.session_id() == Some(session_id))
+        }) else {
+            return;
+        };
+        let (_, handle) = self.agent_sessions.remove(index);
+        let _ = handle.update(cx, |_, window, _| window.remove_window());
     }
 }
 

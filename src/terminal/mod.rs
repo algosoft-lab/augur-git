@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::event_loop::{EventLoop, EventLoopSender, Msg};
@@ -57,6 +57,7 @@ struct TerminalProxy {
     /// effects are intentionally discarded.
     input_sender: Arc<Mutex<Option<EventLoopSender>>>,
     child_exit_seen: Arc<AtomicBool>,
+    last_activity: Arc<Mutex<Instant>>,
 }
 
 impl TerminalProxy {
@@ -75,9 +76,15 @@ impl EventListener for TerminalProxy {
     fn send_event(&self, event: Event) {
         match event {
             Event::Wakeup => {
+                if let Ok(mut last_activity) = self.last_activity.lock() {
+                    *last_activity = Instant::now();
+                }
                 let _ = self.events.send(TerminalEvent::Wakeup);
             }
             Event::ChildExit(status) => {
+                if let Ok(mut last_activity) = self.last_activity.lock() {
+                    *last_activity = Instant::now();
+                }
                 if !self.child_exit_seen.swap(true, Ordering::AcqRel) {
                     self.cleanup_resources();
                     let _ = self
@@ -86,6 +93,9 @@ impl EventListener for TerminalProxy {
                 }
             }
             Event::Exit => {
+                if let Ok(mut last_activity) = self.last_activity.lock() {
+                    *last_activity = Instant::now();
+                }
                 // `Term::exit` follows the PTY child notification. Preserve
                 // an unknown exit status when a platform cannot provide one.
                 if !self.child_exit_seen.swap(true, Ordering::AcqRel) {
@@ -146,6 +156,7 @@ pub struct TerminalBackend {
     events: Arc<Mutex<Receiver<TerminalEvent>>>,
     events_sender: Sender<TerminalEvent>,
     child_exit_seen: Arc<AtomicBool>,
+    last_activity: Arc<Mutex<Instant>>,
     _test_directory: Option<AgentTestDirectory>,
     shutdown_requested: AtomicBool,
     geometry: Mutex<TerminalGeometry>,
@@ -164,11 +175,13 @@ impl TerminalBackend {
         let events_for_join = events_tx.clone();
         let input_sender = Arc::new(Mutex::new(None));
         let child_exit_seen = Arc::new(AtomicBool::new(false));
+        let last_activity = Arc::new(Mutex::new(Instant::now()));
         let proxy = TerminalProxy {
             events: events_tx,
             test_directory: test_directory.clone(),
             input_sender: input_sender.clone(),
             child_exit_seen,
+            last_activity: last_activity.clone(),
         };
         let dimensions = TerminalDimensions {
             columns: DEFAULT_COLUMNS,
@@ -249,6 +262,7 @@ impl TerminalBackend {
             events: Arc::new(Mutex::new(events_rx)),
             events_sender,
             child_exit_seen,
+            last_activity,
             _test_directory: test_directory,
             shutdown_requested: AtomicBool::new(false),
             geometry: Mutex::new(TerminalGeometry::default()),
@@ -292,6 +306,15 @@ impl TerminalBackend {
             }
             let _ = sender.send(Msg::Shutdown);
         });
+    }
+
+    /// Return the last time the PTY delivered output or a child lifecycle
+    /// event. This is used only for the bounded Agent completion fallback.
+    pub fn last_activity(&self) -> Instant {
+        self.last_activity
+            .lock()
+            .map(|value| *value)
+            .unwrap_or_else(|_| Instant::now())
     }
 
     fn send_resize(&self, geometry: TerminalGeometry) {

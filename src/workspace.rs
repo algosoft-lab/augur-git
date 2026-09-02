@@ -4,6 +4,7 @@
 //! by an independent `RepoTab` entity, including its Git worker and panels.
 
 mod about;
+mod agent_commit;
 mod agent_connectivity;
 mod agent_lifecycle;
 mod agent_profiles;
