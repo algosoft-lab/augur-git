@@ -9,6 +9,7 @@ use crate::git::GitUiEvent;
 use crate::git::branch_compare::{
     BranchCompareEvent, BranchCompareView, BranchCompareWindow,
 };
+use crate::workspace::window_lifecycle::defer_entity_update;
 
 use super::RepoTab;
 
@@ -167,10 +168,7 @@ pub(super) fn open(tab: &mut RepoTab, cx: &mut Context<RepoTab>) {
                         "[git_compare] standalone comparison window closed: id={}",
                         window_id.as_u64()
                     );
-                    let Some(tab) = weak_tab.upgrade() else {
-                        return;
-                    };
-                    let _ = tab.update(cx, |tab, cx| {
+                    defer_entity_update(weak_tab.clone(), cx, move |tab, cx| {
                         if tab.compare_window.is_none_or(|handle| {
                             handle.window_id() != window_id
                         }) {

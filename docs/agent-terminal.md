@@ -291,12 +291,20 @@ not duplicate Git parsing or provider-specific command construction.
    complete startup, login, approval, and response flow. Complete any provider
    login prompt there; a process that starts but exits before the reversed
    challenge token is shown as an incomplete test.
-4. For lifecycle diagnostics, run the application in a debug build and filter
-   the feature log:
+4. For lifecycle diagnostics, use the log for the build you are running. A
+   debug build writes to `debug.log` in the working directory:
 
    ```bash
    cargo run
    rg "\[agent_terminal\]" debug.log > agent-terminal-debug.log
+   ```
+
+   A packaged release writes to the platform's standard local data directory.
+   On macOS, filter the release log with:
+
+   ```bash
+   AUGUR_GIT_LOG="$HOME/Library/Application Support/augur-git/logs/augur-git.log"
+   rg "\[(agent_terminal|workspace|app_lifecycle|panic)\]" "$AUGUR_GIT_LOG" > augur-git-crash-debug.log
    ```
 
 Task text, terminal input/output, credentials, and complete repository paths
