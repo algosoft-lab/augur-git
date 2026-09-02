@@ -7,6 +7,7 @@ mod about;
 mod agent_commit;
 mod agent_connectivity;
 mod agent_lifecycle;
+mod agent_merge;
 mod agent_profiles;
 mod app_menu;
 mod focus_refresh;
@@ -18,6 +19,7 @@ mod tabs;
 mod welcome;
 mod window_state;
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -205,6 +207,7 @@ pub struct Workspace {
     about_window: Option<WindowHandle<about::AboutWindow>>,
     agent_sessions:
         Vec<(String, WindowHandle<agent_connectivity::AgentSessionWindow>)>,
+    agent_preflight_keys: HashSet<String>,
     restoring: bool,
     last_focus_refresh: Option<Instant>,
 }
@@ -377,6 +380,7 @@ impl Workspace {
             pending_close: None,
             about_window: None,
             agent_sessions: Vec::new(),
+            agent_preflight_keys: HashSet::new(),
             restoring: true,
             // The startup load starts here (restore_tabs -> open), so the
             // activation delivered right after window creation must not
@@ -656,6 +660,32 @@ impl Workspace {
                     *id,
                     repo_path.clone(),
                     hint.clone(),
+                    cx,
+                );
+            }
+            RepoTabEvent::AgentMergeRequested {
+                id,
+                repo_path,
+                source,
+            } => {
+                agent_connectivity::open_merge(
+                    self,
+                    *id,
+                    repo_path.clone(),
+                    source.clone(),
+                    cx,
+                );
+            }
+            RepoTabEvent::AgentMergeResolveRequested {
+                id,
+                repo_path,
+                merge_head,
+            } => {
+                agent_connectivity::open_merge_resolution(
+                    self,
+                    *id,
+                    repo_path.clone(),
+                    merge_head.clone(),
                     cx,
                 );
             }

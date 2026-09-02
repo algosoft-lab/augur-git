@@ -38,6 +38,16 @@ pub enum RepoTabEvent {
         repo_path: String,
         hint: String,
     },
+    AgentMergeRequested {
+        id: TabId,
+        repo_path: String,
+        source: String,
+    },
+    AgentMergeResolveRequested {
+        id: TabId,
+        repo_path: String,
+        merge_head: String,
+    },
 }
 
 enum PendingConfirmation {
@@ -51,6 +61,21 @@ enum PendingConfirmation {
         tracked_count: usize,
         untracked_count: usize,
     },
+    MergeConflict {
+        source: String,
+        detail: String,
+        merge_head: String,
+    },
+    MergeError {
+        label: String,
+        detail: String,
+    },
+}
+
+#[derive(Clone, Debug)]
+struct PendingMergeCommand {
+    source: String,
+    no_ff: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -100,7 +125,12 @@ pub struct RepoTab {
     operation_busy: bool,
     agent_commit_session_id: Option<u64>,
     agent_commit_observed_head: Option<String>,
+    agent_merge_session_id: Option<u64>,
+    agent_merge_observed_head: Option<String>,
     pending_agent_refresh: bool,
+    pending_merge_command: Option<PendingMergeCommand>,
+    merge_probe_request_id: u64,
+    merge_abort_pending: bool,
     layout: LayoutSettings,
     confirmation: Option<PendingConfirmation>,
     dialogs: branch_ops::BranchDialogs,
@@ -168,7 +198,12 @@ impl RepoTab {
             operation_busy: false,
             agent_commit_session_id: None,
             agent_commit_observed_head: None,
+            agent_merge_session_id: None,
+            agent_merge_observed_head: None,
             pending_agent_refresh: false,
+            pending_merge_command: None,
+            merge_probe_request_id: 0,
+            merge_abort_pending: false,
             layout,
             confirmation: None,
             dialogs: branch_ops::BranchDialogs::default(),
@@ -208,7 +243,9 @@ impl RepoTab {
     }
 
     pub(super) fn is_busy(&self) -> bool {
-        self.operation_busy || self.agent_commit_session_id.is_some()
+        self.operation_busy
+            || self.agent_commit_session_id.is_some()
+            || self.agent_merge_session_id.is_some()
     }
 
     fn sync_busy_controls(&mut self, cx: &mut Context<Self>) {
@@ -253,6 +290,111 @@ impl RepoTab {
         self.agent_commit_session_id = Some(session_id);
         self.agent_commit_observed_head = None;
         self.sync_busy_controls(cx);
+        cx.notify();
+    }
+
+    pub(super) fn begin_agent_merge(
+        &mut self,
+        session_id: u64,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_merge_session_id.is_some() {
+            return;
+        }
+        self.agent_merge_session_id = Some(session_id);
+        self.agent_merge_observed_head = None;
+        self.sync_busy_controls(cx);
+        cx.notify();
+    }
+
+    pub(super) fn observe_agent_merge(
+        &mut self,
+        session_id: u64,
+        oid: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_merge_session_id != Some(session_id)
+            || self.agent_merge_observed_head.as_deref() == Some(&oid)
+        {
+            return;
+        }
+        self.agent_merge_observed_head = Some(oid.clone());
+        self.status_message = Some(i18n::text_args(
+            self.locale,
+            "agent-merge-observed",
+            &[("oid", &short_oid(&oid))],
+        ));
+        self.status_message_ok = None;
+        self.refresh_repository(cx);
+        cx.notify();
+    }
+
+    pub(super) fn finish_agent_merge(
+        &mut self,
+        session_id: u64,
+        outcome: super::agent_merge::AgentMergeOutcome,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_merge_session_id != Some(session_id) {
+            return;
+        }
+        self.agent_merge_session_id = None;
+        self.agent_merge_observed_head = None;
+        let (message, ok) = match &outcome {
+            super::agent_merge::AgentMergeOutcome::Merged { oid } => (
+                i18n::text_args(
+                    self.locale,
+                    "agent-merge-created",
+                    &[("oid", &short_oid(oid))],
+                ),
+                true,
+            ),
+            super::agent_merge::AgentMergeOutcome::AlreadyUpToDate => (
+                i18n::text(self.locale, "agent-merge-already-up-to-date"),
+                true,
+            ),
+            super::agent_merge::AgentMergeOutcome::Conflict => {
+                (i18n::text(self.locale, "agent-merge-conflict"), false)
+            }
+            super::agent_merge::AgentMergeOutcome::Failed => {
+                (i18n::text(self.locale, "agent-merge-failed"), false)
+            }
+            super::agent_merge::AgentMergeOutcome::Cancelled => {
+                (i18n::text(self.locale, "agent-merge-cancelled"), false)
+            }
+            super::agent_merge::AgentMergeOutcome::ExitedUnverified {
+                code,
+            } => (
+                i18n::text_args(
+                    self.locale,
+                    "agent-merge-unverified",
+                    &[("code", &format_exit_code(*code))],
+                ),
+                false,
+            ),
+        };
+        self.status_message = Some(message);
+        self.status_message_ok = Some(ok);
+        if self.operation_busy {
+            self.pending_agent_refresh = true;
+        } else {
+            self.refresh_repository(cx);
+        }
+        self.sync_busy_controls(cx);
+        cx.notify();
+    }
+
+    pub(super) fn agent_merge_preflight_failed(
+        &mut self,
+        summary: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.status_message = Some(i18n::text_args(
+            self.locale,
+            "agent-merge-preflight-failed",
+            &[("error", &summary)],
+        ));
+        self.status_message_ok = Some(false);
         cx.notify();
     }
 

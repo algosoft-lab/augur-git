@@ -39,6 +39,8 @@ pub enum SidebarEvent {
     DeleteTag(String),
     /// Merge a local branch into the current branch.
     MergeIntoCurrent { name: String, no_ff: bool },
+    /// Start a visible Agent session that performs the merge.
+    MergeByAgent(String),
     /// Rename a remote branch on its remote: one push that creates the new
     /// name and deletes the old one.
     RenameRemoteBranch { remote: String, branch: String },
@@ -645,10 +647,12 @@ where
                 let sidebar_for_delete = sidebar.clone();
                 let sidebar_for_merge = sidebar.clone();
                 let sidebar_for_merge_no_ff = sidebar.clone();
+                let sidebar_for_agent_merge = sidebar.clone();
                 let rename_value = copy_value.clone();
                 let delete_value = copy_value.clone();
                 let merge_value = copy_value.clone();
                 let merge_no_ff_value = copy_value.clone();
+                let agent_merge_value = copy_value.clone();
 
                 menu.separator()
                     .item(
@@ -728,6 +732,26 @@ where
                                                 no_ff: true,
                                             },
                                         );
+                                    },
+                                );
+                            },
+                        ),
+                    )
+                    .item(
+                        PopupMenuItem::new(i18n::text(
+                            locale,
+                            "context-merge-by-agent",
+                        ))
+                        .icon(IconName::Bot)
+                        .disabled(busy || *is_head)
+                        .on_click(
+                            move |_event, _window, cx| {
+                                sidebar_for_agent_merge.update(
+                                    cx,
+                                    |_sidebar, cx| {
+                                        cx.emit(SidebarEvent::MergeByAgent(
+                                            agent_merge_value.clone(),
+                                        ));
                                     },
                                 );
                             },

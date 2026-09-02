@@ -555,6 +555,15 @@ fn confirm_branch_dialog(tab: &mut RepoTab, cx: &mut Context<RepoTab>) {
     let Some(pending) = tab.dialogs.pending.clone() else {
         return;
     };
+    if let PendingBranchDialog::Merge { no_ff } = pending {
+        let Some(source) = tab.dialogs.merge_source.clone() else {
+            return;
+        };
+        tab.dialogs.close();
+        tab.start_merge_command(source, no_ff, cx);
+        cx.notify();
+        return;
+    }
     let (label, args) = match pending {
         PendingBranchDialog::NewBranch => {
             let Some(name) = validated_name(tab, cx, None) else {
@@ -577,11 +586,8 @@ fn confirm_branch_dialog(tab: &mut RepoTab, cx: &mut Context<RepoTab>) {
             }
             ("stash", args)
         }
-        PendingBranchDialog::Merge { no_ff } => {
-            let Some(source) = tab.dialogs.merge_source.clone() else {
-                return;
-            };
-            args::merge_args(&source, no_ff)
+        PendingBranchDialog::Merge { .. } => {
+            unreachable!("merge handled above")
         }
         PendingBranchDialog::Rebase => {
             let Some(source) = tab.dialogs.merge_source.clone() else {

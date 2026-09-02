@@ -515,6 +515,18 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 success,
                 message,
             } => {
+                if label == "merge"
+                    || label == "merge --no-ff"
+                    || label == "merge --abort"
+                {
+                    tab.handle_merge_result(
+                        label.clone(),
+                        *success,
+                        message.clone(),
+                        cx,
+                    );
+                    return;
+                }
                 if label == "checkout" {
                     log::info!(
                         "[git_checkout] result received: success={success}"
@@ -596,6 +608,21 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 tab.emit_summary(cx);
             }
             GitUiEvent::Error(message) => {
+                if tab.pending_merge_command.is_some()
+                    || tab.merge_abort_pending
+                {
+                    tab.handle_merge_result(
+                        if tab.merge_abort_pending {
+                            "merge --abort".to_string()
+                        } else {
+                            "merge".to_string()
+                        },
+                        false,
+                        message.clone(),
+                        cx,
+                    );
+                    return;
+                }
                 tab.set_operation_busy(false, cx);
                 tab.status = GitStatus::Error(message.clone());
                 tab.emit_summary(cx);

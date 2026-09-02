@@ -79,6 +79,9 @@ pub(super) fn handle_sidebar_event(
         SidebarEvent::MergeIntoCurrent { name, no_ff } => {
             tab.merge_into_current(name.clone(), *no_ff, cx);
         }
+        SidebarEvent::MergeByAgent(name) => {
+            tab.start_agent_merge(name.clone(), cx);
+        }
         SidebarEvent::RenameRemoteBranch { remote, branch } => {
             tab.open_branch_dialog(
                 PendingBranchDialog::RenameRemote {
