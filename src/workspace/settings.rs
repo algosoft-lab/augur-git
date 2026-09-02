@@ -688,6 +688,84 @@ impl SettingsPanel {
         cx.emit(SettingsPanelEvent::AgentProfileRemoved(profile_id));
     }
 
+    /// Open the native file picker so the user can point one built-in Agent
+    /// at an executable that auto-detection cannot find (for example, a CLI
+    /// installed outside the minimal PATH of a GUI desktop session).
+    fn browse_agent_executable(
+        &mut self,
+        agent: BuiltInAgent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((_, input)) = self
+            .agent_executable_inputs
+            .iter()
+            .find(|(entry, _)| entry == &agent)
+        else {
+            return;
+        };
+        let input = input.clone();
+        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(SharedString::from(i18n::text(
+                self.locale,
+                "agent-executable-browse-prompt",
+            ))),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let path = match receiver.await {
+                Ok(Ok(Some(paths))) => paths.into_iter().next(),
+                _ => None,
+            };
+            let Some(path) = path else {
+                return;
+            };
+            let _ = cx.update(|window, app| {
+                let _ = this.update(app, |panel, cx| {
+                    panel.apply_agent_executable_path(
+                        agent, &path, &input, window, cx,
+                    );
+                });
+            });
+        })
+        .detach();
+    }
+
+    fn apply_agent_executable_path(
+        &mut self,
+        agent: BuiltInAgent,
+        path: &std::path::Path,
+        input: &Entity<InputState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        log::info!(
+            "[agent_terminal] executable path selected for {}",
+            agent.id()
+        );
+        let value = path.display().to_string();
+        input.update(cx, |state, cx| {
+            state.set_value(value, window, cx);
+        });
+        let already_selected =
+            self.agent_settings.executable_overrides.get(&agent)
+                == Some(&path.to_path_buf());
+        if already_selected {
+            cx.notify();
+            return;
+        }
+        self.agent_settings
+            .executable_overrides
+            .insert(agent, path.to_path_buf());
+        cx.emit(SettingsPanelEvent::AgentExecutableOverrideChanged {
+            agent,
+            executable: Some(path.to_path_buf()),
+        });
+        cx.notify();
+    }
+
     pub fn set_locale(
         &mut self,
         locale: Locale,
@@ -1431,8 +1509,19 @@ impl SettingsPanel {
                                 "agent-executable-title",
                             ))),
                     )
+                    .child(
+                        div()
+                            .text_size(crate::theme::scaled_text_size(12.))
+                            .text_color(colors.muted_foreground)
+                            .child(shared(i18n::text(
+                                self.locale,
+                                "agent-executable-description",
+                            ))),
+                    )
                     .children(self.agent_executable_inputs.iter().map(
                         |(agent, input)| {
+                            let agent = *agent;
+                            let browse = this.clone();
                             v_flex()
                                 .w_full()
                                 .gap_1()
@@ -1446,7 +1535,40 @@ impl SettingsPanel {
                                             agent.display_name(),
                                         )),
                                 )
-                                .child(Input::new(input).w_full())
+                                .child(
+                                    h_flex()
+                                        .w_full()
+                                        .items_start()
+                                        .gap_2()
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .child(Input::new(input).w_full()),
+                                        )
+                                        .child(
+                                            Button::new(
+                                                SharedString::from(format!(
+                                                    "agent-executable-browse-{agent_id}",
+                                                    agent_id = agent.id()
+                                                )),
+                                            )
+                                            .label(i18n::text(
+                                                self.locale,
+                                                "agent-executable-browse",
+                                            ))
+                                            .ghost()
+                                            .small()
+                                            .on_click(move |_event, window, cx| {
+                                                browse.update(cx, |panel, cx| {
+                                                    panel.browse_agent_executable(
+                                                        agent,
+                                                        window,
+                                                        cx,
+                                                    );
+                                                });
+                                            }),
+                                        ),
+                                )
                         },
                     ))
                     .child(

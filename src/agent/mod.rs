@@ -17,7 +17,9 @@ use std::os::windows::process::CommandExt;
 use serde::{Deserialize, Serialize};
 
 pub mod operations;
+mod resolve;
 pub use operations::{AgentCommitChallenge, AgentOperation};
+pub use resolve::resolve_executable;
 
 const TEST_DIRECTORY_PREFIX: &str = "augur-git-agent-test";
 
@@ -611,63 +613,6 @@ impl Drop for AgentTestDirectory {
             );
         }
     }
-}
-
-/// Resolve a profile executable using the same Windows executable suffixes
-/// that an interactive command shell uses for npm-installed CLI shims.
-pub fn resolve_executable(path: &Path) -> anyhow::Result<PathBuf> {
-    #[cfg(windows)]
-    {
-        return resolve_windows_executable(path);
-    }
-
-    #[cfg(not(windows))]
-    {
-        if (path.is_absolute() || path.components().count() > 1)
-            && !path.is_file()
-        {
-            anyhow::bail!("executable '{}' was not found", path.display());
-        }
-        Ok(path.to_path_buf())
-    }
-}
-
-#[cfg(windows)]
-fn resolve_windows_executable(path: &Path) -> anyhow::Result<PathBuf> {
-    let has_directory = path.is_absolute()
-        || path
-            .parent()
-            .is_some_and(|parent| !parent.as_os_str().is_empty());
-    if has_directory {
-        if let Some(candidate) = windows_existing_candidate(path) {
-            return Ok(candidate);
-        }
-        anyhow::bail!("executable '{}' was not found", path.display());
-    }
-
-    let path_variable = std::env::var_os("PATH").unwrap_or_default();
-    for directory in std::env::split_paths(&path_variable) {
-        if let Some(candidate) =
-            windows_existing_candidate(&directory.join(path))
-        {
-            return Ok(candidate);
-        }
-    }
-    anyhow::bail!("executable '{}' was not found in PATH", path.display());
-}
-
-#[cfg(windows)]
-fn windows_existing_candidate(path: &Path) -> Option<PathBuf> {
-    let candidates = if path.extension().is_some() {
-        vec![path.to_path_buf()]
-    } else {
-        vec![
-            path.with_extension("exe"),
-            path.with_extension("cmd"),
-            path.with_extension("bat"),
-        ]
-    };
-    candidates.into_iter().find(|candidate| candidate.is_file())
 }
 
 pub fn probe_profile(profile: &ResolvedAgentProfile) -> anyhow::Result<String> {

@@ -105,6 +105,40 @@ impl AgentProfileEditor {
         cx.notify();
     }
 
+    /// Open the native file picker to fill the executable path field, so
+    /// unusual install locations can be selected without typing them by hand.
+    fn browse_executable(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(SharedString::from(i18n::text(
+                self.locale,
+                "agent-executable-browse-prompt",
+            ))),
+        });
+        let input = self.executable.clone();
+        cx.spawn_in(window, async move |_this, cx| {
+            let path = match receiver.await {
+                Ok(Ok(Some(paths))) => paths.into_iter().next(),
+                _ => None,
+            };
+            let Some(path) = path else {
+                return;
+            };
+            let _ = cx.update(|window, app| {
+                input.update(app, |state, cx| {
+                    state.set_value(path.display().to_string(), window, cx);
+                });
+            });
+        })
+        .detach();
+    }
+
     fn save(&mut self, cx: &mut Context<Self>) {
         let profile = CustomAgentProfile {
             id: self.id.read(cx).value().trim().to_string(),
@@ -178,6 +212,7 @@ impl Render for AgentProfileEditor {
         let cancel = this.clone();
         let save = this.clone();
         let toggle = this.clone();
+        let browse = this.clone();
         let title_key = if self.previous_id.is_some() {
             "agent-profile-edit-title"
         } else {
@@ -259,11 +294,36 @@ impl Render for AgentProfileEditor {
                         Input::new(&self.name).w_full(),
                         &colors,
                     ))
-                    .child(self.field(
-                        i18n::text(self.locale, "agent-profile-executable"),
-                        Input::new(&self.executable).w_full(),
-                        &colors,
-                    ))
+                    .child(
+                        self.field(
+                            i18n::text(self.locale, "agent-profile-executable"),
+                            h_flex()
+                                .w_full()
+                                .items_start()
+                                .gap_2()
+                                .child(div().flex_1().child(
+                                    Input::new(&self.executable).w_full(),
+                                ))
+                                .child(
+                                    Button::new(
+                                        "agent-profile-executable-browse",
+                                    )
+                                    .label(i18n::text(
+                                        self.locale,
+                                        "agent-executable-browse",
+                                    ))
+                                    .ghost()
+                                    .small()
+                                    .on_click(move |_event, window, cx| {
+                                        browse.update(cx, |editor, cx| {
+                                            editor
+                                                .browse_executable(window, cx);
+                                        });
+                                    }),
+                                ),
+                            &colors,
+                        ),
+                    )
                     .child(self.field(
                         i18n::text(self.locale, "agent-profile-args"),
                         Textarea::new(&self.args).w_full(),
