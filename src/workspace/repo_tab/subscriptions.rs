@@ -57,7 +57,7 @@ fn wire_toolbar(
     cx.subscribe_in(toolbar, window, |tab, _event, event, _window, cx| {
         match event {
             ToolbarEvent::Fetch => {
-                if tab.operation_busy {
+                if tab.is_busy() {
                     return;
                 }
                 tab.git_view.update(cx, |view, _| {
@@ -69,7 +69,7 @@ fn wire_toolbar(
                 tab.set_operation_busy(true, cx);
             }
             ToolbarEvent::PullMerge => {
-                if tab.operation_busy {
+                if tab.is_busy() {
                     return;
                 }
                 tab.git_view.update(cx, |view, _| {
@@ -78,7 +78,7 @@ fn wire_toolbar(
                 tab.set_operation_busy(true, cx);
             }
             ToolbarEvent::PullRebase => {
-                if tab.operation_busy {
+                if tab.is_busy() {
                     return;
                 }
                 tab.git_view.update(cx, |view, _| {
@@ -90,7 +90,7 @@ fn wire_toolbar(
                 tab.set_operation_busy(true, cx);
             }
             ToolbarEvent::Push => {
-                if tab.operation_busy {
+                if tab.is_busy() {
                     return;
                 }
                 // Publish a branch that has no upstream through a confirmed
@@ -105,7 +105,7 @@ fn wire_toolbar(
             }
             ToolbarEvent::PushForce => {
                 // Never run directly: open the confirmation dialog first.
-                if !tab.operation_busy {
+                if !tab.is_busy() {
                     tab.confirmation = Some(PendingConfirmation::ForcePush);
                     cx.notify();
                 }
@@ -145,7 +145,9 @@ fn wire_toolbar(
             }
             ToolbarEvent::Compare => branch_compare::open(tab, cx),
             ToolbarEvent::Refresh => {
-                tab.refresh_repository(cx);
+                if !tab.is_busy() {
+                    tab.refresh_repository(cx);
+                }
             }
             ToolbarEvent::Settings => {
                 cx.emit(RepoTabEvent::RequestSettings);
@@ -203,7 +205,7 @@ fn wire_graph(graph: &Entity<GraphView>, cx: &mut Context<RepoTab>) {
 fn wire_commit(commit: &Entity<CommitPanel>, cx: &mut Context<RepoTab>) {
     cx.subscribe(commit, |tab, _event, event, cx| match event {
         CommitPanelEvent::Submit { message, action } => {
-            if tab.operation_busy {
+            if tab.is_busy() {
                 return;
             }
             match action {
@@ -226,6 +228,8 @@ fn wire_commit(commit: &Entity<CommitPanel>, cx: &mut Context<RepoTab>) {
                 CommitAction::CommitByAgent => {
                     log::info!("[commit_panel] submit requested: action=agent");
                     cx.emit(RepoTabEvent::AgentCommitRequested {
+                        id: tab.id,
+                        repo_path: tab.repo_path.clone(),
                         hint: message.clone(),
                     });
                 }

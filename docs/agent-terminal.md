@@ -1,4 +1,4 @@
-# External Agent connectivity terminal
+# External Agent terminal
 
 Augur Git does not ship an AI model, provider SDK, tool loop, account UI,
 approval policy, or sandbox. It only verifies that a user-installed coding-agent
@@ -135,6 +135,30 @@ user-selected directory. Test prompts, transcript contents, and provider
 session IDs are not persisted. Closing a repository tab does not affect an
 independent connectivity-test window; closing the application asks before
 stopping active tests.
+
+## Commit by AI
+
+The Commit menu's **Commit by AI** action delegates one fixed commit operation
+to the current Agent profile selected at the top of Settings → Agents. It
+opens the same visible PTY in the repository root; no temporary directory or
+`AUGUR_GIT_TASK_FILE` is used. The optional text in the commit editor is only a
+commit-message hint and is validated before it is included in the fixed
+operation prompt.
+
+The operation instructs the Agent to inspect staged, unstaged, and untracked
+changes, stop when conflicts or no changes are present, run `git add --all`,
+review the staged diff, create one concise Conventional Commit, report the
+result, and exit. It must not edit file contents, amend, merge, rebase, reset,
+checkout, or push. Augur Git disables other repository operations while this
+session runs and refreshes status and history after the process exits. The
+process exit code is shown separately from the refreshed Git state; an exit
+code alone is not treated as proof that a commit was created.
+
+Only one active Commit by AI session is allowed per repository. Starting it
+again focuses the existing window. Closing the window, repository tab, or
+application stops the session after the normal Ctrl-C grace period. The
+operation prompt, terminal transcript, and provider session identifiers are
+never persisted.
 
 ## Terminal boundary
 

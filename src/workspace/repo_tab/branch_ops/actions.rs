@@ -29,7 +29,7 @@ impl RepoTab {
         stash_ref: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        if self.operation_busy || self.stash_count == 0 {
+        if self.is_busy() || self.stash_count == 0 {
             return;
         }
         log::info!("[branch_ops] stash pop requested: target={stash_ref:?}");
@@ -48,7 +48,7 @@ impl RepoTab {
         no_ff: bool,
         cx: &mut Context<Self>,
     ) {
-        if self.operation_busy {
+        if self.is_busy() {
             return;
         }
         if self.branch.is_empty() || name == self.branch {

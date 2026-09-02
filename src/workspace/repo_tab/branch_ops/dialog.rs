@@ -22,7 +22,7 @@ impl RepoTab {
         pending: PendingBranchDialog,
         cx: &mut Context<Self>,
     ) {
-        if self.operation_busy || self.dialogs.pending.is_some() {
+        if self.is_busy() || self.dialogs.pending.is_some() {
             return;
         }
         if !self.dialog_allowed(&pending) {

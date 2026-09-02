@@ -25,11 +25,18 @@ mod subscriptions;
 
 #[derive(Clone, Debug)]
 pub enum RepoTabEvent {
-    Opened { id: TabId, path: String },
+    Opened {
+        id: TabId,
+        path: String,
+    },
     SummaryChanged(TabSummary),
     RequestSettings,
     LayoutChanged(LayoutSettings),
-    AgentCommitRequested { hint: String },
+    AgentCommitRequested {
+        id: TabId,
+        repo_path: String,
+        hint: String,
+    },
 }
 
 enum PendingConfirmation {
@@ -90,6 +97,8 @@ pub struct RepoTab {
     working_diff_request_id: u64,
     working_tree_operation_id: u64,
     operation_busy: bool,
+    agent_commit_session_id: Option<u64>,
+    pending_agent_refresh: bool,
     layout: LayoutSettings,
     confirmation: Option<PendingConfirmation>,
     dialogs: branch_ops::BranchDialogs,
@@ -155,6 +164,8 @@ impl RepoTab {
             working_diff_request_id: 0,
             working_tree_operation_id: 0,
             operation_busy: false,
+            agent_commit_session_id: None,
+            pending_agent_refresh: false,
             layout,
             confirmation: None,
             dialogs: branch_ops::BranchDialogs::default(),
@@ -178,7 +189,7 @@ impl RepoTab {
     }
 
     fn refresh_if_ready(&mut self, cx: &mut Context<Self>) -> bool {
-        if !self.opened || self.operation_busy {
+        if !self.opened || self.is_busy() {
             return false;
         }
         self.refresh_repository(cx);
@@ -193,11 +204,12 @@ impl RepoTab {
         self.git_view.update(cx, |view, _| view.refresh());
     }
 
-    fn set_operation_busy(&mut self, busy: bool, cx: &mut Context<Self>) {
-        if self.operation_busy == busy {
-            return;
-        }
-        self.operation_busy = busy;
+    pub(super) fn is_busy(&self) -> bool {
+        self.operation_busy || self.agent_commit_session_id.is_some()
+    }
+
+    fn sync_busy_controls(&mut self, cx: &mut Context<Self>) {
+        let busy = self.is_busy();
         self.toolbar.update(cx, |toolbar, cx| {
             toolbar.set_busy(busy, cx);
         });
@@ -215,13 +227,65 @@ impl RepoTab {
         });
     }
 
+    fn set_operation_busy(&mut self, busy: bool, cx: &mut Context<Self>) {
+        if self.operation_busy == busy {
+            return;
+        }
+        self.operation_busy = busy;
+        self.sync_busy_controls(cx);
+        if !busy && self.pending_agent_refresh && !self.is_busy() {
+            self.pending_agent_refresh = false;
+            self.refresh_repository(cx);
+        }
+    }
+
+    pub(super) fn begin_agent_commit(
+        &mut self,
+        session_id: u64,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_commit_session_id.is_some() {
+            return;
+        }
+        self.agent_commit_session_id = Some(session_id);
+        self.sync_busy_controls(cx);
+        cx.notify();
+    }
+
+    pub(super) fn finish_agent_commit(
+        &mut self,
+        session_id: u64,
+        code: Option<i32>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_commit_session_id != Some(session_id) {
+            return;
+        }
+        self.agent_commit_session_id = None;
+        self.status_message = Some(i18n::text_args(
+            self.locale,
+            "agent-commit-session-exited",
+            &[("code", &format_exit_code(code))],
+        ));
+        // An Agent exit code describes the process only. The refreshed Git
+        // state remains the source of truth for whether a commit exists.
+        self.status_message_ok = None;
+        if self.operation_busy {
+            self.pending_agent_refresh = true;
+        } else {
+            self.refresh_repository(cx);
+        }
+        self.sync_busy_controls(cx);
+        cx.notify();
+    }
+
     fn start_working_tree_operation(
         &mut self,
         action: WorkingTreeAction,
         scope: WorkingTreeScope,
         cx: &mut Context<Self>,
     ) {
-        if self.operation_busy {
+        if self.is_busy() {
             return;
         }
         self.working_tree_operation_id =
@@ -245,7 +309,7 @@ impl RepoTab {
         target: CheckoutTarget,
         cx: &mut Context<Self>,
     ) {
-        if self.operation_busy {
+        if self.is_busy() {
             return;
         }
         self.git_view.update(cx, |view, _| view.checkout(target));
@@ -268,7 +332,7 @@ impl RepoTab {
         oid: String,
         cx: &mut Context<Self>,
     ) {
-        if self.operation_busy {
+        if self.is_busy() {
             return;
         }
         self.git_view.update(cx, |view, _| {
@@ -474,4 +538,9 @@ fn repo_title(path: &str) -> String {
     } else {
         crate::git::dir_name(trimmed).to_string()
     }
+}
+
+fn format_exit_code(code: Option<i32>) -> String {
+    code.map(|code| code.to_string())
+        .unwrap_or_else(|| "unknown".to_string())
 }

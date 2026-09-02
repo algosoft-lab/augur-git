@@ -103,6 +103,10 @@ Coding agent or editor
   Settings in a separate interactive terminal and a fresh empty temporary
   directory. The fixed diagnostic challenge does not touch the current
   repository or persist its prompt and transcript.
+- **Commit by AI** — choose the current Agent profile from Settings and launch
+  a fixed, visible commit operation from the Commit menu. The Agent reviews and
+  stages all non-ignored working-tree changes, creates one Conventional Commit,
+  and never pushes or changes file contents.
 - **Repository operations** — browse branches, remotes, tags, and stashes, and
   run explicit fetch, pull, push, checkout, branch, and commit operations.
 - **Multiple repositories** — keep several repositories open as tabs and return
@@ -131,9 +135,10 @@ Leaving these fields empty preserves the CLI's environment and configuration
 defaults.
 Augur Git does not inject generic permission or mode flags.
 
-The Agent terminal is intentionally dedicated to visible connectivity tests
-rather than a general-purpose shell. Test state and terminal transcripts are
-not persisted across application restarts. See
+The Agent terminal is intentionally dedicated to visible connectivity tests and
+fixed Git operations rather than a general-purpose shell. Test state, operation
+state, and terminal transcripts are not persisted across application restarts.
+See
 [`docs/agent-terminal.md`](docs/agent-terminal.md) for profile configuration,
 executable lookup, lifecycle rules, and troubleshooting.
 

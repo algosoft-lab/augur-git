@@ -20,7 +20,7 @@ impl RepoTab {
         scope: WorkingTreeScope,
         cx: &mut Context<Self>,
     ) {
-        if self.operation_busy {
+        if self.is_busy() {
             return;
         }
         let files = scope.files();
@@ -43,7 +43,7 @@ impl RepoTab {
     }
 
     pub(super) fn start_force_push(&mut self, cx: &mut Context<Self>) {
-        if self.operation_busy {
+        if self.is_busy() {
             return;
         }
         self.confirmation = None;
@@ -90,7 +90,7 @@ impl RepoTab {
         else {
             return;
         };
-        if self.operation_busy {
+        if self.is_busy() {
             return;
         }
         log::info!(

@@ -202,10 +202,8 @@ pub struct Workspace {
     show_settings: bool,
     pending_close: Option<PendingWorkspaceClose>,
     about_window: Option<WindowHandle<about::AboutWindow>>,
-    agent_connectivity_windows: Vec<(
-        String,
-        WindowHandle<agent_connectivity::AgentConnectivityWindow>,
-    )>,
+    agent_sessions:
+        Vec<(String, WindowHandle<agent_connectivity::AgentSessionWindow>)>,
     restoring: bool,
     last_focus_refresh: Option<Instant>,
 }
@@ -377,7 +375,7 @@ impl Workspace {
             show_settings: false,
             pending_close: None,
             about_window: None,
-            agent_connectivity_windows: Vec::new(),
+            agent_sessions: Vec::new(),
             restoring: true,
             // The startup load starts here (restore_tabs -> open), so the
             // activation delivered right after window creation must not
@@ -647,9 +645,17 @@ impl Workspace {
                 }
                 cx.notify();
             }
-            RepoTabEvent::AgentCommitRequested { .. } => {
-                log::debug!(
-                    "[agent_terminal] agent commit request is waiting for session wiring"
+            RepoTabEvent::AgentCommitRequested {
+                id,
+                repo_path,
+                hint,
+            } => {
+                agent_connectivity::open_commit(
+                    self,
+                    *id,
+                    repo_path.clone(),
+                    hint.clone(),
+                    cx,
                 );
             }
         }

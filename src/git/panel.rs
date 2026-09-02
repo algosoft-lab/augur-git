@@ -177,11 +177,7 @@ impl Render for CommitPanel {
             );
 
         let can_commit = !self.busy
-            && match self.action {
-                CommitAction::Commit => self.has_staged,
-                CommitAction::Amend => true,
-                CommitAction::CommitByAgent => self.has_changes,
-            };
+            && can_submit(self.action, self.has_staged, self.has_changes);
         let commit_button_label = match self.action {
             CommitAction::Commit => i18n::text(self.locale, "commit-btn"),
             CommitAction::Amend => i18n::text(self.locale, "commit-amend-btn"),
@@ -283,5 +279,36 @@ impl Render for CommitPanel {
                             .child(commit_mode_menu),
                     ),
             )
+    }
+}
+
+fn can_submit(
+    action: CommitAction,
+    has_staged: bool,
+    has_changes: bool,
+) -> bool {
+    match action {
+        CommitAction::Commit | CommitAction::Amend => has_staged,
+        CommitAction::CommitByAgent => has_changes,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CommitAction, can_submit};
+
+    #[test]
+    fn normal_commit_actions_require_staged_changes() {
+        assert!(!can_submit(CommitAction::Commit, false, true));
+        assert!(!can_submit(CommitAction::Amend, false, true));
+        assert!(can_submit(CommitAction::Commit, true, true));
+        assert!(can_submit(CommitAction::Amend, true, true));
+    }
+
+    #[test]
+    fn agent_commit_accepts_any_working_tree_change() {
+        assert!(!can_submit(CommitAction::CommitByAgent, false, false));
+        assert!(can_submit(CommitAction::CommitByAgent, false, true));
+        assert!(can_submit(CommitAction::CommitByAgent, true, true));
     }
 }
