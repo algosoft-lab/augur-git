@@ -16,6 +16,10 @@ sys-locale = "0.3"
 chrono = "0.4"
 dirs = "6"
 alacritty_terminal = "0.26"
+mlua = { version = "0.12.1", features = ["lua54", "vendored", "serde", "send"] }
+semver = "1"
+sha2 = "0.10"
+toml = "0.9"
 
 [dependencies.gpui]
 git = "https://github.com/zed-industries/zed"
