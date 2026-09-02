@@ -65,6 +65,8 @@ pub struct Sidebar {
     locale: Locale,
     /// Disable checkout actions while a repository operation is running.
     busy: bool,
+    /// Disable operations that would discard or replace an unresolved merge.
+    has_conflicts: bool,
 }
 
 /// Extra context-menu actions offered per ref type. Local branches support
@@ -107,6 +109,7 @@ impl Sidebar {
             collapsed: Vec::new(),
             locale,
             busy: false,
+            has_conflicts: false,
         }
     }
 
@@ -120,6 +123,18 @@ impl Sidebar {
     pub fn set_busy(&mut self, busy: bool, cx: &mut Context<Self>) {
         if self.busy != busy {
             self.busy = busy;
+            cx.notify();
+        }
+    }
+
+    /// Synchronize whether the repository currently contains unmerged files.
+    pub fn set_conflicts(
+        &mut self,
+        has_conflicts: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.has_conflicts != has_conflicts {
+            self.has_conflicts = has_conflicts;
             cx.notify();
         }
     }
@@ -277,6 +292,7 @@ impl Sidebar {
                     name.clone(),
                     "context-copy-branch",
                     self.busy,
+                    self.has_conflicts,
                     RefActions::LocalBranch { is_head },
                 )
             })
@@ -440,6 +456,7 @@ impl Sidebar {
                             entry.full_name.clone(),
                             "context-copy-branch",
                             self.busy,
+                            self.has_conflicts,
                             RefActions::RemoteBranch {
                                 remote: group.remote.clone(),
                                 branch: entry.label.clone(),
@@ -571,6 +588,7 @@ impl Sidebar {
                     name,
                     "context-copy-tag",
                     self.busy,
+                    self.has_conflicts,
                     RefActions::Tag,
                 )
             })
@@ -603,6 +621,7 @@ fn ref_context_menu<E>(
     copy_value: String,
     copy_label_key: &'static str,
     busy: bool,
+    has_conflicts: bool,
     actions: RefActions,
 ) -> impl IntoElement
 where
@@ -610,7 +629,7 @@ where
 {
     let checkout_label = i18n::text(locale, "context-checkout");
     let copy_label = i18n::text(locale, copy_label_key);
-    let checkout_disabled = busy || actions.is_head();
+    let checkout_disabled = busy || has_conflicts || actions.is_head();
 
     element.context_menu(move |menu, _window, _cx| {
         let sidebar_for_checkout = sidebar.clone();
@@ -681,7 +700,7 @@ where
                             "context-delete",
                         ))
                         .icon(crate::git::lucide("trash-2"))
-                        .disabled(busy || *is_head)
+                        .disabled(busy || has_conflicts || *is_head)
                         .on_click(
                             move |_event, _window, cx| {
                                 sidebar_for_delete.update(
@@ -702,7 +721,7 @@ where
                             "context-merge-into-current",
                         ))
                         .icon(crate::git::lucide("git-merge"))
-                        .disabled(busy || *is_head)
+                        .disabled(busy || has_conflicts || *is_head)
                         .on_click(
                             move |_event, _window, cx| {
                                 sidebar_for_merge.update(cx, |_sidebar, cx| {
@@ -720,7 +739,7 @@ where
                             "context-merge-no-ff-into-current",
                         ))
                         .icon(crate::git::lucide("git-merge"))
-                        .disabled(busy || *is_head)
+                        .disabled(busy || has_conflicts || *is_head)
                         .on_click(
                             move |_event, _window, cx| {
                                 sidebar_for_merge_no_ff.update(
@@ -743,6 +762,9 @@ where
                             "context-merge-by-agent",
                         ))
                         .icon(IconName::Bot)
+                        // A matching in-progress merge is intentionally
+                        // allowed here so this action can hand it to the
+                        // Agent for conflict resolution.
                         .disabled(busy || *is_head)
                         .on_click(
                             move |_event, _window, cx| {

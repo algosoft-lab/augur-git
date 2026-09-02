@@ -680,12 +680,14 @@ impl Workspace {
                 id,
                 repo_path,
                 merge_head,
+                baseline_head,
             } => {
                 agent_connectivity::open_merge_resolution(
                     self,
                     *id,
                     repo_path.clone(),
                     merge_head.clone(),
+                    baseline_head.clone(),
                     cx,
                 );
             }

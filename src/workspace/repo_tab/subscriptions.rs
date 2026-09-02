@@ -69,7 +69,7 @@ fn wire_toolbar(
                 tab.set_operation_busy(true, cx);
             }
             ToolbarEvent::PullMerge => {
-                if tab.is_busy() {
+                if tab.is_busy() || tab.has_unresolved_conflicts {
                     return;
                 }
                 tab.git_view.update(cx, |view, _| {
@@ -78,7 +78,7 @@ fn wire_toolbar(
                 tab.set_operation_busy(true, cx);
             }
             ToolbarEvent::PullRebase => {
-                if tab.is_busy() {
+                if tab.is_busy() || tab.has_unresolved_conflicts {
                     return;
                 }
                 tab.git_view.update(cx, |view, _| {
@@ -332,6 +332,8 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                         file.is_conflicted() || file.has_worktree_changes()
                     })
                     .count();
+                let has_unresolved_conflicts =
+                    files.iter().any(|file| file.is_conflicted());
                 let ahead_text = ahead.to_string();
                 let behind_text = behind.to_string();
                 let staged_text = staged_count.to_string();
@@ -352,6 +354,18 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                             || file.is_conflicted()
                     })
                     .count();
+                let had_conflict_guard = tab.has_unresolved_conflicts;
+                // Keep an existing guard until the asynchronous probe confirms
+                // that MERGE_HEAD is gone. A resolved index can have no `U`
+                // entries while Git is still waiting for the merge commit.
+                tab.has_unresolved_conflicts = has_unresolved_conflicts
+                    || had_conflict_guard;
+                if has_unresolved_conflicts
+                    || had_conflict_guard
+                    || tab.merge_state_probe_request_id == 0
+                {
+                    tab.schedule_merge_state_probe(cx);
+                }
                 tab.sync_log_scope(cx);
                 tab.status = GitStatus::Ready(i18n::text_args(
                     tab.locale,
@@ -366,6 +380,10 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 ));
                 tab.sidebar.update(cx, |sidebar, cx| {
                     sidebar.set_status(branch.clone(), branches.clone(), cx);
+                    sidebar.set_conflicts(
+                        tab.has_unresolved_conflicts,
+                        cx,
+                    );
                 });
                 tab.changes.update(cx, |changes, cx| {
                     changes.set_files(files.clone(), cx);
@@ -375,6 +393,7 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 });
                 tab.toolbar.update(cx, |toolbar, cx| {
                     toolbar.set_ahead_behind(*ahead, *behind, cx);
+                    toolbar.set_conflicts(tab.has_unresolved_conflicts, cx);
                 });
                 tab.sync_branch_menu_context(cx);
                 tab.commit.update(cx, |commit, cx| {
@@ -611,12 +630,19 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 if tab.pending_merge_command.is_some()
                     || tab.merge_abort_pending
                 {
+                    let label = if tab.merge_abort_pending {
+                        "merge --abort".to_string()
+                    } else if tab
+                        .pending_merge_command
+                        .as_ref()
+                        .is_some_and(|pending| pending.no_ff)
+                    {
+                        "merge --no-ff".to_string()
+                    } else {
+                        "merge".to_string()
+                    };
                     tab.handle_merge_result(
-                        if tab.merge_abort_pending {
-                            "merge --abort".to_string()
-                        } else {
-                            "merge".to_string()
-                        },
+                        label,
                         false,
                         message.clone(),
                         cx,

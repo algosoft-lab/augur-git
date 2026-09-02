@@ -171,6 +171,48 @@ application stops the session after the normal Ctrl-C grace period. The
 operation prompt, terminal transcript, and provider session identifiers are
 never persisted.
 
+## Merge by AI and conflict recovery
+
+The local-branch context menu contains **Merge by AI** for a branch other than
+the current branch. Augur Git resolves that branch to an immutable commit ID
+before launching the selected Agent, then opens the visible terminal in the
+current repository. The preflight requires an entirely clean working tree (no
+staged, unstaged, untracked, or unresolved changes) and no other stateful Git
+operation, so a merge cannot accidentally overwrite work that appeared after
+the menu action. The Agent is
+asked to run a normal fast-forward-allowed merge, resolve only files that Git
+marks as conflicted, and create the merge commit. It may not push, reset,
+checkout, amend, rebase, abort, or edit unrelated files.
+
+The result is verified from Git state rather than from Agent prose. Augur Git
+records the starting `HEAD`, watches for a new `HEAD`, checks that the target
+is an ancestor, and confirms that `MERGE_HEAD` and unmerged entries are gone.
+An already-up-to-date target is reported separately. A verified merge refreshes
+the repository immediately, stops the interactive process, and closes the
+Agent window. Conflicts, failed or cancelled sessions, and exits without a
+verified result stop the process but keep the terminal visible for diagnosis.
+
+If an ordinary **Merge** or **Merge (--no-ff)** leaves `MERGE_HEAD`, the UI
+shows the complete Git error and offers **Abort merge** or **Resolve conflicts
+by AI**. The latter starts the current Agent in the existing merge state; it
+does not run a second merge and commits with Git's prepared message after all
+unmerged entries are resolved. Augur rechecks the saved `HEAD` and
+`MERGE_HEAD` before starting that handoff, so changes made while the dialog
+was open are reported instead of being handed to the Agent. Closing the dialog
+leaves the merge untouched, so it can be resolved in an external editor. While
+unmerged entries remain (and while `MERGE_HEAD` is still present after files
+are staged), checkout, ordinary merge, rebase, pull, and stash-pop actions are
+disabled;
+**Merge by AI** remains available so the same source can enter conflict-
+resolution mode. Viewing files, staging resolutions, and ordinary commits
+remain available. If the merge has already been resolved externally, the next
+status refresh restores the normal actions.
+
+Only one visible Agent Git operation (Commit by AI, Merge by AI, or conflict
+resolution) may run for a repository at a time. Settings changes affect new
+sessions only. No Git operation, terminal transcript, or provider session ID
+is persisted.
+
 ## Terminal boundary
 
 The embedded view uses the Apache-2.0 `alacritty_terminal` state machine and
@@ -206,7 +248,8 @@ intentionally left to the CLI itself.
 The Git status probe and porcelain-v2 parser live in
 `src/core/git/agent_operation.rs`, keeping repository inspection on the Git
 worker boundary. Commit outcomes and probe classification are pure logic in
-`src/workspace/agent_commit.rs`. The visible session coordinator owns the
+`src/workspace/agent_commit.rs`; merge outcomes are in
+`src/workspace/agent_merge.rs`. The visible session coordinator owns the
 shared PTY window, monitor, marker handling, and lifecycle callbacks; it does
 not duplicate Git parsing or provider-specific command construction.
 

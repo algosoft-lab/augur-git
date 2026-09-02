@@ -49,14 +49,15 @@ impl RepoTab {
 
     fn dialog_allowed(&self, pending: &PendingBranchDialog) -> bool {
         match pending {
-            PendingBranchDialog::NewBranch => true,
+            PendingBranchDialog::NewBranch => !self.has_unresolved_conflicts,
             PendingBranchDialog::Rename { old } => !old.is_empty(),
             PendingBranchDialog::Stash => self.local_change_count > 0,
             PendingBranchDialog::DropStash { reference } => {
                 !reference.is_empty() && self.stash_count > 0
             }
             PendingBranchDialog::Merge { .. } | PendingBranchDialog::Rebase => {
-                !self.local_branches.is_empty()
+                !self.has_unresolved_conflicts
+                    && !self.local_branches.is_empty()
             }
             PendingBranchDialog::DeleteRef { name, is_tag } => {
                 // The current branch can never be deleted.

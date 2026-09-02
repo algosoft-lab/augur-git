@@ -61,11 +61,11 @@ pub fn probe_agent_merge(
 ) -> Result<AgentMergeProbe, String> {
     let commit = probe_agent_commit(repo_path)?;
     let merge_head = read_merge_head(repo_path)?;
-    let target_is_ancestor_of_head = if target_oid.is_empty() {
-        false
-    } else {
-        is_ancestor(repo_path, target_oid)?
-    };
+    let target_is_ancestor_of_head =
+        match (target_oid.is_empty(), commit.head.as_deref()) {
+            (true, _) | (false, None) => false,
+            (false, Some(_)) => is_ancestor(repo_path, target_oid)?,
+        };
     Ok(AgentMergeProbe {
         head: commit.head,
         merge_head,
@@ -73,6 +73,31 @@ pub fn probe_agent_merge(
         has_conflicts: commit.has_conflicts,
         target_is_ancestor_of_head,
     })
+}
+
+/// Return whether Git has another stateful operation in progress.
+///
+/// The marker paths are resolved through Git so linked worktrees and custom
+/// git directories are handled correctly. This check is intentionally kept
+/// separate from [`AgentMergeProbe`]: callers that are already handling an
+/// existing merge can still inspect `MERGE_HEAD` without treating it as an
+/// unrelated operation.
+pub fn has_other_git_operation(repo_path: &Path) -> Result<bool, String> {
+    for marker in [
+        "REBASE_HEAD",
+        "CHERRY_PICK_HEAD",
+        "REVERT_HEAD",
+        "BISECT_LOG",
+        "rebase-merge",
+        "rebase-apply",
+        "sequencer",
+    ] {
+        let path = git_path(repo_path, marker)?;
+        if path.exists() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Read merge state without checking ancestry. This is used after an ordinary
@@ -102,7 +127,7 @@ pub fn resolve_agent_merge_target(
         .output()
         .map_err(|error| format!("failed to resolve merge target: {error}"))?;
     if !output.status.success() {
-        return Err(status_error(&output));
+        return Err(command_error(&output, "git rev-parse"));
     }
     let oid = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if oid.is_empty() {
@@ -125,6 +150,33 @@ fn read_merge_head(repo_path: &Path) -> Result<Option<String>, String> {
     Ok((!value.is_empty()).then_some(value))
 }
 
+fn git_path(
+    repo_path: &Path,
+    marker: &str,
+) -> Result<std::path::PathBuf, String> {
+    let output = git_command()
+        .args(["rev-parse", "--git-path"])
+        .arg(marker)
+        .current_dir(repo_path)
+        .output()
+        .map_err(|error| {
+            format!("failed to inspect Git operation state: {error}")
+        })?;
+    if !output.status.success() {
+        return Err(command_error(&output, "git rev-parse --git-path"));
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if value.is_empty() {
+        return Err(format!("Git returned an empty path for {marker}"));
+    }
+    let path = std::path::PathBuf::from(value);
+    Ok(if path.is_absolute() {
+        path
+    } else {
+        repo_path.join(path)
+    })
+}
+
 fn is_ancestor(repo_path: &Path, target_oid: &str) -> Result<bool, String> {
     let output = git_command()
         .args(["merge-base", "--is-ancestor"])
@@ -136,17 +188,21 @@ fn is_ancestor(repo_path: &Path, target_oid: &str) -> Result<bool, String> {
     match output.status.code() {
         Some(0) => Ok(true),
         Some(1) => Ok(false),
-        _ => Err(status_error(&output)),
+        _ => Err(command_error(&output, "git merge-base")),
     }
 }
 
 fn status_error(output: &Output) -> String {
+    command_error(output, "git status")
+}
+
+fn command_error(output: &Output, command: &str) -> String {
     let detail = String::from_utf8_lossy(&output.stderr);
     let detail = detail.trim();
     if detail.is_empty() {
-        format!("git status exited with {}", output.status)
+        format!("{command} exited with {}", output.status)
     } else {
-        format!("git status failed: {detail}")
+        format!("{command} failed: {detail}")
     }
 }
 

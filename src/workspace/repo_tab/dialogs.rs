@@ -65,6 +65,7 @@ impl RepoTab {
             return;
         }
         self.confirmation = None;
+        self.invalidate_merge_state_probe();
         self.merge_abort_pending = true;
         self.git_view.update(cx, |view, _| {
             view.run("merge --abort", vec!["merge".into(), "--abort".into()]);
@@ -77,18 +78,22 @@ impl RepoTab {
         &mut self,
         cx: &mut Context<Self>,
     ) {
-        let Some(PendingConfirmation::MergeConflict { merge_head, .. }) =
-            self.confirmation.take()
-        else {
-            return;
-        };
         if self.is_busy() {
             return;
         }
+        let Some(PendingConfirmation::MergeConflict {
+            merge_head,
+            baseline_head,
+            ..
+        }) = self.confirmation.take()
+        else {
+            return;
+        };
         cx.emit(super::RepoTabEvent::AgentMergeResolveRequested {
             id: self.id,
             repo_path: self.repo_path.clone(),
             merge_head,
+            baseline_head,
         });
         cx.notify();
     }

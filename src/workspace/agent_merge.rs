@@ -47,6 +47,9 @@ pub(super) fn classify_merge_probe(
     if probe.has_conflicts || probe.merge_head.is_some() {
         return Some(AgentMergeOutcome::Conflict);
     }
+    if probe.has_changes {
+        return None;
+    }
     if !probe.target_is_ancestor_of_head {
         return None;
     }
@@ -145,6 +148,20 @@ mod tests {
                 },
                 Some("base"),
                 &probe(Some("other"), None, false, false, false),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn already_up_to_date_with_leftover_changes_is_not_success() {
+        assert_eq!(
+            classify_merge_probe(
+                &AgentMergeMode::Start {
+                    target_oid: "target".into(),
+                },
+                Some("base"),
+                &probe(Some("base"), None, true, false, true),
             ),
             None
         );

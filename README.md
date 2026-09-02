@@ -107,6 +107,11 @@ Coding agent or editor
   a fixed, visible commit operation from the Commit menu. The Agent reviews and
   stages all non-ignored working-tree changes, creates one Conventional Commit,
   and never pushes or changes file contents.
+- **Merge by AI and conflict recovery** — start a fixed merge operation from a
+  local branch context menu, or hand an ordinary merge conflict to the current
+  Agent. Clean-worktree preflight, immutable target IDs, visible PTY output, and
+  Git-state verification keep the result explicit; failed merges can be
+  aborted or left open for manual resolution.
 - **Repository operations** — browse branches, remotes, tags, and stashes, and
   run explicit fetch, pull, push, checkout, branch, and commit operations.
 - **Multiple repositories** — keep several repositories open as tabs and return

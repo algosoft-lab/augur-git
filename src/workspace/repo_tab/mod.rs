@@ -47,6 +47,7 @@ pub enum RepoTabEvent {
         id: TabId,
         repo_path: String,
         merge_head: String,
+        baseline_head: Option<String>,
     },
 }
 
@@ -65,6 +66,7 @@ enum PendingConfirmation {
         source: String,
         detail: String,
         merge_head: String,
+        baseline_head: Option<String>,
     },
     MergeError {
         label: String,
@@ -127,6 +129,10 @@ pub struct RepoTab {
     agent_commit_observed_head: Option<String>,
     agent_merge_session_id: Option<u64>,
     agent_merge_observed_head: Option<String>,
+    /// Whether the latest Git status contains unmerged entries.
+    has_unresolved_conflicts: bool,
+    merge_state_probe_pending: bool,
+    merge_state_probe_request_id: u64,
     pending_agent_refresh: bool,
     pending_merge_command: Option<PendingMergeCommand>,
     merge_probe_request_id: u64,
@@ -200,6 +206,9 @@ impl RepoTab {
             agent_commit_observed_head: None,
             agent_merge_session_id: None,
             agent_merge_observed_head: None,
+            has_unresolved_conflicts: false,
+            merge_state_probe_pending: false,
+            merge_state_probe_request_id: 0,
             pending_agent_refresh: false,
             pending_merge_command: None,
             merge_probe_request_id: 0,
@@ -246,6 +255,83 @@ impl RepoTab {
         self.operation_busy
             || self.agent_commit_session_id.is_some()
             || self.agent_merge_session_id.is_some()
+    }
+
+    /// Re-check the merge marker after a conflict-bearing status snapshot.
+    /// Git status exposes unmerged paths, but it does not expose a merge that
+    /// has been fully resolved in the index and is still waiting for its
+    /// merge commit. Keep integration actions guarded until this probe sees
+    /// that `MERGE_HEAD` has been removed.
+    pub(super) fn schedule_merge_state_probe(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
+        if self.merge_state_probe_pending {
+            return;
+        }
+        self.merge_state_probe_pending = true;
+        self.merge_state_probe_request_id =
+            self.merge_state_probe_request_id.wrapping_add(1).max(1);
+        let request_id = self.merge_state_probe_request_id;
+        let repo_path = std::path::PathBuf::from(self.repo_path.clone());
+        let entity = cx.entity();
+        cx.spawn(async move |_, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    crate::core::git::agent_operation::probe_merge_state(
+                        &repo_path,
+                    )
+                })
+                .await;
+            let _ = entity.update(cx, |tab, cx| {
+                tab.finish_merge_state_probe(request_id, result, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn finish_merge_state_probe(
+        &mut self,
+        request_id: u64,
+        result: Result<
+            crate::core::git::agent_operation::AgentMergeProbe,
+            String,
+        >,
+        cx: &mut Context<RepoTab>,
+    ) {
+        if request_id != self.merge_state_probe_request_id {
+            return;
+        }
+        self.merge_state_probe_pending = false;
+        let Ok(probe) = result else {
+            log::debug!(
+                "[branch_ops] merge state probe unavailable; retaining conflict guard"
+            );
+            return;
+        };
+        let merge_in_progress = probe.merge_head.is_some();
+        let has_conflicts = probe.has_conflicts || merge_in_progress;
+        if self.has_unresolved_conflicts != has_conflicts {
+            self.has_unresolved_conflicts = has_conflicts;
+            self.sidebar.update(cx, |sidebar, cx| {
+                sidebar.set_conflicts(has_conflicts, cx);
+            });
+            self.toolbar.update(cx, |toolbar, cx| {
+                toolbar.set_conflicts(has_conflicts, cx);
+            });
+            self.sync_branch_menu_context(cx);
+            cx.notify();
+        }
+    }
+
+    /// Invalidate a probe that predates a new merge or abort command. The
+    /// command's result owns the next merge-state decision, so an older
+    /// asynchronous snapshot must not clear its conflict guard.
+    pub(super) fn invalidate_merge_state_probe(&mut self) {
+        self.merge_state_probe_pending = false;
+        self.merge_state_probe_request_id =
+            self.merge_state_probe_request_id.wrapping_add(1).max(1);
     }
 
     fn sync_busy_controls(&mut self, cx: &mut Context<Self>) {
@@ -502,7 +588,7 @@ impl RepoTab {
         target: CheckoutTarget,
         cx: &mut Context<Self>,
     ) {
-        if self.is_busy() {
+        if self.is_busy() || self.has_unresolved_conflicts {
             return;
         }
         self.git_view.update(cx, |view, _| view.checkout(target));

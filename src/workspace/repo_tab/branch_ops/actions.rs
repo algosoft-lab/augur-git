@@ -15,9 +15,11 @@ impl RepoTab {
     ) {
         let ctx = BranchMenuContext {
             can_rename: !self.branch.is_empty(),
-            can_integrate: !self.local_branches.is_empty(),
+            can_integrate: !self.has_unresolved_conflicts
+                && !self.local_branches.is_empty(),
             can_stash: self.local_change_count > 0,
             stash_count: self.stash_count,
+            has_conflicts: self.has_unresolved_conflicts,
         };
         self.toolbar.update(cx, |toolbar, cx| {
             toolbar.set_branch_context(ctx, cx);
@@ -31,7 +33,10 @@ impl RepoTab {
         stash_ref: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        if self.is_busy() || self.stash_count == 0 {
+        if self.is_busy()
+            || self.has_unresolved_conflicts
+            || self.stash_count == 0
+        {
             return;
         }
         log::info!("[branch_ops] stash pop requested: target={stash_ref:?}");
@@ -50,7 +55,7 @@ impl RepoTab {
         no_ff: bool,
         cx: &mut Context<Self>,
     ) {
-        if self.is_busy() {
+        if self.is_busy() || self.has_unresolved_conflicts {
             return;
         }
         if self.branch.is_empty() || name == self.branch {
@@ -71,7 +76,7 @@ impl RepoTab {
         no_ff: bool,
         cx: &mut Context<RepoTab>,
     ) {
-        if self.is_busy() {
+        if self.is_busy() || self.has_unresolved_conflicts {
             return;
         }
         if self.branch.is_empty() || name == self.branch {
@@ -82,6 +87,7 @@ impl RepoTab {
             return;
         }
         let (label, args) = merge_args(&name, no_ff);
+        self.invalidate_merge_state_probe();
         self.pending_merge_command = Some(super::super::PendingMergeCommand {
             source: name.clone(),
             no_ff,
@@ -124,6 +130,13 @@ impl RepoTab {
             self.set_operation_busy(false, cx);
             if success {
                 self.confirmation = None;
+                self.has_unresolved_conflicts = false;
+                self.sidebar.update(cx, |sidebar, cx| {
+                    sidebar.set_conflicts(false, cx);
+                });
+                self.toolbar.update(cx, |toolbar, cx| {
+                    toolbar.set_conflicts(false, cx);
+                });
                 self.status_message = Some(crate::core::i18n::text_args(
                     self.locale,
                     "command-success",
@@ -147,8 +160,25 @@ impl RepoTab {
             self.set_operation_busy(false, cx);
             return;
         };
+        let expected_label = if pending.no_ff {
+            "merge --no-ff"
+        } else {
+            "merge"
+        };
+        if label != expected_label {
+            log::warn!(
+                "[branch_ops] merge result label mismatch: expected={expected_label}, received={label}"
+            );
+        }
         if success {
             self.set_operation_busy(false, cx);
+            self.has_unresolved_conflicts = false;
+            self.sidebar.update(cx, |sidebar, cx| {
+                sidebar.set_conflicts(false, cx);
+            });
+            self.toolbar.update(cx, |toolbar, cx| {
+                toolbar.set_conflicts(false, cx);
+            });
             self.status_message = Some(crate::core::i18n::text_args(
                 self.locale,
                 "command-success",
@@ -197,20 +227,33 @@ impl RepoTab {
         }
         self.set_operation_busy(false, cx);
         match result {
-            Ok(probe) if probe.merge_head.is_some() => {
-                self.confirmation =
-                    Some(super::super::PendingConfirmation::MergeConflict {
-                        source,
-                        detail,
-                        merge_head: probe.merge_head.unwrap_or_default(),
-                    });
-            }
-            Ok(_) => {
-                self.confirmation =
-                    Some(super::super::PendingConfirmation::MergeError {
-                        label,
-                        detail,
-                    });
+            Ok(probe) => {
+                let has_conflicts =
+                    probe.has_conflicts || probe.merge_head.is_some();
+                self.has_unresolved_conflicts = has_conflicts;
+                self.sidebar.update(cx, |sidebar, cx| {
+                    sidebar.set_conflicts(has_conflicts, cx);
+                });
+                self.toolbar.update(cx, |toolbar, cx| {
+                    toolbar.set_conflicts(has_conflicts, cx);
+                });
+                self.sync_branch_menu_context(cx);
+                if let Some(merge_head) = probe.merge_head {
+                    self.confirmation = Some(
+                        super::super::PendingConfirmation::MergeConflict {
+                            source,
+                            detail,
+                            merge_head,
+                            baseline_head: probe.head,
+                        },
+                    );
+                } else {
+                    self.confirmation =
+                        Some(super::super::PendingConfirmation::MergeError {
+                            label,
+                            detail,
+                        });
+                }
             }
             Err(error) => {
                 self.confirmation =

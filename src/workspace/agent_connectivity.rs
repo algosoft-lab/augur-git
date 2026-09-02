@@ -17,12 +17,12 @@ use gpui_component::{
 };
 
 use crate::agent::{
-    AgentCommitChallenge, AgentConnectivityChallenge, AgentLaunchSpec,
-    AgentOperation, AgentTestDirectory, ResolvedAgentProfile,
+    AgentConnectivityChallenge, AgentLaunchSpec, AgentOperation,
+    AgentOperationChallenge, AgentTestDirectory, ResolvedAgentProfile,
 };
 use crate::core::git::agent_operation::{
-    AgentCommitProbe, AgentMergeProbe, probe_agent_commit, probe_agent_merge,
-    resolve_agent_merge_target,
+    AgentCommitProbe, AgentMergeProbe, has_other_git_operation,
+    probe_agent_commit, probe_agent_merge, resolve_agent_merge_target,
 };
 use crate::core::i18n::{self, Locale};
 use crate::terminal::{
@@ -98,12 +98,12 @@ pub(super) struct AgentSessionWindow {
     state: ConnectivityState,
     response_received: bool,
     stop_requested: bool,
-    commit_challenge: Option<AgentCommitChallenge>,
+    commit_challenge: Option<AgentOperationChallenge>,
     commit_baseline: Option<AgentCommitProbe>,
     commit_head_observed: Option<String>,
     commit_head_observed_at: Option<Instant>,
     commit_completed: bool,
-    merge_challenge: Option<AgentCommitChallenge>,
+    merge_challenge: Option<AgentOperationChallenge>,
     merge_mode: Option<AgentMergeMode>,
     merge_baseline: Option<AgentMergeProbe>,
     merge_head_observed: Option<String>,
@@ -155,7 +155,7 @@ impl AgentSessionWindow {
         prompt: String,
         working_directory: PathBuf,
         completion: Option<CommitCompletion>,
-        challenge: AgentCommitChallenge,
+        challenge: AgentOperationChallenge,
         startup_error: Option<String>,
         window_id: u64,
         cx: &mut Context<Self>,
@@ -186,7 +186,7 @@ impl AgentSessionWindow {
         prompt: String,
         working_directory: PathBuf,
         completion: MergeCompletion,
-        challenge: AgentCommitChallenge,
+        challenge: AgentOperationChallenge,
         mode: AgentMergeMode,
         baseline: AgentMergeProbe,
         startup_error: Option<String>,
@@ -238,7 +238,7 @@ impl AgentSessionWindow {
         merge_completion: Option<MergeCompletion>,
         startup_error: Option<String>,
         challenge: Option<AgentConnectivityChallenge>,
-        commit_challenge: Option<AgentCommitChallenge>,
+        commit_challenge: Option<AgentOperationChallenge>,
         defer_start: bool,
         window_id: u64,
         cx: &mut Context<Self>,
@@ -360,6 +360,8 @@ impl AgentSessionWindow {
                 }
                 if self.kind == AgentSessionKind::Commit {
                     self.finish_commit(AgentCommitOutcome::Failed, cx);
+                } else if self.kind == AgentSessionKind::Merge {
+                    self.finish_merge(AgentMergeOutcome::Failed, cx);
                 }
                 return;
             }
@@ -609,6 +611,10 @@ impl AgentSessionWindow {
             return;
         }
 
+        if matches!(self.state, ConnectivityState::Starting) {
+            self.state = ConnectivityState::WaitingForResponse;
+        }
+
         if let (Some(observed_at), Some(backend)) =
             (self.commit_head_observed_at, self.backend.as_ref())
             && observed_at.elapsed() >= Duration::from_secs(30)
@@ -716,6 +722,10 @@ impl AgentSessionWindow {
             return;
         }
 
+        if matches!(self.state, ConnectivityState::Starting) {
+            self.state = ConnectivityState::WaitingForResponse;
+        }
+
         if let (Some(observed_at), Some(backend)) =
             (self.merge_head_observed_at, self.backend.as_ref())
             && observed_at.elapsed() >= Duration::from_secs(30)
@@ -726,6 +736,7 @@ impl AgentSessionWindow {
                     probe.target_is_ancestor_of_head
                         && probe.merge_head.is_none()
                         && !probe.has_conflicts
+                        && !probe.has_changes
                 })
             {
                 log::warn!(
@@ -788,6 +799,11 @@ impl AgentSessionWindow {
         let session_id = completion.session_id;
         let workspace = completion.workspace.clone();
         let _ = workspace.update(cx, move |workspace, cx| {
+            // The process can finish before `open_window` returns its handle
+            // to Workspace. Registering first keeps the completion callback
+            // effective in that fast-exit case while remaining idempotent
+            // when the normal post-open registration already happened.
+            workspace.begin_agent_merge(tab_id, session_id, cx);
             workspace.finish_agent_merge(
                 tab_id,
                 session_id,
@@ -844,6 +860,9 @@ impl AgentSessionWindow {
         let session_id = completion.session_id;
         let workspace = completion.workspace.clone();
         let _ = workspace.update(cx, move |workspace, cx| {
+            // See the merge completion path: a short-lived CLI may finish
+            // before the session handle is registered by `open_window`.
+            workspace.begin_agent_commit(tab_id, session_id, cx);
             workspace.finish_agent_commit(
                 tab_id,
                 session_id,
@@ -1688,8 +1707,8 @@ fn open_session_window(
     working_directory: PathBuf,
     completion: Option<CommitCompletion>,
     merge_completion: Option<MergeCompletion>,
-    commit_challenge: Option<AgentCommitChallenge>,
-    merge_challenge: Option<AgentCommitChallenge>,
+    commit_challenge: Option<AgentOperationChallenge>,
+    merge_challenge: Option<AgentOperationChallenge>,
     merge_mode: Option<AgentMergeMode>,
     merge_baseline: Option<AgentMergeProbe>,
     startup_error: Option<String>,
@@ -1785,12 +1804,46 @@ fn open_session_window(
             if let Some((tab_id, session_id)) = begin_agent
                 && startup_error.is_none()
             {
-                workspace.begin_agent_commit(tab_id, session_id, cx);
+                let should_begin = workspace
+                    .agent_sessions
+                    .iter()
+                    .find(|(_, candidate)| {
+                        candidate.read(cx).is_ok_and(|session| {
+                            session.session_id() == Some(session_id)
+                        })
+                    })
+                    .and_then(|(_, candidate)| {
+                        candidate
+                            .read(cx)
+                            .ok()
+                            .map(|session| session.is_running())
+                    })
+                    .unwrap_or(false);
+                if should_begin {
+                    workspace.begin_agent_commit(tab_id, session_id, cx);
+                }
             }
             if let Some((tab_id, session_id)) = begin_merge_agent
                 && startup_error.is_none()
             {
-                workspace.begin_agent_merge(tab_id, session_id, cx);
+                let should_begin = workspace
+                    .agent_sessions
+                    .iter()
+                    .find(|(_, candidate)| {
+                        candidate.read(cx).is_ok_and(|session| {
+                            session.session_id() == Some(session_id)
+                        })
+                    })
+                    .and_then(|(_, candidate)| {
+                        candidate
+                            .read(cx)
+                            .ok()
+                            .map(|session| session.is_running())
+                    })
+                    .unwrap_or(false);
+                if should_begin {
+                    workspace.begin_agent_merge(tab_id, session_id, cx);
+                }
             }
         }
         Err(_error) => {
@@ -1835,7 +1888,7 @@ pub(super) fn open_commit(
 
     let locale = workspace.locale;
     let session_id = next_session_id();
-    let challenge = AgentCommitChallenge::new();
+    let challenge = AgentOperationChallenge::new();
     let fixed_prompt = AgentOperation::Commit
         .prompt_with_challenge(None, &challenge)
         .unwrap_or_else(|_| {
@@ -1929,6 +1982,12 @@ fn prepare_merge(
 ) -> Result<PreparedMerge, String> {
     let target_oid = resolve_agent_merge_target(repo_path, source)?;
     let probe = probe_agent_merge(repo_path, &target_oid)?;
+    if has_other_git_operation(repo_path)? {
+        return Err(
+            "another Git operation is already in progress; finish or abort it first"
+                .to_string(),
+        );
+    }
     if let Some(merge_head) = probe.merge_head.clone() {
         if merge_head != target_oid {
             return Err(
@@ -1963,10 +2022,23 @@ fn prepare_merge(
 fn prepare_merge_resolution(
     repo_path: &std::path::Path,
     merge_head: &str,
+    baseline_head: Option<&str>,
 ) -> Result<PreparedMerge, String> {
     let probe = probe_agent_merge(repo_path, merge_head)?;
+    if has_other_git_operation(repo_path)? {
+        return Err(
+            "another Git operation is already in progress; finish or abort it first"
+                .to_string(),
+        );
+    }
     if probe.merge_head.as_deref() != Some(merge_head) {
         return Err("the merge is no longer in progress".to_string());
+    }
+    if probe.head.as_deref() != baseline_head {
+        return Err(
+            "the repository HEAD changed while the merge dialog was open"
+                .to_string(),
+        );
     }
     Ok(PreparedMerge {
         mode: AgentMergeMode::Resolve {
@@ -1993,6 +2065,7 @@ pub(super) fn open_merge_resolution(
     tab_id: TabId,
     repo_path: String,
     merge_head: String,
+    baseline_head: Option<String>,
     cx: &mut Context<Workspace>,
 ) {
     let key = merge_key(&repo_path);
@@ -2023,9 +2096,13 @@ pub(super) fn open_merge_resolution(
     cx.spawn(async move |_, cx| {
         let result = cx
             .background_executor()
-            .spawn(
-                async move { prepare_merge_resolution(&probe_path, &source) },
-            )
+            .spawn(async move {
+                prepare_merge_resolution(
+                    &probe_path,
+                    &source,
+                    baseline_head.as_deref(),
+                )
+            })
             .await;
         let _ = entity.update(cx, |workspace, cx| {
             workspace.agent_preflight_keys.retain(|entry| entry != &key);
@@ -2113,6 +2190,21 @@ fn start_merge_session(
     cx: &mut Context<Workspace>,
 ) {
     let key = merge_key(&repo_path.to_string_lossy());
+    let tab_busy = workspace
+        .tabs
+        .iter()
+        .find(|entry| entry.id == tab_id)
+        .map(|entry| match &entry.content {
+            super::TabContent::Repo(tab) => tab.read(cx).is_busy(),
+            super::TabContent::Welcome => true,
+        })
+        .unwrap_or(true);
+    if tab_busy {
+        log::info!(
+            "[agent_terminal] merge preflight completed after the repository became busy"
+        );
+        return;
+    }
     if workspace.agent_sessions.iter().any(|(entry, handle)| {
         entry == &key
             && handle.read(cx).is_ok_and(|session| session.is_running())
@@ -2123,14 +2215,16 @@ fn start_merge_session(
     let operation = match &mode {
         AgentMergeMode::Start { target_oid } => AgentOperation::Merge {
             target_oid: target_oid.clone(),
+            baseline_head: prepared.baseline.head.clone(),
         },
         AgentMergeMode::Resolve { merge_head_oid } => {
             AgentOperation::ResolveMerge {
                 merge_head_oid: merge_head_oid.clone(),
+                baseline_head: prepared.baseline.head.clone(),
             }
         }
     };
-    let challenge = AgentCommitChallenge::new();
+    let challenge = AgentOperationChallenge::new();
     let prompt = match operation.prompt_with_challenge(None, &challenge) {
         Ok(prompt) => prompt,
         Err(error) => {
@@ -2276,10 +2370,11 @@ pub(super) fn stop_for_repo(
     let mut stopped = false;
     for (entry_key, handle) in &workspace.agent_sessions {
         if entry_key == &key {
-            let _ = handle.update(cx, |view, _, cx| {
+            let _ = handle.update(cx, |view, window, cx| {
                 if view.is_running() {
                     stopped = true;
                     view.stop(cx);
+                    window.remove_window();
                 }
             });
         }

@@ -29,6 +29,8 @@ pub struct BranchMenuContext {
     pub can_stash: bool,
     /// Number of stash entries (required for stash pop).
     pub stash_count: usize,
+    /// Whether unresolved merge conflicts block integration and pull actions.
+    pub has_conflicts: bool,
 }
 
 /// Toolbar-to-Workspace events.
@@ -59,6 +61,8 @@ pub struct Toolbar {
     busy: bool,
     /// Branch menu entry availability.
     branch_ctx: BranchMenuContext,
+    /// Whether unresolved merge conflicts block pull actions.
+    has_conflicts: bool,
     /// UI locale, synchronized when Workspace changes language.
     locale: Locale,
 }
@@ -73,6 +77,7 @@ impl Toolbar {
             has_remote: true,
             busy: false,
             branch_ctx: BranchMenuContext::default(),
+            has_conflicts: false,
             locale,
         }
     }
@@ -113,6 +118,18 @@ impl Toolbar {
     pub fn set_busy(&mut self, busy: bool, cx: &mut Context<Self>) {
         if self.busy != busy {
             self.busy = busy;
+            cx.notify();
+        }
+    }
+
+    /// Synchronize whether unresolved merge conflicts block pull actions.
+    pub fn set_conflicts(
+        &mut self,
+        has_conflicts: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.has_conflicts != has_conflicts {
+            self.has_conflicts = has_conflicts;
             cx.notify();
         }
     }
@@ -199,6 +216,7 @@ impl Toolbar {
                 menu.item(
                     PopupMenuItem::new(i18n::text(locale, "menu-branch-new"))
                         .icon(lucide("git-branch-plus"))
+                        .disabled(ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
                             new_item.update(cx, |_t, cx| {
                                 cx.emit(ToolbarEvent::BranchNew)
@@ -232,7 +250,7 @@ impl Toolbar {
                 .item(
                     PopupMenuItem::new(i18n::text(locale, "menu-stash-pop"))
                         .icon(lucide("archive-restore"))
-                        .disabled(ctx.stash_count == 0)
+                        .disabled(ctx.stash_count == 0 || ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
                             pop_item.update(cx, |_t, cx| {
                                 cx.emit(ToolbarEvent::StashPop)
@@ -243,7 +261,7 @@ impl Toolbar {
                 .item(
                     PopupMenuItem::new(i18n::text(locale, "menu-merge"))
                         .icon(lucide("git-merge"))
-                        .disabled(!ctx.can_integrate)
+                        .disabled(!ctx.can_integrate || ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
                             merge_item.update(cx, |_t, cx| {
                                 cx.emit(ToolbarEvent::Merge { no_ff: false })
@@ -253,7 +271,7 @@ impl Toolbar {
                 .item(
                     PopupMenuItem::new(i18n::text(locale, "menu-merge-no-ff"))
                         .icon(lucide("git-merge"))
-                        .disabled(!ctx.can_integrate)
+                        .disabled(!ctx.can_integrate || ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
                             merge_ff_item.update(cx, |_t, cx| {
                                 cx.emit(ToolbarEvent::Merge { no_ff: true })
@@ -263,7 +281,7 @@ impl Toolbar {
                 .item(
                     PopupMenuItem::new(i18n::text(locale, "menu-rebase"))
                         .icon(lucide("git-commit-horizontal"))
-                        .disabled(!ctx.can_integrate)
+                        .disabled(!ctx.can_integrate || ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
                             rebase_item.update(cx, |_t, cx| {
                                 cx.emit(ToolbarEvent::Rebase)
@@ -312,6 +330,7 @@ impl Render for Toolbar {
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let enabled = self.has_remote && !self.busy;
+        let pull_enabled = enabled && !self.has_conflicts;
 
         h_flex()
             .id("toolbar")
@@ -339,7 +358,7 @@ impl Render for Toolbar {
                 Icon::new(IconName::ArrowDown),
                 "toolbar-pull-merge",
                 &colors,
-                enabled,
+                pull_enabled,
                 ToolbarEvent::PullMerge,
                 cx,
             ))
@@ -348,7 +367,7 @@ impl Render for Toolbar {
                 lucide("git-commit-horizontal"),
                 "toolbar-pull-rebase",
                 &colors,
-                enabled,
+                pull_enabled,
                 ToolbarEvent::PullRebase,
                 cx,
             ))

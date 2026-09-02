@@ -18,7 +18,9 @@ use serde::{Deserialize, Serialize};
 
 pub mod operations;
 mod resolve;
-pub use operations::{AgentCommitChallenge, AgentOperation};
+#[allow(unused_imports)]
+pub use operations::AgentCommitChallenge;
+pub use operations::{AgentOperation, AgentOperationChallenge};
 pub use resolve::resolve_executable;
 
 const TEST_DIRECTORY_PREFIX: &str = "augur-git-agent-test";
