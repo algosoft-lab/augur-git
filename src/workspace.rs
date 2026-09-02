@@ -304,8 +304,8 @@ impl Workspace {
         cx.subscribe_in(
             &extensions_panel_for_events,
             window,
-            |workspace, _panel, event, _window, cx| {
-                workspace.handle_extensions_panel_event(event, cx);
+            |workspace, _panel, event, window, cx| {
+                workspace.handle_extensions_panel_event(event, window, cx);
             },
         )
         .detach();

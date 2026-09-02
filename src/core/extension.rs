@@ -503,6 +503,37 @@ pub fn install_local_package(
     load_local_package(&destination)
 }
 
+/// Remove an installed local package. Bundled packages are not represented by
+/// a directory and therefore cannot be removed through this API.
+pub fn uninstall_local_package(id: &str) -> Result<(), ExtensionError> {
+    validate_extension_id(id)?;
+    let destination = extensions_root()?.join(id);
+    let metadata = match fs::symlink_metadata(&destination) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(());
+        }
+        Err(error) => {
+            return Err(ExtensionError::Io(format!(
+                "failed to inspect extension package: {error}"
+            )));
+        }
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(ExtensionError::SymlinkNotAllowed(destination));
+    }
+    if !metadata.is_dir() {
+        return Err(ExtensionError::InvalidManifest(
+            "installed extension path is not a directory".into(),
+        ));
+    }
+    fs::remove_dir_all(&destination).map_err(|error| {
+        ExtensionError::Io(format!(
+            "failed to uninstall extension package: {error}"
+        ))
+    })
+}
+
 fn next_package_counter() -> u64 {
     static COUNTER: AtomicU64 = AtomicU64::new(1);
     COUNTER.fetch_add(1, Ordering::Relaxed)

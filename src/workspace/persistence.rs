@@ -36,6 +36,9 @@ impl Workspace {
         &mut self,
         cx: &mut Context<Self>,
     ) -> Task<()> {
+        if let Some(manager) = &self.extension_manager {
+            manager.shutdown();
+        }
         self.update_persisted_config();
         let config = self.config.clone();
         let ui_state = self.ui_state.clone();

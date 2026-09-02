@@ -292,7 +292,7 @@ impl ExtensionRuntime {
         &self,
         invocation: ExtensionInvocation,
         handler: &str,
-    ) -> Result<(), ExtensionRuntimeError> {
+    ) -> Result<JsonValue, ExtensionRuntimeError> {
         if !self.has_handler(handler) {
             return Err(ExtensionRuntimeError::MissingHandler(
                 handler.to_string(),
@@ -308,8 +308,10 @@ impl ExtensionRuntime {
                 .map_err(|error| {
                     ExtensionRuntimeError::Lua(error.to_string())
                 })?;
-            function
-                .call::<()>(context)
+            let value = function.call::<Value>(context).map_err(|error| {
+                ExtensionRuntimeError::Lua(error.to_string())
+            })?;
+            value_to_json(&value)
                 .map_err(|error| ExtensionRuntimeError::Lua(error.to_string()))
         })();
         self.state.clear_invocation();
@@ -819,6 +821,88 @@ fn value_to_json(value: &Value) -> mlua::Result<JsonValue> {
         _ => Err(mlua::Error::runtime(
             "value cannot be serialized for the host API",
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+
+    #[derive(Default)]
+    struct FakeHost {
+        requests: Mutex<Vec<HostRequest>>,
+    }
+
+    impl ExtensionHost for FakeHost {
+        fn request(
+            &self,
+            request: ExtensionHostRequest,
+        ) -> Result<HostResponse, String> {
+            let response = match &request.request {
+                HostRequest::StorageSet { .. }
+                | HostRequest::Log { .. }
+                | HostRequest::Notify { .. } => {
+                    HostResponse::Json(serde_json::json!({ "ok": true }))
+                }
+                HostRequest::TimeNow => {
+                    HostResponse::Json(serde_json::json!({ "unix_ms": 1 }))
+                }
+                _ => HostResponse::Json(JsonValue::Null),
+            };
+            self.requests
+                .lock()
+                .map_err(|_| "poisoned".to_string())?
+                .push(request.request);
+            Ok(response)
+        }
+    }
+
+    fn invocation() -> ExtensionInvocation {
+        ExtensionInvocation {
+            extension_id: "test-extension".into(),
+            run_id: 1,
+            trigger: ExtensionTrigger::Manual,
+            scheduled_at: None,
+            started_at: Local::now(),
+            settings: BTreeMap::new(),
+            repositories: Vec::new(),
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    #[test]
+    fn runtime_loads_full_lua_stdlib_and_host_module() {
+        let host = Arc::new(FakeHost::default());
+        let runtime = ExtensionRuntime::load(
+            "test-extension".into(),
+            r#"
+                local augur = require("augur")
+                return {
+                    on_run = function(ctx)
+                        local _ = os.date("!*t")
+                        local _ = io.type(io.tmpfile())
+                        augur.log("info", "hello", {run_id = ctx.run_id})
+                        return {ok = true, value = 7}
+                    end
+                }
+            "#,
+            None,
+            host.clone(),
+        )
+        .expect("runtime should load");
+        let result = runtime
+            .run(invocation(), "on_run")
+            .expect("run should complete");
+        assert_eq!(result.get("value").and_then(JsonValue::as_i64), Some(7));
+        assert!(
+            host.requests
+                .lock()
+                .expect("requests")
+                .iter()
+                .any(|request| matches!(request, HostRequest::Log { .. }))
+        );
     }
 }
 
