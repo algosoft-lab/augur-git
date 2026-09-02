@@ -14,9 +14,9 @@ use crate::core::extension::{
 };
 
 use super::api::{
-    ExtensionHost, ExtensionInvocation, ExtensionRunAdmission,
-    ExtensionRuntime, ExtensionRuntimeError, ExtensionTrigger,
-    RepositorySnapshot,
+    ExtensionEventPayload, ExtensionHost, ExtensionInvocation,
+    ExtensionRunAdmission, ExtensionRuntime, ExtensionRuntimeError,
+    ExtensionTrigger, RepositorySnapshot,
 };
 
 /// A package source plus the validated package metadata used to start a VM.
@@ -34,6 +34,7 @@ pub struct ExtensionRunRequest {
     pub scheduled_at: Option<chrono::DateTime<Local>>,
     pub settings: std::collections::BTreeMap<String, SettingValue>,
     pub repositories: Vec<RepositorySnapshot>,
+    pub events: Vec<ExtensionEventPayload>,
     pub handler: String,
 }
 
@@ -426,6 +427,7 @@ fn dispatcher_loop(
                     started_at,
                     settings: request.settings.clone(),
                     repositories: request.repositories.clone(),
+                    events: request.events.clone(),
                     cancelled: job.cancelled.clone(),
                 };
                 let (completed_tx, completed_rx) = mpsc::channel();
@@ -617,6 +619,7 @@ mod tests {
             scheduled_at: None,
             settings: BTreeMap::new(),
             repositories: Vec::new(),
+            events: Vec::new(),
             handler: "on_run".into(),
         }
     }

@@ -34,6 +34,21 @@ pub struct RepositorySnapshot {
     pub remotes: Vec<String>,
 }
 
+/// A coalesced application event delivered to a Lua invocation. The origin
+/// fields are used by the host to suppress self-triggered loops and are not
+/// exposed to Lua or persisted in run history.
+#[derive(Clone, Debug)]
+pub struct ExtensionEventPayload {
+    pub trigger_id: String,
+    pub event_type: String,
+    pub occurred_at: DateTime<Local>,
+    pub repository: Option<RepositorySnapshot>,
+    pub previous: Option<RepositorySnapshot>,
+    pub current: Option<RepositorySnapshot>,
+    pub origin_extension_id: Option<String>,
+    pub origin_run_id: Option<u64>,
+}
+
 /// Operation requested by a Lua repository handle.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RepositoryOperation {
@@ -160,15 +175,33 @@ pub trait ExtensionHost: Send + Sync {
 #[derive(Clone, Debug)]
 pub enum ExtensionTrigger {
     Manual,
-    Schedule { trigger_id: String },
+    Schedule {
+        trigger_id: String,
+        event_type: String,
+    },
+    Repository {
+        trigger_id: String,
+        event_type: String,
+    },
 }
 
 impl From<&ExtensionTrigger> for ExtensionRunTrigger {
     fn from(trigger: &ExtensionTrigger) -> Self {
         match trigger {
             ExtensionTrigger::Manual => Self::Manual,
-            ExtensionTrigger::Schedule { trigger_id } => Self::Schedule {
+            ExtensionTrigger::Schedule {
+                trigger_id,
+                event_type,
+            } => Self::Schedule {
                 trigger_id: trigger_id.clone(),
+                event_type: event_type.clone(),
+            },
+            ExtensionTrigger::Repository {
+                trigger_id,
+                event_type,
+            } => Self::Repository {
+                trigger_id: trigger_id.clone(),
+                event_type: event_type.clone(),
             },
         }
     }
@@ -184,6 +217,7 @@ pub struct ExtensionInvocation {
     pub started_at: DateTime<Local>,
     pub settings: BTreeMap<String, SettingValue>,
     pub repositories: Vec<RepositorySnapshot>,
+    pub events: Vec<ExtensionEventPayload>,
     pub cancelled: Arc<AtomicBool>,
 }
 
@@ -512,15 +546,31 @@ fn create_context(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<Table> {
         match &invocation.trigger {
             ExtensionTrigger::Manual => "manual".to_string(),
             ExtensionTrigger::Schedule { .. } => "schedule".to_string(),
+            ExtensionTrigger::Repository { .. } => "repository".to_string(),
         },
     )?;
-    if let ExtensionTrigger::Schedule { trigger_id } = &invocation.trigger {
+    if let ExtensionTrigger::Schedule {
+        trigger_id,
+        event_type,
+    }
+    | ExtensionTrigger::Repository {
+        trigger_id,
+        event_type,
+    } = &invocation.trigger
+    {
         context.set("trigger_id", trigger_id.clone())?;
+        context.set("event_type", event_type.clone())?;
     }
     context.set(
         "scheduled_at",
         invocation.scheduled_at.map(|value| value.to_rfc3339()),
     )?;
+    let occurred_at = invocation
+        .events
+        .first()
+        .map(|event| event.occurred_at.to_rfc3339())
+        .or_else(|| invocation.scheduled_at.map(|value| value.to_rfc3339()));
+    context.set("occurred_at", occurred_at)?;
     context.set("started_at", invocation.started_at.to_rfc3339())?;
     let setting_values = lua.create_table()?;
     for (key, value) in &invocation.settings {
@@ -560,6 +610,20 @@ fn create_context(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<Table> {
         )?;
     }
     context.set("repositories", repositories)?;
+    let events = lua.create_table()?;
+    for (index, event) in invocation.events.iter().enumerate() {
+        events.raw_set(
+            index + 1,
+            event_payload_to_lua(lua, state.clone(), event)?,
+        )?;
+    }
+    context.set("events", events)?;
+    if let Some(event) = invocation.events.first() {
+        context
+            .set("event", event_payload_to_lua(lua, state.clone(), event)?)?;
+    } else {
+        context.set("event", Value::Nil)?;
+    }
     let cancel_state = state.clone();
     context.set(
         "cancelled",
@@ -568,6 +632,63 @@ fn create_context(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<Table> {
         })?,
     )?;
     Ok(context)
+}
+
+fn event_payload_to_lua(
+    lua: &Lua,
+    state: Arc<RuntimeState>,
+    event: &ExtensionEventPayload,
+) -> mlua::Result<Table> {
+    let table = lua.create_table()?;
+    table.set("trigger_id", event.trigger_id.clone())?;
+    table.set("event_type", event.event_type.clone())?;
+    table.set("occurred_at", event.occurred_at.to_rfc3339())?;
+    if let Some(repository) = &event.repository {
+        table.set(
+            "repository_snapshot",
+            json_to_lua(
+                lua,
+                serde_json::to_value(repository)
+                    .map_err(mlua::Error::external)?,
+            )?,
+        )?;
+        if event.event_type != "workspace.repository_closed" {
+            table.set(
+                "repository",
+                lua.create_userdata(LuaRepository {
+                    snapshot: repository.clone(),
+                    state: state.clone(),
+                })?,
+            )?;
+        }
+    }
+    table.set(
+        "previous",
+        event
+            .previous
+            .as_ref()
+            .map(|value| serde_json::to_value(value))
+            .transpose()
+            .map_err(mlua::Error::external)
+            .and_then(|value| match value {
+                Some(value) => json_to_lua(lua, value),
+                None => Ok(Value::Nil),
+            })?,
+    )?;
+    table.set(
+        "current",
+        event
+            .current
+            .as_ref()
+            .map(|value| serde_json::to_value(value))
+            .transpose()
+            .map_err(mlua::Error::external)
+            .and_then(|value| match value {
+                Some(value) => json_to_lua(lua, value),
+                None => Ok(Value::Nil),
+            })?,
+    )?;
+    Ok(table)
 }
 
 /// Userdata handle for one repository. The captured identity is stable for a
@@ -924,6 +1045,7 @@ mod tests {
             started_at: Local::now(),
             settings,
             repositories: Vec::new(),
+            events: Vec::new(),
             cancelled: Arc::new(AtomicBool::new(false)),
         }
     }

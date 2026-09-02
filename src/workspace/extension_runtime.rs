@@ -103,7 +103,7 @@ impl Workspace {
                     )
                 })
                 .normalized_for(&definition.package.manifest);
-            if !settings.enabled || !settings.trusted {
+            if settings.subscribed_triggers.is_empty() || !settings.trusted {
                 continue;
             }
             for trigger in &definition.package.manifest.daily {
@@ -130,6 +130,7 @@ impl Workspace {
                     &id,
                     ExtensionTrigger::Schedule {
                         trigger_id: trigger.id.clone(),
+                        event_type: "schedule.daily".to_string(),
                     },
                     Some(now),
                     trigger.handler.clone(),
@@ -214,6 +215,7 @@ impl Workspace {
             scheduled_at,
             settings: settings.values,
             repositories,
+            events: Vec::new(),
             handler,
         })
     }
@@ -261,6 +263,22 @@ impl Workspace {
                 extension_id,
                 enabled,
             } => {
+                let event_ids = self
+                    .extension_definitions
+                    .iter()
+                    .find(|definition| {
+                        definition.package.manifest.id == *extension_id
+                    })
+                    .map(|definition| {
+                        definition
+                            .package
+                            .manifest
+                            .event_triggers()
+                            .into_iter()
+                            .map(|trigger| trigger.id)
+                            .collect::<std::collections::BTreeSet<_>>()
+                    })
+                    .unwrap_or_default();
                 let settings = self
                     .config
                     .extensions
@@ -276,7 +294,11 @@ impl Workspace {
                     });
                     return;
                 }
-                settings.enabled = *enabled;
+                settings.subscribed_triggers = if *enabled {
+                    event_ids
+                } else {
+                    Default::default()
+                };
                 self.extensions_panel.update(cx, |panel, cx| {
                     panel.update_flags(
                         extension_id,
@@ -298,12 +320,12 @@ impl Workspace {
                     .or_default();
                 settings.trusted = *trusted;
                 if !*trusted {
-                    settings.enabled = false;
+                    settings.subscribed_triggers.clear();
                 }
                 self.extensions_panel.update(cx, |panel, cx| {
                     panel.update_flags(
                         extension_id,
-                        settings.enabled,
+                        !settings.subscribed_triggers.is_empty(),
                         *trusted,
                         cx,
                     );
@@ -365,7 +387,7 @@ impl Workspace {
                             &definition.package.manifest,
                         )
                     });
-                if !settings.trusted || !settings.enabled {
+                if !settings.trusted {
                     self.extensions_panel.update(cx, |panel, cx| {
                         panel.set_status(
                             extension_id,

@@ -206,7 +206,17 @@ impl ExtensionsPanel {
             .iter_mut()
             .find(|row| row.definition.package.manifest.id == extension_id)
         {
-            row.settings.enabled = enabled;
+            row.settings.subscribed_triggers = if enabled {
+                row.definition
+                    .package
+                    .manifest
+                    .event_triggers()
+                    .into_iter()
+                    .map(|trigger| trigger.id)
+                    .collect()
+            } else {
+                Default::default()
+            };
             row.settings.trusted = trusted;
             cx.notify();
         }
@@ -366,7 +376,7 @@ impl Render for ExtensionsPanel {
             let panel_for_run = this.clone();
             let panel_for_uninstall = this.clone();
             let id_for_uninstall = id.clone();
-            let enabled_label = if row.settings.enabled { "Disable" } else { "Enable" };
+            let enabled_label = if !row.settings.subscribed_triggers.is_empty() { "Disable" } else { "Enable" };
             let trust_label = if row.settings.trusted { "Trusted" } else { "Trust" };
             let source = format!("source: {:?} · fingerprint: {}", row.definition.package.source, row.definition.package.fingerprint);
             let path = row.definition.package.root.as_ref().map(|path| path.display().to_string()).unwrap_or_else(|| "bundled".to_string());
@@ -414,7 +424,7 @@ impl Render for ExtensionsPanel {
                         .gap_2()
                         .child(div().flex_1().font_weight(FontWeight::BOLD).text_color(colors.foreground).child(SharedString::from(row.definition.package.manifest.name.clone())))
                         .child(Button::new(SharedString::from(format!("extension-enable-{id}"))).label(enabled_label).ghost().small().on_click(move |_event, _window, cx| {
-                            panel_for_enable.update(cx, |panel, cx| cx.emit(ExtensionsPanelEvent::EnabledChanged { extension_id: id_for_enable.clone(), enabled: !panel.rows.iter().find(|row| row.definition.package.manifest.id == id_for_enable).is_some_and(|row| row.settings.enabled) }));
+                            panel_for_enable.update(cx, |panel, cx| cx.emit(ExtensionsPanelEvent::EnabledChanged { extension_id: id_for_enable.clone(), enabled: !panel.rows.iter().find(|row| row.definition.package.manifest.id == id_for_enable).is_some_and(|row| !row.settings.subscribed_triggers.is_empty()) }));
                         }))
                         .child(Button::new(SharedString::from(format!("extension-trust-{id}"))).label(trust_label).ghost().small().on_click(move |_event, _window, cx| {
                             panel_for_trust.update(cx, |panel, cx| cx.emit(ExtensionsPanelEvent::TrustedChanged { extension_id: id_for_trust.clone(), trusted: !panel.rows.iter().find(|row| row.definition.package.manifest.id == id_for_trust).is_some_and(|row| row.settings.trusted) }));

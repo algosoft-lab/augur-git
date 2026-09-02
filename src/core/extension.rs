@@ -4,7 +4,7 @@
 //! schedule calculations, package identity, and run summaries can therefore
 //! be tested without starting the application.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -171,6 +171,54 @@ pub struct DailyTrigger {
     pub handler: String,
 }
 
+/// A declarative event subscription exposed by an extension package.
+///
+/// The fields are intentionally represented as a flat manifest structure so
+/// TOML packages stay easy to author. Validation below enforces which
+/// setting references are valid for each event type.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct EventTrigger {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub event_type: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub handler: String,
+    #[serde(default)]
+    pub time_setting: Option<String>,
+    #[serde(default)]
+    pub interval_setting: Option<String>,
+    #[serde(default)]
+    pub debounce_ms: Option<u64>,
+}
+
+impl EventTrigger {
+    pub fn label(&self) -> &str {
+        self.label.as_deref().unwrap_or(&self.id)
+    }
+
+    pub fn is_schedule(&self) -> bool {
+        self.event_type.starts_with("schedule.")
+    }
+
+    pub fn is_repository_event(&self) -> bool {
+        self.event_type.starts_with("repository.")
+            || self.event_type.starts_with("workspace.repository_")
+    }
+
+    pub fn debounce_duration_ms(&self) -> u64 {
+        self.debounce_ms.unwrap_or_else(|| {
+            if self.event_type == "repository.status_changed" {
+                500
+            } else {
+                0
+            }
+        })
+    }
+}
+
 /// On-disk manifest. Unknown fields are rejected so typos do not silently
 /// change automation behavior.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -191,6 +239,10 @@ pub struct ExtensionManifest {
     pub settings: BTreeMap<String, SettingDefinition>,
     #[serde(default)]
     pub manual_handler: Option<String>,
+    /// New event declarations. The legacy `daily` field is normalized into
+    /// this list so existing packages continue to load.
+    #[serde(default)]
+    pub events: Vec<EventTrigger>,
     #[serde(default)]
     pub daily: Vec<DailyTrigger>,
 }
@@ -253,29 +305,8 @@ impl ExtensionManifest {
                 })?;
         }
         let mut trigger_ids = HashSet::new();
-        for trigger in &self.daily {
-            if trigger.id.trim().is_empty() || trigger.handler.trim().is_empty()
-            {
-                return Err(ExtensionError::InvalidManifest(
-                    "daily trigger id and handler must not be empty"
-                        .to_string(),
-                ));
-            }
-            if !trigger_ids.insert(&trigger.id) {
-                return Err(ExtensionError::InvalidManifest(format!(
-                    "duplicate daily trigger id: {}",
-                    trigger.id
-                )));
-            }
-            if !matches!(
-                self.settings.get(&trigger.time_setting),
-                Some(SettingDefinition::Time { .. })
-            ) {
-                return Err(ExtensionError::InvalidManifest(format!(
-                    "daily trigger {} references a non-time setting: {}",
-                    trigger.id, trigger.time_setting
-                )));
-            }
+        for trigger in self.event_triggers() {
+            validate_event_trigger(self, &trigger, &mut trigger_ids)?;
         }
         Ok(())
     }
@@ -286,6 +317,137 @@ impl ExtensionManifest {
             .map(|(key, definition)| (key.clone(), definition.default_value()))
             .collect()
     }
+
+    /// Return all event declarations, including legacy daily entries mapped
+    /// to the new schedule event type.
+    pub fn event_triggers(&self) -> Vec<EventTrigger> {
+        let mut triggers = self.events.clone();
+        triggers.extend(self.daily.iter().map(|trigger| EventTrigger {
+            id: trigger.id.clone(),
+            event_type: "schedule.daily".to_string(),
+            label: None,
+            description: None,
+            handler: trigger.handler.clone(),
+            time_setting: Some(trigger.time_setting.clone()),
+            interval_setting: None,
+            debounce_ms: None,
+        }));
+        triggers
+    }
+}
+
+const SUPPORTED_EVENT_TYPES: &[&str] = &[
+    "schedule.daily",
+    "schedule.interval",
+    "workspace.repository_opened",
+    "workspace.repository_closed",
+    "repository.branch_changed",
+    "repository.status_changed",
+];
+
+fn validate_event_trigger(
+    manifest: &ExtensionManifest,
+    trigger: &EventTrigger,
+    trigger_ids: &mut HashSet<String>,
+) -> Result<(), ExtensionError> {
+    if trigger.id.trim().is_empty() || trigger.handler.trim().is_empty() {
+        return Err(ExtensionError::InvalidManifest(
+            "event trigger id and handler must not be empty".to_string(),
+        ));
+    }
+    if !trigger_ids.insert(trigger.id.clone()) {
+        return Err(ExtensionError::InvalidManifest(format!(
+            "duplicate event trigger id: {}",
+            trigger.id
+        )));
+    }
+    if !SUPPORTED_EVENT_TYPES.contains(&trigger.event_type.as_str()) {
+        return Err(ExtensionError::InvalidManifest(format!(
+            "unsupported event type: {}",
+            trigger.event_type
+        )));
+    }
+    if let Some(label) = &trigger.label {
+        if label.trim().is_empty() {
+            return Err(ExtensionError::InvalidManifest(format!(
+                "event trigger {} label must not be empty",
+                trigger.id
+            )));
+        }
+    }
+    if let Some(description) = &trigger.description {
+        if description.trim().is_empty() {
+            return Err(ExtensionError::InvalidManifest(format!(
+                "event trigger {} description must not be empty",
+                trigger.id
+            )));
+        }
+    }
+    if trigger.debounce_ms.unwrap_or(0) > 60_000 {
+        return Err(ExtensionError::InvalidManifest(format!(
+            "event trigger {} debounce_ms must not exceed 60000",
+            trigger.id
+        )));
+    }
+    match trigger.event_type.as_str() {
+        "schedule.daily" => {
+            let Some(setting_key) = trigger.time_setting.as_deref() else {
+                return Err(ExtensionError::InvalidManifest(format!(
+                    "daily trigger {} requires time_setting",
+                    trigger.id
+                )));
+            };
+            if !matches!(
+                manifest.settings.get(setting_key),
+                Some(SettingDefinition::Time { .. })
+            ) {
+                return Err(ExtensionError::InvalidManifest(format!(
+                    "daily trigger {} references a non-time setting: {}",
+                    trigger.id, setting_key
+                )));
+            }
+            if trigger.interval_setting.is_some() {
+                return Err(ExtensionError::InvalidManifest(format!(
+                    "daily trigger {} must not define interval_setting",
+                    trigger.id
+                )));
+            }
+        }
+        "schedule.interval" => {
+            let Some(setting_key) = trigger.interval_setting.as_deref() else {
+                return Err(ExtensionError::InvalidManifest(format!(
+                    "interval trigger {} requires interval_setting",
+                    trigger.id
+                )));
+            };
+            if !matches!(
+                manifest.settings.get(setting_key),
+                Some(SettingDefinition::Integer { .. })
+            ) {
+                return Err(ExtensionError::InvalidManifest(format!(
+                    "interval trigger {} references a non-integer setting: {}",
+                    trigger.id, setting_key
+                )));
+            }
+            if trigger.time_setting.is_some() {
+                return Err(ExtensionError::InvalidManifest(format!(
+                    "interval trigger {} must not define time_setting",
+                    trigger.id
+                )));
+            }
+        }
+        _ => {
+            if trigger.time_setting.is_some()
+                || trigger.interval_setting.is_some()
+            {
+                return Err(ExtensionError::InvalidManifest(format!(
+                    "repository trigger {} must not reference schedule settings",
+                    trigger.id
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_extension_id(id: &str) -> Result<(), ExtensionError> {
@@ -699,8 +861,12 @@ fn collect_files(
 /// Persistent user choices for one extension.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ExtensionSettings {
+    /// Event subscriptions enabled by the user. A missing legacy `enabled`
+    /// field is migrated once by `normalized_for`.
     #[serde(default)]
-    pub enabled: bool,
+    pub subscribed_triggers: BTreeSet<String>,
+    #[serde(rename = "enabled", default, skip_serializing)]
+    legacy_enabled: Option<bool>,
     #[serde(default)]
     pub trusted: bool,
     #[serde(default)]
@@ -709,6 +875,8 @@ pub struct ExtensionSettings {
     pub last_seen_fingerprint: Option<String>,
     #[serde(default)]
     pub last_scheduled_date: Option<String>,
+    #[serde(default)]
+    pub last_event_occurrences: BTreeMap<String, String>,
 }
 
 impl ExtensionSettings {
@@ -721,6 +889,17 @@ impl ExtensionSettings {
 
     pub fn normalized_for(&self, manifest: &ExtensionManifest) -> Self {
         let mut normalized = self.clone();
+        if let Some(legacy_enabled) = normalized.legacy_enabled.take() {
+            normalized.subscribed_triggers = if legacy_enabled {
+                manifest
+                    .event_triggers()
+                    .into_iter()
+                    .map(|trigger| trigger.id)
+                    .collect()
+            } else {
+                BTreeSet::new()
+            };
+        }
         for (key, definition) in &manifest.settings {
             let value = normalized
                 .values
@@ -733,14 +912,41 @@ impl ExtensionSettings {
         normalized
             .values
             .retain(|key, _| manifest.settings.contains_key(key));
+        let trigger_ids = manifest
+            .event_triggers()
+            .into_iter()
+            .map(|trigger| trigger.id)
+            .collect::<BTreeSet<_>>();
         normalized
+            .subscribed_triggers
+            .retain(|id| trigger_ids.contains(id));
+        normalized
+            .last_event_occurrences
+            .retain(|id, _| trigger_ids.contains(id));
+        normalized
+    }
+
+    pub fn is_subscribed(&self, trigger_id: &str) -> bool {
+        self.subscribed_triggers.contains(trigger_id)
     }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ExtensionRunTrigger {
     Manual,
-    Schedule { trigger_id: String },
+    Schedule {
+        trigger_id: String,
+        #[serde(default = "default_schedule_event_type")]
+        event_type: String,
+    },
+    Repository {
+        trigger_id: String,
+        event_type: String,
+    },
+}
+
+fn default_schedule_event_type() -> String {
+    "schedule.daily".to_string()
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -874,6 +1080,66 @@ handler = "on_schedule"
             manifest.default_settings()["sync_time"],
             SettingValue::Time("02:00".to_string())
         );
+        assert_eq!(manifest.event_triggers().len(), 1);
+        assert_eq!(manifest.event_triggers()[0].event_type, "schedule.daily");
+    }
+
+    #[test]
+    fn validates_new_event_manifest_types() {
+        let parsed = ExtensionManifest::parse(
+            r#"
+id = "events"
+version = "1.0.0"
+api_version = 1
+name = "Events"
+description = "Event test"
+
+[settings.interval]
+type = "integer"
+label = "Interval"
+default = 5
+min = 1
+
+[[events]]
+id = "timer"
+type = "schedule.interval"
+handler = "on_timer"
+interval_setting = "interval"
+
+[[events]]
+id = "status"
+type = "repository.status_changed"
+label = "Status"
+handler = "on_status"
+debounce_ms = 250
+"#,
+        )
+        .expect("event manifest should validate");
+        let triggers = parsed.event_triggers();
+        assert_eq!(triggers.len(), 2);
+        assert_eq!(triggers[0].event_type, "schedule.interval");
+        assert_eq!(triggers[1].debounce_duration_ms(), 250);
+    }
+
+    #[test]
+    fn rejects_invalid_event_declarations() {
+        let error = ExtensionManifest::parse(
+            r#"
+id = "events"
+version = "1.0.0"
+api_version = 1
+name = "Events"
+description = "Event test"
+
+[[events]]
+id = "bad"
+type = "repository.status_changed"
+handler = "on_status"
+time_setting = "missing"
+"#,
+        )
+        .unwrap_err();
+        assert!(matches!(error, ExtensionError::InvalidManifest(_)));
     }
 
     #[test]
@@ -933,6 +1199,18 @@ handler = "run"
             SettingValue::Time("02:00".into())
         );
         assert!(!normalized.values.contains_key("removed"));
+    }
+
+    #[test]
+    fn migrates_legacy_enabled_to_existing_event_subscriptions() {
+        let settings: ExtensionSettings = serde_json::from_str(
+            r#"{"enabled":true,"trusted":true,"values":{}}"#,
+        )
+        .expect("legacy settings");
+        let normalized = settings.normalized_for(&manifest());
+        assert!(normalized.is_subscribed("daily"));
+        let encoded = serde_json::to_string(&normalized).unwrap();
+        assert!(!encoded.contains("\"enabled\""));
     }
 
     #[test]
