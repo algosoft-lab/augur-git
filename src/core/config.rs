@@ -2,6 +2,7 @@
 //!
 //! The configuration is stored under the platform's standard user config directory.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -11,6 +12,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::agent::AgentSettings;
+use crate::core::extension::ExtensionSettings;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub enum LanguagePreference {
@@ -315,6 +317,9 @@ pub struct AppConfig {
     /// External Agent CLI profiles and executable overrides.
     #[serde(default)]
     pub agent: AgentSettings,
+    /// User choices for installed and bundled Lua extensions.
+    #[serde(default)]
+    pub extensions: BTreeMap<String, ExtensionSettings>,
 }
 
 impl AppConfig {
@@ -367,6 +372,8 @@ struct RawAppConfig {
     #[serde(default)]
     agent: AgentSettings,
     #[serde(default)]
+    extensions: BTreeMap<String, ExtensionSettings>,
+    #[serde(default)]
     repo: LegacyRepoConfig,
 }
 
@@ -387,6 +394,7 @@ impl From<RawAppConfig> for AppConfig {
             typography: raw.typography,
             recent_repos: raw.recent_repos,
             agent: raw.agent,
+            extensions: raw.extensions,
         };
 
         if config.open_tabs.is_empty() && !raw.repo.path.is_empty() {

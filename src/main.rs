@@ -3,6 +3,7 @@
 
 mod agent;
 mod core;
+mod extension;
 mod git;
 mod terminal;
 mod theme;
