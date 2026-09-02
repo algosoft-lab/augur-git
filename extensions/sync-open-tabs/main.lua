@@ -72,8 +72,10 @@ end
 
 local function sync(ctx)
   local summary = {}
+  local cancelled = false
   for _, repo in ipairs(ctx.repositories) do
     if ctx.cancelled() then
+      cancelled = true
       break
     end
     local result = run_repository(repo, ctx.settings)
@@ -87,7 +89,12 @@ local function sync(ctx)
     end
   end
   augur.notify(failed == 0 and "info" or "warning", "Open tabs sync", string.format("%d repositories synchronized, %d failed", #summary - failed, failed))
-  return { ok = failed == 0, repositories = summary }
+  return {
+    ok = not cancelled and failed == 0,
+    code = cancelled and "cancelled" or nil,
+    summary = cancelled and "sync cancelled" or nil,
+    repositories = summary,
+  }
 end
 
 return {

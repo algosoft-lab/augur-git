@@ -744,9 +744,10 @@ impl ExtensionHost for HostBridge {
                     Duration::from_secs(timeout_seconds.clamp(1, 30 * 60)),
                     request.cancelled.as_ref(),
                 ) {
-                    Ok(result) => json_response(
-                        serde_json::to_value(result)
-                            .map_err(|error| error.to_string())?,
+                    Ok(result) => agent_response(
+                        result,
+                        false,
+                        "generic Agent prompt completed without verified repository semantics",
                     ),
                     Err(summary) => HostResponse::Failure {
                         code: "agent_prompt_failed".into(),

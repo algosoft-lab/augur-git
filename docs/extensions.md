@@ -105,8 +105,10 @@ command string is constructed.
 also available. Git and Agent failures return `{ok = false, code, summary}`;
 invalid API use, a missing handler, cancellation, or a disconnected host is a
 Lua error. `augur.agent.prompt(repo, options)` returns completion state, exit
-code, and at most 1 MiB of in-memory transcript. Transcripts are not logged or
-written to run history.
+code, and at most 1 MiB of in-memory transcript. Its
+`side_effects_verified` field is always false because generic prompts are not
+given a repository-specific verification protocol. Transcripts are not logged
+or written to run history.
 
 ## Scheduling and synchronization sample
 

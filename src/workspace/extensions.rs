@@ -585,6 +585,7 @@ impl Render for ExtensionsPanel {
         let subscribe_label = i18n::text(locale, "extensions-subscribe");
         let subscribed_label = i18n::text(locale, "extensions-subscribed");
         let events_title = i18n::text(locale, "extensions-event-subscriptions");
+        let next_run_label = i18n::text(locale, "extensions-next-run");
         let settings_title = i18n::text(locale, "extensions-settings");
         let history_title = i18n::text(locale, "extensions-recent-runs");
         let manual_capability = i18n::text(locale, "extensions-manual");
@@ -739,6 +740,8 @@ impl Render for ExtensionsPanel {
                         next_event_hint(locale, &trigger, &row.settings)
                     {
                         label.push_str(" · ");
+                        label.push_str(&next_run_label);
+                        label.push_str(": ");
                         label.push_str(&schedule);
                     }
                     h_flex()
