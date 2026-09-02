@@ -188,12 +188,13 @@ impl TerminalBackend {
         env.insert("TERM".to_string(), "xterm-256color".to_string());
         env.insert("COLORTERM".to_string(), "truecolor".to_string());
 
+        let working_directory = normalize_working_directory(working_directory);
         let mut options = PtyOptions {
             shell: Some(Shell::new(
                 terminal_program(executable.as_path()),
                 spec.args.clone(),
             )),
-            working_directory: Some(working_directory.to_path_buf()),
+            working_directory: Some(working_directory),
             drain_on_exit: true,
             env,
             ..PtyOptions::default()
@@ -576,6 +577,28 @@ fn terminal_program(path: &Path) -> String {
     value
 }
 
+/// Convert a Windows extended-length path to the form accepted by `cmd.exe`
+/// and other shell shims used by CLI agents. `std::fs::canonicalize` returns
+/// paths with a `\\?\\` prefix on Windows, but `cmd.exe` treats that spelling
+/// as an unsupported UNC working directory and silently falls back to
+/// `C:\\Windows`. Keep non-verbatim and non-drive extended paths unchanged.
+pub(crate) fn normalize_working_directory(path: &Path) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        let value = path.to_string_lossy();
+        if let Some(rest) = value.strip_prefix("\\\\?\\UNC\\") {
+            return std::path::PathBuf::from(format!("\\\\{rest}"));
+        }
+        if let Some(rest) = value.strip_prefix("\\\\?\\") {
+            let is_drive_path = rest.as_bytes().get(1) == Some(&b':');
+            if is_drive_path {
+                return std::path::PathBuf::from(rest);
+            }
+        }
+    }
+    path.to_path_buf()
+}
+
 fn grid_contains_text(grid: &Grid<Cell>, needle: &str) -> bool {
     if needle.is_empty() {
         return false;
@@ -704,6 +727,9 @@ fn encode_key(event: &KeyDownEvent) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    use std::path::{Path, PathBuf};
+
     use super::geometry::TerminalGeometry;
     use super::model::TerminalSnapshot;
     use super::render::xterm_rgb;
@@ -786,6 +812,23 @@ mod tests {
         assert_eq!(size.num_lines, geometry.lines);
         assert_eq!(size.cell_width, 9);
         assert_eq!(size.cell_height, 20);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalizes_verbatim_working_directories_for_cmd_shims() {
+        assert_eq!(
+            super::normalize_working_directory(Path::new(
+                r"\\?\C:\Users\example\repo",
+            )),
+            PathBuf::from(r"C:\Users\example\repo")
+        );
+        assert_eq!(
+            super::normalize_working_directory(Path::new(
+                r"\\?\UNC\server\share\repo",
+            )),
+            PathBuf::from(r"\\server\share\repo")
+        );
     }
 
     #[test]

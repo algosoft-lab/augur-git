@@ -21,7 +21,9 @@ use crate::agent::{
     AgentTestDirectory, ResolvedAgentProfile,
 };
 use crate::core::i18n::{self, Locale};
-use crate::terminal::{TerminalBackend, TerminalView};
+use crate::terminal::{
+    TerminalBackend, TerminalView, normalize_working_directory,
+};
 
 use super::Workspace;
 use super::tabs::TabId;
@@ -146,6 +148,7 @@ impl AgentSessionWindow {
         let mut terminal = None;
         let mut state = ConnectivityState::Starting;
         let mut monitor_task = None;
+        let working_directory = normalize_working_directory(&working_directory);
 
         if let Some(error) = startup_error {
             state = ConnectivityState::Failed(error);
