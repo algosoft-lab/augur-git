@@ -6,6 +6,7 @@ use chrono::Local;
 use gpui::*;
 
 use crate::core::extension::{self, ExtensionSettings, SettingValue};
+use crate::core::i18n;
 use crate::extension::{
     ExtensionEvent, ExtensionEventPayload, ExtensionRunRequest,
     ExtensionTrigger, HostEvent, discover_definitions,
@@ -63,12 +64,13 @@ impl Workspace {
                 )
             });
             window.on_window_should_close(cx, move |window, app| {
-                let _ = workspace_for_close.update(app, |workspace, _| {
+                let _ = workspace_for_close.update(app, |workspace, cx| {
                     super::window_state::update_ui_state_extensions_window(
                         &mut workspace.ui_state,
                         window,
                     );
                     workspace.extensions_window = None;
+                    workspace.persist_ui_state(cx);
                 });
                 true
             });
@@ -84,6 +86,20 @@ impl Workspace {
                 self.extensions_window = Some(handle);
                 self.extensions_panel.update(cx, |panel, cx| {
                     panel.set_status("sync-open-tabs", "Ready", cx);
+                    if let Some(manager) = &self.extension_manager {
+                        for (extension_id, run_id) in manager.active_runs() {
+                            panel.set_status(
+                                &extension_id,
+                                format!("Active run {run_id}"),
+                                cx,
+                            );
+                        }
+                    }
+                    if let Some((extension_id, _)) =
+                        &self.pending_extension_install
+                    {
+                        panel.set_pending_install(extension_id.clone(), cx);
+                    }
                 });
             }
             Err(error) => log::error!(
@@ -271,8 +287,8 @@ impl Workspace {
                             ),
                         events: Vec::new(),
                     });
-                entry.due_at = now
-                    + Duration::from_millis(trigger.debounce_duration_ms());
+                entry.due_at =
+                    now + Duration::from_millis(trigger.debounce_duration_ms());
                 if let Some(tab_id) = event
                     .repository
                     .as_ref()
@@ -389,6 +405,9 @@ impl Workspace {
             }
             for trigger in definition.package.manifest.event_triggers() {
                 if !settings.is_subscribed(&trigger.id) {
+                    continue;
+                }
+                if !trigger.is_schedule() {
                     continue;
                 }
                 let (occurred_at, occurrence_key) =
@@ -536,6 +555,57 @@ impl Workspace {
         })
     }
 
+    fn commit_extension_draft(
+        &mut self,
+        extension_id: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let Some(draft) = self.extension_drafts.get(extension_id).cloned()
+        else {
+            return Ok(());
+        };
+        let Some(definition) = self
+            .extension_definitions
+            .iter()
+            .find(|definition| definition.package.manifest.id == extension_id)
+            .cloned()
+        else {
+            return Err("extension definition is unavailable".to_string());
+        };
+        for (key, value) in &draft {
+            let Some(setting) = definition.package.manifest.settings.get(key)
+            else {
+                return Err(format!("unknown extension setting: {key}"));
+            };
+            setting
+                .validate_value(value)
+                .map_err(|error| format!("invalid setting {key}: {error}"))?;
+        }
+        let mut settings = self
+            .config
+            .extensions
+            .get(extension_id)
+            .cloned()
+            .unwrap_or_else(|| {
+                ExtensionSettings::with_defaults(&definition.package.manifest)
+            })
+            .normalized_for(&definition.package.manifest);
+        for (key, value) in &draft {
+            settings.values.insert(key.clone(), value.clone());
+        }
+        self.config
+            .extensions
+            .insert(extension_id.to_string(), settings);
+        self.extension_drafts.remove(extension_id);
+        self.persist_config();
+        self.extensions_panel.update(cx, |panel, cx| {
+            for (key, value) in draft {
+                panel.update_setting(extension_id, &key, value, cx);
+            }
+        });
+        Ok(())
+    }
+
     pub(super) fn handle_extensions_panel_event(
         &mut self,
         event: &ExtensionsPanelEvent,
@@ -547,6 +617,15 @@ impl Workspace {
             ExtensionsPanelEvent::Reload => self.reload_extensions(window, cx),
             ExtensionsPanelEvent::InstallDirectory => {
                 self.install_extension_directory(window, cx);
+            }
+            ExtensionsPanelEvent::ConfirmInstall(extension_id) => {
+                self.confirm_extension_install(extension_id, window, cx);
+            }
+            ExtensionsPanelEvent::CancelInstall => {
+                self.pending_extension_install = None;
+                self.extensions_panel.update(cx, |panel, cx| {
+                    panel.clear_pending_install(cx);
+                });
             }
             ExtensionsPanelEvent::Uninstall(extension_id) => {
                 if self.extension_definitions.iter().any(|definition| {
@@ -575,56 +654,6 @@ impl Workspace {
                     }
                 }
             }
-            ExtensionsPanelEvent::EnabledChanged {
-                extension_id,
-                enabled,
-            } => {
-                let event_ids = self
-                    .extension_definitions
-                    .iter()
-                    .find(|definition| {
-                        definition.package.manifest.id == *extension_id
-                    })
-                    .map(|definition| {
-                        definition
-                            .package
-                            .manifest
-                            .event_triggers()
-                            .into_iter()
-                            .map(|trigger| trigger.id)
-                            .collect::<std::collections::BTreeSet<_>>()
-                    })
-                    .unwrap_or_default();
-                let settings = self
-                    .config
-                    .extensions
-                    .entry(extension_id.clone())
-                    .or_default();
-                if *enabled && !settings.trusted {
-                    self.extensions_panel.update(cx, |panel, cx| {
-                        panel.set_status(
-                            extension_id,
-                            "Trust this extension before enabling it",
-                            cx,
-                        );
-                    });
-                    return;
-                }
-                settings.subscribed_triggers = if *enabled {
-                    event_ids
-                } else {
-                    Default::default()
-                };
-                self.extensions_panel.update(cx, |panel, cx| {
-                    panel.update_flags(
-                        extension_id,
-                        *enabled,
-                        settings.trusted,
-                        cx,
-                    );
-                });
-                self.persist_config();
-            }
             ExtensionsPanelEvent::SubscriptionChanged {
                 extension_id,
                 trigger_id,
@@ -649,6 +678,14 @@ impl Workspace {
                 else {
                     return;
                 };
+                if let Err(error) =
+                    self.commit_extension_draft(extension_id, cx)
+                {
+                    self.extensions_panel.update(cx, |panel, cx| {
+                        panel.set_status(extension_id, error, cx)
+                    });
+                    return;
+                }
                 let mut settings = self
                     .config
                     .extensions
@@ -709,6 +746,14 @@ impl Workspace {
                 settings.trusted = *trusted;
                 if !*trusted {
                     settings.subscribed_triggers.clear();
+                    if let Some(manager) = &self.extension_manager {
+                        let cancelled = manager.cancel_extension(extension_id);
+                        if cancelled > 0 {
+                            log::info!(
+                                "[extension_runtime] trust revoked; cancellation requested for id={extension_id}, runs={cancelled}"
+                            );
+                        }
+                    }
                 }
                 self.extensions_panel.update(cx, |panel, cx| {
                     panel.update_trust(extension_id, *trusted, cx);
@@ -732,23 +777,37 @@ impl Workspace {
                 else {
                     return;
                 };
-                if let Err(error) = setting.validate_value(value) {
-                    self.extensions_panel.update(cx, |panel, cx| {
-                        panel.set_status(extension_id, error, cx);
-                    });
-                    return;
-                }
-                let settings = self
-                    .config
-                    .extensions
+                let validation_error = setting.validate_value(value).err();
+                self.extension_drafts
                     .entry(extension_id.clone())
-                    .or_default();
-                settings.values.insert(key.clone(), value.clone());
-                self.persist_config();
+                    .or_default()
+                    .insert(key.clone(), value.clone());
                 self.extensions_panel.update(cx, |panel, cx| {
                     panel.update_setting(extension_id, key, value.clone(), cx);
-                    panel.set_status(extension_id, "Setting saved", cx);
+                    if let Some(error) = validation_error {
+                        panel.set_setting_error(extension_id, key, error, cx);
+                        panel.set_status(
+                            extension_id,
+                            "Invalid setting; fix it before saving or running",
+                            cx,
+                        );
+                    } else {
+                        panel.clear_setting_error(extension_id, key, cx);
+                        panel.set_status(extension_id, "Unsaved settings", cx);
+                    }
                 });
+            }
+            ExtensionsPanelEvent::SaveSettings(extension_id) => {
+                match self.commit_extension_draft(extension_id, cx) {
+                    Ok(()) => self.extensions_panel.update(cx, |panel, cx| {
+                        panel.set_status(extension_id, "Settings saved", cx)
+                    }),
+                    Err(error) => {
+                        self.extensions_panel.update(cx, |panel, cx| {
+                            panel.set_status(extension_id, error, cx)
+                        })
+                    }
+                }
             }
             ExtensionsPanelEvent::Cancel(extension_id) => {
                 let cancelled = self
@@ -771,6 +830,14 @@ impl Workspace {
                 });
             }
             ExtensionsPanelEvent::RunNow(extension_id) => {
+                if let Err(error) =
+                    self.commit_extension_draft(extension_id, cx)
+                {
+                    self.extensions_panel.update(cx, |panel, cx| {
+                        panel.set_status(extension_id, error, cx)
+                    });
+                    return;
+                }
                 let Some(manager) = &self.extension_manager else {
                     return;
                 };
@@ -866,7 +933,10 @@ impl Workspace {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some(SharedString::from("Select an extension directory")),
+            prompt: Some(SharedString::from(i18n::text(
+                self.locale,
+                "extensions-install-prompt",
+            ))),
         });
         let entity = cx.entity();
         cx.spawn_in(window, async move |_, cx| {
@@ -877,6 +947,107 @@ impl Workspace {
             let Some(path) = path else { return };
             let result = cx
                 .background_executor()
+                .spawn(async move {
+                    let package = extension::load_local_package(&path)?;
+                    let exists =
+                        extension::local_package_exists(&package.manifest.id)?;
+                    Ok::<_, extension::ExtensionError>((
+                        path,
+                        package.manifest.id,
+                        exists,
+                    ))
+                })
+                .await;
+            let _ = cx.update(|window, app| {
+                entity.update(app, |workspace, cx| match result {
+                    Ok((path, id, exists)) => {
+                        if workspace.extension_definitions.iter().any(
+                            |definition| {
+                                definition.package.bundled
+                                    && definition.package.manifest.id == id
+                            },
+                        ) {
+                            workspace.extensions_panel.update(
+                                cx,
+                                |panel, cx| {
+                                    panel.set_status(
+                                        "sync-open-tabs",
+                                        "Bundled extensions cannot be replaced",
+                                        cx,
+                                    )
+                                },
+                            );
+                            return;
+                        }
+                        if exists {
+                            workspace.pending_extension_install =
+                                Some((id.clone(), path));
+                            workspace.extensions_panel.update(cx, |panel, cx| {
+                                panel.set_pending_install(id, cx);
+                                panel.set_status(
+                                    "sync-open-tabs",
+                                    "Confirm replacement of the existing extension",
+                                    cx,
+                                );
+                            });
+                        } else {
+                            workspace.install_extension_package(
+                                path, id, window, cx,
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        workspace.extensions_panel.update(cx, |panel, cx| {
+                            panel.set_status(
+                                "sync-open-tabs",
+                                error.to_string(),
+                                cx,
+                            )
+                        });
+                    }
+                })
+            });
+        })
+        .detach();
+    }
+
+    fn confirm_extension_install(
+        &mut self,
+        extension_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((pending_id, path)) = self.pending_extension_install.take()
+        else {
+            return;
+        };
+        if pending_id != extension_id {
+            self.pending_extension_install = Some((pending_id, path));
+            return;
+        }
+        self.extensions_panel.update(cx, |panel, cx| {
+            panel.clear_pending_install(cx);
+            panel.set_status(extension_id, "Replacing extension package", cx);
+        });
+        self.install_extension_package(
+            path,
+            extension_id.to_string(),
+            window,
+            cx,
+        );
+    }
+
+    fn install_extension_package(
+        &mut self,
+        path: std::path::PathBuf,
+        extension_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let entity = cx.entity();
+        cx.spawn_in(window, async move |_, cx| {
+            let result = cx
+                .background_executor()
                 .spawn(async move { extension::install_local_package(&path) })
                 .await;
             let _ = cx.update(|window, app| {
@@ -885,13 +1056,21 @@ impl Workspace {
                         let id = package.manifest.id.clone();
                         workspace.reload_extensions(window, cx);
                         workspace.extensions_panel.update(cx, |panel, cx| {
-                            panel.set_status(&id, "Installed and reloaded", cx)
+                            panel.set_status(
+                                &id,
+                                if id == extension_id {
+                                    "Installed and reloaded"
+                                } else {
+                                    "Installed package with a different id"
+                                },
+                                cx,
+                            )
                         });
                     }
                     Err(error) => {
                         workspace.extensions_panel.update(cx, |panel, cx| {
                             panel.set_status(
-                                "sync-open-tabs",
+                                &extension_id,
                                 error.to_string(),
                                 cx,
                             )

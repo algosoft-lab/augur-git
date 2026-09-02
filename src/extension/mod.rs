@@ -1,5 +1,7 @@
 //! Lua extension runtime and the host bridge used by the Workspace.
 
+use std::collections::HashSet;
+
 mod agent_runner;
 mod api;
 mod builtin;
@@ -35,11 +37,22 @@ pub fn discover_definitions() -> Vec<ExtensionDefinition> {
             Vec::new()
         }
     };
+    let bundled_ids = definitions
+        .iter()
+        .map(|definition| definition.package.manifest.id.clone())
+        .collect::<HashSet<_>>();
     match crate::core::extension::discover_local_packages() {
         Ok(packages) => {
             for package in packages {
                 match package {
                     Ok(package) => {
+                        if bundled_ids.contains(&package.manifest.id) {
+                            log::warn!(
+                                "[extensions] skipped local package with reserved bundled id: {}",
+                                package.manifest.id
+                            );
+                            continue;
+                        }
                         let Some(root) = package.root.clone() else {
                             continue;
                         };

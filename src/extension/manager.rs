@@ -335,17 +335,28 @@ impl ExtensionManager {
     }
 
     pub fn active_labels(&self) -> Vec<String> {
+        self.active_runs()
+            .into_iter()
+            .map(|(extension_id, run_id)| {
+                format!("{extension_id} (run {run_id})")
+            })
+            .collect()
+    }
+
+    /// Return queued and running extension runs for rebuilding a management
+    /// window after it has been closed and reopened.
+    pub fn active_runs(&self) -> Vec<(String, u64)> {
         let Ok(run_extensions) = self.run_extensions.lock() else {
             return Vec::new();
         };
-        let mut labels = run_extensions
+        let mut runs = run_extensions
             .iter()
-            .map(|(run_id, extension_id)| {
-                format!("{extension_id} (run {run_id})")
-            })
+            .map(|(run_id, extension_id)| (extension_id.clone(), *run_id))
             .collect::<Vec<_>>();
-        labels.sort();
-        labels
+        runs.sort_by(|left, right| {
+            left.0.cmp(&right.0).then(left.1.cmp(&right.1))
+        });
+        runs
     }
 
     pub fn cancel_all(&self) -> usize {

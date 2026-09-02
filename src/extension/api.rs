@@ -619,7 +619,7 @@ fn create_context(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<Table> {
             event_payload_to_lua(lua, state.clone(), event)?,
         )?;
     }
-    context.set("events", events)?;
+    context.set("events", readonly_table(lua, events)?)?;
     if let Some(event) = invocation.events.first() {
         context
             .set("event", event_payload_to_lua(lua, state.clone(), event)?)?;
@@ -648,7 +648,7 @@ fn event_payload_to_lua(
     if let Some(repository) = &event.repository {
         table.set(
             "repository_snapshot",
-            json_to_lua(
+            readonly_json_to_lua(
                 lua,
                 serde_json::to_value(repository)
                     .map_err(mlua::Error::external)?,
@@ -673,7 +673,7 @@ fn event_payload_to_lua(
             .transpose()
             .map_err(mlua::Error::external)
             .and_then(|value| match value {
-                Some(value) => json_to_lua(lua, value),
+                Some(value) => readonly_json_to_lua(lua, value),
                 None => Ok(Value::Nil),
             })?,
     )?;
@@ -686,11 +686,69 @@ fn event_payload_to_lua(
             .transpose()
             .map_err(mlua::Error::external)
             .and_then(|value| match value {
-                Some(value) => json_to_lua(lua, value),
+                Some(value) => readonly_json_to_lua(lua, value),
                 None => Ok(Value::Nil),
             })?,
     )?;
-    Ok(table)
+    readonly_table(lua, table)
+}
+
+/// Expose a table through an empty proxy so Lua cannot mutate host-owned
+/// event payloads. A plain `__newindex` on the backing table would still
+/// allow assignments to existing keys, while the proxy consistently rejects
+/// every write. `__pairs` and `__len` preserve normal table ergonomics.
+fn readonly_table(lua: &Lua, values: Table) -> mlua::Result<Table> {
+    let proxy = lua.create_table()?;
+    let metatable = lua.create_table()?;
+    metatable.set("__index", values.clone())?;
+    let pairs_values = values.clone();
+    metatable.set(
+        "__pairs",
+        lua.create_function(move |lua, _table: Table| {
+            let next: Function = lua.globals().get("next")?;
+            Ok((next, pairs_values.clone(), Value::Nil))
+        })?,
+    )?;
+    let length_values = values.clone();
+    metatable.set(
+        "__len",
+        lua.create_function(move |_, _table: Table| {
+            Ok(length_values.raw_len())
+        })?,
+    )?;
+    metatable.set(
+        "__newindex",
+        lua.create_function(
+            |_, (_table, _key, _value): (Table, Value, Value)| {
+                Err::<(), _>(mlua::Error::runtime(
+                    "event payloads are read-only",
+                ))
+            },
+        )?,
+    )?;
+    metatable.set("__metatable", "readonly")?;
+    proxy.set_metatable(Some(metatable))?;
+    Ok(proxy)
+}
+
+fn readonly_json_to_lua(lua: &Lua, value: JsonValue) -> mlua::Result<Value> {
+    match value {
+        JsonValue::Object(object) => {
+            let values = lua.create_table()?;
+            for (key, value) in object {
+                values.set(key, readonly_json_to_lua(lua, value)?)?;
+            }
+            Ok(Value::Table(readonly_table(lua, values)?))
+        }
+        JsonValue::Array(array) => {
+            let values = lua.create_table()?;
+            for (index, value) in array.into_iter().enumerate() {
+                values.raw_set(index + 1, readonly_json_to_lua(lua, value)?)?;
+            }
+            Ok(Value::Table(readonly_table(lua, values)?))
+        }
+        primitive => json_to_lua(lua, primitive),
+    }
 }
 
 /// Userdata handle for one repository. The captured identity is stable for a
@@ -1091,6 +1149,52 @@ mod tests {
                 .iter()
                 .any(|request| matches!(request, HostRequest::Log { .. }))
         );
+    }
+
+    #[test]
+    fn event_context_is_read_only_and_keeps_sequence_length() {
+        let host = Arc::new(FakeHost::default());
+        let runtime = ExtensionRuntime::load(
+            "test-extension".into(),
+            r#"
+                return {
+                    on_run = function(ctx)
+                        assert(ctx.trigger == "repository")
+                        assert(ctx.trigger_id == "status")
+                        assert(ctx.event_type == "repository.status_changed")
+                        assert(#ctx.events == 1)
+                        assert(ctx.events[1].event_type == "repository.status_changed")
+                        local writable = pcall(function()
+                            ctx.event.event_type = "changed"
+                            ctx.events[1] = nil
+                        end)
+                        assert(not writable)
+                        return {ok = true}
+                    end
+                }
+            "#,
+            None,
+            host,
+        )
+        .expect("runtime should load");
+        let mut current = invocation();
+        current.trigger = ExtensionTrigger::Repository {
+            trigger_id: "status".into(),
+            event_type: "repository.status_changed".into(),
+        };
+        current.events.push(ExtensionEventPayload {
+            trigger_id: "status".into(),
+            event_type: "repository.status_changed".into(),
+            occurred_at: Local::now(),
+            repository: None,
+            previous: None,
+            current: None,
+            origin_extension_id: Some("other-extension".into()),
+            origin_run_id: Some(4),
+        });
+        runtime
+            .run(current, "on_run")
+            .expect("event context should be immutable");
     }
 }
 

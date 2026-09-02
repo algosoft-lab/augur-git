@@ -25,8 +25,10 @@ my-extension/
 
 The manifest requires an id, semantic version, `api_version = 1`, display
 metadata, and an entrypoint. It may declare `string`, `integer`, `boolean`,
-`time`, and `select` settings, one manual handler, and daily triggers. The
-bundled `extensions/sync-open-tabs` package is a complete reference package.
+`time`, and `select` settings, one manual handler, and event handlers. The
+legacy `[[daily]]` declaration is accepted and normalized to a
+`schedule.daily` event. The bundled `extensions/sync-open-tabs` package is a
+complete reference package.
 
 Local packages are installed under the platform data directory:
 
@@ -38,10 +40,13 @@ Local packages are installed under the platform data directory:
 Installation copies into a staging directory, rejects symlinks and invalid
 entrypoints, then promotes the staging directory atomically. A package is
 fingerprinted for display and audit history. Reloading re-discovers packages,
-recreates idle workers, and keeps compatible settings, trust, and enabled
-state. Reload is refused while an extension run is active. The Extensions
-workspace also supports install, reload, enable/disable, trust/untrust, run
-now, and uninstall for local packages. There is no online marketplace in v1.
+recreates idle workers, and keeps compatible settings, trust, and per-event
+subscriptions. Reload is refused while an extension run is active. Open
+`Extensions` from the application menu to show a singleton, resizable native
+window. It provides a manual `Run once` action, per-event subscription
+switches, generated setting controls, trust warnings, queue/cancellation
+status, and recent history. Closing this window does not stop the runtime or
+event subscriptions. There is no online marketplace in v1.
 
 Per-extension settings are stored in application configuration. Private Lua
 storage is a JSON file below the platform data directory's
@@ -115,4 +120,3 @@ log:
 cargo run
 rg "\\[(extensions|extension_sync|agent_operation|git_command)\\]" debug.log > extension-debug.log
 ```
-

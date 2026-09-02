@@ -209,13 +209,8 @@ impl EventTrigger {
     }
 
     pub fn debounce_duration_ms(&self) -> u64 {
-        self.debounce_ms.unwrap_or_else(|| {
-            if self.event_type == "repository.status_changed" {
-                500
-            } else {
-                0
-            }
-        })
+        self.debounce_ms
+            .unwrap_or_else(|| if self.is_repository_event() { 500 } else { 0 })
     }
 }
 
@@ -420,12 +415,21 @@ fn validate_event_trigger(
                     trigger.id
                 )));
             };
-            if !matches!(
-                manifest.settings.get(setting_key),
-                Some(SettingDefinition::Integer { .. })
-            ) {
+            let Some(SettingDefinition::Integer {
+                default, min, max, ..
+            }) = manifest.settings.get(setting_key)
+            else {
                 return Err(ExtensionError::InvalidManifest(format!(
                     "interval trigger {} references a non-integer setting: {}",
+                    trigger.id, setting_key
+                )));
+            };
+            if *default <= 0
+                || min.is_some_and(|minimum| minimum <= 0)
+                || max.is_some_and(|maximum| maximum <= 0)
+            {
+                return Err(ExtensionError::InvalidManifest(format!(
+                    "interval trigger {} requires a positive integer setting: {}",
                     trigger.id, setting_key
                 )));
             }
@@ -550,6 +554,34 @@ pub fn extensions_root() -> Result<PathBuf, ExtensionError> {
         )
     })?;
     Ok(base.join("augur-git").join("extensions"))
+}
+
+/// Return the validated destination path for an installed local extension.
+/// Keeping ID validation in this helper prevents callers from constructing a
+/// path that escapes the extension root.
+pub fn installed_extension_path(id: &str) -> Result<PathBuf, ExtensionError> {
+    validate_extension_id(id)?;
+    Ok(extensions_root()?.join(id))
+}
+
+/// Check whether a local package with `id` already occupies its destination.
+pub fn local_package_exists(id: &str) -> Result<bool, ExtensionError> {
+    let destination = installed_extension_path(id)?;
+    match fs::symlink_metadata(&destination) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err(ExtensionError::SymlinkNotAllowed(destination))
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            Err(ExtensionError::InvalidManifest(
+                "installed extension path is not a directory".into(),
+            ))
+        }
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(ExtensionError::Io(format!(
+            "failed to inspect installed extension package: {error}"
+        ))),
+    }
 }
 
 /// Discover every valid local package. Invalid directories are returned as
@@ -706,8 +738,7 @@ pub fn install_local_package(
 /// Remove an installed local package. Bundled packages are not represented by
 /// a directory and therefore cannot be removed through this API.
 pub fn uninstall_local_package(id: &str) -> Result<(), ExtensionError> {
-    validate_extension_id(id)?;
-    let destination = extensions_root()?.join(id);
+    let destination = installed_extension_path(id)?;
     let metadata = match fs::symlink_metadata(&destination) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -1148,6 +1179,32 @@ id = "bad"
 type = "repository.status_changed"
 handler = "on_status"
 time_setting = "missing"
+"#,
+        )
+        .unwrap_err();
+        assert!(matches!(error, ExtensionError::InvalidManifest(_)));
+    }
+
+    #[test]
+    fn interval_triggers_require_positive_settings() {
+        let error = ExtensionManifest::parse(
+            r#"
+id = "events"
+version = "1.0.0"
+api_version = 1
+name = "Events"
+description = "Event test"
+
+[settings.interval]
+type = "integer"
+label = "Interval"
+default = 0
+
+[[events]]
+id = "timer"
+type = "schedule.interval"
+handler = "on_timer"
+interval_setting = "interval"
 "#,
         )
         .unwrap_err();

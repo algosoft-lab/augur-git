@@ -59,7 +59,6 @@ impl Workspace {
         })
     }
 
-    #[cfg(target_os = "macos")]
     pub(super) fn persist_ui_state(&mut self, cx: &mut Context<Self>) {
         let ui_state = self.ui_state.clone();
         cx.background_spawn(async move {

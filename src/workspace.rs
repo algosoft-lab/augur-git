@@ -230,6 +230,11 @@ pub struct Workspace {
         HashMap<(String, String), extension_runtime::PendingEventBatch>,
     extension_interval_ticks:
         HashMap<(String, String), chrono::DateTime<chrono::Local>>,
+    extension_drafts: BTreeMap<
+        String,
+        BTreeMap<String, crate::core::extension::SettingValue>,
+    >,
+    pending_extension_install: Option<(String, PathBuf)>,
     last_extension_tick: chrono::DateTime<chrono::Local>,
     ui_state: UiState,
     locale: Locale,
@@ -457,6 +462,8 @@ impl Workspace {
             extension_pending_origins: HashMap::new(),
             extension_pending_events: HashMap::new(),
             extension_interval_ticks: HashMap::new(),
+            extension_drafts: BTreeMap::new(),
+            pending_extension_install: None,
             last_extension_tick: chrono::Local::now(),
             ui_state,
             locale,

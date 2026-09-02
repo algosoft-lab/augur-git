@@ -4,13 +4,11 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{ActiveTheme, TitleBar, v_flex};
 
-use crate::core::config::{AppConfig, WindowState};
-use crate::core::i18n::{self, Locale};
-use crate::extension::ExtensionDefinition;
-
 use super::Workspace;
 use super::extensions::ExtensionsPanel;
 use super::window_state;
+use crate::core::config::WindowState;
+use crate::core::i18n::{self, Locale};
 
 pub(super) struct ExtensionsWindow {
     pub(super) panel: Entity<ExtensionsPanel>,
@@ -57,74 +55,6 @@ impl ExtensionsWindow {
         self.locale = locale;
         self.panel.update(cx, |panel, _cx| panel.set_locale(locale));
         cx.notify();
-    }
-
-    pub(super) fn replace_definitions(
-        &mut self,
-        definitions: Vec<ExtensionDefinition>,
-        config: &AppConfig,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.panel.update(cx, |panel, cx| {
-            panel.replace_definitions(definitions, config, window, cx)
-        });
-    }
-
-    pub(super) fn update_flags(
-        &mut self,
-        extension_id: &str,
-        trusted: bool,
-        cx: &mut Context<Self>,
-    ) {
-        self.panel.update(cx, |panel, cx| {
-            panel.update_trust(extension_id, trusted, cx)
-        });
-    }
-
-    pub(super) fn update_subscription(
-        &mut self,
-        extension_id: &str,
-        trigger_id: &str,
-        subscribed: bool,
-        cx: &mut Context<Self>,
-    ) {
-        self.panel.update(cx, |panel, cx| {
-            panel.update_subscription(extension_id, trigger_id, subscribed, cx)
-        });
-    }
-
-    pub(super) fn update_setting(
-        &mut self,
-        extension_id: &str,
-        key: &str,
-        value: crate::core::extension::SettingValue,
-        cx: &mut Context<Self>,
-    ) {
-        self.panel.update(cx, |panel, cx| {
-            panel.update_setting(extension_id, key, value, cx)
-        });
-    }
-
-    pub(super) fn set_status(
-        &mut self,
-        extension_id: &str,
-        status: impl Into<String>,
-        cx: &mut Context<Self>,
-    ) {
-        self.panel
-            .update(cx, |panel, cx| panel.set_status(extension_id, status, cx));
-    }
-
-    pub(super) fn append_history(
-        &mut self,
-        extension_id: &str,
-        record: crate::core::extension::ExtensionRunRecord,
-        cx: &mut Context<Self>,
-    ) {
-        self.panel.update(cx, |panel, cx| {
-            panel.append_history(extension_id, record, cx)
-        });
     }
 }
 
