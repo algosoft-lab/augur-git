@@ -1,0 +1,968 @@
+mod agents;
+mod agents_view;
+mod options;
+
+use gpui::prelude::*;
+use std::collections::{HashMap, HashSet};
+
+use gpui::*;
+use gpui_component::{
+    ActiveTheme, IconName, Sizable,
+    button::{Button, ButtonVariants},
+    h_flex,
+    input::InputState,
+    scroll::ScrollableElement,
+    searchable_list::{SearchableListItem, SearchableVec},
+    select::{Select, SelectEvent, SelectState},
+    slider::{Slider, SliderEvent, SliderState},
+    v_flex,
+};
+
+use crate::agent::{
+    AgentCliCapabilities, AgentSettings, BuiltInAgent, CustomAgentProfile,
+};
+use crate::core::config::{
+    AppConfig, DiffLayoutPreference, GraphHistoryPreference,
+    LanguagePreference, MAX_DIFF_FONT_SIZE, MAX_UI_FONT_SIZE,
+    MIN_DIFF_FONT_SIZE, MIN_UI_FONT_SIZE, ThemePreference,
+};
+use crate::core::i18n::{self, Locale};
+use crate::git::shared;
+
+use super::agent_profiles::AgentProfileEditor;
+
+#[derive(Clone, Debug)]
+pub enum SettingsPanelEvent {
+    Close,
+    LanguageChanged(LanguagePreference),
+    AutoRefreshOnFocusChanged(bool),
+    ThemeChanged(ThemePreference),
+    DiffLayoutChanged(DiffLayoutPreference),
+    GraphHistoryChanged(GraphHistoryPreference),
+    UiFontChanged(Option<String>),
+    MonoFontChanged(Option<String>),
+    UiFontSizeChanged(f32),
+    DiffFontSizeChanged(f32),
+    AgentDefaultProfileChanged(String),
+    AgentExecutableOverrideChanged {
+        agent: BuiltInAgent,
+        executable: Option<std::path::PathBuf>,
+    },
+    AgentModelOverrideChanged {
+        agent: BuiltInAgent,
+        model: Option<String>,
+    },
+    AgentReasoningOverrideChanged {
+        agent: BuiltInAgent,
+        reasoning_effort: Option<String>,
+    },
+    AgentVariantOverrideChanged {
+        agent: BuiltInAgent,
+        variant: Option<String>,
+    },
+    AgentConnectivityTestRequested(String),
+    AgentProfileSaved {
+        previous_id: Option<String>,
+        profile: CustomAgentProfile,
+    },
+    AgentProfileRemoved(String),
+    AgentBuiltinAddRequested(BuiltInAgent),
+    AgentBuiltinRemoveRequested(BuiltInAgent),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SettingsSection {
+    General,
+    Appearance,
+    Layout,
+    Agents,
+}
+
+#[derive(Clone, Debug)]
+struct SettingsOption<T: Clone + PartialEq> {
+    value: T,
+    label: SharedString,
+}
+
+impl<T: Clone + PartialEq> SettingsOption<T> {
+    fn new(value: T, label: impl Into<SharedString>) -> Self {
+        Self {
+            value,
+            label: label.into(),
+        }
+    }
+}
+
+impl<T: Clone + PartialEq> SearchableListItem for SettingsOption<T> {
+    type Value = T;
+
+    fn title(&self) -> SharedString {
+        self.label.clone()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.value
+    }
+}
+
+pub struct SettingsPanel {
+    locale: Locale,
+    section: SettingsSection,
+    language: LanguagePreference,
+    auto_refresh_on_focus: bool,
+    theme: ThemePreference,
+    diff_layout: DiffLayoutPreference,
+    graph_history: GraphHistoryPreference,
+    ui_font: Option<String>,
+    mono_font: Option<String>,
+    ui_font_size: f32,
+    diff_font_size: f32,
+    agent_settings: AgentSettings,
+    agent_override_errors: HashMap<BuiltInAgent, String>,
+    agent_probe_results: Vec<(String, Option<Result<String, String>>)>,
+    agent_probe_capabilities: HashMap<String, AgentCliCapabilities>,
+    agent_probe_generation: u64,
+    agent_expanded: HashSet<String>,
+    agent_add_open: bool,
+    font_families: Vec<String>,
+    language_state:
+        Entity<SelectState<Vec<SettingsOption<LanguagePreference>>>>,
+    auto_refresh_state: Entity<SelectState<Vec<SettingsOption<bool>>>>,
+    theme_state: Entity<SelectState<Vec<SettingsOption<ThemePreference>>>>,
+    diff_layout_state:
+        Entity<SelectState<Vec<SettingsOption<DiffLayoutPreference>>>>,
+    graph_history_state:
+        Entity<SelectState<Vec<SettingsOption<GraphHistoryPreference>>>>,
+    ui_font_state:
+        Entity<SelectState<SearchableVec<SettingsOption<Option<String>>>>>,
+    mono_font_state:
+        Entity<SelectState<SearchableVec<SettingsOption<Option<String>>>>>,
+    ui_font_size_state: Entity<SliderState>,
+    diff_font_size_state: Entity<SliderState>,
+    agent_default_profile_state:
+        Entity<SelectState<Vec<SettingsOption<String>>>>,
+    agent_executable_inputs: Vec<(BuiltInAgent, Entity<InputState>)>,
+    agent_model_inputs: Vec<(BuiltInAgent, Entity<InputState>)>,
+    agent_variant_inputs: Vec<(BuiltInAgent, Entity<InputState>)>,
+    agent_reasoning_states: Vec<(
+        BuiltInAgent,
+        Entity<SelectState<Vec<SettingsOption<Option<String>>>>>,
+    )>,
+    agent_profile_editor: Option<Entity<AgentProfileEditor>>,
+}
+
+impl EventEmitter<SettingsPanelEvent> for SettingsPanel {}
+
+impl SettingsPanel {
+    pub fn new(
+        config: &AppConfig,
+        font_families: Vec<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let locale = i18n::resolve(&config.language);
+        let language = config.language;
+        let auto_refresh_on_focus = config.view.auto_refresh_on_focus;
+        let theme = config.theme;
+        let diff_layout = config.view.diff_layout;
+        let graph_history = config.view.graph_history;
+        let ui_font = config.typography.ui_font_family.clone();
+        let mono_font = config.typography.mono_font_family.clone();
+        let ui_font_size = config.typography.ui_font_size;
+        let diff_font_size = config.typography.diff_font_size;
+        let agent_settings = config.agent.clone();
+        let agent_default_profile = agent_settings.default_profile_id();
+
+        let language_state = cx.new(|cx| {
+            SelectState::new(
+                options::language_options(locale),
+                options::selected_index(
+                    &options::language_options(locale),
+                    &language,
+                ),
+                window,
+                cx,
+            )
+        });
+        let auto_refresh_state = cx.new(|cx| {
+            SelectState::new(
+                options::auto_refresh_options(locale),
+                options::selected_index(
+                    &options::auto_refresh_options(locale),
+                    &auto_refresh_on_focus,
+                ),
+                window,
+                cx,
+            )
+        });
+        let theme_state = cx.new(|cx| {
+            SelectState::new(
+                options::theme_options(locale),
+                options::selected_index(
+                    &options::theme_options(locale),
+                    &theme,
+                ),
+                window,
+                cx,
+            )
+        });
+        let diff_layout_state = cx.new(|cx| {
+            SelectState::new(
+                options::diff_layout_options(locale),
+                options::selected_index(
+                    &options::diff_layout_options(locale),
+                    &diff_layout,
+                ),
+                window,
+                cx,
+            )
+        });
+        let graph_history_state = cx.new(|cx| {
+            SelectState::new(
+                options::graph_history_options(locale),
+                options::selected_index(
+                    &options::graph_history_options(locale),
+                    &graph_history,
+                ),
+                window,
+                cx,
+            )
+        });
+        let ui_font_state = cx.new(|cx| {
+            let options = options::font_options(locale, &font_families);
+            SelectState::new(
+                SearchableVec::from(options.clone()),
+                options::selected_index(&options, &ui_font),
+                window,
+                cx,
+            )
+            .searchable(true)
+        });
+        let mono_font_state = cx.new(|cx| {
+            let options = options::font_options(locale, &font_families);
+            SelectState::new(
+                SearchableVec::from(options.clone()),
+                options::selected_index(&options, &mono_font),
+                window,
+                cx,
+            )
+            .searchable(true)
+        });
+        let ui_font_size_state = cx.new(|_| {
+            SliderState::new()
+                .min(MIN_UI_FONT_SIZE)
+                .max(MAX_UI_FONT_SIZE)
+                .step(1.0)
+                .default_value(ui_font_size)
+        });
+        let diff_font_size_state = cx.new(|_| {
+            SliderState::new()
+                .min(MIN_DIFF_FONT_SIZE)
+                .max(MAX_DIFF_FONT_SIZE)
+                .step(1.0)
+                .default_value(diff_font_size)
+        });
+        let agent_default_profile_state = cx.new(|cx| {
+            let options =
+                agents::agent_profile_options(locale, &agent_settings);
+            SelectState::new(
+                options.clone(),
+                options::selected_index(&options, &agent_default_profile),
+                window,
+                cx,
+            )
+        });
+        let agent_executable_inputs = BuiltInAgent::ALL
+            .iter()
+            .copied()
+            .map(|agent| {
+                let value = agent_settings
+                    .executable_overrides
+                    .get(&agent)
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default();
+                let input = cx.new(|cx| {
+                    InputState::new(window, cx)
+                        .default_value(value)
+                        .placeholder(agent.executable())
+                });
+                (agent, input)
+            })
+            .collect::<Vec<_>>();
+        let agent_model_inputs = BuiltInAgent::ALL
+            .iter()
+            .copied()
+            .map(|agent| {
+                let value = agent_settings
+                    .launch_overrides
+                    .get(&agent)
+                    .and_then(|overrides| overrides.model.clone())
+                    .unwrap_or_default();
+                let input = cx.new(|cx| {
+                    InputState::new(window, cx)
+                        .default_value(value)
+                        .placeholder(i18n::text(
+                            locale,
+                            "agent-model-placeholder",
+                        ))
+                });
+                (agent, input)
+            })
+            .collect::<Vec<_>>();
+        let agent_variant_inputs = BuiltInAgent::ALL
+            .iter()
+            .copied()
+            .map(|agent| {
+                let value = agent_settings
+                    .launch_overrides
+                    .get(&agent)
+                    .and_then(|overrides| overrides.variant.clone())
+                    .unwrap_or_default();
+                let input = cx.new(|cx| {
+                    InputState::new(window, cx)
+                        .default_value(value)
+                        .placeholder(i18n::text(
+                            locale,
+                            "agent-variant-placeholder",
+                        ))
+                });
+                (agent, input)
+            })
+            .collect::<Vec<_>>();
+        let agent_reasoning_states = BuiltInAgent::ALL
+            .iter()
+            .copied()
+            .map(|agent| {
+                let options = agents::agent_reasoning_options(locale, agent);
+                let value = agent_settings
+                    .launch_overrides
+                    .get(&agent)
+                    .and_then(|overrides| overrides.reasoning_effort.clone());
+                let state = cx.new(|cx| {
+                    SelectState::new(
+                        options.clone(),
+                        options::selected_index(&options, &value),
+                        window,
+                        cx,
+                    )
+                });
+                (agent, state)
+            })
+            .collect::<Vec<_>>();
+
+        let mut panel = Self {
+            locale,
+            section: SettingsSection::General,
+            language,
+            auto_refresh_on_focus,
+            theme,
+            diff_layout,
+            graph_history,
+            ui_font,
+            mono_font,
+            ui_font_size,
+            diff_font_size,
+            agent_settings,
+            agent_override_errors: HashMap::new(),
+            agent_probe_results: Vec::new(),
+            agent_probe_capabilities: HashMap::new(),
+            agent_probe_generation: 0,
+            agent_expanded: HashSet::new(),
+            agent_add_open: false,
+            font_families,
+            language_state,
+            auto_refresh_state,
+            theme_state,
+            diff_layout_state,
+            graph_history_state,
+            ui_font_state,
+            mono_font_state,
+            ui_font_size_state,
+            diff_font_size_state,
+            agent_default_profile_state,
+            agent_executable_inputs,
+            agent_model_inputs,
+            agent_variant_inputs,
+            agent_reasoning_states,
+            agent_profile_editor: None,
+        };
+
+        let language_state_for_events = panel.language_state.clone();
+        cx.subscribe(&language_state_for_events, |panel, _, event, cx| {
+            let SelectEvent::Confirm(Some(value)) = event else {
+                return;
+            };
+            panel.language = *value;
+            cx.emit(SettingsPanelEvent::LanguageChanged(*value));
+        })
+        .detach();
+
+        let auto_refresh_state_for_events = panel.auto_refresh_state.clone();
+        cx.subscribe(&auto_refresh_state_for_events, |panel, _, event, cx| {
+            let SelectEvent::Confirm(Some(value)) = event else {
+                return;
+            };
+            panel.auto_refresh_on_focus = *value;
+            cx.emit(SettingsPanelEvent::AutoRefreshOnFocusChanged(*value));
+        })
+        .detach();
+
+        let theme_state_for_events = panel.theme_state.clone();
+        cx.subscribe(&theme_state_for_events, |panel, _, event, cx| {
+            let SelectEvent::Confirm(Some(value)) = event else {
+                return;
+            };
+            panel.theme = *value;
+            cx.emit(SettingsPanelEvent::ThemeChanged(*value));
+        })
+        .detach();
+
+        let diff_layout_state_for_events = panel.diff_layout_state.clone();
+        cx.subscribe(&diff_layout_state_for_events, |panel, _, event, cx| {
+            let SelectEvent::Confirm(Some(value)) = event else {
+                return;
+            };
+            panel.diff_layout = *value;
+            cx.emit(SettingsPanelEvent::DiffLayoutChanged(*value));
+        })
+        .detach();
+
+        let graph_history_state_for_events = panel.graph_history_state.clone();
+        cx.subscribe(&graph_history_state_for_events, |panel, _, event, cx| {
+            let SelectEvent::Confirm(Some(value)) = event else {
+                return;
+            };
+            panel.graph_history = *value;
+            cx.emit(SettingsPanelEvent::GraphHistoryChanged(*value));
+        })
+        .detach();
+
+        let ui_font_state_for_events = panel.ui_font_state.clone();
+        cx.subscribe(&ui_font_state_for_events, |panel, _, event, cx| {
+            let SelectEvent::Confirm(Some(value)) = event else {
+                return;
+            };
+            panel.ui_font = value.clone();
+            cx.emit(SettingsPanelEvent::UiFontChanged(value.clone()));
+        })
+        .detach();
+
+        let mono_font_state_for_events = panel.mono_font_state.clone();
+        cx.subscribe(&mono_font_state_for_events, |panel, _, event, cx| {
+            let SelectEvent::Confirm(Some(value)) = event else {
+                return;
+            };
+            panel.mono_font = value.clone();
+            cx.emit(SettingsPanelEvent::MonoFontChanged(value.clone()));
+        })
+        .detach();
+
+        let ui_font_size_state_for_events = panel.ui_font_size_state.clone();
+        cx.subscribe(
+            &ui_font_size_state_for_events,
+            |panel, _, event: &SliderEvent, cx| {
+                let SliderEvent::Change(value) = event else {
+                    return;
+                };
+                let size = value.start();
+                if (panel.ui_font_size - size).abs() <= f32::EPSILON {
+                    return;
+                }
+                panel.ui_font_size = size;
+                cx.emit(SettingsPanelEvent::UiFontSizeChanged(size));
+                cx.notify();
+            },
+        )
+        .detach();
+
+        let diff_font_size_state_for_events =
+            panel.diff_font_size_state.clone();
+        cx.subscribe(
+            &diff_font_size_state_for_events,
+            |panel, _, event: &SliderEvent, cx| {
+                let SliderEvent::Change(value) = event else {
+                    return;
+                };
+                let size = value.start();
+                if (panel.diff_font_size - size).abs() <= f32::EPSILON {
+                    return;
+                }
+                panel.diff_font_size = size;
+                cx.emit(SettingsPanelEvent::DiffFontSizeChanged(size));
+                cx.notify();
+            },
+        )
+        .detach();
+
+        panel.wire_agent_subscriptions(cx);
+        panel
+    }
+
+    pub fn set_locale(
+        &mut self,
+        locale: Locale,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.locale = locale;
+        self.agent_profile_editor = None;
+        let language = self.language;
+        let auto_refresh_on_focus = self.auto_refresh_on_focus;
+        let theme = self.theme;
+        let diff_layout = self.diff_layout;
+        let graph_history = self.graph_history;
+        let ui_font = self.ui_font.clone();
+        let mono_font = self.mono_font.clone();
+        let fonts = self.font_families.clone();
+        let agent_settings = self.agent_settings.clone();
+        let agent_default_profile = agent_settings.default_profile_id();
+
+        self.language_state.update(cx, |state, cx| {
+            let options = options::language_options(locale);
+            state.set_items(options, window, cx);
+            state.set_selected_value(&language, window, cx);
+        });
+        self.auto_refresh_state.update(cx, |state, cx| {
+            let options = options::auto_refresh_options(locale);
+            state.set_items(options, window, cx);
+            state.set_selected_value(&auto_refresh_on_focus, window, cx);
+        });
+        self.theme_state.update(cx, |state, cx| {
+            let options = options::theme_options(locale);
+            state.set_items(options, window, cx);
+            state.set_selected_value(&theme, window, cx);
+        });
+        self.diff_layout_state.update(cx, |state, cx| {
+            let options = options::diff_layout_options(locale);
+            state.set_items(options, window, cx);
+            state.set_selected_value(&diff_layout, window, cx);
+        });
+        self.graph_history_state.update(cx, |state, cx| {
+            let options = options::graph_history_options(locale);
+            state.set_items(options, window, cx);
+            state.set_selected_value(&graph_history, window, cx);
+        });
+        self.ui_font_state.update(cx, |state, cx| {
+            let options = options::font_options(locale, &fonts);
+            state.set_items(SearchableVec::from(options), window, cx);
+            state.set_selected_value(&ui_font, window, cx);
+        });
+        self.mono_font_state.update(cx, |state, cx| {
+            let options = options::font_options(locale, &fonts);
+            state.set_items(SearchableVec::from(options), window, cx);
+            state.set_selected_value(&mono_font, window, cx);
+        });
+        self.agent_default_profile_state.update(cx, |state, cx| {
+            let options =
+                agents::agent_profile_options(locale, &agent_settings);
+            state.set_items(options.clone(), window, cx);
+            state.set_selected_value(&agent_default_profile, window, cx);
+        });
+        for (agent, state) in &self.agent_reasoning_states {
+            let options = agents::agent_reasoning_options(locale, *agent);
+            let value = agent_settings
+                .launch_overrides
+                .get(agent)
+                .and_then(|overrides| overrides.reasoning_effort.clone());
+            state.update(cx, |state, cx| {
+                state.set_items(options.clone(), window, cx);
+                state.set_selected_value(&value, window, cx);
+            });
+        }
+        cx.notify();
+    }
+
+    fn select_section(
+        &mut self,
+        section: SettingsSection,
+        cx: &mut Context<Self>,
+    ) {
+        self.section = section;
+        cx.notify();
+    }
+
+    fn close(&mut self, cx: &mut Context<Self>) {
+        self.agent_profile_editor = None;
+        cx.emit(SettingsPanelEvent::Close);
+    }
+
+    fn category_button(
+        &self,
+        id: &'static str,
+        label: String,
+        section: SettingsSection,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selected = self.section == section;
+        let this = cx.entity();
+        // Selected rows use the same accent pair as hovered menu rows so the
+        // label stays readable and inverted on every theme; list_active keeps
+        // the theme foreground, which never flips on light accent blues.
+        div()
+            .id(id)
+            .w_full()
+            .px_3()
+            .py_2()
+            .rounded_md()
+            .text_size(crate::theme::scaled_text_size(12.))
+            .text_color(if selected {
+                cx.theme().accent_foreground
+            } else {
+                cx.theme().colors.muted_foreground
+            })
+            .bg(if selected {
+                cx.theme().tokens.accent.color
+            } else {
+                cx.theme().transparent
+            })
+            .hover(|element| {
+                if selected {
+                    // Keep the accent pairing while hovered; the list hover
+                    // background would hide the inverted label.
+                    element.bg(cx.theme().tokens.accent.color)
+                } else {
+                    element.bg(cx.theme().colors.list_hover)
+                }
+            })
+            .on_click(move |_event, _window, cx| {
+                this.update(cx, |panel, cx| panel.select_section(section, cx));
+            })
+            .child(shared(label))
+    }
+
+    fn field(
+        label: String,
+        control: AnyElement,
+        foreground: Hsla,
+    ) -> impl IntoElement {
+        v_flex()
+            .w_full()
+            .gap_1()
+            .child(
+                div()
+                    .text_size(crate::theme::scaled_text_size(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(foreground)
+                    .child(shared(label)),
+            )
+            .child(control)
+    }
+
+    fn section_content(&self, cx: &mut Context<Self>) -> AnyElement {
+        let colors = cx.theme().colors.clone();
+        let ui_font_size_control = h_flex()
+            .w_full()
+            .items_center()
+            .gap_3()
+            .child(Slider::new(&self.ui_font_size_state).flex_1())
+            .child(
+                div()
+                    .w(px(52.))
+                    .text_size(crate::theme::scaled_text_size(12.))
+                    .text_color(colors.muted_foreground)
+                    .child(shared(format!("{:.0} px", self.ui_font_size))),
+            );
+        let diff_font_size_control = h_flex()
+            .w_full()
+            .items_center()
+            .gap_3()
+            .child(Slider::new(&self.diff_font_size_state).flex_1())
+            .child(
+                div()
+                    .w(px(52.))
+                    .text_size(crate::theme::scaled_text_size(12.))
+                    .text_color(colors.muted_foreground)
+                    .child(shared(format!("{:.0} px", self.diff_font_size))),
+            );
+        match self.section {
+            SettingsSection::General => v_flex()
+                .w_full()
+                .gap_4()
+                .child(
+                    div()
+                        .text_size(crate::theme::scaled_text_size(20.))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(colors.foreground)
+                        .child(shared(i18n::text(
+                            self.locale,
+                            "settings-general",
+                        ))),
+                )
+                .child(Self::field(
+                    i18n::text(self.locale, "language-title"),
+                    Select::new(&self.language_state)
+                        .w_full()
+                        .into_any_element(),
+                    colors.foreground,
+                ))
+                .child(Self::field(
+                    i18n::text(self.locale, "auto-refresh-on-focus-title"),
+                    Select::new(&self.auto_refresh_state)
+                        .w_full()
+                        .into_any_element(),
+                    colors.foreground,
+                ))
+                .into_any_element(),
+            SettingsSection::Appearance => v_flex()
+                .w_full()
+                .gap_4()
+                .child(
+                    div()
+                        .text_size(crate::theme::scaled_text_size(20.))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(colors.foreground)
+                        .child(shared(i18n::text(
+                            self.locale,
+                            "settings-appearance",
+                        ))),
+                )
+                .child(Self::field(
+                    i18n::text(self.locale, "theme-title"),
+                    Select::new(&self.theme_state).w_full().into_any_element(),
+                    colors.foreground,
+                ))
+                .child(Self::field(
+                    i18n::text(self.locale, "ui-font-title"),
+                    Select::new(&self.ui_font_state)
+                        .w_full()
+                        .search_placeholder(i18n::text(
+                            self.locale,
+                            "font-search-placeholder",
+                        ))
+                        .menu_width(px(360.))
+                        .into_any_element(),
+                    colors.foreground,
+                ))
+                .child(Self::field(
+                    i18n::text(self.locale, "mono-font-title"),
+                    Select::new(&self.mono_font_state)
+                        .w_full()
+                        .search_placeholder(i18n::text(
+                            self.locale,
+                            "font-search-placeholder",
+                        ))
+                        .menu_width(px(360.))
+                        .into_any_element(),
+                    colors.foreground,
+                ))
+                .child(Self::field(
+                    i18n::text(self.locale, "ui-font-size-title"),
+                    ui_font_size_control.into_any_element(),
+                    colors.foreground,
+                ))
+                .child(
+                    div()
+                        .text_size(crate::theme::scaled_text_size(12.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text(
+                            self.locale,
+                            "ui-font-size-description",
+                        ))),
+                )
+                .child(Self::field(
+                    i18n::text(self.locale, "diff-font-size-title"),
+                    diff_font_size_control.into_any_element(),
+                    colors.foreground,
+                ))
+                .child(
+                    div()
+                        .text_size(crate::theme::scaled_text_size(12.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text(
+                            self.locale,
+                            "diff-font-size-description",
+                        ))),
+                )
+                .into_any_element(),
+            SettingsSection::Layout => v_flex()
+                .w_full()
+                .gap_4()
+                .child(
+                    div()
+                        .text_size(crate::theme::scaled_text_size(20.))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(colors.foreground)
+                        .child(shared(i18n::text(
+                            self.locale,
+                            "settings-layout",
+                        ))),
+                )
+                .child(Self::field(
+                    i18n::text(self.locale, "diff-layout-title"),
+                    Select::new(&self.diff_layout_state)
+                        .w_full()
+                        .into_any_element(),
+                    colors.foreground,
+                ))
+                .child(Self::field(
+                    i18n::text(self.locale, "graph-history-title"),
+                    Select::new(&self.graph_history_state)
+                        .w_full()
+                        .into_any_element(),
+                    colors.foreground,
+                ))
+                .child(
+                    div()
+                        .text_size(crate::theme::scaled_text_size(12.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text(
+                            self.locale,
+                            "graph-history-description",
+                        ))),
+                )
+                .child(
+                    div()
+                        .text_size(crate::theme::scaled_text_size(12.))
+                        .text_color(colors.muted_foreground)
+                        .child(shared(i18n::text(
+                            self.locale,
+                            "layout-persistence-description",
+                        ))),
+                )
+                .into_any_element(),
+            SettingsSection::Agents => self.render_agents_section(cx),
+        }
+    }
+}
+
+impl Render for SettingsPanel {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let colors = cx.theme().colors.clone();
+        let this = cx.entity();
+        let close = this.clone();
+        let card = h_flex()
+            .id("settings-card")
+            .w(px(760.))
+            .h(relative(0.9))
+            .max_w(px(820.))
+            .min_w(px(620.))
+            .bg(colors.background)
+            .border_1()
+            .border_color(colors.border)
+            .rounded_lg()
+            .when(cx.theme().shadow, |element| element.shadow_lg())
+            .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                window.prevent_default();
+                cx.stop_propagation();
+            })
+            .child(
+                v_flex()
+                    .w(px(172.))
+                    .h_full()
+                    .flex_shrink_0()
+                    .p_3()
+                    .gap_1()
+                    .border_r_1()
+                    .border_color(colors.border)
+                    .child(
+                        div()
+                            .px_2()
+                            .py_2()
+                            .text_size(crate::theme::scaled_text_size(15.))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(colors.foreground)
+                            .child(shared(i18n::text(
+                                self.locale,
+                                "settings-title",
+                            ))),
+                    )
+                    .child(self.category_button(
+                        "settings-category-general",
+                        i18n::text(self.locale, "settings-general"),
+                        SettingsSection::General,
+                        cx,
+                    ))
+                    .child(self.category_button(
+                        "settings-category-appearance",
+                        i18n::text(self.locale, "settings-appearance"),
+                        SettingsSection::Appearance,
+                        cx,
+                    ))
+                    .child(self.category_button(
+                        "settings-category-layout",
+                        i18n::text(self.locale, "settings-layout"),
+                        SettingsSection::Layout,
+                        cx,
+                    ))
+                    .child(self.category_button(
+                        "settings-category-agents",
+                        i18n::text(self.locale, "settings-agents"),
+                        SettingsSection::Agents,
+                        cx,
+                    )),
+            )
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .flex_shrink_0()
+                            .items_center()
+                            .justify_between()
+                            .p_4()
+                            .border_b_1()
+                            .border_color(colors.border)
+                            .child(
+                                div()
+                                    .text_size(crate::theme::scaled_text_size(
+                                        13.,
+                                    ))
+                                    .text_color(colors.muted_foreground)
+                                    .child(shared(i18n::text(
+                                        self.locale,
+                                        "settings-description",
+                                    ))),
+                            )
+                            .child(
+                                Button::new("settings-close")
+                                    .icon(IconName::Close)
+                                    .ghost()
+                                    .small()
+                                    .tooltip(i18n::text(
+                                        self.locale,
+                                        "settings-close",
+                                    ))
+                                    .on_click(move |_event, _window, cx| {
+                                        close.update(cx, |panel, cx| {
+                                            panel.close(cx)
+                                        });
+                                    }),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_y_scrollbar()
+                            .p_6()
+                            .child(self.section_content(cx)),
+                    ),
+            );
+
+        v_flex()
+            .id("settings-overlay")
+            .absolute()
+            .top_0()
+            .left_0()
+            .w_full()
+            .h_full()
+            .bg(colors.background.opacity(0.9))
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
+                this.update(cx, |panel, cx| panel.close(cx));
+            })
+            .child(card)
+            .when_some(self.agent_profile_editor.clone(), |element, editor| {
+                element.child(editor)
+            })
+    }
+}

@@ -420,6 +420,14 @@ fn config_dir() -> PathBuf {
     dir
 }
 
+/// Defaults for a user with no usable config file: no built-in agent is
+/// pre-added, unlike a legacy file that simply lacks the enablement field.
+fn fresh_install_config() -> AppConfig {
+    let mut config = AppConfig::default();
+    config.agent.enabled_builtins = Some(Vec::new());
+    config
+}
+
 pub fn load() -> AppConfig {
     let path = store_path();
     match std::fs::read_to_string(&path) {
@@ -429,9 +437,13 @@ pub fn load() -> AppConfig {
                 log::warn!(
                     "[config] failed to parse config; using defaults: {e}"
                 );
-                AppConfig::default()
+                fresh_install_config()
             }),
-        Err(_) => AppConfig::default(),
+        Err(_) => {
+            // A missing or unreadable config file means a fresh install: no
+            // built-in agent is pre-added, so nothing is probed at startup.
+            fresh_install_config()
+        }
     }
 }
 
@@ -714,9 +726,43 @@ mod tests {
         let config = AppConfig::from(
             serde_json::from_str::<RawAppConfig>(r#"{}"#).unwrap(),
         );
+        // A legacy file (or one without the enablement field) keeps every
+        // built-in agent enabled until the user opts out.
+        assert_eq!(
+            config.agent.enabled_builtins(),
+            vec![
+                BuiltInAgent::Codex,
+                BuiltInAgent::ClaudeCode,
+                BuiltInAgent::OpenCode
+            ]
+        );
         assert_eq!(config.agent.default_profile_id(), "codex");
         assert!(config.agent.custom_profiles.is_empty());
         assert!(config.agent.launch_overrides.is_empty());
+    }
+
+    #[test]
+    fn fresh_installs_start_without_any_builtin_agent() {
+        let config = fresh_install_config();
+        assert!(config.agent.enabled_builtins().is_empty());
+        assert_eq!(config.agent.default_profile_id(), "");
+    }
+
+    #[test]
+    fn explicit_empty_builtins_survive_round_trip() {
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(
+                r#"{"agent":{"enabled_builtins":[]}}"#,
+            )
+            .unwrap(),
+        );
+        assert!(config.agent.enabled_builtins().is_empty());
+        assert_eq!(config.agent.default_profile_id(), "");
+        assert!(config.agent.profile("codex").is_none());
+        let serialized = serde_json::to_string(&config).unwrap();
+        let reparsed =
+            serde_json::from_str::<RawAppConfig>(&serialized).unwrap();
+        assert!(reparsed.agent.enabled_builtins == Some(Vec::new()));
     }
 
     #[test]

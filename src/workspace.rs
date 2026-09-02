@@ -348,6 +348,12 @@ impl Workspace {
                 SettingsPanelEvent::AgentProfileRemoved(profile_id) => {
                     workspace.remove_agent_profile(profile_id, window, cx);
                 }
+                SettingsPanelEvent::AgentBuiltinAddRequested(agent) => {
+                    workspace.add_agent_builtin(*agent, window, cx);
+                }
+                SettingsPanelEvent::AgentBuiltinRemoveRequested(agent) => {
+                    workspace.remove_agent_builtin(*agent, window, cx);
+                }
             },
         )
         .detach();

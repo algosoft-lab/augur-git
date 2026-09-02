@@ -227,6 +227,10 @@ pub struct AgentSettings {
     pub executable_overrides: HashMap<BuiltInAgent, PathBuf>,
     pub launch_overrides: HashMap<BuiltInAgent, AgentLaunchOverrides>,
     pub custom_profiles: Vec<CustomAgentProfile>,
+    /// Built-in agents the user has added. `None` means a legacy config that
+    /// predates opt-in presets and behaves as if all built-ins were enabled;
+    /// `Some(vec![])` deliberately means no built-in agent is configured.
+    pub enabled_builtins: Option<Vec<BuiltInAgent>>,
 }
 
 impl AgentSettings {
@@ -279,10 +283,53 @@ impl AgentSettings {
         }
     }
 
-    pub fn default_profile_id(&self) -> String {
-        self.default_profile_id
+    /// The built-in agents currently added to this configuration. Legacy
+    /// configs without an explicit list behave as if all built-ins were
+    /// enabled so upgrades keep working until the user edits the list.
+    pub fn enabled_builtins(&self) -> Vec<BuiltInAgent> {
+        self.enabled_builtins
             .clone()
-            .unwrap_or_else(|| BuiltInAgent::Codex.id().to_string())
+            .unwrap_or_else(|| BuiltInAgent::ALL.to_vec())
+    }
+
+    /// Add or remove one built-in agent, materializing an explicit list so
+    /// the choice persists even for configs upgraded from a legacy default.
+    pub fn set_builtin_enabled(&mut self, agent: BuiltInAgent, enabled: bool) {
+        let mut list = self.enabled_builtins();
+        if enabled {
+            if !list.contains(&agent) {
+                list.push(agent);
+            }
+        } else {
+            list.retain(|entry| *entry != agent);
+        }
+        // Keep built-in declaration order stable for fallback and display.
+        list.sort_by_key(|entry| {
+            BuiltInAgent::ALL
+                .iter()
+                .position(|agent| agent == entry)
+                .unwrap_or(usize::MAX)
+        });
+        self.enabled_builtins = Some(list);
+    }
+
+    pub fn default_profile_id(&self) -> String {
+        if let Some(id) = self.default_profile_id.as_deref()
+            && self.profile(id).is_some()
+        {
+            return id.to_string();
+        }
+        if let Some(agent) = self.enabled_builtins().into_iter().next() {
+            return agent.id().to_string();
+        }
+        if let Some(profile) = self
+            .custom_profiles
+            .iter()
+            .find(|profile| profile.validate().is_ok())
+        {
+            return profile.id.clone();
+        }
+        String::new()
     }
 
     pub fn profile(&self, id: &str) -> Option<ResolvedAgentProfile> {
@@ -291,6 +338,9 @@ impl AgentSettings {
             .copied()
             .find(|agent| agent.id() == id)
         {
+            if !self.enabled_builtins().contains(&agent) {
+                return None;
+            }
             let executable = self
                 .executable_overrides
                 .get(&agent)
@@ -838,6 +888,56 @@ mod tests {
             ..Default::default()
         };
         assert!(settings.validate().is_err());
+    }
+
+    #[test]
+    fn legacy_settings_keep_all_builtins_enabled() {
+        let settings = AgentSettings::default();
+        assert_eq!(settings.enabled_builtins(), BuiltInAgent::ALL.to_vec());
+        assert_eq!(settings.default_profile_id(), "codex");
+    }
+
+    #[test]
+    fn disabled_builtin_list_hides_profiles_and_clears_the_default() {
+        let settings = AgentSettings {
+            enabled_builtins: Some(Vec::new()),
+            ..Default::default()
+        };
+        assert!(settings.profile("codex").is_none());
+        assert_eq!(settings.default_profile_id(), "");
+        let round_trip: AgentSettings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap())
+                .expect("round trip");
+        assert_eq!(round_trip.enabled_builtins(), Vec::new());
+    }
+
+    #[test]
+    fn enabled_builtins_follow_explicit_list_and_declaration_order() {
+        let mut settings = AgentSettings {
+            enabled_builtins: Some(Vec::new()),
+            ..Default::default()
+        };
+        settings.set_builtin_enabled(BuiltInAgent::OpenCode, true);
+        settings.set_builtin_enabled(BuiltInAgent::ClaudeCode, true);
+        assert_eq!(
+            settings.enabled_builtins(),
+            vec![BuiltInAgent::ClaudeCode, BuiltInAgent::OpenCode]
+        );
+        assert_eq!(settings.default_profile_id(), "claude-code");
+        assert!(settings.profile("codex").is_none());
+
+        settings.set_builtin_enabled(BuiltInAgent::ClaudeCode, false);
+        assert_eq!(settings.default_profile_id(), "opencode");
+    }
+
+    #[test]
+    fn removal_from_legacy_all_materializes_the_explicit_list() {
+        let mut settings = AgentSettings::default();
+        settings.set_builtin_enabled(BuiltInAgent::Codex, false);
+        assert_eq!(
+            settings.enabled_builtins,
+            Some(vec![BuiltInAgent::ClaudeCode, BuiltInAgent::OpenCode,])
+        );
     }
 
     #[test]
