@@ -577,6 +577,7 @@ impl SettingsPanel {
         section: SettingsSection,
         cx: &mut Context<Self>,
     ) {
+        log::debug!("[agent_settings] selecting settings section: {section:?}");
         self.section = section;
         cx.notify();
     }

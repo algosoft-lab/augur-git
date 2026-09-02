@@ -133,12 +133,28 @@ mod tests {
 }
 
 fn main() {
+    configure_windows_error_mode();
     init_logging();
     log::info!("[app] starting augur-git");
 
     let app = gpui_platform::application().with_assets(AppAssets);
     workspace::run(app);
 }
+
+#[cfg(windows)]
+fn configure_windows_error_mode() {
+    use windows_sys::Win32::System::Diagnostics::Debug::{
+        GetErrorMode, SEM_FAILCRITICALERRORS, SetErrorMode,
+    };
+
+    unsafe {
+        let error_mode = GetErrorMode();
+        SetErrorMode(error_mode | SEM_FAILCRITICALERRORS);
+    }
+}
+
+#[cfg(not(windows))]
+fn configure_windows_error_mode() {}
 
 /// Initialize file-only logging without making startup depend on log-file creation.
 fn init_logging() {

@@ -480,6 +480,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        log::info!("[agent_settings] adding built-in agent: {}", agent.id());
         if self.config.agent.enabled_builtins().contains(&agent) {
             return;
         }
@@ -489,7 +490,7 @@ impl Workspace {
             panel.set_agent_settings(settings.clone(), window, cx);
         });
         self.config_saver.schedule(&self.config);
-        log::info!("[agent_terminal] built-in agent added: {}", agent.id());
+        log::info!("[agent_settings] built-in agent added: {}", agent.id());
         cx.notify();
     }
 

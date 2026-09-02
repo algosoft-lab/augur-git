@@ -14,6 +14,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=assets/algogit.ico");
     watch_git_metadata();
+    configure_windows_stack();
 
     let commit = git_commit_hash().unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=AUGUR_GIT_COMMIT={commit}");
@@ -23,6 +24,14 @@ fn main() {
         let mut res = winres::WindowsResource::new();
         res.set_icon("assets/algogit.ico");
         res.compile().expect("Failed to compile Windows resource");
+    }
+}
+
+fn configure_windows_stack() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+    {
+        println!("cargo:rustc-link-arg=/stack:{}", 8 * 1024 * 1024);
     }
 }
 
