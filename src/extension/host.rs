@@ -933,3 +933,70 @@ fn resolve_marker(path: &Path, marker: &str) -> Option<String> {
 fn json_response(value: JsonValue) -> HostResponse {
     HostResponse::Json(value)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use super::*;
+
+    fn temporary_root(label: &str) -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        std::env::temp_dir().join(format!(
+            "augur-git-extension-host-log-{label}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
+
+    fn file_log_request(path: &Path, content: &str) -> ExtensionHostRequest {
+        ExtensionHostRequest {
+            extension_id: "test-extension".into(),
+            run_id: 1,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            request: HostRequest::LogFileAppend {
+                path: path.to_string_lossy().to_string(),
+                content: content.into(),
+            },
+        }
+    }
+
+    #[test]
+    fn file_log_host_request_appends_and_reports_bytes() {
+        let root = temporary_root("append");
+        let path = root.join("nested").join("run.log");
+        let (host, _events) = HostBridge::new(AgentSettings::default());
+
+        let response = host
+            .request(file_log_request(&path, "hello\n"))
+            .expect("host request");
+        assert!(matches!(
+            response,
+            HostResponse::Json(JsonValue::Object(ref object))
+                if object.get("ok") == Some(&JsonValue::Bool(true))
+                    && object.get("bytes_written") == Some(&JsonValue::from(6))
+        ));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "hello\n");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn file_log_host_request_maps_filesystem_failures() {
+        let root = temporary_root("directory");
+        fs::create_dir_all(&root).unwrap();
+        let (host, _events) = HostBridge::new(AgentSettings::default());
+
+        let response = host
+            .request(file_log_request(&root, "content"))
+            .expect("host request");
+        assert!(matches!(
+            response,
+            HostResponse::Failure { ref code, .. }
+                if code == "log_write_failed"
+        ));
+
+        let _ = fs::remove_dir_all(root);
+    }
+}

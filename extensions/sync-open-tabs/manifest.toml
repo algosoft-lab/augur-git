@@ -19,6 +19,12 @@ label = "Default remote"
 description = "Remote used when the current branch has no upstream."
 default = "origin"
 
+[settings.log_path]
+type = "string"
+label = "Log path"
+description = "Absolute path for optional extension logs. Leave empty to disable."
+default = ""
+
 [[events]]
 id = "daily-sync"
 type = "schedule.daily"

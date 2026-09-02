@@ -30,11 +30,16 @@ pub fn bundled_definitions() -> Result<Vec<ExtensionDefinition>, String> {
 #[cfg(test)]
 mod tests {
     use super::bundled_definitions;
+    use crate::core::extension::SettingValue;
 
     #[test]
     fn bundled_sync_extension_is_valid() {
         let definitions = bundled_definitions().expect("bundled manifest");
         assert_eq!(definitions.len(), 1);
         assert_eq!(definitions[0].package.manifest.id, "sync-open-tabs");
+        assert_eq!(
+            definitions[0].package.manifest.default_settings()["log_path"],
+            SettingValue::String(String::new())
+        );
     }
 }
