@@ -153,6 +153,12 @@ See
 [`docs/agent-terminal.md`](docs/agent-terminal.md) for profile configuration,
 executable lookup, lifecycle rules, and troubleshooting.
 
+Lua extensions can automate repository workflows while keeping Git and Agent
+operations in the Rust host. The Extensions page is available from the
+application menu; packages, trust state, scheduling, and the bundled
+`sync-open-tabs` example are documented in
+[`docs/extensions.md`](docs/extensions.md).
+
 ## Supported platforms
 
 | Platform | Status |
@@ -206,6 +212,7 @@ src/
 ├── git/             # GPUI presentation for Git history, changes, and diffs
 ├── agent/            # External Agent profiles and secure launch specs
 ├── terminal/         # Alacritty PTY state machine and Agent terminal view
+├── extension/        # Lua runtime, package manager, host bridge, and workers
 └── theme.rs         # Embedded themes and runtime theme switching
 i18n/                # English and Simplified Chinese translations
 assets/              # Logos, interface icons, and theme definitions

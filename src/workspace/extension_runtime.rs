@@ -124,10 +124,6 @@ impl Workspace {
                 {
                     continue;
                 }
-                let entry =
-                    self.config.extensions.entry(id.clone()).or_default();
-                entry.last_scheduled_date = Some(occurrence_date);
-                self.persist_config();
                 let request = self.extension_request(
                     &id,
                     ExtensionTrigger::Schedule {
@@ -143,10 +139,27 @@ impl Workspace {
                         .as_ref()
                         .map(|manager| manager.run(request))
                     {
-                        Some(Ok(Some(run_id))) => log::info!(
-                            "[extensions] daily run queued: id={id}, run_id={run_id}"
-                        ),
-                        Some(Ok(None)) => {}
+                        Some(Ok(Some(run_id))) => {
+                            if let Some(entry) =
+                                self.config.extensions.get_mut(&id)
+                            {
+                                entry.last_scheduled_date =
+                                    Some(occurrence_date.clone());
+                            }
+                            self.persist_config();
+                            log::info!(
+                                "[extensions] daily run queued: id={id}, run_id={run_id}"
+                            );
+                        }
+                        Some(Ok(None)) => {
+                            if let Some(entry) =
+                                self.config.extensions.get_mut(&id)
+                            {
+                                entry.last_scheduled_date =
+                                    Some(occurrence_date.clone());
+                            }
+                            self.persist_config();
+                        }
                         Some(Err(error)) => log::warn!(
                             "[extensions] daily run rejected: id={id}, error={error}"
                         ),

@@ -468,14 +468,36 @@ pub fn install_local_package(
         package.manifest.id,
         next_package_counter()
     ));
-    copy_package_tree(source, &staging)?;
+    if let Err(error) = copy_package_tree(source, &staging) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
 
     let backup = root.join(format!(
         ".{}.backup-{}",
         package.manifest.id,
         next_package_counter()
     ));
-    let had_existing = destination.exists();
+    let had_existing = match fs::symlink_metadata(&destination) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(ExtensionError::SymlinkNotAllowed(destination));
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(ExtensionError::InvalidManifest(
+                "installed extension path is not a directory".into(),
+            ));
+        }
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(ExtensionError::Io(format!(
+                "failed to inspect installed extension package: {error}"
+            )));
+        }
+    };
     if had_existing {
         fs::rename(&destination, &backup).map_err(|error| {
             let _ = fs::remove_dir_all(&staging);
