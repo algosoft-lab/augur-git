@@ -18,6 +18,7 @@ mod repo_tab;
 mod settings;
 mod tabs;
 mod welcome;
+mod window_lifecycle;
 mod window_state;
 
 use std::collections::HashSet;
@@ -416,17 +417,7 @@ impl Workspace {
         cx.on_app_quit(|workspace, cx| workspace.persist_on_quit(cx))
             .detach();
         #[cfg(target_os = "macos")]
-        {
-            let active = cx.entity().downgrade();
-            cx.on_window_closed(move |cx, _window_id| {
-                if let Some(workspace) = active.upgrade() {
-                    workspace.update(cx, |workspace, cx| {
-                        workspace.persist_ui_state(cx);
-                    });
-                }
-            })
-            .detach();
-        }
+        window_lifecycle::install_window_close_observer(cx);
         workspace
     }
 

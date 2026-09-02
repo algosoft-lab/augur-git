@@ -38,6 +38,11 @@ git = "https://github.com/longbridge/gpui-component"
 [build-dependencies]
 winres = "0.1"
 
+[dev-dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", features = [
+    "test-support",
+] }
+
 [profile.release]
 strip = true
 lto = true

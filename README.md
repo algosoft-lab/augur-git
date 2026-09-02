@@ -180,7 +180,10 @@ Building requires a recent stable Rust toolchain (edition 2024).
   (for example `~/.config/augur-git/config.json` on Linux). Window geometry
   and global panel layout are stored alongside it in `augur-git/ui-state.json`.
 - Debug builds append application logs to `debug.log` in the working directory;
-  release builds do not write a log file. `RUST_LOG` can optionally override
+  release builds append logs to `augur-git/logs/augur-git.log` under the
+  platform's standard local data directory (for example
+  `~/Library/Application Support/augur-git/logs/augur-git.log` on macOS).
+  Release builds never create `debug.log`. `RUST_LOG` can optionally override
   the log level.
 
 ### Packaging

@@ -8,7 +8,7 @@ mod terminal;
 mod theme;
 mod workspace;
 
-#[cfg(debug_assertions)]
+use std::backtrace::Backtrace;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
 
@@ -142,14 +142,31 @@ fn main() {
 /// Initialize file-only logging without making startup depend on log-file creation.
 fn init_logging() {
     let mut builder = env_logger::Builder::from_env(
-        // Normal runs keep only actionable diagnostics in debug.log. Use
-        // `RUST_LOG=info` or `RUST_LOG=debug` when investigating behavior.
-        env_logger::Env::default().default_filter_or("warn"),
+        env_logger::Env::default().default_filter_or(default_log_filter()),
     );
     builder
         .target(env_logger::Target::Pipe(logging_writer()))
         .write_style(env_logger::WriteStyle::Never);
     let _ = builder.try_init();
+    install_panic_hook();
+}
+
+fn default_log_filter() -> &'static str {
+    #[cfg(debug_assertions)]
+    {
+        "warn"
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        "info"
+    }
+}
+
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|panic_info| {
+        let backtrace = Backtrace::force_capture();
+        log::error!("[panic] {panic_info}\n{backtrace}");
+    }));
 }
 
 #[cfg(debug_assertions)]
@@ -166,5 +183,22 @@ fn logging_writer() -> Box<dyn Write + Send> {
 
 #[cfg(not(debug_assertions))]
 fn logging_writer() -> Box<dyn Write + Send> {
-    Box::new(io::sink())
+    let Some(log_directory) = dirs::data_local_dir()
+        .map(|directory| directory.join("augur-git").join("logs"))
+    else {
+        return Box::new(io::sink());
+    };
+
+    if std::fs::create_dir_all(&log_directory).is_err() {
+        return Box::new(io::sink());
+    }
+
+    match OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_directory.join("augur-git.log"))
+    {
+        Ok(file) => Box::new(file),
+        Err(_) => Box::new(io::sink()),
+    }
 }
