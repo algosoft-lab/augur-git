@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{Local, Utc};
 use serde_json::Value as JsonValue;
@@ -271,6 +271,13 @@ impl HostBridge {
         let cancelled = request.cancelled.as_ref();
         let response = match operation {
             RepositoryOperation::Status => unreachable!(),
+            RepositoryOperation::WaitUntilReady { timeout_seconds } => self
+                .wait_until_ready(
+                    tab_id,
+                    &snapshot,
+                    timeout_seconds,
+                    cancelled,
+                ),
             RepositoryOperation::Git {
                 args,
                 label: _,
@@ -406,6 +413,55 @@ impl HostBridge {
             );
         }
         Ok(response)
+    }
+
+    fn wait_until_ready(
+        &self,
+        tab_id: u64,
+        snapshot: &RepositorySnapshot,
+        timeout_seconds: u64,
+        cancelled: &AtomicBool,
+    ) -> HostResponse {
+        let deadline = Instant::now()
+            .checked_add(Duration::from_secs(timeout_seconds.clamp(1, 5 * 60)))
+            .unwrap_or_else(Instant::now);
+        loop {
+            if cancelled.load(Ordering::Acquire) {
+                return HostResponse::Failure {
+                    code: "cancelled".into(),
+                    summary: "extension run cancelled".into(),
+                };
+            }
+            let busy = match self.state.lock() {
+                Ok(state) => match state.repositories.get(&tab_id) {
+                    Some(entry) => entry.snapshot.busy,
+                    None => {
+                        return HostResponse::Failure {
+                            code: "tab_closed".into(),
+                            summary: "repository tab is no longer open".into(),
+                        };
+                    }
+                },
+                Err(_) => {
+                    return HostResponse::Failure {
+                        code: "host_state_unavailable".into(),
+                        summary: "extension host state is poisoned".into(),
+                    };
+                }
+            };
+            if !busy {
+                return self.status_response(snapshot);
+            }
+            if Instant::now() >= deadline {
+                return HostResponse::Failure {
+                    code: "repository_busy_timeout".into(),
+                    summary:
+                        "repository remained busy for the configured timeout"
+                            .into(),
+                };
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
     }
 
     fn status_response(&self, snapshot: &RepositorySnapshot) -> HostResponse {
@@ -761,76 +817,29 @@ impl ExtensionHost for HostBridge {
             .lock()
             .map_err(|_| "extension host state is poisoned".to_string())?;
         let mut touched = HashSet::new();
-        let mut paths = Vec::new();
         for repository in repositories {
             if !touched.insert(repository.tab_id) {
                 continue;
             }
             if !state.repositories.contains_key(&repository.tab_id) {
-                return Ok(ExtensionRunAdmission::Rejected {
-                    code: "tab_closed".into(),
-                    summary: "repository tab is no longer open".into(),
-                });
+                // Keep the closed handle in the Lua context. Its first
+                // operation returns a per-repository `tab_closed` result so
+                // the script can continue with the remaining repositories.
+                continue;
             }
             if let Some(owner) = state.owners.get(&repository.tab_id) {
-                return Ok(ExtensionRunAdmission::Rejected {
-                    code: "repository_busy".into(),
-                    summary: format!(
-                        "repository is already owned by extension run {}",
-                        owner.1
-                    ),
-                });
+                // Ownership is checked per operation as well. Leave this
+                // handle unreserved so one busy repository does not prevent
+                // the extension from processing its other tabs.
+                log::debug!(
+                    "[extension_runtime] repository already owned by run {}",
+                    owner.1
+                );
+                continue;
             }
-            let path = state
-                .repositories
-                .get(&repository.tab_id)
-                .map(|entry| entry.snapshot.path.clone())
-                .ok_or_else(|| {
-                    "repository tab is no longer open".to_string()
-                })?;
-            paths.push((repository.tab_id, path, repository.clone()));
-        }
-        let mut identities = Vec::new();
-        for (tab_id, path, snapshot) in paths {
-            let captured = match automation::capture(Path::new(&path)) {
-                Ok(captured) => captured,
-                Err(summary) => {
-                    return Ok(ExtensionRunAdmission::Rejected {
-                        code: "status_failed".into(),
-                        summary: format!(
-                            "failed to capture repository: {summary}"
-                        ),
-                    });
-                }
-            };
-            if (!snapshot.branch.is_empty()
-                && captured.branch != snapshot.branch)
-                || (snapshot.head.is_some() && captured.head != snapshot.head)
-            {
-                let code = if !snapshot.branch.is_empty()
-                    && captured.branch != snapshot.branch
-                {
-                    "branch_changed"
-                } else {
-                    "head_changed"
-                };
-                return Ok(ExtensionRunAdmission::Rejected {
-                    code: code.into(),
-                    summary: "repository branch or HEAD changed since the trigger snapshot".into(),
-                });
-            }
-            identities.push((tab_id, captured.branch, captured.head));
-        }
-        for tab_id in touched.drain() {
             state
                 .owners
-                .insert(tab_id, (extension_id.to_string(), run_id));
-        }
-        for (tab_id, branch, head) in identities {
-            state.run_identities.insert(
-                (extension_id.to_string(), run_id, tab_id),
-                (branch, head),
-            );
+                .insert(repository.tab_id, (extension_id.to_string(), run_id));
         }
         Ok(ExtensionRunAdmission::Accepted)
     }

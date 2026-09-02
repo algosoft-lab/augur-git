@@ -95,7 +95,7 @@ return {
 The context contains `run_id`, trigger metadata, ISO-8601 schedule/start
 timestamps, read-only setting values, captured repository handles, and a
 `cancelled()` predicate. Repository handles provide `snapshot`, `status`,
-structured `git(args, options)`, `pull_rebase`, `push`, `agent_commit`,
+`wait_until_ready`, structured `git(args, options)`, `pull_rebase`, `push`, `agent_commit`,
 `agent_merge`/`merge`, `agent_rebase`/`rebase`, and merge/rebase recovery
 operations. Git arguments are passed as separate `Command` arguments; no shell
 command string is constructed.

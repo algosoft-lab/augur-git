@@ -225,7 +225,7 @@ pub struct Workspace {
     host_events: Receiver<HostEvent>,
     extension_definitions: Vec<ExtensionDefinition>,
     extension_observed_repositories: BTreeMap<u64, RepositorySnapshot>,
-    extension_pending_origins: HashMap<u64, (String, u64)>,
+    extension_pending_origins: HashMap<u64, (String, u64, Instant)>,
     extension_pending_events:
         HashMap<(String, String), extension_runtime::PendingEventBatch>,
     extension_interval_ticks:

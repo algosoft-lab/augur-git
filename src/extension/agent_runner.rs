@@ -196,7 +196,19 @@ fn bounded_transcript(stdout: &[u8], stderr: &[u8]) -> String {
         bytes.extend_from_slice(stderr);
     }
     bytes.truncate(MAX_AGENT_TRANSCRIPT_BYTES);
-    String::from_utf8_lossy(&bytes).into_owned()
+    let mut transcript = String::from_utf8_lossy(&bytes).into_owned();
+    // Invalid UTF-8 can expand into replacement characters. Keep the public
+    // transcript bounded in bytes even when an Agent emits arbitrary output.
+    if transcript.len() > MAX_AGENT_TRANSCRIPT_BYTES {
+        let boundary = transcript
+            .char_indices()
+            .take_while(|(index, _)| *index < MAX_AGENT_TRANSCRIPT_BYTES)
+            .map(|(index, _)| index)
+            .last()
+            .map_or(0, |index| index);
+        transcript.truncate(boundary);
+    }
+    transcript
 }
 
 fn summarize_agent_output(

@@ -6,6 +6,10 @@ end
 
 local function run_repository(repo, settings)
   local steps = {}
+  local ready = repo:wait_until_ready({ timeout_seconds = 5 * 60 })
+  if not ready.ok then
+    return failure(ready.code or "repository_busy", ready.summary or "repository stayed busy", steps)
+  end
   local state = repo:status()
   if state.operation == "merge" then
     table.insert(steps, "recover existing merge")

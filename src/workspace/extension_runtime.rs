@@ -16,6 +16,8 @@ use super::extensions::ExtensionsPanelEvent;
 use super::extensions_window::ExtensionsWindow;
 use super::{TabContent, Workspace};
 
+const EXTENSION_ORIGIN_TIMEOUT: Duration = Duration::from_secs(30);
+
 pub(super) struct PendingEventBatch {
     pub(super) due_at: Instant,
     pub(super) events: Vec<ExtensionEventPayload>,
@@ -69,6 +71,10 @@ impl Workspace {
                         &mut workspace.ui_state,
                         window,
                     );
+                    // Settings edits are window-local drafts. Closing the
+                    // management window without saving must not leave a
+                    // hidden draft that a later Run Once could commit.
+                    workspace.extension_drafts.clear();
                     workspace.extensions_window = None;
                     workspace.persist_ui_state(cx);
                 });
@@ -117,6 +123,7 @@ impl Workspace {
     }
 
     pub(super) fn close_extensions(&mut self, cx: &mut Context<Self>) {
+        self.extension_drafts.clear();
         if let Some(handle) = self.extensions_window.take() {
             let _ = handle.update(cx, |_extensions, window, _| {
                 window.remove_window();
@@ -165,7 +172,10 @@ impl Workspace {
                     origin_run_id: None,
                 }),
                 Some(old) if repository_state_changed(old, snapshot) => {
-                    let origin = self.extension_pending_origins.remove(tab_id);
+                    let origin =
+                        self.extension_pending_origins.remove(tab_id).map(
+                            |(extension_id, run_id, _)| (extension_id, run_id),
+                        );
                     let event_type = if old.branch != snapshot.branch {
                         "repository.branch_changed"
                     } else {
@@ -200,9 +210,16 @@ impl Workspace {
                 Some(_) => {
                     // A mutating host call can finish without changing the
                     // semantic snapshot (for example an already-up-to-date
-                    // fetch). Do not let its origin suppress a later,
-                    // unrelated repository event.
-                    self.extension_pending_origins.remove(tab_id);
+                    // fetch). Keep the origin briefly while the asynchronous
+                    // Git refresh catches up, then expire it so an unrelated
+                    // later event is not suppressed.
+                    if self.extension_pending_origins.get(tab_id).is_some_and(
+                        |(_, _, observed_at)| {
+                            observed_at.elapsed() >= EXTENSION_ORIGIN_TIMEOUT
+                        },
+                    ) {
+                        self.extension_pending_origins.remove(tab_id);
+                    }
                 }
             }
         }
@@ -1331,8 +1348,10 @@ impl Workspace {
                 origin_extension_id,
                 origin_run_id,
             } => {
-                self.extension_pending_origins
-                    .insert(tab_id, (origin_extension_id, origin_run_id));
+                self.extension_pending_origins.insert(
+                    tab_id,
+                    (origin_extension_id, origin_run_id, Instant::now()),
+                );
                 if let Some(entry) =
                     self.tabs.iter().find(|entry| entry.id == tab_id)
                 {

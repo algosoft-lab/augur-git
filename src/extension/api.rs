@@ -55,6 +55,9 @@ pub struct ExtensionEventPayload {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RepositoryOperation {
     Status,
+    WaitUntilReady {
+        timeout_seconds: u64,
+    },
     Git {
         args: Vec<String>,
         label: String,
@@ -277,7 +280,16 @@ impl RuntimeState {
     }
 
     fn cancellation_hook(&self) -> mlua::Result<VmState> {
-        let invocation = self.invocation()?;
+        let invocation = self.invocation.lock().map_err(|_| {
+            mlua::Error::runtime("extension invocation state is poisoned")
+        })?;
+        // Package initialization runs before a run context exists. The hook
+        // still protects every handler invocation, but must not reject a
+        // long module load merely because there is no active cancellation
+        // flag yet.
+        let Some(invocation) = invocation.as_ref() else {
+            return Ok(VmState::Continue);
+        };
         if invocation.cancelled.load(Ordering::Acquire) {
             Err(mlua::Error::runtime("extension run cancelled"))
         } else {
@@ -785,6 +797,32 @@ impl UserData for LuaRepository {
                 })?,
             )
         });
+        methods.add_method(
+            "wait_until_ready",
+            |lua, repository, options: Option<Table>| {
+                let timeout_seconds = options
+                    .as_ref()
+                    .and_then(|table| {
+                        table
+                            .get::<Option<u64>>("timeout_seconds")
+                            .ok()
+                            .flatten()
+                    })
+                    .unwrap_or(5 * 60)
+                    .clamp(1, 5 * 60);
+                response_to_lua(
+                    lua,
+                    repository.state.request(HostRequest::Repository {
+                        tab_id: repository.snapshot.tab_id,
+                        operation: RepositoryOperation::WaitUntilReady {
+                            timeout_seconds,
+                        },
+                        expected_branch: repository.snapshot.branch.clone(),
+                        expected_head: repository.snapshot.head.clone(),
+                    })?,
+                )
+            },
+        );
         methods.add_method(
             "git",
             |lua, repository, (args, options): (Table, Option<Table>)| {
