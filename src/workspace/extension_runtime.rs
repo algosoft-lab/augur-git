@@ -85,12 +85,20 @@ impl Workspace {
                 }
                 self.extensions_window = Some(handle);
                 self.extensions_panel.update(cx, |panel, cx| {
-                    panel.set_status("sync-open-tabs", "Ready", cx);
+                    panel.set_status(
+                        "sync-open-tabs",
+                        i18n::text(self.locale, "extensions-status-ready"),
+                        cx,
+                    );
                     if let Some(manager) = &self.extension_manager {
                         for (extension_id, run_id) in manager.active_runs() {
                             panel.set_status(
                                 &extension_id,
-                                format!("Active run {run_id}"),
+                                i18n::text_args(
+                                    self.locale,
+                                    "extensions-status-active-run",
+                                    &[("run_id", &run_id.to_string())],
+                                ),
                                 cx,
                             );
                         }
@@ -189,11 +197,18 @@ impl Workspace {
                         });
                     }
                 }
-                _ => {}
+                Some(_) => {
+                    // A mutating host call can finish without changing the
+                    // semantic snapshot (for example an already-up-to-date
+                    // fetch). Do not let its origin suppress a later,
+                    // unrelated repository event.
+                    self.extension_pending_origins.remove(tab_id);
+                }
             }
         }
         for (tab_id, snapshot) in previous {
             if !current.contains_key(&tab_id) {
+                self.extension_pending_origins.remove(&tab_id);
                 self.emit_repository_event(ExtensionEventPayload {
                     trigger_id: String::new(),
                     event_type: "workspace.repository_closed".into(),
@@ -263,7 +278,8 @@ impl Workspace {
                     == Some(extension_id.as_str())
                 {
                     log::debug!(
-                        "[extension_events] suppressed self-origin event: id={extension_id}, type={}",
+                        "[extension_events] suppressed self-origin event: id={extension_id}, run={:?}, type={}",
+                        event.origin_run_id,
                         event.event_type
                     );
                 }
@@ -638,7 +654,14 @@ impl Workspace {
                     Ok(()) => {
                         self.reload_extensions(window, cx);
                         self.extensions_panel.update(cx, |panel, cx| {
-                            panel.set_status(extension_id, "Uninstalled", cx);
+                            panel.set_status(
+                                extension_id,
+                                i18n::text(
+                                    self.locale,
+                                    "extensions-status-uninstalled",
+                                ),
+                                cx,
+                            );
                         });
                         self.config.extensions.remove(extension_id);
                         self.persist_config();
@@ -701,7 +724,10 @@ impl Workspace {
                     self.extensions_panel.update(cx, |panel, cx| {
                         panel.set_status(
                             extension_id,
-                            "Trust this extension before subscribing to events",
+                            i18n::text(
+                                self.locale,
+                                "extensions-status-trust-subscribe",
+                            ),
                             cx,
                         );
                     });
@@ -725,9 +751,17 @@ impl Workspace {
                     panel.set_status(
                         extension_id,
                         if *subscribed {
-                            format!("Subscribed to {}", trigger.label())
+                            i18n::text_args(
+                                self.locale,
+                                "extensions-status-subscribed",
+                                &[("label", trigger.label())],
+                            )
                         } else {
-                            format!("Unsubscribed from {}", trigger.label())
+                            i18n::text_args(
+                                self.locale,
+                                "extensions-status-unsubscribed",
+                                &[("label", trigger.label())],
+                            )
                         },
                         cx,
                     );
@@ -788,19 +822,36 @@ impl Workspace {
                         panel.set_setting_error(extension_id, key, error, cx);
                         panel.set_status(
                             extension_id,
-                            "Invalid setting; fix it before saving or running",
+                            i18n::text(
+                                self.locale,
+                                "extensions-status-invalid-setting",
+                            ),
                             cx,
                         );
                     } else {
                         panel.clear_setting_error(extension_id, key, cx);
-                        panel.set_status(extension_id, "Unsaved settings", cx);
+                        panel.set_status(
+                            extension_id,
+                            i18n::text(
+                                self.locale,
+                                "extensions-status-unsaved-settings",
+                            ),
+                            cx,
+                        );
                     }
                 });
             }
             ExtensionsPanelEvent::SaveSettings(extension_id) => {
                 match self.commit_extension_draft(extension_id, cx) {
                     Ok(()) => self.extensions_panel.update(cx, |panel, cx| {
-                        panel.set_status(extension_id, "Settings saved", cx)
+                        panel.set_status(
+                            extension_id,
+                            i18n::text(
+                                self.locale,
+                                "extensions-status-settings-saved",
+                            ),
+                            cx,
+                        )
                     }),
                     Err(error) => {
                         self.extensions_panel.update(cx, |panel, cx| {
@@ -819,10 +870,15 @@ impl Workspace {
                     panel.set_status(
                         extension_id,
                         if cancelled == 0 {
-                            "No active run to cancel".to_string()
+                            i18n::text(
+                                self.locale,
+                                "extensions-status-no-active-run",
+                            )
                         } else {
-                            format!(
-                                "Cancellation requested for {cancelled} run(s)"
+                            i18n::text_args(
+                                self.locale,
+                                "extensions-status-cancel-requested",
+                                &[("count", &cancelled.to_string())],
                             )
                         },
                         cx,
@@ -861,7 +917,10 @@ impl Workspace {
                     self.extensions_panel.update(cx, |panel, cx| {
                         panel.set_status(
                             extension_id,
-                            "Trust this extension before running it",
+                            i18n::text(
+                                self.locale,
+                                "extensions-status-trust-run",
+                            ),
                             cx,
                         );
                     });
@@ -873,7 +932,10 @@ impl Workspace {
                     self.extensions_panel.update(cx, |panel, cx| {
                         panel.set_status(
                             extension_id,
-                            "No manual handler declared",
+                            i18n::text(
+                                self.locale,
+                                "extensions-status-no-manual-handler",
+                            ),
                             cx,
                         )
                     });
@@ -900,7 +962,11 @@ impl Workspace {
                         self.extensions_panel.update(cx, |panel, cx| {
                             panel.set_status(
                                 extension_id,
-                                format!("Queued run {run_id}"),
+                                i18n::text_args(
+                                    self.locale,
+                                    "extensions-status-queued-run",
+                                    &[("run_id", &run_id.to_string())],
+                                ),
                                 cx,
                             )
                         })
@@ -909,7 +975,10 @@ impl Workspace {
                         self.extensions_panel.update(cx, |panel, cx| {
                             panel.set_status(
                                 extension_id,
-                                "Already queued or running",
+                                i18n::text(
+                                    self.locale,
+                                    "extensions-status-already-running",
+                                ),
                                 cx,
                             )
                         })
@@ -938,6 +1007,7 @@ impl Workspace {
                 "extensions-install-prompt",
             ))),
         });
+        let locale = self.locale;
         let entity = cx.entity();
         cx.spawn_in(window, async move |_, cx| {
             let path = match receiver.await {
@@ -972,7 +1042,10 @@ impl Workspace {
                                 |panel, cx| {
                                     panel.set_status(
                                         "sync-open-tabs",
-                                        "Bundled extensions cannot be replaced",
+                                        i18n::text(
+                                            locale,
+                                            "extensions-status-bundled-replace",
+                                        ),
                                         cx,
                                     )
                                 },
@@ -982,14 +1055,20 @@ impl Workspace {
                         if exists {
                             workspace.pending_extension_install =
                                 Some((id.clone(), path));
-                            workspace.extensions_panel.update(cx, |panel, cx| {
-                                panel.set_pending_install(id, cx);
-                                panel.set_status(
+                            workspace.extensions_panel.update(
+                                cx,
+                                |panel, cx| {
+                                    panel.set_pending_install(id, cx);
+                                    panel.set_status(
                                     "sync-open-tabs",
-                                    "Confirm replacement of the existing extension",
+                                    i18n::text(
+                                        locale,
+                                        "extensions-status-confirm-replacement",
+                                    ),
                                     cx,
                                 );
-                            });
+                                },
+                            );
                         } else {
                             workspace.install_extension_package(
                                 path, id, window, cx,
@@ -1027,7 +1106,11 @@ impl Workspace {
         }
         self.extensions_panel.update(cx, |panel, cx| {
             panel.clear_pending_install(cx);
-            panel.set_status(extension_id, "Replacing extension package", cx);
+            panel.set_status(
+                extension_id,
+                i18n::text(self.locale, "extensions-status-replacing"),
+                cx,
+            );
         });
         self.install_extension_package(
             path,
@@ -1044,6 +1127,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let locale = self.locale;
         let entity = cx.entity();
         cx.spawn_in(window, async move |_, cx| {
             let result = cx
@@ -1059,9 +1143,15 @@ impl Workspace {
                             panel.set_status(
                                 &id,
                                 if id == extension_id {
-                                    "Installed and reloaded"
+                                    i18n::text(
+                                        locale,
+                                        "extensions-status-installed",
+                                    )
                                 } else {
-                                    "Installed package with a different id"
+                                    i18n::text(
+                                        locale,
+                                        "extensions-status-installed-different-id",
+                                    )
                                 },
                                 cx,
                             )
@@ -1099,6 +1189,11 @@ impl Workspace {
             });
             return;
         }
+        // Package code and trigger declarations may have changed. Pending
+        // payloads and interval anchors belong to the old definitions and
+        // must not be replayed against newly loaded Lua VMs.
+        self.extension_pending_events.clear();
+        self.extension_interval_ticks.clear();
         for definition in &definitions {
             let id = definition.package.manifest.id.clone();
             let entry = self.config.extensions.entry(id).or_insert_with(|| {
@@ -1111,7 +1206,11 @@ impl Workspace {
         self.extension_definitions = definitions.clone();
         self.extensions_panel.update(cx, |panel, cx| {
             panel.replace_definitions(definitions, &self.config, window, cx);
-            panel.set_status("sync-open-tabs", "Extensions reloaded", cx);
+            panel.set_status(
+                "sync-open-tabs",
+                i18n::text(self.locale, "extensions-status-reloaded"),
+                cx,
+            );
         });
         self.sync_extension_repositories(cx);
         self.persist_config();
@@ -1129,7 +1228,11 @@ impl Workspace {
             } => self.extensions_panel.update(cx, |panel, cx| {
                 panel.set_status(
                     &extension_id,
-                    format!("Queued run {run_id}"),
+                    i18n::text_args(
+                        self.locale,
+                        "extensions-status-queued-run",
+                        &[("run_id", &run_id.to_string())],
+                    ),
                     cx,
                 )
             }),
@@ -1137,7 +1240,15 @@ impl Workspace {
                 extension_id,
                 run_id,
             } => self.extensions_panel.update(cx, |panel, cx| {
-                panel.set_status(&extension_id, format!("Running {run_id}"), cx)
+                panel.set_status(
+                    &extension_id,
+                    i18n::text_args(
+                        self.locale,
+                        "extensions-status-run-running",
+                        &[("run_id", &run_id.to_string())],
+                    ),
+                    cx,
+                )
             }),
             ExtensionEvent::WorkerError {
                 extension_id,
@@ -1162,8 +1273,23 @@ impl Workspace {
                     panel.append_history(&extension_id, record, cx)
                 });
                 let status = error
-                    .map(|error| format!("Run {run_id} failed: {error}"))
-                    .unwrap_or_else(|| format!("Run {run_id} completed"));
+                    .map(|error| {
+                        i18n::text_args(
+                            self.locale,
+                            "extensions-status-run-failed",
+                            &[
+                                ("run_id", &run_id.to_string()),
+                                ("error", &error),
+                            ],
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        i18n::text_args(
+                            self.locale,
+                            "extensions-status-run-completed",
+                            &[("run_id", &run_id.to_string())],
+                        )
+                    });
                 self.extensions_panel.update(cx, |panel, cx| {
                     panel.set_status(&extension_id, status, cx)
                 });

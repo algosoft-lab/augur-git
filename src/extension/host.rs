@@ -241,8 +241,17 @@ impl HostBridge {
         if matches!(operation, RepositoryOperation::Status) {
             return Ok(self.status_response(&snapshot));
         }
-        self.check_owner(tab_id, &request.extension_id, request.run_id)
-            .map_err(|summary| summary)?;
+        if let Err(summary) =
+            self.check_owner(tab_id, &request.extension_id, request.run_id)
+        {
+            // A lease race is an expected business failure. Keep it in the
+            // structured Lua result so one repository does not abort the
+            // extension's remaining sequential work.
+            return Ok(HostResponse::Failure {
+                code: "repository_busy".into(),
+                summary,
+            });
+        }
         let (identity_branch, identity_head) = self.run_identity(
             &request.extension_id,
             request.run_id,

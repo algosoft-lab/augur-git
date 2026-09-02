@@ -258,11 +258,13 @@ impl ExtensionManager {
         }
         let key = run_key(&request);
         let extension_id_for_log = request.extension_id.clone();
-        let mut pending = self
-            .pending
-            .lock()
-            .map_err(|_| "extension queue state is unavailable".to_string())?;
-        if !pending.insert(key.clone()) {
+        let already_pending = {
+            let mut pending = self.pending.lock().map_err(|_| {
+                "extension queue state is unavailable".to_string()
+            })?;
+            !pending.insert(key.clone())
+        };
+        if already_pending {
             if !request.events.is_empty() {
                 let mut coalesced = self.coalesced.lock().map_err(|_| {
                     "extension coalescing state is unavailable".to_string()
@@ -298,9 +300,11 @@ impl ExtensionManager {
             cancelled,
         };
         if self.queue_tx.send(QueueCommand::Enqueue(job)).is_err() {
-            pending.remove(&key);
-            if let Ok(mut coalesced) = self.coalesced.lock() {
-                coalesced.remove(&key);
+            if let Ok(mut pending) = self.pending.lock() {
+                pending.remove(&key);
+                if let Ok(mut coalesced) = self.coalesced.lock() {
+                    coalesced.remove(&key);
+                }
             }
             if let Ok(mut cancellations) = self.cancellations.lock() {
                 cancellations.remove(&run_id);
@@ -502,60 +506,68 @@ fn dispatcher_loop(
             extension_id: job.extension_id.clone(),
             run_id: job.run_id,
         });
-        let result = match host.begin_run(
-            &job.extension_id,
-            job.run_id,
-            &request.repositories,
-        ) {
-            Err(error) => Err(ExtensionRuntimeError::Lua(error)),
-            Ok(ExtensionRunAdmission::Rejected { code, summary }) => {
-                Ok(serde_json::json!({
-                    "ok": false,
-                    "code": code,
-                    "summary": summary,
-                }))
-            }
-            Ok(ExtensionRunAdmission::Accepted) => {
-                let _ = event_tx.send(ExtensionEvent::RunStarted {
-                    extension_id: job.extension_id.clone(),
-                    run_id: job.run_id,
-                });
-                let invocation = ExtensionInvocation {
-                    extension_id: job.extension_id.clone(),
-                    run_id: job.run_id,
-                    trigger: request.trigger.clone(),
-                    scheduled_at: request.scheduled_at,
-                    started_at,
-                    settings: request.settings.clone(),
-                    repositories: request.repositories.clone(),
-                    events: request.events.clone(),
-                    cancelled: job.cancelled.clone(),
-                };
-                let (completed_tx, completed_rx) = mpsc::channel();
-                let sent = workers
-                    .lock()
-                    .ok()
-                    .and_then(|workers| {
-                        workers
-                            .get(&job.extension_id)
-                            .map(|worker| worker.tx.clone())
-                    })
-                    .map(|tx| {
-                        tx.send(WorkerCommand::Run {
-                            invocation,
-                            handler: request.handler.clone(),
-                            completed: completed_tx,
-                        })
+        let result = if job.cancelled.load(Ordering::Acquire) {
+            Err(ExtensionRuntimeError::Lua(
+                "extension run cancelled before start".into(),
+            ))
+        } else {
+            match host.begin_run(
+                &job.extension_id,
+                job.run_id,
+                &request.repositories,
+            ) {
+                Err(error) => Err(ExtensionRuntimeError::Lua(error)),
+                Ok(ExtensionRunAdmission::Rejected { code, summary }) => {
+                    Ok(serde_json::json!({
+                        "ok": false,
+                        "code": code,
+                        "summary": summary,
+                    }))
+                }
+                Ok(ExtensionRunAdmission::Accepted) => {
+                    let _ = event_tx.send(ExtensionEvent::RunStarted {
+                        extension_id: job.extension_id.clone(),
+                        run_id: job.run_id,
                     });
-                match sent {
-                    Some(Ok(())) => completed_rx.recv().unwrap_or_else(|_| {
-                        Err(ExtensionRuntimeError::Lua(
-                            "extension worker exited".into(),
-                        ))
-                    }),
-                    Some(Err(_)) | None => Err(ExtensionRuntimeError::Lua(
-                        "extension worker is unavailable".into(),
-                    )),
+                    let invocation = ExtensionInvocation {
+                        extension_id: job.extension_id.clone(),
+                        run_id: job.run_id,
+                        trigger: request.trigger.clone(),
+                        scheduled_at: request.scheduled_at,
+                        started_at,
+                        settings: request.settings.clone(),
+                        repositories: request.repositories.clone(),
+                        events: request.events.clone(),
+                        cancelled: job.cancelled.clone(),
+                    };
+                    let (completed_tx, completed_rx) = mpsc::channel();
+                    let sent = workers
+                        .lock()
+                        .ok()
+                        .and_then(|workers| {
+                            workers
+                                .get(&job.extension_id)
+                                .map(|worker| worker.tx.clone())
+                        })
+                        .map(|tx| {
+                            tx.send(WorkerCommand::Run {
+                                invocation,
+                                handler: request.handler.clone(),
+                                completed: completed_tx,
+                            })
+                        });
+                    match sent {
+                        Some(Ok(())) => {
+                            completed_rx.recv().unwrap_or_else(|_| {
+                                Err(ExtensionRuntimeError::Lua(
+                                    "extension worker exited".into(),
+                                ))
+                            })
+                        }
+                        Some(Err(_)) | None => Err(ExtensionRuntimeError::Lua(
+                            "extension worker is unavailable".into(),
+                        )),
+                    }
                 }
             }
         };
@@ -656,10 +668,32 @@ fn dispatcher_loop(
             error,
         });
         let key = run_key(&request);
-        let follow_up = coalesced
-            .lock()
-            .ok()
-            .and_then(|mut coalesced| coalesced.remove(&key));
+        // Keep `pending` and `coalesced` in this order everywhere. `run`
+        // inserts into the former before it can merge into the latter, so
+        // reversing the order here would allow a shutdown race to deadlock.
+        let follow_up = {
+            let mut pending_guard = pending.lock().ok();
+            let mut coalesced_guard = coalesced.lock().ok();
+            let follow_up = coalesced_guard
+                .as_mut()
+                .and_then(|coalesced| coalesced.remove(&key));
+            if follow_up.is_none() {
+                if let Some(pending) = pending_guard.as_mut() {
+                    pending.remove(&key);
+                }
+            }
+            if job.cancelled.load(Ordering::Acquire) {
+                // Cancellation applies to the current run and any trailing
+                // event batch that was waiting behind it. Do not restart work
+                // after the user revoked trust or confirmed shutdown.
+                if let Some(pending) = pending_guard.as_mut() {
+                    pending.remove(&key);
+                }
+                None
+            } else {
+                follow_up
+            }
+        };
         if let Some(mut request) = follow_up {
             request
                 .repositories
@@ -681,8 +715,6 @@ fn dispatcher_loop(
             log::info!(
                 "[extensions] queued trailing coalesced trigger: key={key}, run_id={run_id}"
             );
-        } else if let Ok(mut pending) = pending.lock() {
-            pending.remove(&key);
         }
         if let Ok(mut cancellations) = cancellations.lock() {
             cancellations.remove(&job.run_id);
@@ -929,6 +961,70 @@ mod tests {
             }
         }
         assert!(saw_error, "invalid source should fail on invocation");
+        manager.shutdown();
+    }
+
+    #[test]
+    fn cancellation_skips_a_queued_run_and_trailing_batch() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let release = Arc::new(std::sync::Barrier::new(2));
+        let host: Arc<dyn ExtensionHost> = Arc::new(BlockingHost {
+            started: started_tx,
+            release: release.clone(),
+        });
+        let (manager, events) = ExtensionManager::new(
+            vec![
+                definition(
+                    "blocking-extension",
+                    r#"local augur = require("augur"); return {on_run = function() augur.log("info", "started") return {ok=true} end}"#,
+                ),
+                definition(
+                    "queued-extension",
+                    r#"return {on_run = function() return {ok=true, summary="must not run"} end}"#,
+                ),
+            ],
+            host,
+        )
+        .expect("manager");
+
+        manager
+            .run(request("blocking-extension"))
+            .expect("blocking run")
+            .expect("blocking run id");
+        started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("first run should reach host");
+        let queued_id = manager
+            .run(request("queued-extension"))
+            .expect("queued run")
+            .expect("queued run id");
+        assert!(manager.cancel(queued_id));
+        release.wait();
+
+        let mut cancelled_summary = None;
+        let mut finished = 0;
+        while finished < 2 {
+            match events.recv_timeout(Duration::from_secs(2)) {
+                Ok(ExtensionEvent::RunFinished { run_id, error, .. }) => {
+                    finished += 1;
+                    if run_id == queued_id {
+                        cancelled_summary = error;
+                    }
+                }
+                Ok(_) => {}
+                Err(RecvTimeoutError::Timeout) => {
+                    panic!("queued cancellation did not finish")
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!("manager event stream disconnected")
+                }
+            }
+        }
+        assert!(
+            cancelled_summary
+                .as_deref()
+                .is_some_and(|summary| summary.contains("cancelled"))
+        );
         manager.shutdown();
     }
 }

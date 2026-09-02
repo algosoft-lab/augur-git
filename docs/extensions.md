@@ -30,6 +30,24 @@ legacy `[[daily]]` declaration is accepted and normalized to a
 `schedule.daily` event. The bundled `extensions/sync-open-tabs` package is a
 complete reference package.
 
+Events are independent subscriptions. A package can expose a manual handler
+and any combination of `schedule.daily`, `schedule.interval`,
+`workspace.repository_opened`, `workspace.repository_closed`,
+`repository.branch_changed`, and `repository.status_changed` handlers:
+
+```toml
+[[events]]
+id = "daily-sync"
+type = "schedule.daily"
+label = "Daily sync"
+handler = "on_schedule"
+time_setting = "sync_time"
+```
+
+`Run once` invokes the manifest's manual handler and does not change event
+subscriptions. Event subscriptions remain active after the management window
+is closed; they are only evaluated while the application process is running.
+
 Local packages are installed under the platform data directory:
 
 * Windows: `%LOCALAPPDATA%\\augur-git\\extensions\\<id>`
@@ -118,5 +136,5 @@ log:
 
 ```text
 cargo run
-rg "\\[(extensions|extension_sync|agent_operation|git_command)\\]" debug.log > extension-debug.log
+rg "\\[(extensions|extension_events|extension_runtime|extension_sync|agent_operation|git_command)\\]" debug.log > extension-debug.log
 ```

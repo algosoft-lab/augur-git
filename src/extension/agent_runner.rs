@@ -41,6 +41,9 @@ pub(super) fn agent_response(
         "cancelled": result.cancelled,
         "timed_out": result.timed_out,
         "summary": if verified { summary } else { result.summary.as_str() },
+        // Keep the transcript in the in-memory Lua result only. The manager
+        // stores a bounded run summary and never serializes this field.
+        "transcript": result.transcript,
     }))
 }
 

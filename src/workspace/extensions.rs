@@ -18,8 +18,8 @@ use gpui_component::{
 
 use crate::core::config::AppConfig;
 use crate::core::extension::{
-    EventTrigger, ExtensionRunRecord, ExtensionSettings, ExtensionSource,
-    RepositoryRunResult, SettingDefinition, SettingValue,
+    EventTrigger, ExtensionRunRecord, ExtensionRunTrigger, ExtensionSettings,
+    ExtensionSource, RepositoryRunResult, SettingDefinition, SettingValue,
 };
 use crate::core::i18n::{self, Locale};
 use crate::extension::{ExtensionDefinition, load_run_history};
@@ -665,6 +665,7 @@ impl Render for ExtensionsPanel {
             .collect::<Vec<_>>()
             .join(" · ");
             let history = row.history.iter().rev().take(3).map(|record| {
+                let trigger = trigger_display(locale, &record.trigger);
                 let repository_summary = record
                     .repositories
                     .iter()
@@ -699,6 +700,7 @@ impl Render for ExtensionsPanel {
                             "extensions-history-run",
                             &[
                                 ("run_id", &record.run_id.to_string()),
+                                ("trigger", &trigger),
                                 ("summary", &record.summary),
                             ],
                         ),
@@ -722,6 +724,11 @@ impl Render for ExtensionsPanel {
                     let extension_id = id.clone();
                     let subscribed = row.settings.is_subscribed(&trigger_id);
                     let panel = this.clone();
+                    let subscription_label = if subscribed {
+                        subscribed_label.clone()
+                    } else {
+                        subscribe_label.clone()
+                    };
                     let mut label =
                         format!("{} · {}", trigger.label(), trigger.event_type);
                     if let Some(description) = trigger.description.as_deref() {
@@ -746,25 +753,31 @@ impl Render for ExtensionsPanel {
                                 .child(SharedString::from(label)),
                         )
                         .child(
-                            Button::new(SharedString::from(format!(
-                                "extension-event-{extension_id}-{trigger_id}"
-                            )))
-                            .label(if subscribed {
-                                subscribed_label.clone()
-                            } else {
-                                subscribe_label.clone()
-                            })
-                            .ghost()
-                            .small()
-                            .on_click(move |_event, _window, cx| {
-                                panel.update(cx, |_panel, cx| {
-                                    cx.emit(ExtensionsPanelEvent::SubscriptionChanged {
-                                        extension_id: extension_id.clone(),
-                                        trigger_id: trigger_id.clone(),
-                                        subscribed: !subscribed,
-                                    });
-                                });
-                            }),
+                            h_flex()
+                                .items_center()
+                                .gap_1()
+                                .child(
+                                    Switch::new(SharedString::from(format!(
+                                        "extension-event-{extension_id}-{trigger_id}"
+                                    )))
+                                    .small()
+                                    .checked(subscribed)
+                                    .on_click(move |_event, _window, cx| {
+                                        panel.update(cx, |_panel, cx| {
+                                            cx.emit(ExtensionsPanelEvent::SubscriptionChanged {
+                                                extension_id: extension_id.clone(),
+                                                trigger_id: trigger_id.clone(),
+                                                subscribed: !subscribed,
+                                            });
+                                        });
+                                    }),
+                                )
+                                .child(
+                                    div()
+                                        .text_color(colors.muted_foreground)
+                                        .text_size(crate::theme::scaled_text_size(10.))
+                                        .child(SharedString::from(subscription_label)),
+                                ),
                         )
                         .into_any_element()
                 })
@@ -1033,6 +1046,26 @@ fn setting_display(value: &SettingValue) -> String {
         | SettingValue::Select(value) => value.clone(),
         SettingValue::Integer(value) => value.to_string(),
         SettingValue::Boolean(value) => value.to_string(),
+    }
+}
+
+fn trigger_display(locale: Locale, trigger: &ExtensionRunTrigger) -> String {
+    match trigger {
+        ExtensionRunTrigger::Manual => {
+            i18n::text(locale, "extensions-history-trigger-manual")
+        }
+        ExtensionRunTrigger::Schedule {
+            trigger_id,
+            event_type,
+        }
+        | ExtensionRunTrigger::Repository {
+            trigger_id,
+            event_type,
+        } => i18n::text_args(
+            locale,
+            "extensions-history-trigger-event",
+            &[("event_type", event_type), ("trigger_id", trigger_id)],
+        ),
     }
 }
 
