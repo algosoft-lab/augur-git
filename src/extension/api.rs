@@ -167,6 +167,7 @@ impl From<&ExtensionTrigger> for ExtensionRunTrigger {
 
 #[derive(Clone)]
 pub struct ExtensionInvocation {
+    #[allow(dead_code)]
     pub extension_id: String,
     pub run_id: u64,
     pub trigger: ExtensionTrigger,
