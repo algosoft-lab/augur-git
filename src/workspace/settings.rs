@@ -1389,12 +1389,21 @@ impl SettingsPanel {
                             ))),
                     )
                     .child(Self::field(
-                        i18n::text(self.locale, "agent-default-profile-title"),
+                        i18n::text(self.locale, "agent-current-profile-title"),
                         Select::new(&self.agent_default_profile_state)
                             .w_full()
                             .into_any_element(),
                         colors.foreground,
                     ))
+                    .child(
+                        div()
+                            .text_size(crate::theme::scaled_text_size(12.))
+                            .text_color(colors.muted_foreground)
+                            .child(shared(i18n::text(
+                                self.locale,
+                                "agent-current-profile-description",
+                            ))),
+                    )
                     .child(
                         div()
                             .text_size(crate::theme::scaled_text_size(12.))
