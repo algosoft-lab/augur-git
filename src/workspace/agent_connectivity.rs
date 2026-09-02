@@ -2551,7 +2551,16 @@ fn prepare_merge(
 ) -> Result<PreparedMerge, String> {
     let target_oid = resolve_agent_merge_target(repo_path, source)?;
     let probe = probe_agent_merge(repo_path, &target_oid)?;
-    if has_other_git_operation(repo_path)? {
+    let has_other_operation = has_other_git_operation(repo_path)?;
+    log::debug!(
+        "[agent_terminal] merge preflight probe: head_present={}, merge_head_present={}, changes={}, conflicts={}, other_operation={}",
+        probe.head.is_some(),
+        probe.merge_head.is_some(),
+        probe.has_changes,
+        probe.has_conflicts,
+        has_other_operation,
+    );
+    if has_other_operation {
         return Err(
             "another Git operation is already in progress; finish or abort it first"
                 .to_string(),
@@ -2594,7 +2603,16 @@ fn prepare_merge_resolution(
     baseline_head: Option<&str>,
 ) -> Result<PreparedMerge, String> {
     let probe = probe_agent_merge(repo_path, merge_head)?;
-    if has_other_git_operation(repo_path)? {
+    let has_other_operation = has_other_git_operation(repo_path)?;
+    log::debug!(
+        "[agent_terminal] merge resolution preflight probe: head_present={}, merge_head_present={}, changes={}, conflicts={}, other_operation={}",
+        probe.head.is_some(),
+        probe.merge_head.is_some(),
+        probe.has_changes,
+        probe.has_conflicts,
+        has_other_operation,
+    );
+    if has_other_operation {
         return Err(
             "another Git operation is already in progress; finish or abort it first"
                 .to_string(),
@@ -2625,6 +2643,9 @@ pub(super) fn open_merge(
     source: String,
     cx: &mut Context<Workspace>,
 ) {
+    log::info!(
+        "[agent_terminal] Merge by AI requested: tab={tab_id}, source_present=true"
+    );
     open_merge_preflight(workspace, tab_id, repo_path, Some(source), cx);
 }
 
@@ -2637,6 +2658,9 @@ pub(super) fn open_merge_resolution(
     baseline_head: Option<String>,
     cx: &mut Context<Workspace>,
 ) {
+    log::info!(
+        "[agent_terminal] merge conflict resolution requested: tab={tab_id}"
+    );
     let key = merge_key(&repo_path);
     workspace
         .agent_sessions
@@ -2647,6 +2671,9 @@ pub(super) fn open_merge_resolution(
                 && handle.read(cx).is_ok_and(|session| session.is_running())
         })
     {
+        log::debug!(
+            "[agent_terminal] merge resolution activated existing session: tab={tab_id}"
+        );
         let _ = handle.update(cx, |_, window, _| window.activate_window());
         return;
     }
@@ -2655,6 +2682,9 @@ pub(super) fn open_merge_resolution(
         .iter()
         .any(|entry| entry == &key)
     {
+        log::debug!(
+            "[agent_terminal] merge resolution ignored: preflight already running"
+        );
         return;
     }
     workspace.agent_preflight_keys.insert(key.clone());
@@ -2677,13 +2707,22 @@ pub(super) fn open_merge_resolution(
             workspace.agent_preflight_keys.retain(|entry| entry != &key);
             match result {
                 Ok(prepared) => {
+                    log::info!(
+                        "[agent_terminal] merge resolution preflight passed: tab={tab_id}"
+                    );
                     start_merge_session(workspace, tab_id, path, prepared, cx)
                 }
-                Err(error) => workspace.agent_merge_preflight_failed(
-                    tab_id,
-                    first_line(&error).to_string(),
-                    cx,
-                ),
+                Err(error) => {
+                    log::warn!(
+                        "[agent_terminal] merge resolution preflight failed: {}",
+                        log_summary(&error)
+                    );
+                    workspace.agent_merge_preflight_failed(
+                        tab_id,
+                        first_line(&error).to_string(),
+                        cx,
+                    )
+                }
             }
         });
     })
@@ -2697,6 +2736,11 @@ fn open_merge_preflight(
     source: Option<String>,
     cx: &mut Context<Workspace>,
 ) {
+    log::debug!(
+        "[agent_terminal] merge preflight started: tab={}, source_present={}",
+        tab_id,
+        source.is_some()
+    );
     let key = merge_key(&repo_path);
     workspace
         .agent_sessions
@@ -2711,6 +2755,9 @@ fn open_merge_preflight(
                     && handle.read(cx).is_ok_and(|session| session.is_running())
             })
         {
+            log::debug!(
+                "[agent_terminal] merge activated existing session: tab={tab_id}"
+            );
             let _ = handle.update(cx, |_, window, _| window.activate_window());
         }
         return;
@@ -2720,6 +2767,9 @@ fn open_merge_preflight(
         .iter()
         .any(|entry| entry == &key)
     {
+        log::debug!(
+            "[agent_terminal] merge ignored: preflight already running"
+        );
         return;
     }
     workspace.agent_preflight_keys.insert(key.clone());
@@ -2738,13 +2788,22 @@ fn open_merge_preflight(
             workspace.agent_preflight_keys.retain(|entry| entry != &key);
             match result {
                 Ok(prepared) => {
+                    log::info!(
+                        "[agent_terminal] merge preflight passed: tab={tab_id}"
+                    );
                     start_merge_session(workspace, tab_id, path, prepared, cx)
                 }
-                Err(error) => workspace.agent_merge_preflight_failed(
-                    tab_id,
-                    first_line(&error).to_string(),
-                    cx,
-                ),
+                Err(error) => {
+                    log::warn!(
+                        "[agent_terminal] merge preflight failed: {}",
+                        log_summary(&error)
+                    );
+                    workspace.agent_merge_preflight_failed(
+                        tab_id,
+                        first_line(&error).to_string(),
+                        cx,
+                    )
+                }
             }
         });
     })
@@ -2769,8 +2828,13 @@ fn start_merge_session(
         })
         .unwrap_or(true);
     if tab_busy {
-        log::info!(
-            "[agent_terminal] merge preflight completed after the repository became busy"
+        log::warn!(
+            "[agent_terminal] merge preflight stopped: repository became busy before launch"
+        );
+        workspace.agent_merge_preflight_failed(
+            tab_id,
+            i18n::text(workspace.locale, "agent-merge-repository-busy"),
+            cx,
         );
         return;
     }
@@ -3315,6 +3379,11 @@ impl Workspace {
         summary: String,
         cx: &mut Context<Self>,
     ) {
+        log::warn!(
+            "[agent_terminal] merge preflight failure surfaced: tab={}, {}",
+            tab_id,
+            log_summary(&summary)
+        );
         if let Some(entry) = self.tabs.iter().find(|entry| entry.id == tab_id)
             && let super::TabContent::Repo(tab) = &entry.content
         {
@@ -3403,6 +3472,12 @@ impl Workspace {
 
 fn first_line(value: &str) -> &str {
     value.lines().next().unwrap_or(value)
+}
+
+/// Keep diagnostic log entries bounded and single-line without recording the
+/// prompt, terminal output, or repository path.
+fn log_summary(value: &str) -> String {
+    first_line(value).chars().take(240).collect()
 }
 
 fn format_exit_code(code: Option<i32>) -> String {

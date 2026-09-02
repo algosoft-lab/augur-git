@@ -387,6 +387,7 @@ agent-merge-failed = Agent did not complete the merge.
 agent-merge-cancelled = Agent merge was cancelled.
 agent-merge-unverified = Agent exited without a verified merge (code: { $code }).
 agent-merge-preflight-failed = Merge by AI was not started: { $error }
+agent-merge-repository-busy = The repository became busy before the Agent could start. Try again after the current operation finishes.
 agent-rebase-window-title = Agent rebase
 agent-rebase-status-starting = Starting rebase session
 agent-rebase-status-running = Agent is working on the rebase

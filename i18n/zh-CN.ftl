@@ -386,6 +386,7 @@ agent-merge-failed = Agent 未完成合并。
 agent-merge-cancelled = Agent 合并已取消。
 agent-merge-unverified = Agent 已退出但未确认合并（退出码：{ $code }）。
 agent-merge-preflight-failed = 未启动 AI 合并：{ $error }
+agent-merge-repository-busy = 当前仓库在 Agent 启动前变为忙碌状态，请等待当前操作完成后重试。
 agent-rebase-window-title = Agent 变基
 agent-rebase-status-starting = 正在启动变基会话
 agent-rebase-status-running = Agent 正在处理变基

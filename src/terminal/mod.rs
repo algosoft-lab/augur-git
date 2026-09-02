@@ -5,7 +5,7 @@
 //! and ANSI state machine.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
@@ -161,6 +161,10 @@ pub struct TerminalBackend {
     shutdown_requested: AtomicBool,
     geometry: Mutex<TerminalGeometry>,
     viewport_generation: AtomicU64,
+    /// Completion probes only remember the small set of markers they have
+    /// already observed. This avoids retaining a terminal transcript while
+    /// still handling TUI redraws that erase a marker before the next poll.
+    observed_text: Mutex<HashSet<String>>,
 }
 
 impl TerminalBackend {
@@ -267,6 +271,7 @@ impl TerminalBackend {
             shutdown_requested: AtomicBool::new(false),
             geometry: Mutex::new(TerminalGeometry::default()),
             viewport_generation: AtomicU64::new(0),
+            observed_text: Mutex::new(HashSet::new()),
         })
     }
 
@@ -542,8 +547,27 @@ impl TerminalBackend {
     /// transcript. This includes scrollback and the active alternate screen,
     /// while preserving the same character filtering used for rendering.
     pub fn contains_text(&self, needle: &str) -> bool {
+        if needle.is_empty() {
+            return false;
+        }
         let terminal = self.terminal.lock();
-        grid_contains_text(terminal.grid(), needle)
+        let found = grid_contains_text(terminal.grid(), needle);
+        drop(terminal);
+        if found {
+            if let Ok(mut observed) = self.observed_text.lock() {
+                // Agent completion and connectivity probes are the only
+                // callers. Keep a hard bound in case a future caller passes
+                // arbitrary text repeatedly.
+                if observed.len() < 32 {
+                    observed.insert(needle.to_string());
+                }
+            }
+            return true;
+        }
+        self.observed_text
+            .lock()
+            .map(|observed| observed.contains(needle))
+            .unwrap_or(false)
     }
 }
 

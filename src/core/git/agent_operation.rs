@@ -1,7 +1,7 @@
 //! Read-only Git probes used to coordinate external Agent operations.
 
 use std::path::Path;
-use std::process::Output;
+use std::process::{Command, Output};
 
 use super::git_command;
 
@@ -51,11 +51,18 @@ pub struct AgentRebaseProbe {
     pub target_is_ancestor_of_head: bool,
 }
 
+/// Marker files that represent a stateful operation other than merge or
+/// rebase. `REBASE_HEAD` is intentionally absent: Git may leave that file
+/// behind after a rebase has completed or been aborted, while the authoritative
+/// in-progress state is represented by `rebase-merge` or `rebase-apply`.
+const NON_MERGE_OPERATION_MARKERS: &[&str] =
+    &["CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "sequencer"];
+
 /// Read the repository state without mutating the worktree or index.
 pub fn probe_agent_commit(
     repo_path: &Path,
 ) -> Result<AgentCommitProbe, String> {
-    let output = git_command()
+    let output = git_command_in_repo(repo_path)
         .args([
             "status",
             "--porcelain=v2",
@@ -63,7 +70,6 @@ pub fn probe_agent_commit(
             "-z",
             "--untracked-files=all",
         ])
-        .current_dir(repo_path)
         .output()
         .map_err(|error| {
             format!("failed to inspect repository status: {error}")
@@ -161,15 +167,11 @@ pub fn has_other_git_operation_except_rebase(
 /// existing merge can still inspect `MERGE_HEAD` without treating it as an
 /// unrelated operation.
 pub fn has_other_git_operation(repo_path: &Path) -> Result<bool, String> {
-    for marker in [
-        "REBASE_HEAD",
-        "CHERRY_PICK_HEAD",
-        "REVERT_HEAD",
-        "BISECT_LOG",
-        "rebase-merge",
-        "rebase-apply",
-        "sequencer",
-    ] {
+    for marker in NON_MERGE_OPERATION_MARKERS
+        .iter()
+        .copied()
+        .chain(["rebase-merge", "rebase-apply"])
+    {
         let path = git_path(repo_path, marker)?;
         if path.exists() {
             return Ok(true);
@@ -199,10 +201,9 @@ pub fn resolve_agent_merge_target(
     branch: &str,
 ) -> Result<String, String> {
     let reference = format!("refs/heads/{branch}^{{commit}}");
-    let output = git_command()
+    let output = git_command_in_repo(repo_path)
         .args(["rev-parse", "--verify"])
         .arg(reference)
-        .current_dir(repo_path)
         .output()
         .map_err(|error| format!("failed to resolve merge target: {error}"))?;
     if !output.status.success() {
@@ -217,9 +218,8 @@ pub fn resolve_agent_merge_target(
 }
 
 fn read_merge_head(repo_path: &Path) -> Result<Option<String>, String> {
-    let output = git_command()
+    let output = git_command_in_repo(repo_path)
         .args(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"])
-        .current_dir(repo_path)
         .output()
         .map_err(|error| format!("failed to inspect merge state: {error}"))?;
     if !output.status.success() {
@@ -230,9 +230,8 @@ fn read_merge_head(repo_path: &Path) -> Result<Option<String>, String> {
 }
 
 fn read_rebase_head(repo_path: &Path) -> Result<Option<String>, String> {
-    let output = git_command()
+    let output = git_command_in_repo(repo_path)
         .args(["rev-parse", "--verify", "--quiet", "REBASE_HEAD"])
-        .current_dir(repo_path)
         .output()
         .map_err(|error| format!("failed to inspect rebase state: {error}"))?;
     if !output.status.success() {
@@ -255,10 +254,9 @@ fn git_path(
     repo_path: &Path,
     marker: &str,
 ) -> Result<std::path::PathBuf, String> {
-    let output = git_command()
+    let output = git_command_in_repo(repo_path)
         .args(["rev-parse", "--git-path"])
         .arg(marker)
-        .current_dir(repo_path)
         .output()
         .map_err(|error| {
             format!("failed to inspect Git operation state: {error}")
@@ -271,6 +269,7 @@ fn git_path(
         return Err(format!("Git returned an empty path for {marker}"));
     }
     let path = std::path::PathBuf::from(value);
+    let repo_path = normalize_repository_path(repo_path);
     Ok(if path.is_absolute() {
         path
     } else {
@@ -279,11 +278,10 @@ fn git_path(
 }
 
 fn is_ancestor(repo_path: &Path, target_oid: &str) -> Result<bool, String> {
-    let output = git_command()
+    let output = git_command_in_repo(repo_path)
         .args(["merge-base", "--is-ancestor"])
         .arg(target_oid)
         .arg("HEAD")
-        .current_dir(repo_path)
         .output()
         .map_err(|error| format!("failed to verify merge ancestry: {error}"))?;
     match output.status.code() {
@@ -291,6 +289,34 @@ fn is_ancestor(repo_path: &Path, target_oid: &str) -> Result<bool, String> {
         Some(1) => Ok(false),
         _ => Err(command_error(&output, "git merge-base")),
     }
+}
+
+/// Build a Git command whose working directory is safe for all maintained
+/// platforms. Windows canonicalization can return an extended-length
+/// `\\?\\C:\\...` path; command-line shells used by Agent sessions reject
+/// that spelling even though the normal Git worker accepts it. Keeping the
+/// normalization at this lower boundary makes every Agent probe use the same
+/// repository as the visible terminal.
+fn git_command_in_repo(repo_path: &Path) -> Command {
+    let mut command = git_command();
+    command.current_dir(normalize_repository_path(repo_path));
+    command
+}
+
+fn normalize_repository_path(path: &Path) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        let value = path.to_string_lossy();
+        if let Some(rest) = value.strip_prefix("\\\\?\\UNC\\") {
+            return std::path::PathBuf::from(format!("\\\\{rest}"));
+        }
+        if let Some(rest) = value.strip_prefix("\\\\?\\")
+            && rest.as_bytes().get(1) == Some(&b':')
+        {
+            return std::path::PathBuf::from(rest);
+        }
+    }
+    path.to_path_buf()
 }
 
 fn status_error(output: &Output) -> String {
@@ -337,7 +363,15 @@ pub fn parse_agent_commit_status(output: &[u8]) -> AgentCommitProbe {
 
 #[cfg(test)]
 mod tests {
-    use super::{AgentCommitProbe, parse_agent_commit_status};
+    use super::{
+        AgentCommitProbe, NON_MERGE_OPERATION_MARKERS,
+        parse_agent_commit_status,
+    };
+
+    #[test]
+    fn stale_rebase_head_is_not_an_other_operation_marker() {
+        assert!(!NON_MERGE_OPERATION_MARKERS.contains(&"REBASE_HEAD"));
+    }
 
     #[test]
     fn parses_head_and_mixed_changes() {

@@ -108,9 +108,27 @@ impl RepoTab {
         name: String,
         cx: &mut Context<RepoTab>,
     ) {
-        if self.is_busy() || self.branch.is_empty() || name == self.branch {
+        if self.is_busy() {
+            log::warn!(
+                "[agent_terminal] merge request ignored: repository is busy"
+            );
             return;
         }
+        if self.branch.is_empty() {
+            log::warn!(
+                "[agent_terminal] merge request ignored: current branch is unavailable"
+            );
+            return;
+        }
+        if name == self.branch {
+            log::warn!(
+                "[agent_terminal] merge request ignored: source is current branch"
+            );
+            return;
+        }
+        log::info!(
+            "[agent_terminal] merge request accepted: source branch selected"
+        );
         cx.emit(super::super::RepoTabEvent::AgentMergeRequested {
             id: self.id,
             repo_path: self.repo_path.clone(),
