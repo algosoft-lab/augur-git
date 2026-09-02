@@ -132,6 +132,9 @@ pub struct RepoTab {
     head: Option<String>,
     /// Tracked upstream of the current branch from the latest status.
     upstream: Option<String>,
+    /// Ahead/behind counts from the latest status snapshot.
+    ahead: usize,
+    behind: usize,
     /// Configured remote names from the latest refs snapshot.
     remotes: Vec<String>,
     /// Persisted commit-graph history scope chosen in settings.
@@ -221,6 +224,8 @@ impl RepoTab {
             branch: String::new(),
             head: None,
             upstream: None,
+            ahead: 0,
+            behind: 0,
             remotes: Vec::new(),
             graph_history,
             log_scope: None,
@@ -955,6 +960,8 @@ impl RepoTab {
             branch: self.branch.clone(),
             head: self.head.clone(),
             upstream: self.upstream.clone(),
+            ahead: self.ahead,
+            behind: self.behind,
             dirty: self.local_change_count > 0,
             conflicts: self.has_unresolved_conflicts,
             busy: self.is_busy(),

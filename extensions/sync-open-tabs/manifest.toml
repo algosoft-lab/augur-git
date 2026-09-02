@@ -19,7 +19,9 @@ label = "Default remote"
 description = "Remote used when the current branch has no upstream."
 default = "origin"
 
-[[daily]]
+[[events]]
 id = "daily-sync"
+type = "schedule.daily"
+label = "Daily sync"
 time_setting = "sync_time"
 handler = "on_schedule"

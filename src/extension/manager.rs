@@ -93,8 +93,9 @@ pub struct ExtensionManager {
     host: Arc<dyn ExtensionHost>,
     queue_tx: Sender<QueueCommand>,
     pending: Arc<Mutex<HashSet<String>>>,
+    coalesced: Arc<Mutex<HashMap<String, ExtensionRunRequest>>>,
     cancellations: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>>,
-    next_run_id: AtomicU64,
+    next_run_id: Arc<AtomicU64>,
 }
 
 impl ExtensionManager {
@@ -122,11 +123,15 @@ impl ExtensionManager {
         let definitions = Arc::new(Mutex::new(definition_map));
         let workers = Arc::new(Mutex::new(worker_map));
         let pending = Arc::new(Mutex::new(HashSet::new()));
+        let coalesced = Arc::new(Mutex::new(HashMap::new()));
         let cancellations = Arc::new(Mutex::new(HashMap::new()));
+        let next_run_id = Arc::new(AtomicU64::new(1));
         let dispatch_workers = workers.clone();
         let dispatch_pending = pending.clone();
+        let dispatch_coalesced = coalesced.clone();
         let dispatch_cancellations = cancellations.clone();
         let dispatch_host = host.clone();
+        let dispatch_next_run_id = next_run_id.clone();
         thread::Builder::new()
             .name("augur-extension-queue".into())
             .spawn(move || {
@@ -134,7 +139,9 @@ impl ExtensionManager {
                     queue_rx,
                     dispatch_workers,
                     dispatch_pending,
+                    dispatch_coalesced,
                     dispatch_cancellations,
+                    dispatch_next_run_id,
                     dispatch_host,
                     event_tx,
                 )
@@ -150,8 +157,9 @@ impl ExtensionManager {
                 host,
                 queue_tx,
                 pending,
+                coalesced,
                 cancellations,
-                next_run_id: AtomicU64::new(1),
+                next_run_id,
             },
             event_rx,
         ))
@@ -225,8 +233,9 @@ impl ExtensionManager {
         Ok(())
     }
 
-    /// Queue a run. A second trigger while the same extension is queued or
-    /// running is merged into the existing invocation.
+    /// Queue a run. Repeated manual invocations are coalesced while one is in
+    /// flight. Event invocations retain one trailing, merged batch per
+    /// extension and trigger so status bursts are not lost.
     pub fn run(
         &self,
         mut request: ExtensionRunRequest,
@@ -242,14 +251,26 @@ impl ExtensionManager {
         if request.handler.trim().is_empty() {
             return Err("extension handler must not be empty".into());
         }
+        let key = run_key(&request);
+        let extension_id_for_log = request.extension_id.clone();
         let mut pending = self
             .pending
             .lock()
             .map_err(|_| "extension queue state is unavailable".to_string())?;
-        if !pending.insert(request.extension_id.clone()) {
+        if !pending.insert(key.clone()) {
+            if !request.events.is_empty() {
+                let mut coalesced = self.coalesced.lock().map_err(|_| {
+                    "extension coalescing state is unavailable".to_string()
+                })?;
+                if let Some(existing) = coalesced.get_mut(&key) {
+                    merge_event_requests(existing, request);
+                } else {
+                    coalesced.insert(key.clone(), request);
+                }
+            }
             log::info!(
-                "[extensions] coalesced overlapping trigger: id={}",
-                request.extension_id
+                "[extensions] coalesced overlapping trigger: id={}, key={key}",
+                extension_id_for_log,
             );
             return Ok(None);
         }
@@ -269,7 +290,10 @@ impl ExtensionManager {
             cancelled,
         };
         if self.queue_tx.send(QueueCommand::Enqueue(job)).is_err() {
-            pending.remove(&extension_id);
+            pending.remove(&key);
+            if let Ok(mut coalesced) = self.coalesced.lock() {
+                coalesced.remove(&key);
+            }
             if let Ok(mut cancellations) = self.cancellations.lock() {
                 cancellations.remove(&run_id);
             }
@@ -374,7 +398,9 @@ fn dispatcher_loop(
     queue_rx: Receiver<QueueCommand>,
     workers: Arc<Mutex<HashMap<String, Worker>>>,
     pending: Arc<Mutex<HashSet<String>>>,
+    coalesced: Arc<Mutex<HashMap<String, ExtensionRunRequest>>>,
     cancellations: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>>,
+    next_run_id: Arc<AtomicU64>,
     host: Arc<dyn ExtensionHost>,
     event_tx: Sender<ExtensionEvent>,
 ) {
@@ -554,13 +580,76 @@ fn dispatcher_loop(
             record,
             error,
         });
-        if let Ok(mut pending) = pending.lock() {
-            pending.remove(&job.extension_id);
+        let key = run_key(&request);
+        let follow_up = coalesced
+            .lock()
+            .ok()
+            .and_then(|mut coalesced| coalesced.remove(&key));
+        if let Some(mut request) = follow_up {
+            request
+                .repositories
+                .sort_by_key(|repository| repository.tab_id);
+            let run_id = next_run_id.fetch_add(1, Ordering::Relaxed);
+            let cancelled = Arc::new(AtomicBool::new(false));
+            if let Ok(mut all_cancellations) = cancellations.lock() {
+                all_cancellations.insert(run_id, cancelled.clone());
+            }
+            queue.push_back(QueueJob {
+                extension_id: request.extension_id.clone(),
+                run_id,
+                request,
+                cancelled,
+            });
+            log::info!(
+                "[extensions] queued trailing coalesced trigger: key={key}, run_id={run_id}"
+            );
+        } else if let Ok(mut pending) = pending.lock() {
+            pending.remove(&key);
         }
         if let Ok(mut cancellations) = cancellations.lock() {
             cancellations.remove(&job.run_id);
         }
     }
+}
+
+fn run_key(request: &ExtensionRunRequest) -> String {
+    match &request.trigger {
+        ExtensionTrigger::Manual => {
+            format!("{}:manual", request.extension_id)
+        }
+        ExtensionTrigger::Schedule { trigger_id, .. }
+        | ExtensionTrigger::Repository { trigger_id, .. } => {
+            format!("{}:event:{trigger_id}", request.extension_id)
+        }
+    }
+}
+
+fn merge_event_requests(
+    existing: &mut ExtensionRunRequest,
+    incoming: ExtensionRunRequest,
+) {
+    existing.repositories = incoming.repositories;
+    existing.settings = incoming.settings;
+    existing.scheduled_at = incoming.scheduled_at;
+    existing.handler = incoming.handler;
+    let mut merged = existing.events.clone();
+    for event in incoming.events {
+        let tab_id = event
+            .repository
+            .as_ref()
+            .map(|repository| repository.tab_id);
+        if let Some(tab_id) = tab_id {
+            merged.retain(|candidate| {
+                candidate
+                    .repository
+                    .as_ref()
+                    .map(|repository| repository.tab_id)
+                    != Some(tab_id)
+            });
+        }
+        merged.push(event);
+    }
+    existing.events = merged;
 }
 
 #[cfg(test)]
@@ -622,6 +711,82 @@ mod tests {
             events: Vec::new(),
             handler: "on_run".into(),
         }
+    }
+
+    fn snapshot(tab_id: u64, head: &str) -> RepositorySnapshot {
+        RepositorySnapshot {
+            tab_id,
+            path: format!("repo-{tab_id}"),
+            display_name: format!("repo-{tab_id}"),
+            branch: "main".into(),
+            head: Some(head.into()),
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            dirty: false,
+            conflicts: false,
+            busy: false,
+            remotes: vec!["origin".into()],
+        }
+    }
+
+    #[test]
+    fn merges_trailing_event_batches_by_repository() {
+        let now = Local::now();
+        let mut first = request("test-extension");
+        first.trigger = ExtensionTrigger::Repository {
+            trigger_id: "status".into(),
+            event_type: "repository.status_changed".into(),
+        };
+        first.events = vec![ExtensionEventPayload {
+            trigger_id: "status".into(),
+            event_type: "repository.status_changed".into(),
+            occurred_at: now,
+            repository: Some(snapshot(1, "a")),
+            previous: None,
+            current: None,
+            origin_extension_id: None,
+            origin_run_id: None,
+        }];
+        let mut incoming = first.clone();
+        incoming.events = vec![
+            ExtensionEventPayload {
+                trigger_id: "status".into(),
+                event_type: "repository.status_changed".into(),
+                occurred_at: now,
+                repository: Some(snapshot(1, "b")),
+                previous: None,
+                current: None,
+                origin_extension_id: None,
+                origin_run_id: None,
+            },
+            ExtensionEventPayload {
+                trigger_id: "status".into(),
+                event_type: "repository.status_changed".into(),
+                occurred_at: now,
+                repository: Some(snapshot(2, "c")),
+                previous: None,
+                current: None,
+                origin_extension_id: None,
+                origin_run_id: None,
+            },
+        ];
+        merge_event_requests(&mut first, incoming);
+        assert_eq!(first.events.len(), 2);
+        assert_eq!(
+            first.events[0]
+                .repository
+                .as_ref()
+                .and_then(|repository| repository.head.as_deref()),
+            Some("b")
+        );
+        assert_eq!(
+            first.events[1]
+                .repository
+                .as_ref()
+                .map(|repository| repository.tab_id),
+            Some(2)
+        );
     }
 
     #[test]

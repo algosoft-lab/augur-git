@@ -337,6 +337,8 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 tab.branch = branch_name;
                 tab.head = head.clone();
                 tab.upstream = upstream.clone();
+                tab.ahead = *ahead;
+                tab.behind = *behind;
                 tab.local_branches = branches
                     .iter()
                     .filter(|info| !info.is_head)

@@ -22,7 +22,7 @@ mod tabs;
 mod welcome;
 mod window_state;
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
@@ -40,7 +40,7 @@ use crate::core::config::{self, AppConfig, UiState};
 use crate::core::i18n::{self, Locale};
 use crate::extension::{
     ExtensionDefinition, ExtensionEvent, ExtensionHost, ExtensionManager,
-    HostBridge, HostEvent, discover_definitions,
+    HostBridge, HostEvent, RepositorySnapshot, discover_definitions,
 };
 
 use self::agent_lifecycle::PendingWorkspaceClose;
@@ -221,6 +221,12 @@ pub struct Workspace {
     extension_events: Receiver<ExtensionEvent>,
     host_events: Receiver<HostEvent>,
     extension_definitions: Vec<ExtensionDefinition>,
+    extension_observed_repositories: BTreeMap<u64, RepositorySnapshot>,
+    extension_pending_origins: HashMap<u64, (String, u64)>,
+    extension_pending_events:
+        HashMap<(String, String), extension_runtime::PendingEventBatch>,
+    extension_interval_ticks:
+        HashMap<(String, String), chrono::DateTime<chrono::Local>>,
     show_extensions: bool,
     last_extension_tick: chrono::DateTime<chrono::Local>,
     ui_state: UiState,
@@ -454,6 +460,10 @@ impl Workspace {
             extension_events,
             host_events,
             extension_definitions,
+            extension_observed_repositories: BTreeMap::new(),
+            extension_pending_origins: HashMap::new(),
+            extension_pending_events: HashMap::new(),
+            extension_interval_ticks: HashMap::new(),
             show_extensions: false,
             last_extension_tick: chrono::Local::now(),
             ui_state,

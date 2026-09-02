@@ -28,6 +28,8 @@ pub struct RepositorySnapshot {
     pub branch: String,
     pub head: Option<String>,
     pub upstream: Option<String>,
+    pub ahead: usize,
+    pub behind: usize,
     pub dirty: bool,
     pub conflicts: bool,
     pub busy: bool,

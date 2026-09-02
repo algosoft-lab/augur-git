@@ -46,6 +46,8 @@ pub enum HostEvent {
     },
     RepositoryChanged {
         tab_id: u64,
+        origin_extension_id: String,
+        origin_run_id: u64,
     },
 }
 
@@ -381,7 +383,11 @@ impl HostBridge {
                     summary,
                 }),
         };
-        let _ = self.event_tx.send(HostEvent::RepositoryChanged { tab_id });
+        let _ = self.event_tx.send(HostEvent::RepositoryChanged {
+            tab_id,
+            origin_extension_id: request.extension_id.clone(),
+            origin_run_id: request.run_id,
+        });
         if let Ok(after) = automation::capture(path) {
             self.update_run_identity(
                 &request.extension_id,

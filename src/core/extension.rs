@@ -923,6 +923,18 @@ impl ExtensionSettings {
         normalized
             .last_event_occurrences
             .retain(|id, _| trigger_ids.contains(id));
+        if let Some(legacy_date) = normalized.last_scheduled_date.clone() {
+            if let Some(trigger) = manifest
+                .event_triggers()
+                .into_iter()
+                .find(|trigger| trigger.event_type == "schedule.daily")
+            {
+                normalized
+                    .last_event_occurrences
+                    .entry(trigger.id)
+                    .or_insert(legacy_date);
+            }
+        }
         normalized
     }
 

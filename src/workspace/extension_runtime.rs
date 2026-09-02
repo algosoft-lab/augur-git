@@ -1,18 +1,23 @@
 //! Workspace-side lifecycle, scheduling, and event routing for extensions.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::Local;
 use gpui::*;
 
 use crate::core::extension::{self, ExtensionSettings, SettingValue};
 use crate::extension::{
-    ExtensionEvent, ExtensionRunRequest, ExtensionTrigger, HostEvent,
-    discover_definitions,
+    ExtensionEvent, ExtensionEventPayload, ExtensionRunRequest,
+    ExtensionTrigger, HostEvent, discover_definitions,
 };
 
 use super::extensions::ExtensionsPanelEvent;
 use super::{TabContent, Workspace};
+
+pub(super) struct PendingEventBatch {
+    pub(super) due_at: Instant,
+    pub(super) events: Vec<ExtensionEventPayload>,
+}
 
 impl Workspace {
     pub(super) fn open_extensions(&mut self, cx: &mut Context<Self>) {
@@ -43,10 +48,82 @@ impl Workspace {
                 }
                 TabContent::Welcome => None,
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let current = snapshots
+            .iter()
+            .cloned()
+            .map(|snapshot| (snapshot.tab_id, snapshot))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let previous = std::mem::replace(
+            &mut self.extension_observed_repositories,
+            current.clone(),
+        );
         self.extension_host.set_repositories(snapshots);
         self.extension_host
             .set_agent_settings(self.config.agent.clone());
+        let now = Local::now();
+        for (tab_id, snapshot) in &current {
+            match previous.get(tab_id) {
+                None => self.emit_repository_event(ExtensionEventPayload {
+                    trigger_id: String::new(),
+                    event_type: "workspace.repository_opened".into(),
+                    occurred_at: now,
+                    repository: Some(snapshot.clone()),
+                    previous: None,
+                    current: Some(snapshot.clone()),
+                    origin_extension_id: None,
+                    origin_run_id: None,
+                }),
+                Some(old) if repository_state_changed(old, snapshot) => {
+                    let origin = self.extension_pending_origins.remove(tab_id);
+                    let event_type = if old.branch != snapshot.branch {
+                        "repository.branch_changed"
+                    } else {
+                        "repository.status_changed"
+                    };
+                    let origin_extension_id =
+                        origin.as_ref().map(|value| value.0.clone());
+                    let origin_run_id = origin.as_ref().map(|value| value.1);
+                    self.emit_repository_event(ExtensionEventPayload {
+                        trigger_id: String::new(),
+                        event_type: event_type.into(),
+                        occurred_at: now,
+                        repository: Some(snapshot.clone()),
+                        previous: Some(old.clone()),
+                        current: Some(snapshot.clone()),
+                        origin_extension_id: origin_extension_id.clone(),
+                        origin_run_id,
+                    });
+                    if old.branch != snapshot.branch {
+                        self.emit_repository_event(ExtensionEventPayload {
+                            trigger_id: String::new(),
+                            event_type: "repository.status_changed".into(),
+                            occurred_at: now,
+                            repository: Some(snapshot.clone()),
+                            previous: Some(old.clone()),
+                            current: Some(snapshot.clone()),
+                            origin_extension_id: origin_extension_id.clone(),
+                            origin_run_id,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        for (tab_id, snapshot) in previous {
+            if !current.contains_key(&tab_id) {
+                self.emit_repository_event(ExtensionEventPayload {
+                    trigger_id: String::new(),
+                    event_type: "workspace.repository_closed".into(),
+                    occurred_at: now,
+                    repository: Some(snapshot.clone()),
+                    previous: Some(snapshot),
+                    current: None,
+                    origin_extension_id: None,
+                    origin_run_id: None,
+                });
+            }
+        }
     }
 
     pub(super) fn start_extension_polling(&mut self, cx: &mut Context<Self>) {
@@ -67,20 +144,156 @@ impl Workspace {
     }
 
     fn poll_extensions(&mut self, cx: &mut Context<Self>) {
-        self.sync_extension_repositories(cx);
         while let Ok(event) = self.host_events.try_recv() {
             self.handle_host_event(event, cx);
         }
+        self.sync_extension_repositories(cx);
         while let Ok(event) = self.extension_events.try_recv() {
             self.handle_extension_event(event, cx);
         }
+        self.flush_pending_extension_events(cx);
         let now = Local::now();
         let previous = self.last_extension_tick;
         self.last_extension_tick = now;
-        self.schedule_daily_extensions(previous, now, cx);
+        self.schedule_event_extensions(previous, now, cx);
     }
 
-    fn schedule_daily_extensions(
+    fn emit_repository_event(&mut self, mut event: ExtensionEventPayload) {
+        let now = Instant::now();
+        for definition in self.extension_definitions.clone() {
+            let extension_id = definition.package.manifest.id.clone();
+            let settings = self
+                .config
+                .extensions
+                .get(&extension_id)
+                .cloned()
+                .unwrap_or_else(|| {
+                    ExtensionSettings::with_defaults(
+                        &definition.package.manifest,
+                    )
+                })
+                .normalized_for(&definition.package.manifest);
+            if !settings.trusted
+                || event.origin_extension_id.as_deref()
+                    == Some(extension_id.as_str())
+            {
+                if event.origin_extension_id.as_deref()
+                    == Some(extension_id.as_str())
+                {
+                    log::debug!(
+                        "[extension_events] suppressed self-origin event: id={extension_id}, type={}",
+                        event.event_type
+                    );
+                }
+                continue;
+            }
+            for trigger in definition.package.manifest.event_triggers() {
+                if trigger.event_type != event.event_type
+                    || !settings.is_subscribed(&trigger.id)
+                {
+                    continue;
+                }
+                event.trigger_id = trigger.id.clone();
+                let key = (extension_id.clone(), trigger.id.clone());
+                let entry = self
+                    .extension_pending_events
+                    .entry(key)
+                    .or_insert_with(|| PendingEventBatch {
+                        due_at: now
+                            + Duration::from_millis(
+                                trigger.debounce_duration_ms(),
+                            ),
+                        events: Vec::new(),
+                    });
+                if let Some(tab_id) = event
+                    .repository
+                    .as_ref()
+                    .map(|repository| repository.tab_id)
+                {
+                    entry.events.retain(|candidate| {
+                        candidate
+                            .repository
+                            .as_ref()
+                            .map(|repository| repository.tab_id)
+                            != Some(tab_id)
+                    });
+                }
+                entry.events.push(event.clone());
+            }
+        }
+    }
+
+    fn flush_pending_extension_events(&mut self, cx: &mut Context<Self>) {
+        let now = Instant::now();
+        let due = self
+            .extension_pending_events
+            .iter()
+            .filter(|(_, batch)| batch.due_at <= now)
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>();
+        for (extension_id, trigger_id) in due {
+            let Some(batch) = self
+                .extension_pending_events
+                .remove(&(extension_id.clone(), trigger_id.clone()))
+            else {
+                continue;
+            };
+            let Some(definition) = self
+                .extension_definitions
+                .iter()
+                .find(|definition| {
+                    definition.package.manifest.id == extension_id
+                })
+                .cloned()
+            else {
+                continue;
+            };
+            let Some(trigger) = definition
+                .package
+                .manifest
+                .event_triggers()
+                .into_iter()
+                .find(|trigger| trigger.id == trigger_id)
+            else {
+                continue;
+            };
+            let request = match self.extension_request(
+                &extension_id,
+                ExtensionTrigger::Repository {
+                    trigger_id: trigger.id.clone(),
+                    event_type: trigger.event_type.clone(),
+                },
+                None,
+                batch.events,
+                trigger.handler,
+                cx,
+            ) {
+                Ok(request) => request,
+                Err(error) => {
+                    log::warn!(
+                        "[extension_events] failed to build event request: id={extension_id}, error={error}"
+                    );
+                    continue;
+                }
+            };
+            let Some(manager) = &self.extension_manager else {
+                continue;
+            };
+            match manager.run(request) {
+                Ok(Some(run_id)) => log::info!(
+                    "[extension_events] queued repository event: id={extension_id}, trigger={trigger_id}, run_id={run_id}"
+                ),
+                Ok(None) => log::debug!(
+                    "[extension_events] repository event coalesced: id={extension_id}, trigger={trigger_id}"
+                ),
+                Err(error) => log::warn!(
+                    "[extension_events] repository event rejected: id={extension_id}, error={error}"
+                ),
+            }
+        }
+    }
+
+    fn schedule_event_extensions(
         &mut self,
         previous: chrono::DateTime<Local>,
         now: chrono::DateTime<Local>,
@@ -106,75 +319,109 @@ impl Workspace {
             if settings.subscribed_triggers.is_empty() || !settings.trusted {
                 continue;
             }
-            for trigger in &definition.package.manifest.daily {
-                let Some(SettingValue::Time(time)) =
-                    settings.values.get(&trigger.time_setting)
-                else {
-                    continue;
-                };
-                let Ok(time) = extension::parse_daily_time(time) else {
-                    continue;
-                };
-                let Some(occurrence) =
-                    extension::daily_occurrence_between(previous, now, time)
-                else {
-                    continue;
-                };
-                let occurrence_date = extension::local_date_string(occurrence);
-                if settings.last_scheduled_date.as_deref()
-                    == Some(&occurrence_date)
-                {
+            for trigger in definition.package.manifest.event_triggers() {
+                if !settings.is_subscribed(&trigger.id) {
                     continue;
                 }
+                let (occurred_at, occurrence_key) =
+                    match trigger.event_type.as_str() {
+                        "schedule.daily" => {
+                            let Some(SettingValue::Time(time)) = trigger
+                                .time_setting
+                                .as_deref()
+                                .and_then(|key| settings.values.get(key))
+                            else {
+                                continue;
+                            };
+                            let Ok(time) = extension::parse_daily_time(time)
+                            else {
+                                continue;
+                            };
+                            let Some(occurrence) =
+                                extension::daily_occurrence_between(
+                                    previous, now, time,
+                                )
+                            else {
+                                continue;
+                            };
+                            let occurrence_key =
+                                extension::local_date_string(occurrence);
+                            if settings
+                                .last_event_occurrences
+                                .get(&trigger.id)
+                                .is_some_and(|value| value == &occurrence_key)
+                            {
+                                continue;
+                            }
+                            (occurrence, occurrence_key)
+                        }
+                        "schedule.interval" => {
+                            let Some(SettingValue::Integer(minutes)) = trigger
+                                .interval_setting
+                                .as_deref()
+                                .and_then(|key| settings.values.get(key))
+                            else {
+                                continue;
+                            };
+                            let key = (id.clone(), trigger.id.clone());
+                            let last = self
+                                .extension_interval_ticks
+                                .entry(key)
+                                .or_insert(previous);
+                            if now.signed_duration_since(*last)
+                                < chrono::Duration::minutes((*minutes).max(1))
+                            {
+                                continue;
+                            }
+                            *last = now;
+                            (now, now.to_rfc3339())
+                        }
+                        _ => continue,
+                    };
                 let request = self.extension_request(
                     &id,
                     ExtensionTrigger::Schedule {
                         trigger_id: trigger.id.clone(),
-                        event_type: "schedule.daily".to_string(),
+                        event_type: trigger.event_type.clone(),
                     },
-                    Some(now),
+                    Some(occurred_at),
+                    Vec::new(),
                     trigger.handler.clone(),
                     cx,
                 );
-                match request {
-                    Ok(request) => match self
-                        .extension_manager
-                        .as_ref()
-                        .map(|manager| manager.run(request))
-                    {
-                        Some(Ok(Some(run_id))) => {
-                            if let Some(entry) =
-                                self.config.extensions.get_mut(&id)
-                            {
-                                entry.last_scheduled_date =
-                                    Some(occurrence_date.clone());
+                if let Ok(request) = request {
+                    if let Some(manager) = &self.extension_manager {
+                        match manager.run(request) {
+                            Ok(result) => {
+                                if let Some(entry) =
+                                    self.config.extensions.get_mut(&id)
+                                {
+                                    entry.last_event_occurrences.insert(
+                                        trigger.id.clone(),
+                                        occurrence_key.clone(),
+                                    );
+                                    entry.last_scheduled_date =
+                                        Some(occurrence_key.clone());
+                                }
+                                self.persist_config();
+                                log::info!(
+                                    "[extension_runtime] scheduled event queued: id={id}, trigger={}, result={result:?}",
+                                    trigger.id
+                                );
                             }
-                            self.persist_config();
-                            log::info!(
-                                "[extensions] daily run queued: id={id}, run_id={run_id}"
-                            );
+                            Err(error) => log::warn!(
+                                "[extension_runtime] scheduled event rejected: id={id}, trigger={}, error={error}",
+                                trigger.id
+                            ),
                         }
-                        Some(Ok(None)) => {
-                            if let Some(entry) =
-                                self.config.extensions.get_mut(&id)
-                            {
-                                entry.last_scheduled_date =
-                                    Some(occurrence_date.clone());
-                            }
-                            self.persist_config();
-                        }
-                        Some(Err(error)) => log::warn!(
-                            "[extensions] daily run rejected: id={id}, error={error}"
-                        ),
-                        None => {}
-                    },
-                    Err(error) => log::warn!(
-                        "[extensions] failed to create daily run: id={id}, error={error}"
-                    ),
+                    }
+                } else if let Err(error) = request {
+                    log::warn!(
+                        "[extension_runtime] failed to build scheduled event: id={id}, error={error}"
+                    );
                 }
             }
         }
-        let _ = cx;
     }
 
     fn extension_request(
@@ -182,6 +429,7 @@ impl Workspace {
         extension_id: &str,
         trigger: ExtensionTrigger,
         scheduled_at: Option<chrono::DateTime<Local>>,
+        events: Vec<ExtensionEventPayload>,
         handler: String,
         cx: &Context<Self>,
     ) -> Result<ExtensionRunRequest, String> {
@@ -215,7 +463,7 @@ impl Workspace {
             scheduled_at,
             settings: settings.values,
             repositories,
-            events: Vec::new(),
+            events,
             handler,
         })
     }
@@ -413,6 +661,7 @@ impl Workspace {
                     extension_id,
                     ExtensionTrigger::Manual,
                     None,
+                    Vec::new(),
                     handler,
                     cx,
                 ) {
@@ -617,7 +866,13 @@ impl Workspace {
                     )
                 });
             }
-            HostEvent::RepositoryChanged { tab_id } => {
+            HostEvent::RepositoryChanged {
+                tab_id,
+                origin_extension_id,
+                origin_run_id,
+            } => {
+                self.extension_pending_origins
+                    .insert(tab_id, (origin_extension_id, origin_run_id));
                 if let Some(entry) =
                     self.tabs.iter().find(|entry| entry.id == tab_id)
                 {
@@ -630,4 +885,19 @@ impl Workspace {
             }
         }
     }
+}
+
+fn repository_state_changed(
+    previous: &crate::extension::RepositorySnapshot,
+    current: &crate::extension::RepositorySnapshot,
+) -> bool {
+    previous.branch != current.branch
+        || previous.head != current.head
+        || previous.upstream != current.upstream
+        || previous.dirty != current.dirty
+        || previous.conflicts != current.conflicts
+        || previous.busy != current.busy
+        || previous.ahead != current.ahead
+        || previous.behind != current.behind
+        || previous.remotes != current.remotes
 }
