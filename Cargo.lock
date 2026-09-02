@@ -604,6 +604,7 @@ dependencies = [
  "serde_json",
  "similar",
  "sys-locale",
+ "windows-sys 0.61.2",
  "winres",
 ]
 
