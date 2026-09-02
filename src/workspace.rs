@@ -732,6 +732,9 @@ impl Workspace {
             RepoTabEvent::RequestSettings => {
                 self.open_settings(cx);
             }
+            RepoTabEvent::RequestExtensions => {
+                self.open_extensions(cx);
+            }
             RepoTabEvent::LayoutChanged(layout) => {
                 self.ui_state.layout = layout.clone();
                 self.ui_state.layout.normalize();

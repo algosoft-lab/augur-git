@@ -138,6 +138,9 @@ fn wire_toolbar(
                 );
             }
             ToolbarEvent::Compare => branch_compare::open(tab, cx),
+            ToolbarEvent::Extensions => {
+                cx.emit(RepoTabEvent::RequestExtensions);
+            }
             ToolbarEvent::Refresh => {
                 if !tab.is_busy() {
                     tab.refresh_repository(cx);

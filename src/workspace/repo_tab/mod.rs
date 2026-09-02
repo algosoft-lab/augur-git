@@ -33,6 +33,7 @@ pub enum RepoTabEvent {
     },
     SummaryChanged(TabSummary),
     RequestSettings,
+    RequestExtensions,
     LayoutChanged(LayoutSettings),
     AgentCommitRequested {
         id: TabId,

@@ -131,6 +131,7 @@ toolbar-push = 推送
 toolbar-push-force = 推送（强制）
 toolbar-branch = 分支
 toolbar-compare = 比较
+toolbar-extensions = 扩展
 toolbar-refresh = 刷新
 toolbar-settings = 设置
 toolbar-busy = 操作中…
