@@ -637,6 +637,7 @@ fn run_save_worker(receiver: Receiver<ConfigSaveRequest>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::{AgentLaunchOverrides, BuiltInAgent};
 
     #[test]
     fn config_roundtrip() {
@@ -715,6 +716,47 @@ mod tests {
         );
         assert_eq!(config.agent.default_profile_id(), "codex");
         assert!(config.agent.custom_profiles.is_empty());
+        assert!(config.agent.launch_overrides.is_empty());
+    }
+
+    #[test]
+    fn agent_launch_overrides_round_trip() {
+        let json = r#"{
+            "agent": {
+                "launch_overrides": {
+                    "codex": {
+                        "model": "gpt-5.4",
+                        "reasoning_effort": "high"
+                    },
+                    "opencode": {
+                        "model": "openai/gpt-5.4",
+                        "variant": "high"
+                    }
+                }
+            }
+        }"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(
+            config.agent.launch_overrides.get(&BuiltInAgent::Codex),
+            Some(&AgentLaunchOverrides {
+                model: Some("gpt-5.4".into()),
+                reasoning_effort: Some("high".into()),
+                variant: None,
+            })
+        );
+        assert_eq!(
+            config.agent.launch_overrides.get(&BuiltInAgent::OpenCode),
+            Some(&AgentLaunchOverrides {
+                model: Some("openai/gpt-5.4".into()),
+                reasoning_effort: None,
+                variant: Some("high".into()),
+            })
+        );
+        let serialized = serde_json::to_string(&config).unwrap();
+        assert!(serialized.contains("\"reasoning_effort\":\"high\""));
+        assert!(serialized.contains("\"variant\":\"high\""));
     }
 
     #[test]

@@ -571,15 +571,42 @@ pub(super) fn open(
     };
     let locale = workspace.locale;
     let challenge = AgentConnectivityChallenge::new();
-    let mut spec = profile.launch_spec_for_prompt(&challenge.prompt);
-    let startup_error = match crate::agent::resolve_executable(&spec.executable)
-    {
-        Ok(executable) => {
-            spec.executable = executable;
-            None
+    let overrides = workspace.config.agent.launch_overrides_for(&profile);
+    let variant_unsupported = profile.built_in
+        == Some(crate::agent::BuiltInAgent::OpenCode)
+        && overrides.variant.is_some()
+        && workspace
+            .settings_panel
+            .read(cx)
+            .agent_supports_interactive_variant(&profile.id)
+            == Some(false);
+    let (mut spec, mut startup_error) = if variant_unsupported {
+        (
+            profile.launch_spec_for_prompt(&challenge.prompt),
+            Some(i18n::text(locale, "agent-opencode-variant-unsupported")),
+        )
+    } else {
+        match profile.launch_spec_for_prompt_with_overrides(
+            &challenge.prompt,
+            &overrides,
+        ) {
+            Ok(spec) => (spec, None),
+            Err(error) => (
+                profile.launch_spec_for_prompt(&challenge.prompt),
+                Some(first_line(&error.to_string()).to_string()),
+            ),
         }
-        Err(error) => Some(first_line(&error.to_string()).to_string()),
     };
+    if startup_error.is_none() {
+        startup_error = match crate::agent::resolve_executable(&spec.executable)
+        {
+            Ok(executable) => {
+                spec.executable = executable;
+                None
+            }
+            Err(error) => Some(first_line(&error.to_string()).to_string()),
+        };
+    }
     let (working_directory, startup_error) = match AgentTestDirectory::create()
     {
         Ok(directory) => (Some(directory), startup_error),

@@ -120,6 +120,17 @@ under the per-user application data directory so Agent CLIs that restrict
 system temporary locations can access it; Windows keeps using the system
 temporary directory.
 
+Built-in Agent profiles can optionally override the model at launch. Codex and
+Claude Code expose a per-session reasoning-effort setting, while OpenCode
+accepts a model-specific Variant name when the installed root TUI advertises
+`--variant`. Use OpenCode's `opencode models` or `/models` command to discover
+available model and Variant values. Current OpenCode releases expose this flag
+for `opencode run`, but not for the root interactive TUI; Augur detects that
+case and reports it in the visible test window.
+Leaving these fields empty preserves the CLI's environment and configuration
+defaults.
+Augur Git does not inject generic permission or mode flags.
+
 The Agent terminal is intentionally dedicated to visible connectivity tests
 rather than a general-purpose shell. Test state and terminal transcripts are
 not persisted across application restarts. See

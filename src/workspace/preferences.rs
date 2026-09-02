@@ -1,6 +1,6 @@
 use gpui::*;
 
-use crate::agent::{BuiltInAgent, CustomAgentProfile};
+use crate::agent::{AgentLaunchOverrides, BuiltInAgent, CustomAgentProfile};
 use crate::core::config::{
     DiffLayoutPreference, GraphHistoryPreference, LanguagePreference,
     ThemePreference, normalized_diff_font_size, normalized_ui_font_size,
@@ -280,6 +280,150 @@ impl Workspace {
         cx.notify();
     }
 
+    pub(super) fn set_agent_model_override(
+        &mut self,
+        agent: BuiltInAgent,
+        model: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let model = normalize_agent_override(model);
+        let current = self
+            .config
+            .agent
+            .launch_overrides
+            .get(&agent)
+            .and_then(|overrides| overrides.model.clone());
+        if current == model {
+            return;
+        }
+
+        let mut settings = self.config.agent.clone();
+        let overrides = settings
+            .launch_overrides
+            .entry(agent)
+            .or_insert_with(AgentLaunchOverrides::default);
+        overrides.model = model;
+        if let Err(error) = overrides.validate_for(agent) {
+            log::warn!(
+                "[agent_terminal] ignoring invalid model override for {}: {error}",
+                agent.id()
+            );
+            return;
+        }
+        if overrides.model.is_none()
+            && overrides.reasoning_effort.is_none()
+            && overrides.variant.is_none()
+        {
+            settings.launch_overrides.remove(&agent);
+        }
+        self.config.agent = settings.clone();
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.update_agent_settings(settings, cx);
+        });
+        self.config_saver.schedule(&self.config);
+        log::info!(
+            "[agent_terminal] model override changed: agent={}",
+            agent.id()
+        );
+        cx.notify();
+    }
+
+    pub(super) fn set_agent_reasoning_override(
+        &mut self,
+        agent: BuiltInAgent,
+        reasoning_effort: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let reasoning_effort = normalize_agent_override(reasoning_effort);
+        let current = self
+            .config
+            .agent
+            .launch_overrides
+            .get(&agent)
+            .and_then(|overrides| overrides.reasoning_effort.clone());
+        if current == reasoning_effort {
+            return;
+        }
+
+        let mut settings = self.config.agent.clone();
+        let overrides = settings
+            .launch_overrides
+            .entry(agent)
+            .or_insert_with(AgentLaunchOverrides::default);
+        overrides.reasoning_effort = reasoning_effort;
+        if let Err(error) = overrides.validate_for(agent) {
+            log::warn!(
+                "[agent_terminal] ignoring invalid reasoning override for {}: {error}",
+                agent.id()
+            );
+            return;
+        }
+        if overrides.model.is_none()
+            && overrides.reasoning_effort.is_none()
+            && overrides.variant.is_none()
+        {
+            settings.launch_overrides.remove(&agent);
+        }
+        self.config.agent = settings.clone();
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.update_agent_settings(settings, cx);
+        });
+        self.config_saver.schedule(&self.config);
+        log::info!(
+            "[agent_terminal] reasoning override changed: agent={}",
+            agent.id()
+        );
+        cx.notify();
+    }
+
+    pub(super) fn set_agent_variant_override(
+        &mut self,
+        agent: BuiltInAgent,
+        variant: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let variant = normalize_agent_override(variant);
+        let current = self
+            .config
+            .agent
+            .launch_overrides
+            .get(&agent)
+            .and_then(|overrides| overrides.variant.clone());
+        if current == variant {
+            return;
+        }
+
+        let mut settings = self.config.agent.clone();
+        let overrides = settings
+            .launch_overrides
+            .entry(agent)
+            .or_insert_with(AgentLaunchOverrides::default);
+        overrides.variant = variant;
+        if let Err(error) = overrides.validate_for(agent) {
+            log::warn!(
+                "[agent_terminal] ignoring invalid variant override for {}: {error}",
+                agent.id()
+            );
+            return;
+        }
+        if overrides.model.is_none()
+            && overrides.reasoning_effort.is_none()
+            && overrides.variant.is_none()
+        {
+            settings.launch_overrides.remove(&agent);
+        }
+        self.config.agent = settings.clone();
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.update_agent_settings(settings, cx);
+        });
+        self.config_saver.schedule(&self.config);
+        log::info!(
+            "[agent_terminal] variant override changed: agent={}",
+            agent.id()
+        );
+        cx.notify();
+    }
+
     pub(super) fn save_agent_profile(
         &mut self,
         previous_id: Option<String>,
@@ -341,4 +485,10 @@ impl Workspace {
         log::info!("[agent_terminal] custom profile removed: id={profile_id}");
         cx.notify();
     }
+}
+
+fn normalize_agent_override(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }

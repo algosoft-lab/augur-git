@@ -295,6 +295,36 @@ impl Workspace {
                         cx,
                     );
                 }
+                SettingsPanelEvent::AgentModelOverrideChanged {
+                    agent,
+                    model,
+                } => {
+                    workspace.set_agent_model_override(
+                        *agent,
+                        model.clone(),
+                        cx,
+                    );
+                }
+                SettingsPanelEvent::AgentReasoningOverrideChanged {
+                    agent,
+                    reasoning_effort,
+                } => {
+                    workspace.set_agent_reasoning_override(
+                        *agent,
+                        reasoning_effort.clone(),
+                        cx,
+                    );
+                }
+                SettingsPanelEvent::AgentVariantOverrideChanged {
+                    agent,
+                    variant,
+                } => {
+                    workspace.set_agent_variant_override(
+                        *agent,
+                        variant.clone(),
+                        cx,
+                    );
+                }
                 SettingsPanelEvent::AgentConnectivityTestRequested(
                     profile_id,
                 ) => {

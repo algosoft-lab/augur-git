@@ -23,7 +23,9 @@ builds a shell command string, expands variables, or accepts a custom working
 directory.
 
 The settings page probes each resolved executable with `--version` in a
-background task. On Windows, executable lookup also checks the `.exe`, `.cmd`,
+background task. OpenCode also receives `--help` so the page can detect whether
+the installed root TUI advertises `--variant`. On Windows, executable lookup
+also checks the `.exe`, `.cmd`,
 and `.bat` suffixes used by interactive shells, so npm-installed CLI shims can
 be launched from the PTY. A missing CLI is reported as unavailable and does not
 prevent other profiles from being used. The Agents section lets users add,
@@ -42,6 +44,55 @@ and does not offer an editable prompt. The terminal remains available for
 provider login, approvals, and follow-up input. Augur Git marks the test as
 having received a response only after the challenge's per-run reversed token
 appears in the bounded terminal buffer.
+
+Built-in profiles also support optional launch-time model overrides. Leave the
+model field empty to inherit the Agent CLI's normal environment and
+configuration. Codex receives `--model` and, when selected, a
+`--config model_reasoning_effort="..."` override; Claude Code receives
+`--model` and `--effort`. OpenCode's interactive TUI receives
+`--model provider/model`; Augur adds `--variant <name>` only when that
+installed TUI explicitly advertises the flag. Variant
+names are model-specific rather than a universal low/high scale. Use
+`opencode models` or the TUI `/models` command to find the model, then use
+the Variant names defined by that model's OpenCode configuration. Custom
+profiles continue to use their fixed arguments and do not receive typed model
+or reasoning options.
+Explicit values apply only to new sessions, and unsupported values are shown
+as a visible launch error rather than silently falling back.
+
+## Choosing an OpenCode Variant
+
+OpenCode variants are selected per model, so Augur Git keeps the value as free
+text instead of presenting a misleading universal list. To configure one:
+
+1. Run `opencode models` in a shell, or use the `/models` command inside
+   OpenCode, and copy the exact `provider/model` identifier into the **Model**
+   field in Settings → Agents.
+2. Check that model's available variants in the OpenCode model configuration or
+   model documentation. Enter the exact variant name in the **Variant** field.
+3. Leave **Variant** empty to inherit the model's OpenCode configuration. A
+   saved value is passed to new interactive sessions as `--variant <name>`;
+   existing sessions are not changed.
+
+Augur Git does not validate the variant against a remote model catalog. This
+keeps startup offline and works with local providers and gateways. If the
+installed OpenCode version advertises the root interactive `--variant` flag,
+Augur Git passes it directly. Current OpenCode releases expose the flag for
+`opencode run --variant`, but not for the root interactive TUI. Augur detects
+this from `opencode --help`; the visible test window explains that the
+interactive override is unavailable instead of starting a command with an
+invalid flag. If the selected model still rejects
+the value, the visible Agent terminal shows the CLI's error and the launch is
+not silently retried with different arguments.
+
+The three CLIs retain responsibility for their own model catalogs, account
+configuration, permissions, and agent mode. Augur Git does not inject generic
+`auto`, `build`, approval, or sandbox flags. See the providers' current
+references for details: [Codex CLI](https://learn.chatgpt.com/docs/developer-commands?surface=cli),
+[Codex configuration](https://learn.chatgpt.com/docs/config-file/config-reference),
+[Claude Code CLI](https://code.claude.com/docs/en/cli-usage), and
+[OpenCode CLI](https://dev.opencode.ai/docs/cli/) and
+[OpenCode models and variants](https://dev.opencode.ai/docs/models/).
 
 The temporary directory is shown in the test window and is removed after the
 child exits. The per-user parent directory is retained for later tests, while

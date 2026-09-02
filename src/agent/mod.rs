@@ -26,7 +26,7 @@ pub enum BuiltInAgent {
     Codex,
     #[serde(alias = "ClaudeCode")]
     ClaudeCode,
-    #[serde(alias = "OpenCode")]
+    #[serde(alias = "OpenCode", alias = "opencode")]
     OpenCode,
 }
 
@@ -63,6 +63,14 @@ impl BuiltInAgent {
             Self::Codex | Self::ClaudeCode => PromptMode::TrailingArgument,
         }
     }
+
+    pub const fn supported_reasoning_efforts(self) -> &'static [&'static str] {
+        match self {
+            Self::Codex => &["minimal", "low", "medium", "high", "xhigh"],
+            Self::ClaudeCode => &["low", "medium", "high", "xhigh", "max"],
+            Self::OpenCode => &[],
+        }
+    }
 }
 
 /// Position used for the fixed bootstrap prompt in a profile's argv.
@@ -79,6 +87,65 @@ impl Default for PromptMode {
     fn default() -> Self {
         Self::TrailingArgument
     }
+}
+
+/// Optional launch-time overrides for a built-in Agent CLI.
+///
+/// A missing value deliberately means that Augur Git omits the corresponding
+/// command line option so the CLI can resolve its normal environment and
+/// config-file defaults.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default)]
+pub struct AgentLaunchOverrides {
+    pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub variant: Option<String>,
+}
+
+impl AgentLaunchOverrides {
+    pub fn validate_for(&self, agent: BuiltInAgent) -> Result<(), String> {
+        if let Some(model) = self.model.as_deref() {
+            validate_override_value(model, "model")?;
+        }
+        if let Some(variant) = self.variant.as_deref() {
+            validate_override_value(variant, "variant")?;
+            if agent != BuiltInAgent::OpenCode {
+                return Err(format!(
+                    "{} does not support a startup variant override",
+                    agent.display_name()
+                ));
+            }
+        }
+        if let Some(reasoning_effort) = self.reasoning_effort.as_deref() {
+            validate_override_value(reasoning_effort, "reasoning effort")?;
+            if agent == BuiltInAgent::OpenCode {
+                return Err(
+                    "OpenCode uses a model variant instead of a reasoning-effort override"
+                        .to_string(),
+                );
+            }
+            if !agent
+                .supported_reasoning_efforts()
+                .contains(&reasoning_effort)
+            {
+                return Err(format!(
+                    "{} does not support reasoning effort '{reasoning_effort}'",
+                    agent.display_name()
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn validate_override_value(value: &str, label: &str) -> Result<(), String> {
+    if value.trim().is_empty() {
+        return Err(format!("{label} cannot be empty"));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(format!("{label} cannot contain control characters"));
+    }
+    Ok(())
 }
 
 /// A user-defined external agent command.
@@ -151,6 +218,7 @@ impl CustomAgentProfile {
 pub struct AgentSettings {
     pub default_profile_id: Option<String>,
     pub executable_overrides: HashMap<BuiltInAgent, PathBuf>,
+    pub launch_overrides: HashMap<BuiltInAgent, AgentLaunchOverrides>,
     pub custom_profiles: Vec<CustomAgentProfile>,
 }
 
@@ -183,6 +251,11 @@ impl AgentSettings {
                     "{}: invalid executable override",
                     agent.id()
                 ));
+            }
+        }
+        for (agent, overrides) in &self.launch_overrides {
+            if let Err(error) = overrides.validate_for(*agent) {
+                errors.push(format!("{}: {error}", agent.id()));
             }
         }
         if let Some(default_profile_id) = self.default_profile_id.as_deref()
@@ -227,6 +300,7 @@ impl AgentSettings {
                 executable,
                 args: Vec::new(),
                 prompt_mode: agent.prompt_mode(),
+                built_in: Some(agent),
             });
         }
 
@@ -239,7 +313,18 @@ impl AgentSettings {
                 executable: profile.executable.clone(),
                 args: profile.args.clone(),
                 prompt_mode: profile.prompt_mode.clone(),
+                built_in: None,
             })
+    }
+
+    pub fn launch_overrides_for(
+        &self,
+        profile: &ResolvedAgentProfile,
+    ) -> AgentLaunchOverrides {
+        profile
+            .built_in
+            .and_then(|agent| self.launch_overrides.get(&agent).cloned())
+            .unwrap_or_default()
     }
 }
 
@@ -251,6 +336,7 @@ pub struct ResolvedAgentProfile {
     pub executable: PathBuf,
     pub args: Vec<String>,
     pub prompt_mode: PromptMode,
+    pub built_in: Option<BuiltInAgent>,
 }
 
 /// A structured command specification consumed by the terminal backend.
@@ -259,6 +345,34 @@ pub struct AgentLaunchSpec {
     pub executable: PathBuf,
     pub args: Vec<String>,
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LaunchSpecError {
+    InvalidOverride {
+        agent: BuiltInAgent,
+        summary: String,
+    },
+    CustomProfileOverrides,
+}
+
+impl std::fmt::Display for LaunchSpecError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidOverride { agent, summary } => {
+                write!(
+                    formatter,
+                    "{} launch override is invalid: {summary}",
+                    agent.display_name()
+                )
+            }
+            Self::CustomProfileOverrides => formatter.write_str(
+                "custom profiles do not support typed launch overrides",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for LaunchSpecError {}
 
 /// A fixed, non-destructive challenge used to verify that an Agent receives a
 /// prompt and can return a response through the visible terminal.
@@ -294,7 +408,87 @@ impl Default for AgentConnectivityChallenge {
 impl ResolvedAgentProfile {
     /// Build a direct-prompt launch with structured executable arguments.
     pub fn launch_spec_for_prompt(&self, prompt: &str) -> AgentLaunchSpec {
+        self.launch_spec_for_prompt_with_overrides(
+            prompt,
+            &AgentLaunchOverrides::default(),
+        )
+        .unwrap_or_else(|_| AgentLaunchSpec {
+            executable: self.executable.clone(),
+            args: self.args.clone(),
+        })
+    }
+
+    /// Build a direct-prompt launch with provider-specific typed overrides.
+    pub fn launch_spec_for_prompt_with_overrides(
+        &self,
+        prompt: &str,
+        overrides: &AgentLaunchOverrides,
+    ) -> Result<AgentLaunchSpec, LaunchSpecError> {
+        let Some(agent) = self.built_in else {
+            if overrides.model.is_some()
+                || overrides.reasoning_effort.is_some()
+                || overrides.variant.is_some()
+            {
+                return Err(LaunchSpecError::CustomProfileOverrides);
+            }
+            return Ok(self.launch_spec_with_args(prompt, self.args.clone()));
+        };
+        overrides.validate_for(agent).map_err(|summary| {
+            LaunchSpecError::InvalidOverride { agent, summary }
+        })?;
+
         let mut args = self.args.clone();
+        if let Some(model) = overrides.model.as_deref() {
+            args.extend(["--model".to_string(), model.to_string()]);
+        }
+        if let Some(reasoning_effort) = overrides.reasoning_effort.as_deref() {
+            match agent {
+                BuiltInAgent::Codex => {
+                    args.extend([
+                        "--config".to_string(),
+                        format!(
+                            "model_reasoning_effort=\"{reasoning_effort}\""
+                        ),
+                    ]);
+                }
+                BuiltInAgent::ClaudeCode => {
+                    args.extend([
+                        "--effort".to_string(),
+                        reasoning_effort.to_string(),
+                    ]);
+                }
+                BuiltInAgent::OpenCode => {
+                    // validate_for rejects this before reaching the adapter;
+                    // keeping the arm explicit prevents accidental silent
+                    // dropping if the supported-value policy changes later.
+                    return Err(LaunchSpecError::InvalidOverride {
+                        agent,
+                        summary:
+                            "interactive OpenCode does not support a startup reasoning override"
+                                .to_string(),
+                    });
+                }
+            }
+        }
+        if let Some(variant) = overrides.variant.as_deref() {
+            if agent != BuiltInAgent::OpenCode {
+                return Err(LaunchSpecError::InvalidOverride {
+                    agent,
+                    summary:
+                        "only OpenCode supports a startup variant override"
+                            .to_string(),
+                });
+            }
+            args.extend(["--variant".to_string(), variant.to_string()]);
+        }
+        Ok(self.launch_spec_with_args(prompt, args))
+    }
+
+    fn launch_spec_with_args(
+        &self,
+        prompt: &str,
+        mut args: Vec<String>,
+    ) -> AgentLaunchSpec {
         match &self.prompt_mode {
             PromptMode::TrailingArgument => args.push(prompt.to_string()),
             PromptMode::Flag(flag) => {
@@ -493,6 +687,59 @@ pub fn probe_profile(profile: &ResolvedAgentProfile) -> anyhow::Result<String> {
     }
 }
 
+/// Capabilities discovered from a provider CLI's own help output.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AgentCliCapabilities {
+    /// Whether the root interactive command accepts `--variant`.
+    pub supports_interactive_variant: bool,
+}
+
+/// Probe optional arguments without starting an interactive session.
+///
+/// OpenCode versions that predate root-TUI Variant support still expose a
+/// useful help page, so a non-zero help exit status is accepted when output is
+/// present. This keeps the probe compatible with CLI wrappers that use a
+/// non-standard help exit code while still reporting genuine launch failures.
+pub fn probe_profile_capabilities(
+    profile: &ResolvedAgentProfile,
+) -> anyhow::Result<AgentCliCapabilities> {
+    let executable = resolve_executable(&profile.executable)?;
+    let mut command = Command::new(executable);
+    command.args(&profile.args).arg("--help");
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
+    let output = command.output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let help = if stdout.trim().is_empty() {
+        stderr.into_owned()
+    } else if stderr.trim().is_empty() {
+        stdout.into_owned()
+    } else {
+        // Keep the probe in-memory and avoid logging provider output.
+        format!("{stdout}\n{stderr}")
+    };
+    if help.trim().is_empty() {
+        return Err(anyhow::anyhow!(if output.status.success() {
+            format!("{} returned empty help output", profile.name)
+        } else {
+            format!("{} exited with {}", profile.name, output.status)
+        }));
+    }
+    Ok(AgentCliCapabilities {
+        supports_interactive_variant: help_advertises_flag(&help, "--variant"),
+    })
+}
+
+fn help_advertises_flag(help: &str, flag: &str) -> bool {
+    help.split_whitespace().any(|token| {
+        token == flag
+            || token
+                .strip_prefix(flag)
+                .is_some_and(|suffix| suffix.starts_with('='))
+    })
+}
+
 #[cfg(unix)]
 fn set_private_directory_permissions(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
@@ -501,6 +748,9 @@ fn set_private_directory_permissions(path: &Path) {
 
 #[cfg(not(unix))]
 fn set_private_directory_permissions(_path: &Path) {}
+
+#[cfg(test)]
+mod launch_tests;
 
 #[cfg(test)]
 mod tests {
@@ -598,6 +848,7 @@ mod tests {
             executable: directory.join("agent"),
             args: Vec::new(),
             prompt_mode: PromptMode::TrailingArgument,
+            built_in: None,
         };
 
         assert_eq!(
@@ -619,6 +870,15 @@ mod tests {
             serde_json::to_string(&PromptMode::TrailingArgument).unwrap(),
             "\"trailing-argument\""
         );
+    }
+
+    #[test]
+    fn help_probe_detects_exact_optional_flags() {
+        let help = "Options: --model <id> --variant <name> --prompt <text>";
+        assert!(help_advertises_flag(help, "--variant"));
+        assert!(!help_advertises_flag(help, "--reasoning"));
+        assert!(!help_advertises_flag("--variant-name", "--variant"));
+        assert!(help_advertises_flag("--variant=high", "--variant"));
     }
 
     #[test]

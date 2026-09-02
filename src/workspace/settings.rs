@@ -1,4 +1,6 @@
 use gpui::prelude::*;
+use std::collections::HashMap;
+
 use gpui::*;
 use gpui_component::{
     ActiveTheme, Disableable, IconName, IndexPath, Sizable,
@@ -12,7 +14,10 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::agent::{AgentSettings, BuiltInAgent, CustomAgentProfile};
+use crate::agent::{
+    AgentCliCapabilities, AgentLaunchOverrides, AgentSettings, BuiltInAgent,
+    CustomAgentProfile,
+};
 use crate::core::config::{
     AppConfig, DiffLayoutPreference, GraphHistoryPreference,
     LanguagePreference, MAX_DIFF_FONT_SIZE, MAX_UI_FONT_SIZE,
@@ -39,6 +44,18 @@ pub enum SettingsPanelEvent {
     AgentExecutableOverrideChanged {
         agent: BuiltInAgent,
         executable: Option<std::path::PathBuf>,
+    },
+    AgentModelOverrideChanged {
+        agent: BuiltInAgent,
+        model: Option<String>,
+    },
+    AgentReasoningOverrideChanged {
+        agent: BuiltInAgent,
+        reasoning_effort: Option<String>,
+    },
+    AgentVariantOverrideChanged {
+        agent: BuiltInAgent,
+        variant: Option<String>,
     },
     AgentConnectivityTestRequested(String),
     AgentProfileSaved {
@@ -96,7 +113,9 @@ pub struct SettingsPanel {
     ui_font_size: f32,
     diff_font_size: f32,
     agent_settings: AgentSettings,
+    agent_override_errors: HashMap<BuiltInAgent, String>,
     agent_probe_results: Vec<(String, Option<Result<String, String>>)>,
+    agent_probe_capabilities: HashMap<String, AgentCliCapabilities>,
     agent_probe_generation: u64,
     font_families: Vec<String>,
     language_state:
@@ -116,6 +135,12 @@ pub struct SettingsPanel {
     agent_default_profile_state:
         Entity<SelectState<Vec<SettingsOption<String>>>>,
     agent_executable_inputs: Vec<(BuiltInAgent, Entity<InputState>)>,
+    agent_model_inputs: Vec<(BuiltInAgent, Entity<InputState>)>,
+    agent_variant_inputs: Vec<(BuiltInAgent, Entity<InputState>)>,
+    agent_reasoning_states: Vec<(
+        BuiltInAgent,
+        Entity<SelectState<Vec<SettingsOption<Option<String>>>>>,
+    )>,
     agent_profile_editor: Option<Entity<AgentProfileEditor>>,
 }
 
@@ -244,6 +269,66 @@ impl SettingsPanel {
                 (agent, input)
             })
             .collect::<Vec<_>>();
+        let agent_model_inputs = BuiltInAgent::ALL
+            .iter()
+            .copied()
+            .map(|agent| {
+                let value = agent_settings
+                    .launch_overrides
+                    .get(&agent)
+                    .and_then(|overrides| overrides.model.clone())
+                    .unwrap_or_default();
+                let input = cx.new(|cx| {
+                    InputState::new(window, cx)
+                        .default_value(value)
+                        .placeholder(i18n::text(
+                            locale,
+                            "agent-model-placeholder",
+                        ))
+                });
+                (agent, input)
+            })
+            .collect::<Vec<_>>();
+        let agent_variant_inputs = BuiltInAgent::ALL
+            .iter()
+            .copied()
+            .map(|agent| {
+                let value = agent_settings
+                    .launch_overrides
+                    .get(&agent)
+                    .and_then(|overrides| overrides.variant.clone())
+                    .unwrap_or_default();
+                let input = cx.new(|cx| {
+                    InputState::new(window, cx)
+                        .default_value(value)
+                        .placeholder(i18n::text(
+                            locale,
+                            "agent-variant-placeholder",
+                        ))
+                });
+                (agent, input)
+            })
+            .collect::<Vec<_>>();
+        let agent_reasoning_states = BuiltInAgent::ALL
+            .iter()
+            .copied()
+            .map(|agent| {
+                let options = agent_reasoning_options(locale, agent);
+                let value = agent_settings
+                    .launch_overrides
+                    .get(&agent)
+                    .and_then(|overrides| overrides.reasoning_effort.clone());
+                let state = cx.new(|cx| {
+                    SelectState::new(
+                        options.clone(),
+                        selected_index(&options, &value),
+                        window,
+                        cx,
+                    )
+                });
+                (agent, state)
+            })
+            .collect::<Vec<_>>();
 
         let mut panel = Self {
             locale,
@@ -258,7 +343,9 @@ impl SettingsPanel {
             ui_font_size,
             diff_font_size,
             agent_settings,
+            agent_override_errors: HashMap::new(),
             agent_probe_results: Vec::new(),
+            agent_probe_capabilities: HashMap::new(),
             agent_probe_generation: 0,
             font_families,
             language_state,
@@ -272,6 +359,9 @@ impl SettingsPanel {
             diff_font_size_state,
             agent_default_profile_state,
             agent_executable_inputs,
+            agent_model_inputs,
+            agent_variant_inputs,
+            agent_reasoning_states,
             agent_profile_editor: None,
         };
 
@@ -416,6 +506,84 @@ impl SettingsPanel {
                 cx.emit(SettingsPanelEvent::AgentExecutableOverrideChanged {
                     agent,
                     executable,
+                });
+            })
+            .detach();
+        }
+
+        for (agent, input) in &panel.agent_model_inputs {
+            let agent = *agent;
+            let input = input.clone();
+            cx.subscribe(&input, move |panel, state, event, cx| {
+                if !matches!(event, InputEvent::Change) {
+                    return;
+                }
+                let value = state.read(cx).value().trim().to_string();
+                let model = (!value.is_empty()).then_some(value);
+                let mut overrides = panel
+                    .agent_settings
+                    .launch_overrides
+                    .get(&agent)
+                    .cloned()
+                    .unwrap_or_else(AgentLaunchOverrides::default);
+                overrides.model = model.clone();
+                if let Err(error) = overrides.validate_for(agent) {
+                    panel.agent_override_errors.insert(agent, error);
+                    cx.notify();
+                    return;
+                }
+                panel.agent_override_errors.remove(&agent);
+                cx.emit(SettingsPanelEvent::AgentModelOverrideChanged {
+                    agent,
+                    model,
+                });
+            })
+            .detach();
+        }
+
+        for (agent, input) in &panel.agent_variant_inputs {
+            let agent = *agent;
+            let input = input.clone();
+            cx.subscribe(&input, move |panel, state, event, cx| {
+                if agent != BuiltInAgent::OpenCode
+                    || !matches!(event, InputEvent::Change)
+                {
+                    return;
+                }
+                let value = state.read(cx).value().trim().to_string();
+                let variant = (!value.is_empty()).then_some(value);
+                let mut overrides = panel
+                    .agent_settings
+                    .launch_overrides
+                    .get(&agent)
+                    .cloned()
+                    .unwrap_or_else(AgentLaunchOverrides::default);
+                overrides.variant = variant.clone();
+                if let Err(error) = overrides.validate_for(agent) {
+                    panel.agent_override_errors.insert(agent, error);
+                    cx.notify();
+                    return;
+                }
+                panel.agent_override_errors.remove(&agent);
+                cx.emit(SettingsPanelEvent::AgentVariantOverrideChanged {
+                    agent,
+                    variant,
+                });
+            })
+            .detach();
+        }
+
+        for (agent, state) in &panel.agent_reasoning_states {
+            let agent = *agent;
+            let state = state.clone();
+            cx.subscribe(&state, move |panel, _, event, cx| {
+                let SelectEvent::Confirm(Some(value)) = event else {
+                    return;
+                };
+                panel.agent_override_errors.remove(&agent);
+                cx.emit(SettingsPanelEvent::AgentReasoningOverrideChanged {
+                    agent,
+                    reasoning_effort: value.clone(),
                 });
             })
             .detach();
@@ -579,6 +747,17 @@ impl SettingsPanel {
             state.set_items(options.clone(), window, cx);
             state.set_selected_value(&agent_default_profile, window, cx);
         });
+        for (agent, state) in &self.agent_reasoning_states {
+            let options = agent_reasoning_options(locale, *agent);
+            let value = agent_settings
+                .launch_overrides
+                .get(agent)
+                .and_then(|overrides| overrides.reasoning_effort.clone());
+            state.update(cx, |state, cx| {
+                state.set_items(options.clone(), window, cx);
+                state.set_selected_value(&value, window, cx);
+            });
+        }
         cx.notify();
     }
 
@@ -589,6 +768,7 @@ impl SettingsPanel {
         cx: &mut Context<Self>,
     ) {
         self.agent_settings = settings.clone();
+        self.agent_override_errors.clear();
         self.agent_profile_editor = None;
         self.start_agent_probes(cx);
         let selected = settings.default_profile_id();
@@ -605,6 +785,37 @@ impl SettingsPanel {
                 .unwrap_or_default();
             input.update(cx, |state, cx| {
                 state.set_value(value, window, cx);
+            });
+        }
+        for (agent, input) in &self.agent_model_inputs {
+            let value = settings
+                .launch_overrides
+                .get(agent)
+                .and_then(|overrides| overrides.model.clone())
+                .unwrap_or_default();
+            input.update(cx, |state, cx| {
+                state.set_value(value, window, cx);
+            });
+        }
+        for (agent, input) in &self.agent_variant_inputs {
+            let value = settings
+                .launch_overrides
+                .get(agent)
+                .and_then(|overrides| overrides.variant.clone())
+                .unwrap_or_default();
+            input.update(cx, |state, cx| {
+                state.set_value(value, window, cx);
+            });
+        }
+        for (agent, state) in &self.agent_reasoning_states {
+            let options = agent_reasoning_options(self.locale, *agent);
+            let value = settings
+                .launch_overrides
+                .get(agent)
+                .and_then(|overrides| overrides.reasoning_effort.clone());
+            state.update(cx, |state, cx| {
+                state.set_items(options.clone(), window, cx);
+                state.set_selected_value(&value, window, cx);
             });
         }
         cx.notify();
@@ -624,6 +835,7 @@ impl SettingsPanel {
             .collect::<Vec<_>>();
         self.agent_probe_results =
             profiles.iter().map(|(id, _)| (id.clone(), None)).collect();
+        self.agent_probe_capabilities.clear();
         let panel = cx.entity();
         cx.spawn(async move |_, cx| {
             cx.background_executor()
@@ -644,7 +856,17 @@ impl SettingsPanel {
                                 .map_err(|error| {
                                     first_line(&error.to_string()).to_string()
                                 });
-                            (id, result)
+                            let capabilities = if profile.built_in
+                                == Some(BuiltInAgent::OpenCode)
+                            {
+                                crate::agent::probe_profile_capabilities(
+                                    &profile,
+                                )
+                                .ok()
+                            } else {
+                                None
+                            };
+                            (id, result, capabilities)
                         })
                         .collect::<Vec<_>>()
                 })
@@ -653,9 +875,24 @@ impl SettingsPanel {
                 if panel.agent_probe_generation != generation {
                     return;
                 }
+                for (id, _, capabilities) in &results {
+                    if let Some(capabilities) = capabilities {
+                        log::info!(
+                            "[agent_terminal] capability probe: profile={id}, interactive_variant={}",
+                            capabilities.supports_interactive_variant
+                        );
+                    }
+                }
+                panel.agent_probe_capabilities = results
+                    .iter()
+                    .filter_map(|(id, _, capabilities)| {
+                        capabilities
+                            .map(|capabilities| (id.clone(), capabilities))
+                    })
+                    .collect();
                 panel.agent_probe_results = results
                     .into_iter()
-                    .map(|(id, result)| (id, Some(result)))
+                    .map(|(id, result, _)| (id, Some(result)))
                     .collect();
                 cx.notify();
             });
@@ -669,7 +906,34 @@ impl SettingsPanel {
         cx: &mut Context<Self>,
     ) {
         self.agent_settings = settings;
+        self.agent_override_errors.clear();
         self.start_agent_probes(cx);
+    }
+
+    pub(super) fn agent_supports_interactive_variant(
+        &self,
+        profile_id: &str,
+    ) -> Option<bool> {
+        let profile = self.agent_settings.profile(profile_id)?;
+        if profile.built_in != Some(BuiltInAgent::OpenCode) {
+            return None;
+        }
+        self.agent_probe_capabilities
+            .get(profile_id)
+            .map(|capabilities| capabilities.supports_interactive_variant)
+    }
+
+    pub(super) fn agent_variant_capability_ready(
+        &self,
+        profile_id: &str,
+    ) -> bool {
+        let Some(profile) = self.agent_settings.profile(profile_id) else {
+            return false;
+        };
+        if profile.built_in != Some(BuiltInAgent::OpenCode) {
+            return true;
+        }
+        self.agent_probe_capabilities.contains_key(profile_id)
     }
 
     fn select_section(
@@ -963,7 +1227,49 @@ impl SettingsPanel {
                         .iter()
                         .find(|custom| custom.id == profile.value)
                         .map(|_| profile.value.clone());
-                    let can_test = resolved.is_some() && !executable_path_missing;
+                    let launch_override_valid = resolved
+                        .as_ref()
+                        .and_then(|resolved| {
+                            resolved.built_in.and_then(|agent| {
+                                let saved_is_valid = self
+                                    .agent_settings
+                                    .launch_overrides
+                                    .get(&agent)
+                                    .map(|overrides| {
+                                        overrides.validate_for(agent).is_ok()
+                                    })
+                                    .unwrap_or(true);
+                                Some(
+                                    saved_is_valid
+                                        && !self
+                                            .agent_override_errors
+                                            .contains_key(&agent),
+                                )
+                            })
+                        })
+                        .unwrap_or(true);
+                    let variant_capability_ready = resolved
+                        .as_ref()
+                        .and_then(|resolved| {
+                            let has_variant = resolved
+                                .built_in
+                                == Some(BuiltInAgent::OpenCode)
+                                && self
+                                    .agent_settings
+                                    .launch_overrides_for(resolved)
+                                    .variant
+                                    .is_some();
+                            has_variant.then(|| {
+                                self.agent_variant_capability_ready(
+                                    &resolved.id,
+                                )
+                            })
+                        })
+                        .unwrap_or(true);
+                    let can_test = resolved.is_some()
+                        && !executable_path_missing
+                        && launch_override_valid
+                        && variant_capability_ready;
                     let test = this.clone();
                     let test_id = profile.value.clone();
                     let mut row = v_flex()
@@ -1134,6 +1440,134 @@ impl SettingsPanel {
                                 .child(Input::new(input).w_full())
                         },
                     ))
+                    .child(
+                        div()
+                            .text_color(colors.foreground)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(shared(i18n::text(
+                                self.locale,
+                                "agent-launch-settings-title",
+                            ))),
+                    )
+                    .child(
+                        div()
+                            .text_size(crate::theme::scaled_text_size(12.))
+                            .text_color(colors.muted_foreground)
+                            .child(shared(i18n::text(
+                                self.locale,
+                                "agent-launch-settings-description",
+                            ))),
+                    )
+                    .children(BuiltInAgent::ALL.iter().filter_map(|agent| {
+                        let model_input = self
+                            .agent_model_inputs
+                            .iter()
+                            .find(|(entry, _)| entry == agent)
+                            .map(|(_, input)| input)?;
+                        let overrides =
+                            self.agent_settings.launch_overrides.get(agent);
+                        let override_error = self
+                            .agent_override_errors
+                            .get(agent)
+                            .cloned()
+                            .or_else(|| {
+                                overrides.and_then(|overrides| {
+                                    overrides.validate_for(*agent).err()
+                                })
+                            })
+                            .map(|error| {
+                                div()
+                                    .text_size(crate::theme::scaled_text_size(
+                                        11.,
+                                    ))
+                                    .text_color(colors.red)
+                                    .child(shared(i18n::text_args(
+                                        self.locale,
+                                        "agent-launch-invalid",
+                                        &[("error", &error)],
+                                    )))
+                            });
+                        let reasoning_control: AnyElement = if *agent
+                            == BuiltInAgent::OpenCode
+                        {
+                            let variant_input = self
+                                .agent_variant_inputs
+                                .iter()
+                                .find(|(entry, _)| entry == agent)
+                                .map(|(_, input)| input)?;
+                            Self::field(
+                                i18n::text(self.locale, "agent-variant-title"),
+                                Input::new(variant_input)
+                                    .w_full()
+                                    .into_any_element(),
+                                colors.foreground,
+                            )
+                            .into_any_element()
+                        } else {
+                            let reasoning_state = self
+                                .agent_reasoning_states
+                                .iter()
+                                .find(|(entry, _)| entry == agent)
+                                .map(|(_, state)| state)?;
+                            Self::field(
+                                i18n::text(
+                                    self.locale,
+                                    "agent-reasoning-title",
+                                ),
+                                Select::new(reasoning_state)
+                                    .w_full()
+                                    .into_any_element(),
+                                colors.foreground,
+                            )
+                            .into_any_element()
+                        };
+                        let variant_note = (*agent == BuiltInAgent::OpenCode)
+                            .then(|| {
+                                div()
+                                    .text_size(crate::theme::scaled_text_size(
+                                        11.,
+                                    ))
+                                    .text_color(colors.muted_foreground)
+                                    .child(shared(i18n::text(
+                                        self.locale,
+                                        "agent-opencode-variant-note",
+                                    )))
+                            });
+                        Some(
+                            v_flex()
+                                .w_full()
+                                .gap_2()
+                                .px_3()
+                                .py_2()
+                                .rounded_md()
+                                .bg(colors.secondary)
+                                .child(
+                                    div()
+                                        .text_color(colors.foreground)
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child(SharedString::from(
+                                            agent.display_name(),
+                                        )),
+                                )
+                                .child(Self::field(
+                                    i18n::text(
+                                        self.locale,
+                                        "agent-model-title",
+                                    ),
+                                    Input::new(model_input)
+                                        .w_full()
+                                        .into_any_element(),
+                                    colors.foreground,
+                                ))
+                                .child(reasoning_control)
+                                .when_some(variant_note, |element, note| {
+                                    element.child(note)
+                                })
+                                .when_some(override_error, |element, error| {
+                                    element.child(error)
+                                }),
+                        )
+                    }))
                     .child(
                         h_flex()
                             .w_full()
@@ -1401,6 +1835,27 @@ fn auto_refresh_options(locale: Locale) -> Vec<SettingsOption<bool>> {
         SettingsOption::new(true, i18n::text(locale, "setting-enabled")),
         SettingsOption::new(false, i18n::text(locale, "setting-disabled")),
     ]
+}
+
+fn agent_reasoning_options(
+    locale: Locale,
+    agent: BuiltInAgent,
+) -> Vec<SettingsOption<Option<String>>> {
+    let mut options = vec![SettingsOption::new(
+        None,
+        i18n::text(locale, "agent-launch-inherit"),
+    )];
+    options.extend(agent.supported_reasoning_efforts().iter().map(|effort| {
+        SettingsOption::new(
+            Some((*effort).to_string()),
+            i18n::text_args(
+                locale,
+                "agent-reasoning-option",
+                &[("effort", effort)],
+            ),
+        )
+    }));
+    options
 }
 
 fn font_options(
