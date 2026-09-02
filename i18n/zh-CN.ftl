@@ -140,8 +140,10 @@ commit-title = 提交
 commit-placeholder = 提交信息
 commit-btn = 提交
 commit-amend-btn = 修改
+commit-ai-btn = AI 提交
 commit-action-commit = 提交
 commit-action-amend = 修改上次提交
+commit-action-ai = AI 提交
 
 # ===== 底部面板（选中提交文件清单 + 单文件 diff） =====
 bottom-no-commit = 未选择提交

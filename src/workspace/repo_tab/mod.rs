@@ -29,6 +29,7 @@ pub enum RepoTabEvent {
     SummaryChanged(TabSummary),
     RequestSettings,
     LayoutChanged(LayoutSettings),
+    AgentCommitRequested { hint: String },
 }
 
 enum PendingConfirmation {

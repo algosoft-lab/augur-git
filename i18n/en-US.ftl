@@ -141,8 +141,10 @@ commit-title = Commit
 commit-placeholder = Commit Message
 commit-btn = Commit
 commit-amend-btn = Amend
+commit-ai-btn = Commit by AI
 commit-action-commit = Commit
 commit-action-amend = Amend last commit
+commit-action-ai = Commit by AI
 
 # ===== Bottom panel (selected commit file list + file diff) =====
 bottom-no-commit = No commit selected

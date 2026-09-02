@@ -11,7 +11,7 @@ use crate::core::i18n;
 use crate::git::changes_panel::{ChangesPanel, ChangesPanelEvent};
 use crate::git::graph::{GraphEvent, GraphView};
 use crate::git::panel::{
-    BottomPanel, BottomPanelEvent, CommitPanel, CommitPanelEvent,
+    BottomPanel, BottomPanelEvent, CommitAction, CommitPanel, CommitPanelEvent,
 };
 use crate::git::sidebar::Sidebar;
 use crate::git::toolbar::{Toolbar, ToolbarEvent};
@@ -202,15 +202,34 @@ fn wire_graph(graph: &Entity<GraphView>, cx: &mut Context<RepoTab>) {
 
 fn wire_commit(commit: &Entity<CommitPanel>, cx: &mut Context<RepoTab>) {
     cx.subscribe(commit, |tab, _event, event, cx| match event {
-        CommitPanelEvent::Submit { message, amend } => {
+        CommitPanelEvent::Submit { message, action } => {
             if tab.operation_busy {
                 return;
             }
-            log::info!("[commit_panel] submit requested: amend={amend}");
-            tab.git_view.update(cx, |view, _| {
-                view.commit(message.clone(), *amend);
-            });
-            tab.set_operation_busy(true, cx);
+            match action {
+                CommitAction::Commit => {
+                    log::info!(
+                        "[commit_panel] submit requested: action=commit"
+                    );
+                    tab.git_view.update(cx, |view, _| {
+                        view.commit(message.clone(), false);
+                    });
+                    tab.set_operation_busy(true, cx);
+                }
+                CommitAction::Amend => {
+                    log::info!("[commit_panel] submit requested: action=amend");
+                    tab.git_view.update(cx, |view, _| {
+                        view.commit(message.clone(), true);
+                    });
+                    tab.set_operation_busy(true, cx);
+                }
+                CommitAction::CommitByAgent => {
+                    log::info!("[commit_panel] submit requested: action=agent");
+                    cx.emit(RepoTabEvent::AgentCommitRequested {
+                        hint: message.clone(),
+                    });
+                }
+            }
         }
     })
     .detach();
@@ -356,6 +375,7 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 tab.sync_branch_menu_context(cx);
                 tab.commit.update(cx, |commit, cx| {
                     commit.set_has_staged(has_staged, cx);
+                    commit.set_has_changes(tab.local_change_count > 0, cx);
                 });
                 tab.emit_summary(cx);
                 cx.notify();

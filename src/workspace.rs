@@ -647,6 +647,11 @@ impl Workspace {
                 }
                 cx.notify();
             }
+            RepoTabEvent::AgentCommitRequested { .. } => {
+                log::debug!(
+                    "[agent_terminal] agent commit request is waiting for session wiring"
+                );
+            }
         }
     }
 
