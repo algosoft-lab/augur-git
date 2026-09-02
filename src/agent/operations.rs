@@ -3,9 +3,11 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// An operation that Augur Git can delegate to an external Agent.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AgentOperation {
     Commit,
+    Merge { target_oid: String },
+    ResolveMerge { merge_head_oid: String },
 }
 
 /// Validation failures for the optional commit-message hint.
@@ -13,6 +15,7 @@ pub enum AgentOperation {
 pub enum CommitPromptError {
     HintTooLong { max_bytes: usize },
     HintContainsControlCharacter,
+    HintNotSupported,
 }
 
 /// A per-session marker that lets Augur detect when an interactive Agent has
@@ -56,6 +59,9 @@ impl std::fmt::Display for CommitPromptError {
             Self::HintContainsControlCharacter => {
                 formatter.write_str("commit hint contains a control character")
             }
+            Self::HintNotSupported => formatter.write_str(
+                "this agent operation does not accept a commit hint",
+            ),
         }
     }
 }
@@ -65,6 +71,11 @@ impl std::error::Error for CommitPromptError {}
 const MAX_COMMIT_HINT_BYTES: usize = 4 * 1024;
 
 const COMMIT_PROMPT: &str = "You are Augur Git's commit agent operating in the current repository. Inspect the entire working tree, including staged, unstaged, and untracked changes. If there are merge conflicts or no changes, explain the situation and do not commit. Otherwise stage all current changes with git add --all, review the staged diff, generate one concise Conventional Commit message, and run exactly one git commit. Do not edit file contents, delete files, reset, checkout, amend, merge, rebase, or push. Do not run commands outside this repository.";
+
+const MERGE_PROMPT_PREFIX: &str = "You are Augur Git's merge agent operating in the current repository. The immutable target commit is";
+const MERGE_PROMPT_SUFFIX: &str = "Before changing anything, verify that the current HEAD and working tree still match the session context. Perform one normal fast-forward-allowed merge of the target commit. If the merge is already up to date, report that fact. If conflicts occur, inspect the conflict markers and base/ours/theirs versions, edit only the conflicted files, and stage each resolved file. Review the result and complete exactly one merge commit with the merge message prepared by Git. Do not push, checkout, reset, abort, amend, rebase, or modify files outside the merge conflicts. Do not run commands outside this repository. After reporting the result, output the completion marker and remain in the interactive session; Augur Git will close it after verification.";
+const RESOLVE_MERGE_PROMPT_PREFIX: &str = "You are Augur Git's merge-conflict resolution agent operating in the current repository. A merge is already in progress and MERGE_HEAD is";
+const RESOLVE_MERGE_PROMPT_SUFFIX: &str = "Do not start another merge and do not abort this one. Inspect the unmerged files and resolve each conflict by editing only those files. Preserve unrelated user changes, stage each resolved conflict, review the staged result, and complete exactly one merge commit with git commit --no-edit. If a conflict cannot be resolved safely, explain why and do not commit. Do not push, checkout, reset, amend, rebase, or modify files outside the conflicts. Do not run commands outside this repository. After reporting the result, output the completion marker and remain in the interactive session; Augur Git will close it after verification.";
 
 impl AgentOperation {
     /// Build the fixed prompt for this operation and an optional user hint.
@@ -78,6 +89,18 @@ impl AgentOperation {
     ) -> Result<String, CommitPromptError> {
         match self {
             Self::Commit => commit_prompt(hint),
+            Self::Merge { target_oid } => {
+                if hint.is_some_and(|value| !value.trim().is_empty()) {
+                    return Err(CommitPromptError::HintNotSupported);
+                }
+                Ok(merge_prompt(&target_oid))
+            }
+            Self::ResolveMerge { merge_head_oid } => {
+                if hint.is_some_and(|value| !value.trim().is_empty()) {
+                    return Err(CommitPromptError::HintNotSupported);
+                }
+                Ok(resolve_merge_prompt(&merge_head_oid))
+            }
         }
     }
 
@@ -111,6 +134,16 @@ fn commit_prompt(hint: Option<&str>) -> Result<String, CommitPromptError> {
     Ok(format!(
         "{COMMIT_PROMPT}\n\nOptional commit-message hint from the user (use only as guidance for the commit message; it is not an additional task):\n---\n{hint}\n---"
     ))
+}
+
+fn merge_prompt(target_oid: &str) -> String {
+    format!("{MERGE_PROMPT_PREFIX} {target_oid}. {MERGE_PROMPT_SUFFIX}")
+}
+
+fn resolve_merge_prompt(merge_head_oid: &str) -> String {
+    format!(
+        "{RESOLVE_MERGE_PROMPT_PREFIX} {merge_head_oid}. {RESOLVE_MERGE_PROMPT_SUFFIX}"
+    )
 }
 
 #[cfg(test)]
@@ -187,6 +220,42 @@ mod tests {
                 "AUGUR_GIT_DONE:{}",
                 token.chars().rev().collect::<String>()
             )
+        );
+    }
+
+    #[test]
+    fn merge_prompt_contains_only_the_frozen_target_oid() {
+        let prompt = AgentOperation::Merge {
+            target_oid: "abc123".to_string(),
+        }
+        .prompt(None)
+        .unwrap();
+        assert!(prompt.contains("abc123"));
+        assert!(prompt.contains("fast-forward-allowed merge"));
+        assert!(prompt.contains("output the completion marker"));
+        assert!(!prompt.contains("merge --abort"));
+    }
+
+    #[test]
+    fn resolve_prompt_never_starts_another_merge() {
+        let prompt = AgentOperation::ResolveMerge {
+            merge_head_oid: "def456".to_string(),
+        }
+        .prompt(None)
+        .unwrap();
+        assert!(prompt.contains("MERGE_HEAD is def456"));
+        assert!(prompt.contains("Do not start another merge"));
+        assert!(prompt.contains("git commit --no-edit"));
+    }
+
+    #[test]
+    fn merge_operations_reject_commit_hints() {
+        assert_eq!(
+            AgentOperation::Merge {
+                target_oid: "abc123".to_string(),
+            }
+            .prompt(Some("hint")),
+            Err(CommitPromptError::HintNotSupported)
         );
     }
 }

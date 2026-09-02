@@ -16,6 +16,21 @@ pub struct AgentCommitProbe {
     pub has_conflicts: bool,
 }
 
+/// Read-only repository state used by Merge by AI and merge-conflict recovery.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AgentMergeProbe {
+    /// The current commit object id, or `None` for an unborn HEAD.
+    pub head: Option<String>,
+    /// The commit recorded in `.git/MERGE_HEAD`, when a merge is in progress.
+    pub merge_head: Option<String>,
+    /// Whether Git reports staged, worktree, or untracked changes.
+    pub has_changes: bool,
+    /// Whether Git reports an unmerged index entry.
+    pub has_conflicts: bool,
+    /// Whether the requested target is reachable from the current HEAD.
+    pub target_is_ancestor_of_head: bool,
+}
+
 /// Read the repository state without mutating the worktree or index.
 pub fn probe_agent_commit(
     repo_path: &Path,
@@ -37,6 +52,92 @@ pub fn probe_agent_commit(
         return Err(status_error(&output));
     }
     Ok(parse_agent_commit_status(&output.stdout))
+}
+
+/// Read the repository state required before or after an Agent merge.
+pub fn probe_agent_merge(
+    repo_path: &Path,
+    target_oid: &str,
+) -> Result<AgentMergeProbe, String> {
+    let commit = probe_agent_commit(repo_path)?;
+    let merge_head = read_merge_head(repo_path)?;
+    let target_is_ancestor_of_head = if target_oid.is_empty() {
+        false
+    } else {
+        is_ancestor(repo_path, target_oid)?
+    };
+    Ok(AgentMergeProbe {
+        head: commit.head,
+        merge_head,
+        has_changes: commit.has_changes,
+        has_conflicts: commit.has_conflicts,
+        target_is_ancestor_of_head,
+    })
+}
+
+/// Read merge state without checking ancestry. This is used after an ordinary
+/// merge command fails, before the user chooses how to recover.
+pub fn probe_merge_state(repo_path: &Path) -> Result<AgentMergeProbe, String> {
+    let commit = probe_agent_commit(repo_path)?;
+    Ok(AgentMergeProbe {
+        head: commit.head,
+        merge_head: read_merge_head(repo_path)?,
+        has_changes: commit.has_changes,
+        has_conflicts: commit.has_conflicts,
+        target_is_ancestor_of_head: false,
+    })
+}
+
+/// Resolve a local branch to an immutable commit object id before putting it
+/// in an Agent prompt. The branch name is passed as one structured argument.
+pub fn resolve_agent_merge_target(
+    repo_path: &Path,
+    branch: &str,
+) -> Result<String, String> {
+    let reference = format!("refs/heads/{branch}^{{commit}}");
+    let output = git_command()
+        .args(["rev-parse", "--verify"])
+        .arg(reference)
+        .current_dir(repo_path)
+        .output()
+        .map_err(|error| format!("failed to resolve merge target: {error}"))?;
+    if !output.status.success() {
+        return Err(status_error(&output));
+    }
+    let oid = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if oid.is_empty() {
+        Err("merge target resolved to an empty object id".to_string())
+    } else {
+        Ok(oid)
+    }
+}
+
+fn read_merge_head(repo_path: &Path) -> Result<Option<String>, String> {
+    let output = git_command()
+        .args(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|error| format!("failed to inspect merge state: {error}"))?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok((!value.is_empty()).then_some(value))
+}
+
+fn is_ancestor(repo_path: &Path, target_oid: &str) -> Result<bool, String> {
+    let output = git_command()
+        .args(["merge-base", "--is-ancestor"])
+        .arg(target_oid)
+        .arg("HEAD")
+        .current_dir(repo_path)
+        .output()
+        .map_err(|error| format!("failed to verify merge ancestry: {error}"))?;
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => Err(status_error(&output)),
+    }
 }
 
 fn status_error(output: &Output) -> String {
