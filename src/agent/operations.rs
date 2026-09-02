@@ -14,6 +14,15 @@ pub enum AgentOperation {
         merge_head_oid: String,
         baseline_head: Option<String>,
     },
+    Rebase {
+        upstream_oid: String,
+        baseline_head: Option<String>,
+    },
+    ResolveRebase {
+        rebase_head_oid: Option<String>,
+        upstream_oid: Option<String>,
+        baseline_head: Option<String>,
+    },
 }
 
 /// Validation failures for the optional commit-message hint.
@@ -86,6 +95,10 @@ const MERGE_PROMPT_PREFIX: &str = "You are Augur Git's merge agent operating in 
 const MERGE_PROMPT_SUFFIX: &str = "Before changing anything, verify that the current HEAD and working tree still match the session context: for a committed baseline, `git rev-parse --verify HEAD` must equal the session baseline HEAD above; for an unborn baseline, HEAD must still be unborn. The working tree must still be clean; if either check fails, stop without writing. Perform one normal fast-forward-allowed merge by running `git merge` with the immutable target commit above. If the merge is already up to date, report that fact. If conflicts occur, inspect the conflict markers and base/ours/theirs versions, edit only the conflicted files, and stage each resolved file. When Git leaves MERGE_HEAD, review the result and complete exactly one merge commit with `git commit --no-edit` and the message prepared by Git; when the merge fast-forwards, keep the resulting fast-forward HEAD and do not create an extra commit. Do not push, checkout, reset, abort, amend, rebase, or modify files outside the merge conflicts. Do not run commands outside this repository. After reporting the result, output the completion marker and remain in the interactive session; Augur Git will close it after verification.";
 const RESOLVE_MERGE_PROMPT_PREFIX: &str = "You are Augur Git's merge-conflict resolution agent operating in the current repository. A merge is already in progress and MERGE_HEAD is";
 const RESOLVE_MERGE_PROMPT_SUFFIX: &str = "Do not start another merge and do not abort this one. Inspect the unmerged files and resolve each conflict by editing only those files. Preserve unrelated user changes, stage each resolved conflict, review the staged result, and complete exactly one merge commit with git commit --no-edit. If a conflict cannot be resolved safely, explain why and do not commit. Do not push, checkout, reset, amend, rebase, or modify files outside the conflicts. Do not run commands outside this repository. After reporting the result, output the completion marker and remain in the interactive session; Augur Git will close it after verification.";
+const REBASE_PROMPT_PREFIX: &str = "You are Augur Git's rebase agent operating in the current repository. The immutable upstream commit is";
+const REBASE_PROMPT_SUFFIX: &str = "Before changing anything, verify that the current HEAD and working tree still match the session context: for a committed baseline, `git rev-parse --verify HEAD` must equal the session baseline HEAD above; for an unborn baseline, HEAD must still be unborn. The working tree must still be clean and no other Git operation may be in progress; if either check fails, stop without writing. Perform one normal `git rebase` onto the immutable upstream commit above. If the rebase is already up to date, report that fact. If conflicts occur, inspect the conflict markers and base/ours/theirs versions, edit only the conflicted files, stage each resolved file, and run `git rebase --continue` until the rebase completes. Do not push, checkout, reset, abort, amend, merge, or modify files outside the conflicts. Do not run commands outside this repository. After reporting the result, output the completion marker and remain in the interactive session; Augur Git will close it after verification.";
+const RESOLVE_REBASE_PROMPT_PREFIX: &str = "You are Augur Git's rebase-conflict resolution agent operating in the current repository. A rebase is already in progress";
+const RESOLVE_REBASE_PROMPT_SUFFIX: &str = "Do not start another rebase and do not abort this one. Inspect the unmerged files and resolve each conflict by editing only those files. Preserve unrelated user changes, stage each resolved file, and run `git rebase --continue`; repeat until the existing rebase completes. If a conflict cannot be resolved safely, explain why and do not continue. Do not push, checkout, reset, amend, merge, or modify files outside the conflicts. Do not run commands outside this repository. After reporting the result, output the completion marker and remain in the interactive session; Augur Git will close it after verification.";
 
 impl AgentOperation {
     /// Build the fixed prompt for this operation and an optional user hint.
@@ -117,6 +130,29 @@ impl AgentOperation {
                 }
                 Ok(resolve_merge_prompt(
                     &merge_head_oid,
+                    baseline_head.as_deref(),
+                ))
+            }
+            Self::Rebase {
+                upstream_oid,
+                baseline_head,
+            } => {
+                if hint.is_some_and(|value| !value.trim().is_empty()) {
+                    return Err(CommitPromptError::HintNotSupported);
+                }
+                Ok(rebase_prompt(&upstream_oid, baseline_head.as_deref()))
+            }
+            Self::ResolveRebase {
+                rebase_head_oid,
+                upstream_oid,
+                baseline_head,
+            } => {
+                if hint.is_some_and(|value| !value.trim().is_empty()) {
+                    return Err(CommitPromptError::HintNotSupported);
+                }
+                Ok(resolve_rebase_prompt(
+                    rebase_head_oid.as_deref(),
+                    upstream_oid.as_deref(),
                     baseline_head.as_deref(),
                 ))
             }
@@ -172,6 +208,27 @@ fn resolve_merge_prompt(
 ) -> String {
     format!(
         "{RESOLVE_MERGE_PROMPT_PREFIX} {merge_head_oid}. The session baseline HEAD is {}. {RESOLVE_MERGE_PROMPT_SUFFIX}",
+        baseline_label(baseline_head)
+    )
+}
+
+fn rebase_prompt(upstream_oid: &str, baseline_head: Option<&str>) -> String {
+    format!(
+        "{REBASE_PROMPT_PREFIX} {upstream_oid}. The session baseline HEAD is {}. {REBASE_PROMPT_SUFFIX}",
+        baseline_label(baseline_head)
+    )
+}
+
+fn resolve_rebase_prompt(
+    rebase_head_oid: Option<&str>,
+    upstream_oid: Option<&str>,
+    baseline_head: Option<&str>,
+) -> String {
+    let rebase_head = rebase_head_oid.unwrap_or("unknown");
+    let upstream = upstream_oid
+        .unwrap_or("not available (for example, a pull --rebase session)");
+    format!(
+        "{RESOLVE_REBASE_PROMPT_PREFIX}; REBASE_HEAD is {rebase_head}, the recorded upstream is {upstream}, and the session baseline HEAD is {}. {RESOLVE_REBASE_PROMPT_SUFFIX}",
         baseline_label(baseline_head)
     )
 }
@@ -325,6 +382,62 @@ mod tests {
         let prompt = AgentOperation::ResolveMerge {
             merge_head_oid: "def456".to_string(),
             baseline_head: Some("base789".to_string()),
+        }
+        .prompt_with_challenge(None, &challenge)
+        .unwrap();
+        assert!(!prompt.contains(&challenge.expected_marker));
+        assert!(prompt.contains("AUGUR_GIT_DONE:<reversed-token>"));
+    }
+
+    #[test]
+    fn rebase_prompt_contains_frozen_upstream_and_baseline() {
+        let prompt = AgentOperation::Rebase {
+            upstream_oid: "upstream123".into(),
+            baseline_head: Some("base456".into()),
+        }
+        .prompt(None)
+        .unwrap();
+        assert!(prompt.contains("upstream123"));
+        assert!(prompt.contains("base456"));
+        assert!(prompt.contains("git rebase"));
+        assert!(prompt.contains("git rebase --continue"));
+        assert!(!prompt.contains("git rebase --abort"));
+    }
+
+    #[test]
+    fn resolve_rebase_prompt_does_not_start_or_abort_a_rebase() {
+        let prompt = AgentOperation::ResolveRebase {
+            rebase_head_oid: Some("current789".into()),
+            upstream_oid: None,
+            baseline_head: Some("base456".into()),
+        }
+        .prompt(None)
+        .unwrap();
+        assert!(prompt.contains("REBASE_HEAD is current789"));
+        assert!(prompt.contains("Do not start another rebase"));
+        assert!(prompt.contains("git rebase --continue"));
+        assert!(!prompt.contains("git rebase --abort"));
+        assert!(prompt.contains("base456"));
+    }
+
+    #[test]
+    fn rebase_operations_reject_commit_hints() {
+        assert_eq!(
+            AgentOperation::Rebase {
+                upstream_oid: "upstream".into(),
+                baseline_head: None,
+            }
+            .prompt(Some("hint")),
+            Err(CommitPromptError::HintNotSupported)
+        );
+    }
+
+    #[test]
+    fn rebase_completion_marker_is_not_embedded_in_prompt() {
+        let challenge = super::AgentOperationChallenge::new();
+        let prompt = AgentOperation::Rebase {
+            upstream_oid: "upstream".into(),
+            baseline_head: None,
         }
         .prompt_with_challenge(None, &challenge)
         .unwrap();

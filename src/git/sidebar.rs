@@ -41,6 +41,9 @@ pub enum SidebarEvent {
     MergeIntoCurrent { name: String, no_ff: bool },
     /// Start a visible Agent session that performs the merge.
     MergeByAgent(String),
+    /// Start a visible Agent session that rebases the current branch onto a
+    /// selected local branch.
+    RebaseByAgent(String),
     /// Rename a remote branch on its remote: one push that creates the new
     /// name and deletes the old one.
     RenameRemoteBranch { remote: String, branch: String },
@@ -667,11 +670,13 @@ where
                 let sidebar_for_merge = sidebar.clone();
                 let sidebar_for_merge_no_ff = sidebar.clone();
                 let sidebar_for_agent_merge = sidebar.clone();
+                let sidebar_for_agent_rebase = sidebar.clone();
                 let rename_value = copy_value.clone();
                 let delete_value = copy_value.clone();
                 let merge_value = copy_value.clone();
                 let merge_no_ff_value = copy_value.clone();
                 let agent_merge_value = copy_value.clone();
+                let agent_rebase_value = copy_value.clone();
 
                 menu.separator()
                     .item(
@@ -773,6 +778,26 @@ where
                                     |_sidebar, cx| {
                                         cx.emit(SidebarEvent::MergeByAgent(
                                             agent_merge_value.clone(),
+                                        ));
+                                    },
+                                );
+                            },
+                        ),
+                    )
+                    .item(
+                        PopupMenuItem::new(i18n::text(
+                            locale,
+                            "context-rebase-by-agent",
+                        ))
+                        .icon(IconName::Bot)
+                        .disabled(busy || has_conflicts || *is_head)
+                        .on_click(
+                            move |_event, _window, cx| {
+                                sidebar_for_agent_rebase.update(
+                                    cx,
+                                    |_sidebar, cx| {
+                                        cx.emit(SidebarEvent::RebaseByAgent(
+                                            agent_rebase_value.clone(),
                                         ));
                                     },
                                 );

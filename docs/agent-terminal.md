@@ -208,10 +208,38 @@ resolution mode. Viewing files, staging resolutions, and ordinary commits
 remain available. If the merge has already been resolved externally, the next
 status refresh restores the normal actions.
 
-Only one visible Agent Git operation (Commit by AI, Merge by AI, or conflict
-resolution) may run for a repository at a time. Settings changes affect new
+Only one visible Agent Git operation (Commit by AI, Merge by AI, Rebase by AI,
+or conflict resolution) may run for a repository at a time. Settings changes affect new
 sessions only. No Git operation, terminal transcript, or provider session ID
 is persisted.
+
+## Rebase by AI and pull --rebase recovery
+
+The local-branch context menu also contains **Rebase current branch by AI**.
+It rebases the current branch onto the selected local branch's immutable commit
+ID. The preflight requires a clean working tree and no other Git operation. The
+Agent runs the normal `git rebase` flow in the visible repository terminal,
+resolving only files that Git marks as conflicted and continuing until the
+rebase completes. It may not push, checkout, reset, abort, amend, merge, or
+edit unrelated files. Augur verifies the resulting `HEAD`, clean index, and
+absence of rebase state before reporting success; already-up-to-date results
+are reported separately.
+
+The toolbar's ordinary **Pull (Rebase)** remains a Git-owned
+`git pull --rebase` operation. If ordinary **Rebase** or **Pull (Rebase)**
+fails while Git leaves a rebase in progress, Augur shows the complete command
+output and offers **Abort rebase** or **Resolve conflicts by AI**. The latter
+attaches the selected Agent to the existing rebase; it never starts a second
+rebase or aborts the current one. Closing the dialog leaves the rebase state
+untouched for manual resolution in an external editor. The handoff rechecks
+`REBASE_HEAD`/rebase state and the saved `HEAD` baseline before launching.
+
+Successful Agent rebases refresh the repository immediately, stop the visible
+PTY, and close its window. Conflicts, failed or cancelled sessions, and exits
+without a verified result stop the process, release the repository busy state,
+refresh Git, and keep the terminal visible for diagnosis. Only one Agent Git
+operation (commit, merge, rebase, or conflict resolution) can run for a
+repository at a time.
 
 ## Terminal boundary
 

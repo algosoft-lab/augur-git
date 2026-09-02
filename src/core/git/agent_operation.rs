@@ -27,7 +27,27 @@ pub struct AgentMergeProbe {
     pub has_changes: bool,
     /// Whether Git reports an unmerged index entry.
     pub has_conflicts: bool,
+    /// Whether Git has an in-progress rebase state directory.
+    pub rebase_in_progress: bool,
     /// Whether the requested target is reachable from the current HEAD.
+    pub target_is_ancestor_of_head: bool,
+}
+
+/// Read-only repository state used by Rebase by AI and rebase-conflict
+/// recovery.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AgentRebaseProbe {
+    /// The current commit object id, or `None` for an unborn HEAD.
+    pub head: Option<String>,
+    /// The commit currently being replayed, when Git exposes `REBASE_HEAD`.
+    pub rebase_head: Option<String>,
+    /// Whether a rebase state directory is present.
+    pub rebase_in_progress: bool,
+    /// Whether Git reports staged, worktree, or untracked changes.
+    pub has_changes: bool,
+    /// Whether Git reports an unmerged index entry.
+    pub has_conflicts: bool,
+    /// Whether the requested upstream is reachable from the current HEAD.
     pub target_is_ancestor_of_head: bool,
 }
 
@@ -69,10 +89,68 @@ pub fn probe_agent_merge(
     Ok(AgentMergeProbe {
         head: commit.head,
         merge_head,
+        rebase_in_progress: rebase_state_exists(repo_path)?,
         has_changes: commit.has_changes,
         has_conflicts: commit.has_conflicts,
         target_is_ancestor_of_head,
     })
+}
+
+/// Read the repository state required before or after an Agent rebase.
+/// `target_oid` is present for a branch rebase and omitted for pull --rebase,
+/// whose fetched upstream can change while Git is running.
+pub fn probe_agent_rebase(
+    repo_path: &Path,
+    target_oid: Option<&str>,
+) -> Result<AgentRebaseProbe, String> {
+    let commit = probe_agent_commit(repo_path)?;
+    let rebase_head = read_rebase_head(repo_path)?;
+    let rebase_in_progress = rebase_state_exists(repo_path)?;
+    let target_is_ancestor_of_head = match (target_oid, commit.head.as_deref())
+    {
+        (Some(target), Some(_)) if !target.is_empty() => {
+            is_ancestor(repo_path, target)?
+        }
+        _ => false,
+    };
+    Ok(AgentRebaseProbe {
+        head: commit.head,
+        rebase_head,
+        rebase_in_progress,
+        has_changes: commit.has_changes,
+        has_conflicts: commit.has_conflicts,
+        target_is_ancestor_of_head,
+    })
+}
+
+/// Read rebase state without requiring a target commit. This is used after an
+/// ordinary rebase or pull --rebase fails, before showing recovery actions.
+pub fn probe_rebase_state(
+    repo_path: &Path,
+) -> Result<AgentRebaseProbe, String> {
+    probe_agent_rebase(repo_path, None)
+}
+
+/// Return whether another Git operation is in progress, excluding a rebase.
+/// This lets the rebase resolver attach to an existing rebase while still
+/// refusing to operate when merge, cherry-pick, revert, bisect, or sequencer
+/// state is present.
+pub fn has_other_git_operation_except_rebase(
+    repo_path: &Path,
+) -> Result<bool, String> {
+    for marker in [
+        "MERGE_HEAD",
+        "CHERRY_PICK_HEAD",
+        "REVERT_HEAD",
+        "BISECT_LOG",
+        "sequencer",
+    ] {
+        let path = git_path(repo_path, marker)?;
+        if path.exists() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Return whether Git has another stateful operation in progress.
@@ -107,6 +185,7 @@ pub fn probe_merge_state(repo_path: &Path) -> Result<AgentMergeProbe, String> {
     Ok(AgentMergeProbe {
         head: commit.head,
         merge_head: read_merge_head(repo_path)?,
+        rebase_in_progress: rebase_state_exists(repo_path)?,
         has_changes: commit.has_changes,
         has_conflicts: commit.has_conflicts,
         target_is_ancestor_of_head: false,
@@ -148,6 +227,28 @@ fn read_merge_head(repo_path: &Path) -> Result<Option<String>, String> {
     }
     let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
     Ok((!value.is_empty()).then_some(value))
+}
+
+fn read_rebase_head(repo_path: &Path) -> Result<Option<String>, String> {
+    let output = git_command()
+        .args(["rev-parse", "--verify", "--quiet", "REBASE_HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|error| format!("failed to inspect rebase state: {error}"))?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok((!value.is_empty()).then_some(value))
+}
+
+fn rebase_state_exists(repo_path: &Path) -> Result<bool, String> {
+    for marker in ["rebase-merge", "rebase-apply"] {
+        if git_path(repo_path, marker)?.exists() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn git_path(

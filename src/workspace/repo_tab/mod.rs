@@ -16,6 +16,7 @@ use crate::git::toolbar::Toolbar;
 use crate::git::{GitStatus, GitView};
 
 use super::agent_commit::AgentCommitOutcome;
+use super::agent_rebase::AgentRebaseOutcome;
 use super::tabs::{TabId, TabState, TabSummary};
 
 mod branch_compare;
@@ -49,6 +50,18 @@ pub enum RepoTabEvent {
         merge_head: String,
         baseline_head: Option<String>,
     },
+    AgentRebaseRequested {
+        id: TabId,
+        repo_path: String,
+        source: String,
+    },
+    AgentRebaseResolveRequested {
+        id: TabId,
+        repo_path: String,
+        rebase_head: Option<String>,
+        upstream_oid: Option<String>,
+        baseline_head: Option<String>,
+    },
 }
 
 enum PendingConfirmation {
@@ -72,12 +85,33 @@ enum PendingConfirmation {
         label: String,
         detail: String,
     },
+    RebaseConflict {
+        label: String,
+        source: Option<String>,
+        detail: String,
+        rebase_head: Option<String>,
+        upstream_oid: Option<String>,
+        baseline_head: Option<String>,
+    },
+    RebaseError {
+        label: String,
+        detail: String,
+    },
 }
 
 #[derive(Clone, Debug)]
 struct PendingMergeCommand {
     source: String,
     no_ff: bool,
+}
+
+#[derive(Clone, Debug)]
+struct PendingRebaseCommand {
+    source: Option<String>,
+    upstream_oid: Option<String>,
+    baseline_head: Option<String>,
+    label: String,
+    pull: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -129,14 +163,19 @@ pub struct RepoTab {
     agent_commit_observed_head: Option<String>,
     agent_merge_session_id: Option<u64>,
     agent_merge_observed_head: Option<String>,
+    agent_rebase_session_id: Option<u64>,
+    agent_rebase_observed_head: Option<String>,
     /// Whether the latest Git status contains unmerged entries.
     has_unresolved_conflicts: bool,
     merge_state_probe_pending: bool,
     merge_state_probe_request_id: u64,
     pending_agent_refresh: bool,
     pending_merge_command: Option<PendingMergeCommand>,
+    pending_rebase_command: Option<PendingRebaseCommand>,
     merge_probe_request_id: u64,
+    rebase_probe_request_id: u64,
     merge_abort_pending: bool,
+    rebase_abort_pending: bool,
     layout: LayoutSettings,
     confirmation: Option<PendingConfirmation>,
     dialogs: branch_ops::BranchDialogs,
@@ -206,13 +245,18 @@ impl RepoTab {
             agent_commit_observed_head: None,
             agent_merge_session_id: None,
             agent_merge_observed_head: None,
+            agent_rebase_session_id: None,
+            agent_rebase_observed_head: None,
             has_unresolved_conflicts: false,
             merge_state_probe_pending: false,
             merge_state_probe_request_id: 0,
             pending_agent_refresh: false,
             pending_merge_command: None,
+            pending_rebase_command: None,
             merge_probe_request_id: 0,
+            rebase_probe_request_id: 0,
             merge_abort_pending: false,
+            rebase_abort_pending: false,
             layout,
             confirmation: None,
             dialogs: branch_ops::BranchDialogs::default(),
@@ -255,6 +299,7 @@ impl RepoTab {
         self.operation_busy
             || self.agent_commit_session_id.is_some()
             || self.agent_merge_session_id.is_some()
+            || self.agent_rebase_session_id.is_some()
     }
 
     /// Re-check the merge marker after a conflict-bearing status snapshot.
@@ -311,7 +356,9 @@ impl RepoTab {
             return;
         };
         let merge_in_progress = probe.merge_head.is_some();
-        let has_conflicts = probe.has_conflicts || merge_in_progress;
+        let has_conflicts = probe.has_conflicts
+            || merge_in_progress
+            || probe.rebase_in_progress;
         if self.has_unresolved_conflicts != has_conflicts {
             self.has_unresolved_conflicts = has_conflicts;
             self.sidebar.update(cx, |sidebar, cx| {
@@ -478,6 +525,109 @@ impl RepoTab {
         self.status_message = Some(i18n::text_args(
             self.locale,
             "agent-merge-preflight-failed",
+            &[("error", &summary)],
+        ));
+        self.status_message_ok = Some(false);
+        cx.notify();
+    }
+
+    pub(super) fn begin_agent_rebase(
+        &mut self,
+        session_id: u64,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_rebase_session_id.is_some() {
+            return;
+        }
+        self.agent_rebase_session_id = Some(session_id);
+        self.agent_rebase_observed_head = None;
+        self.sync_busy_controls(cx);
+        cx.notify();
+    }
+
+    pub(super) fn observe_agent_rebase(
+        &mut self,
+        session_id: u64,
+        oid: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_rebase_session_id != Some(session_id)
+            || self.agent_rebase_observed_head.as_deref() == Some(&oid)
+        {
+            return;
+        }
+        self.agent_rebase_observed_head = Some(oid.clone());
+        self.status_message = Some(i18n::text_args(
+            self.locale,
+            "agent-rebase-observed",
+            &[("oid", &short_oid(&oid))],
+        ));
+        self.status_message_ok = None;
+        self.refresh_repository(cx);
+        cx.notify();
+    }
+
+    pub(super) fn finish_agent_rebase(
+        &mut self,
+        session_id: u64,
+        outcome: AgentRebaseOutcome,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_rebase_session_id != Some(session_id) {
+            return;
+        }
+        self.agent_rebase_session_id = None;
+        self.agent_rebase_observed_head = None;
+        let (message, ok) = match &outcome {
+            AgentRebaseOutcome::Rebased { oid } => (
+                i18n::text_args(
+                    self.locale,
+                    "agent-rebase-created",
+                    &[("oid", &short_oid(oid))],
+                ),
+                true,
+            ),
+            AgentRebaseOutcome::AlreadyUpToDate => (
+                i18n::text(self.locale, "agent-rebase-already-up-to-date"),
+                true,
+            ),
+            AgentRebaseOutcome::Conflict => {
+                (i18n::text(self.locale, "agent-rebase-conflict"), false)
+            }
+            AgentRebaseOutcome::Failed => {
+                (i18n::text(self.locale, "agent-rebase-failed"), false)
+            }
+            AgentRebaseOutcome::Cancelled => {
+                (i18n::text(self.locale, "agent-rebase-cancelled"), false)
+            }
+            AgentRebaseOutcome::ExitedUnverified { code } => (
+                i18n::text_args(
+                    self.locale,
+                    "agent-rebase-unverified",
+                    &[("code", &format_exit_code(*code))],
+                ),
+                false,
+            ),
+        };
+        self.status_message = Some(message);
+        self.status_message_ok = Some(ok);
+        if self.operation_busy {
+            self.pending_agent_refresh = true;
+        } else {
+            self.refresh_repository(cx);
+        }
+        self.sync_busy_controls(cx);
+        cx.notify();
+    }
+
+    pub(super) fn agent_rebase_preflight_failed(
+        &mut self,
+        summary: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.status_message = Some(i18n::text_args(
+            self.locale,
+            "agent-rebase-preflight-failed",
             &[("error", &summary)],
         ));
         self.status_message_ok = Some(false);

@@ -60,9 +60,11 @@ fn extra_executable_directories() -> Vec<PathBuf> {
     #[cfg(windows)]
     {
         let mut push = |base: Option<std::ffi::OsString>, parts: &[&str]| {
-            let base = base.map(PathBuf::from)?;
-            directories
-                .push(parts.iter().fold(base, |path, part| path.join(part)));
+            if let Some(base) = base.map(PathBuf::from) {
+                directories.push(
+                    parts.iter().fold(base, |path, part| path.join(part)),
+                );
+            }
         };
         push(std::env::var_os("APPDATA"), &["npm"]);
         push(std::env::var_os("USERPROFILE"), &[".npm-global"]);

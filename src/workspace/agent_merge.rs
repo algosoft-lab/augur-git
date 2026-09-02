@@ -82,6 +82,7 @@ mod tests {
         AgentMergeProbe {
             head: head.map(str::to_owned),
             merge_head: merge_head.map(str::to_owned),
+            rebase_in_progress: false,
             has_changes: changes,
             has_conflicts: conflicts,
             target_is_ancestor_of_head: ancestor,

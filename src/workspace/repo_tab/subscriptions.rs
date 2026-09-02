@@ -81,13 +81,7 @@ fn wire_toolbar(
                 if tab.is_busy() || tab.has_unresolved_conflicts {
                     return;
                 }
-                tab.git_view.update(cx, |view, _| {
-                    view.run(
-                        "pull --rebase",
-                        vec!["pull".into(), "--rebase".into()],
-                    );
-                });
-                tab.set_operation_busy(true, cx);
+                tab.start_pull_rebase(cx);
             }
             ToolbarEvent::Push => {
                 if tab.is_busy() {
@@ -546,6 +540,18 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                     );
                     return;
                 }
+                if label == "rebase"
+                    || label == "pull --rebase"
+                    || label == "rebase --abort"
+                {
+                    tab.handle_rebase_result(
+                        label.clone(),
+                        *success,
+                        message.clone(),
+                        cx,
+                    );
+                    return;
+                }
                 if label == "checkout" {
                     log::info!(
                         "[git_checkout] result received: success={success}"
@@ -642,6 +648,25 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                         "merge".to_string()
                     };
                     tab.handle_merge_result(
+                        label,
+                        false,
+                        message.clone(),
+                        cx,
+                    );
+                    return;
+                }
+                if tab.pending_rebase_command.is_some()
+                    || tab.rebase_abort_pending
+                {
+                    let label = if tab.rebase_abort_pending {
+                        "rebase --abort".to_string()
+                    } else {
+                        tab.pending_rebase_command
+                            .as_ref()
+                            .map(|pending| pending.label.clone())
+                            .unwrap_or_else(|| "rebase".to_string())
+                    };
+                    tab.handle_rebase_result(
                         label,
                         false,
                         message.clone(),

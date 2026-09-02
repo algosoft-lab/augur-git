@@ -112,6 +112,12 @@ Coding agent or editor
   Agent. Clean-worktree preflight, immutable target IDs, visible PTY output, and
   Git-state verification keep the result explicit; failed merges can be
   aborted or left open for manual resolution.
+- **Rebase by AI and pull-rebase recovery** — rebase onto a selected local
+  branch through the current Agent, or hand conflicts from ordinary Rebase and
+  Pull (Rebase) operations to that Agent. Clean-worktree checks, immutable
+  upstream IDs, visible PTY output, and Git-state verification keep the
+  history rewrite explicit; failed rebases can be aborted or left open for
+  manual resolution.
 - **Repository operations** — browse branches, remotes, tags, and stashes, and
   run explicit fetch, pull, push, checkout, branch, and commit operations.
 - **Multiple repositories** — keep several repositories open as tabs and return

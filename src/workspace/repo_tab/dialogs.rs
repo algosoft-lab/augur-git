@@ -74,6 +74,24 @@ impl RepoTab {
         cx.notify();
     }
 
+    pub(super) fn start_abort_rebase(&mut self, cx: &mut Context<Self>) {
+        if !matches!(
+            self.confirmation.as_ref(),
+            Some(PendingConfirmation::RebaseConflict { .. })
+        ) || self.is_busy()
+        {
+            return;
+        }
+        self.confirmation = None;
+        self.invalidate_merge_state_probe();
+        self.rebase_abort_pending = true;
+        self.git_view.update(cx, |view, _| {
+            view.run("rebase --abort", vec!["rebase".into(), "--abort".into()]);
+        });
+        self.set_operation_busy(true, cx);
+        cx.notify();
+    }
+
     pub(super) fn start_resolve_merge_by_agent(
         &mut self,
         cx: &mut Context<Self>,
@@ -93,6 +111,32 @@ impl RepoTab {
             id: self.id,
             repo_path: self.repo_path.clone(),
             merge_head,
+            baseline_head,
+        });
+        cx.notify();
+    }
+
+    pub(super) fn start_resolve_rebase_by_agent(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_busy() {
+            return;
+        }
+        let Some(PendingConfirmation::RebaseConflict {
+            rebase_head,
+            upstream_oid,
+            baseline_head,
+            ..
+        }) = self.confirmation.take()
+        else {
+            return;
+        };
+        cx.emit(super::RepoTabEvent::AgentRebaseResolveRequested {
+            id: self.id,
+            repo_path: self.repo_path.clone(),
+            rebase_head,
+            upstream_oid,
             baseline_head,
         });
         cx.notify();
@@ -199,6 +243,12 @@ impl RepoTab {
             }
             Some(PendingConfirmation::MergeError { .. }) => {
                 self.merge_error_overlay(cx)
+            }
+            Some(PendingConfirmation::RebaseConflict { .. }) => {
+                self.rebase_conflict_overlay(cx)
+            }
+            Some(PendingConfirmation::RebaseError { .. }) => {
+                self.rebase_error_overlay(cx)
             }
             None => div().into_any_element(),
         }
@@ -324,6 +374,143 @@ impl RepoTab {
             cx,
             "merge-error-overlay",
             "merge-error-card",
+            title,
+            warning,
+            h_flex().w_full().child(close),
+        )
+        .into_any_element()
+    }
+
+    fn rebase_conflict_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        let colors = cx.theme().colors.clone();
+        let locale = self.locale;
+        let Some(PendingConfirmation::RebaseConflict {
+            label,
+            source,
+            detail,
+            ..
+        }) = self.confirmation.as_ref()
+        else {
+            return div().into_any_element();
+        };
+        let this = cx.entity();
+        let abort = this.clone();
+        let resolve = this.clone();
+        let source_label =
+            source.as_deref().unwrap_or("pull --rebase").to_string();
+        let title = h_flex()
+            .items_center()
+            .gap_2()
+            .child(
+                Icon::new(IconName::TriangleAlert).text_color(colors.warning),
+            )
+            .child(
+                div()
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(colors.foreground)
+                    .child(shared(i18n::text_args(
+                        locale,
+                        "rebase-conflict-title",
+                        &[("label", label)],
+                    ))),
+            );
+        let warning = v_flex()
+            .w_full()
+            .gap_2()
+            .child(
+                div()
+                    .text_size(crate::theme::scaled_text_size(12.))
+                    .text_color(colors.muted_foreground)
+                    .child(shared(i18n::text_args(
+                        locale,
+                        "rebase-conflict-warning",
+                        &[("source", &source_label)],
+                    ))),
+            )
+            .child(
+                div()
+                    .max_h(px(180.))
+                    .w_full()
+                    .overflow_y_scrollbar()
+                    .text_size(crate::theme::scaled_text_size(11.))
+                    .text_color(colors.red)
+                    .child(shared(detail.clone())),
+            );
+        let buttons = h_flex()
+            .w_full()
+            .gap_2()
+            .child(
+                Button::new("rebase-abort")
+                    .label(i18n::text(locale, "rebase-abort"))
+                    .danger()
+                    .flex_1()
+                    .on_click(move |_event, _window, cx| {
+                        abort.update(cx, |tab, cx| tab.start_abort_rebase(cx));
+                    }),
+            )
+            .child(
+                Button::new("rebase-resolve-agent")
+                    .label(i18n::text(locale, "rebase-resolve-by-agent"))
+                    .primary()
+                    .flex_1()
+                    .on_click(move |_event, _window, cx| {
+                        resolve.update(cx, |tab, cx| {
+                            tab.start_resolve_rebase_by_agent(cx)
+                        });
+                    }),
+            );
+        self.overlay_card(
+            cx,
+            "rebase-conflict-overlay",
+            "rebase-conflict-card",
+            title,
+            warning,
+            buttons,
+        )
+        .into_any_element()
+    }
+
+    fn rebase_error_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        let colors = cx.theme().colors.clone();
+        let locale = self.locale;
+        let Some(PendingConfirmation::RebaseError { label, detail }) =
+            self.confirmation.as_ref()
+        else {
+            return div().into_any_element();
+        };
+        let this = cx.entity();
+        let title = h_flex()
+            .items_center()
+            .gap_2()
+            .child(Icon::new(IconName::TriangleAlert).text_color(colors.red))
+            .child(
+                div()
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(colors.foreground)
+                    .child(shared(i18n::text_args(
+                        locale,
+                        "rebase-error-title",
+                        &[("label", label)],
+                    ))),
+            );
+        let warning = div()
+            .max_h(px(220.))
+            .w_full()
+            .overflow_y_scrollbar()
+            .text_size(crate::theme::scaled_text_size(11.))
+            .text_color(colors.red)
+            .child(shared(detail.clone()));
+        let close = Button::new("rebase-error-close")
+            .label(i18n::text(locale, "dialog-cancel"))
+            .primary()
+            .flex_1()
+            .on_click(move |_event, _window, cx| {
+                this.update(cx, |tab, cx| tab.cancel_confirmation(cx));
+            });
+        self.overlay_card(
+            cx,
+            "rebase-error-overlay",
+            "rebase-error-card",
             title,
             warning,
             h_flex().w_full().child(close),

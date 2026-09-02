@@ -21,8 +21,10 @@ use crate::agent::{
     AgentOperationChallenge, AgentTestDirectory, ResolvedAgentProfile,
 };
 use crate::core::git::agent_operation::{
-    AgentCommitProbe, AgentMergeProbe, has_other_git_operation,
-    probe_agent_commit, probe_agent_merge, resolve_agent_merge_target,
+    AgentCommitProbe, AgentMergeProbe, AgentRebaseProbe,
+    has_other_git_operation, has_other_git_operation_except_rebase,
+    probe_agent_commit, probe_agent_merge, probe_agent_rebase,
+    resolve_agent_merge_target,
 };
 use crate::core::i18n::{self, Locale};
 use crate::terminal::{
@@ -34,6 +36,9 @@ use super::agent_commit::{AgentCommitOutcome, classify_probe};
 use super::agent_merge::{
     AgentMergeMode, AgentMergeOutcome, classify_merge_probe,
 };
+use super::agent_rebase::{
+    AgentRebaseMode, AgentRebaseOutcome, classify_rebase_probe,
+};
 use super::tabs::TabId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,6 +46,7 @@ enum AgentSessionKind {
     Connectivity,
     Commit,
     Merge,
+    Rebase,
 }
 
 #[derive(Clone)]
@@ -52,6 +58,13 @@ struct CommitCompletion {
 
 #[derive(Clone)]
 struct MergeCompletion {
+    workspace: WeakEntity<Workspace>,
+    tab_id: TabId,
+    session_id: u64,
+}
+
+#[derive(Clone)]
+struct RebaseCompletion {
     workspace: WeakEntity<Workspace>,
     tab_id: TabId,
     session_id: u64,
@@ -74,6 +87,12 @@ enum ConnectivityState {
     MergeCompleted {
         outcome: AgentMergeOutcome,
     },
+    RebaseDetected {
+        oid: String,
+    },
+    RebaseCompleted {
+        outcome: AgentRebaseOutcome,
+    },
     Exited {
         code: Option<i32>,
         response_received: bool,
@@ -92,6 +111,7 @@ pub(super) struct AgentSessionWindow {
     working_directory: PathBuf,
     commit_completion: Option<CommitCompletion>,
     merge_completion: Option<MergeCompletion>,
+    rebase_completion: Option<RebaseCompletion>,
     session_id: Option<u64>,
     backend: Option<Arc<TerminalBackend>>,
     terminal: Option<Entity<TerminalView>>,
@@ -109,6 +129,12 @@ pub(super) struct AgentSessionWindow {
     merge_head_observed: Option<String>,
     merge_head_observed_at: Option<Instant>,
     merge_completed: bool,
+    rebase_challenge: Option<AgentOperationChallenge>,
+    rebase_mode: Option<AgentRebaseMode>,
+    rebase_baseline: Option<AgentRebaseProbe>,
+    rebase_head_observed: Option<String>,
+    rebase_head_observed_at: Option<Instant>,
+    rebase_completed: bool,
     window_id: u64,
     // Keep the polling task owned by the window for its whole lifetime.
     _monitor_task: Option<Task<()>>,
@@ -226,6 +252,51 @@ impl AgentSessionWindow {
         session
     }
 
+    fn new_rebase(
+        locale: Locale,
+        profile: ResolvedAgentProfile,
+        spec: AgentLaunchSpec,
+        prompt: String,
+        working_directory: PathBuf,
+        completion: RebaseCompletion,
+        challenge: AgentOperationChallenge,
+        mode: AgentRebaseMode,
+        baseline: AgentRebaseProbe,
+        startup_error: Option<String>,
+        window_id: u64,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut session = Self::new_inner(
+            AgentSessionKind::Rebase,
+            locale,
+            profile,
+            spec,
+            prompt,
+            None,
+            working_directory,
+            None,
+            None,
+            startup_error,
+            None,
+            None,
+            true,
+            window_id,
+            cx,
+        );
+        session.session_id = Some(completion.session_id);
+        session.rebase_completion = Some(completion);
+        session.rebase_challenge = Some(challenge);
+        session.rebase_mode = Some(mode);
+        session.rebase_baseline = Some(baseline);
+        if session.backend.is_none()
+            && !session.stop_requested
+            && !matches!(session.state, ConnectivityState::Failed(_))
+        {
+            session.start_terminal(None, cx);
+        }
+        session
+    }
+
     fn new_inner(
         kind: AgentSessionKind,
         locale: Locale,
@@ -269,6 +340,7 @@ impl AgentSessionWindow {
             working_directory,
             commit_completion,
             merge_completion,
+            rebase_completion: None,
             session_id,
             backend: None,
             terminal: None,
@@ -286,6 +358,12 @@ impl AgentSessionWindow {
             merge_head_observed: None,
             merge_head_observed_at: None,
             merge_completed: false,
+            rebase_challenge: None,
+            rebase_mode: None,
+            rebase_baseline: None,
+            rebase_head_observed: None,
+            rebase_head_observed_at: None,
+            rebase_completed: false,
             window_id,
             _monitor_task: None,
         };
@@ -362,6 +440,8 @@ impl AgentSessionWindow {
                     self.finish_commit(AgentCommitOutcome::Failed, cx);
                 } else if self.kind == AgentSessionKind::Merge {
                     self.finish_merge(AgentMergeOutcome::Failed, cx);
+                } else if self.kind == AgentSessionKind::Rebase {
+                    self.finish_rebase(AgentRebaseOutcome::Failed, cx);
                 }
                 return;
             }
@@ -382,6 +462,11 @@ impl AgentSessionWindow {
                 self.merge_challenge
                     .as_ref()
                     .map(|challenge| challenge.expected_marker.clone())
+            })
+            .or_else(|| {
+                self.rebase_challenge
+                    .as_ref()
+                    .map(|challenge| challenge.expected_marker.clone())
             });
         let profile_id_for_monitor = self.profile.id.clone();
         let kind_for_monitor = self.kind;
@@ -390,6 +475,10 @@ impl AgentSessionWindow {
             .merge_mode
             .as_ref()
             .map(|mode| mode.target_oid().to_string());
+        let rebase_target_for_monitor = self
+            .rebase_mode
+            .as_ref()
+            .and_then(|mode| mode.upstream_oid().map(ToOwned::to_owned));
         self.backend = Some(value.clone());
         self.terminal = Some(terminal_entity);
         self._monitor_task = Some(cx.spawn(async move |_, cx| {
@@ -410,7 +499,9 @@ impl AgentSessionWindow {
                     });
                 let should_probe = matches!(
                     kind_for_monitor,
-                    AgentSessionKind::Commit | AgentSessionKind::Merge
+                    AgentSessionKind::Commit
+                        | AgentSessionKind::Merge
+                        | AgentSessionKind::Rebase
                 ) && (marker_seen
                     || completion.is_some()
                     || last_probe_at.elapsed() >= Duration::from_millis(500));
@@ -445,6 +536,23 @@ impl AgentSessionWindow {
                 } else {
                     None
                 };
+                let rebase_probe = if kind_for_monitor
+                    == AgentSessionKind::Rebase
+                    && should_probe
+                {
+                    last_probe_at = Instant::now();
+                    let path = repo_path.clone();
+                    let target = rebase_target_for_monitor.clone();
+                    Some(
+                        cx.background_executor()
+                            .spawn(async move {
+                                probe_agent_rebase(&path, target.as_deref())
+                            })
+                            .await,
+                    )
+                } else {
+                    None
+                };
                 let finished = completion.is_some();
                 let mut should_break = false;
                 let _ = window_entity.update(cx, |window, cx| {
@@ -463,16 +571,26 @@ impl AgentSessionWindow {
                             cx,
                         );
                     } else {
-                        window.handle_merge_tick(
-                            merge_probe,
-                            marker_seen,
-                            completion.clone(),
-                            cx,
-                        );
+                        if kind_for_monitor == AgentSessionKind::Merge {
+                            window.handle_merge_tick(
+                                merge_probe,
+                                marker_seen,
+                                completion.clone(),
+                                cx,
+                            );
+                        } else {
+                            window.handle_rebase_tick(
+                                rebase_probe,
+                                marker_seen,
+                                completion.clone(),
+                                cx,
+                            );
+                        }
                     }
                     should_break = finished
                         || window.commit_completed
                         || window.merge_completed;
+                    should_break = should_break || window.rebase_completed;
                     cx.notify();
                 });
                 if should_break {
@@ -763,6 +881,135 @@ impl AgentSessionWindow {
         })
     }
 
+    fn handle_rebase_tick(
+        &mut self,
+        probe: Option<Result<AgentRebaseProbe, String>>,
+        marker_seen: bool,
+        completion: Option<Result<Option<i32>, String>>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.rebase_completed {
+            return;
+        }
+        let mut current_probe = None;
+        if let Some(result) = probe {
+            match result {
+                Ok(probe) => {
+                    if let Some(baseline) = self.rebase_baseline.as_ref()
+                        && baseline.head != probe.head
+                        && self.rebase_head_observed.is_none()
+                    {
+                        if let Some(oid) = probe.head.clone() {
+                            self.rebase_head_observed = Some(oid.clone());
+                            self.rebase_head_observed_at = Some(Instant::now());
+                            self.state = ConnectivityState::RebaseDetected {
+                                oid: oid.clone(),
+                            };
+                            log::info!(
+                                "[agent_terminal] rebase HEAD changed: profile={}",
+                                self.profile.id
+                            );
+                            if let Some(completion) =
+                                self.rebase_completion.as_ref()
+                            {
+                                let tab_id = completion.tab_id;
+                                let session_id = completion.session_id;
+                                let _ = completion.workspace.update(
+                                    cx,
+                                    move |workspace, cx| {
+                                        workspace.observe_agent_rebase(
+                                            tab_id, session_id, oid, cx,
+                                        );
+                                    },
+                                );
+                            }
+                        }
+                    }
+                    current_probe = Some(probe);
+                }
+                Err(_) => {
+                    log::debug!(
+                        "[agent_terminal] rebase probe unavailable: profile={}",
+                        self.profile.id
+                    );
+                }
+            }
+        }
+
+        if marker_seen {
+            let outcome = current_probe
+                .as_ref()
+                .and_then(|probe| self.classify_rebase_probe(probe))
+                .unwrap_or(AgentRebaseOutcome::Failed);
+            self.finish_rebase(outcome, cx);
+            return;
+        }
+
+        if let Some(result) = completion {
+            let code = result.as_ref().ok().copied().flatten();
+            log::info!(
+                "[agent_terminal] rebase PTY exited: profile={}, code={code:?}",
+                self.profile.id
+            );
+            let outcome = current_probe
+                .as_ref()
+                .and_then(|probe| self.classify_rebase_probe(probe))
+                .unwrap_or_else(|| match result {
+                    Ok(code) => AgentRebaseOutcome::ExitedUnverified { code },
+                    Err(_) => {
+                        AgentRebaseOutcome::ExitedUnverified { code: None }
+                    }
+                });
+            self.finish_rebase(outcome, cx);
+            return;
+        }
+
+        if matches!(self.state, ConnectivityState::Starting) {
+            self.state = ConnectivityState::WaitingForResponse;
+        }
+
+        if let (Some(observed_at), Some(backend)) =
+            (self.rebase_head_observed_at, self.backend.as_ref())
+            && observed_at.elapsed() >= Duration::from_secs(30)
+            && backend.last_activity().elapsed() >= Duration::from_secs(3)
+        {
+            if let Some(oid) = self.rebase_head_observed.clone()
+                && current_probe.as_ref().is_some_and(|probe| {
+                    !probe.rebase_in_progress
+                        && !probe.has_conflicts
+                        && !probe.has_changes
+                        && (self
+                            .rebase_mode
+                            .as_ref()
+                            .and_then(|mode| mode.upstream_oid())
+                            .is_none()
+                            || probe.target_is_ancestor_of_head)
+                })
+            {
+                log::warn!(
+                    "[agent_terminal] rebase marker timeout; using verified HEAD: profile={}",
+                    self.profile.id
+                );
+                self.finish_rebase(AgentRebaseOutcome::Rebased { oid }, cx);
+            }
+        }
+    }
+
+    fn classify_rebase_probe(
+        &self,
+        probe: &AgentRebaseProbe,
+    ) -> Option<AgentRebaseOutcome> {
+        self.rebase_mode.as_ref().and_then(|mode| {
+            classify_rebase_probe(
+                mode,
+                self.rebase_baseline
+                    .as_ref()
+                    .and_then(|baseline| baseline.head.as_deref()),
+                probe,
+            )
+        })
+    }
+
     fn finish_merge(
         &mut self,
         outcome: AgentMergeOutcome,
@@ -805,6 +1052,65 @@ impl AgentSessionWindow {
             // when the normal post-open registration already happened.
             workspace.begin_agent_merge(tab_id, session_id, cx);
             workspace.finish_agent_merge(
+                tab_id,
+                session_id,
+                outcome.clone(),
+                cx,
+            );
+        });
+        if success {
+            let _ = cx
+                .spawn(async move |_, cx| {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(300))
+                        .await;
+                    let _ = workspace.update(cx, move |workspace, cx| {
+                        workspace.close_agent_session(session_id, cx);
+                    });
+                })
+                .detach();
+        }
+        cx.notify();
+    }
+
+    fn finish_rebase(
+        &mut self,
+        outcome: AgentRebaseOutcome,
+        cx: &mut Context<Self>,
+    ) {
+        if self.rebase_completed {
+            return;
+        }
+        self.rebase_completed = true;
+        self.stop_requested = true;
+        let success = matches!(
+            &outcome,
+            AgentRebaseOutcome::Rebased { .. }
+                | AgentRebaseOutcome::AlreadyUpToDate
+        );
+        log::info!(
+            "[agent_terminal] rebase operation completed: profile={}, outcome={}",
+            self.profile.id,
+            rebase_outcome_label(&outcome)
+        );
+        if !matches!(self.state, ConnectivityState::Failed(_)) {
+            self.state = ConnectivityState::RebaseCompleted {
+                outcome: outcome.clone(),
+            };
+        }
+        if let Some(backend) = &self.backend {
+            backend.shutdown();
+        }
+        let Some(completion) = self.rebase_completion.take() else {
+            cx.notify();
+            return;
+        };
+        let tab_id = completion.tab_id;
+        let session_id = completion.session_id;
+        let workspace = completion.workspace.clone();
+        let _ = workspace.update(cx, move |workspace, cx| {
+            workspace.begin_agent_rebase(tab_id, session_id, cx);
+            workspace.finish_agent_rebase(
                 tab_id,
                 session_id,
                 outcome.clone(),
@@ -893,6 +1199,7 @@ impl AgentSessionWindow {
                 | ConnectivityState::ResponseReceived
                 | ConnectivityState::CommitDetected { .. }
                 | ConnectivityState::MergeDetected { .. }
+                | ConnectivityState::RebaseDetected { .. }
         ) && !self.stop_requested
     }
 
@@ -903,6 +1210,9 @@ impl AgentSessionWindow {
             }
             AgentSessionKind::Commit => format!("{} commit", self.profile.name),
             AgentSessionKind::Merge => format!("{} merge", self.profile.name),
+            AgentSessionKind::Rebase => {
+                format!("{} rebase", self.profile.name)
+            }
         }
     }
 
@@ -927,6 +1237,15 @@ impl AgentSessionWindow {
             self.finish_merge(AgentMergeOutcome::Cancelled, cx);
             log::info!(
                 "[agent_terminal] merge termination requested: profile={}",
+                self.profile.id,
+            );
+            cx.notify();
+            return;
+        }
+        if self.kind == AgentSessionKind::Rebase {
+            self.finish_rebase(AgentRebaseOutcome::Cancelled, cx);
+            log::info!(
+                "[agent_terminal] rebase termination requested: profile={}",
                 self.profile.id,
             );
             cx.notify();
@@ -1021,6 +1340,10 @@ impl AgentSessionWindow {
                 | ConnectivityState::MergeCompleted { .. } => {
                     i18n::text(self.locale, "agent-commit-status-running")
                 }
+                ConnectivityState::RebaseDetected { .. }
+                | ConnectivityState::RebaseCompleted { .. } => {
+                    i18n::text(self.locale, "agent-commit-status-running")
+                }
             };
         }
         if self.kind == AgentSessionKind::Merge {
@@ -1098,6 +1421,71 @@ impl AgentSessionWindow {
                 | ConnectivityState::CommitCompleted { .. } => {
                     i18n::text(self.locale, "agent-merge-status-running")
                 }
+                ConnectivityState::RebaseDetected { .. }
+                | ConnectivityState::RebaseCompleted { .. } => {
+                    i18n::text(self.locale, "agent-merge-status-running")
+                }
+            };
+        }
+        if self.kind == AgentSessionKind::Rebase {
+            return match &self.state {
+                ConnectivityState::Starting => {
+                    i18n::text(self.locale, "agent-rebase-status-starting")
+                }
+                ConnectivityState::WaitingForResponse
+                | ConnectivityState::ResponseReceived => {
+                    i18n::text(self.locale, "agent-rebase-status-running")
+                }
+                ConnectivityState::RebaseDetected { oid } => i18n::text_args(
+                    self.locale,
+                    "agent-rebase-status-detected",
+                    &[("oid", oid)],
+                ),
+                ConnectivityState::RebaseCompleted { outcome } => match outcome
+                {
+                    AgentRebaseOutcome::Rebased { oid } => i18n::text_args(
+                        self.locale,
+                        "agent-rebase-status-rebased",
+                        &[("oid", oid)],
+                    ),
+                    AgentRebaseOutcome::AlreadyUpToDate => i18n::text(
+                        self.locale,
+                        "agent-rebase-status-up-to-date",
+                    ),
+                    AgentRebaseOutcome::Conflict => {
+                        i18n::text(self.locale, "agent-rebase-status-conflict")
+                    }
+                    AgentRebaseOutcome::Failed => i18n::text(
+                        self.locale,
+                        "agent-rebase-status-failed-generic",
+                    ),
+                    AgentRebaseOutcome::Cancelled => {
+                        i18n::text(self.locale, "agent-rebase-status-cancelled")
+                    }
+                    AgentRebaseOutcome::ExitedUnverified { code } => {
+                        i18n::text_args(
+                            self.locale,
+                            "agent-rebase-status-unverified",
+                            &[("code", &format_exit_code(*code))],
+                        )
+                    }
+                },
+                ConnectivityState::Exited { code, .. } => i18n::text_args(
+                    self.locale,
+                    "agent-rebase-status-exited",
+                    &[("code", &format_exit_code(*code))],
+                ),
+                ConnectivityState::Failed(summary) => i18n::text_args(
+                    self.locale,
+                    "agent-rebase-status-failed",
+                    &[("error", summary)],
+                ),
+                ConnectivityState::CommitDetected { .. }
+                | ConnectivityState::CommitCompleted { .. }
+                | ConnectivityState::MergeDetected { .. }
+                | ConnectivityState::MergeCompleted { .. } => {
+                    i18n::text(self.locale, "agent-rebase-status-running")
+                }
             };
         }
         match &self.state {
@@ -1116,6 +1504,10 @@ impl AgentSessionWindow {
             }
             ConnectivityState::MergeDetected { .. }
             | ConnectivityState::MergeCompleted { .. } => {
+                i18n::text(self.locale, "agent-test-status-exited")
+            }
+            ConnectivityState::RebaseDetected { .. }
+            | ConnectivityState::RebaseCompleted { .. } => {
                 i18n::text(self.locale, "agent-test-status-exited")
             }
             ConnectivityState::Exited {
@@ -1214,7 +1606,8 @@ impl Render for AgentSessionWindow {
         let can_stop = self.is_running();
         let is_commit = self.kind == AgentSessionKind::Commit;
         let is_merge = self.kind == AgentSessionKind::Merge;
-        let is_git_operation = is_commit || is_merge;
+        let is_rebase = self.kind == AgentSessionKind::Rebase;
+        let is_git_operation = is_commit || is_merge || is_rebase;
         let can_close = is_git_operation && !can_stop;
         let cwd = if self.working_directory.as_os_str().is_empty() {
             i18n::text(self.locale, "agent-test-temp-directory-unavailable")
@@ -1257,6 +1650,13 @@ impl Render for AgentSessionWindow {
                     | AgentMergeOutcome::Cancelled
                     | AgentMergeOutcome::ExitedUnverified { .. },
             } => Some(i18n::text(self.locale, "agent-merge-failed")),
+            ConnectivityState::RebaseCompleted {
+                outcome:
+                    AgentRebaseOutcome::Conflict
+                    | AgentRebaseOutcome::Failed
+                    | AgentRebaseOutcome::Cancelled
+                    | AgentRebaseOutcome::ExitedUnverified { .. },
+            } => Some(i18n::text(self.locale, "agent-rebase-failed")),
             ConnectivityState::Exited {
                 response_received: false,
                 ..
@@ -1286,6 +1686,8 @@ impl Render for AgentSessionWindow {
                                             self.locale,
                                             if is_merge {
                                                 "agent-merge-window-title"
+                                            } else if is_rebase {
+                                                "agent-rebase-window-title"
                                             } else {
                                                 "agent-commit-window-title"
                                             },
@@ -1365,6 +1767,14 @@ impl Render for AgentSessionWindow {
                                                 | AgentMergeOutcome::Cancelled
                                                 | AgentMergeOutcome::ExitedUnverified { .. },
                                         }
+                                    ) || matches!(
+                                        &self.state,
+                                        ConnectivityState::RebaseCompleted {
+                                            outcome: AgentRebaseOutcome::Conflict
+                                                | AgentRebaseOutcome::Failed
+                                                | AgentRebaseOutcome::Cancelled
+                                                | AgentRebaseOutcome::ExitedUnverified { .. },
+                                        }
                                     ) {
                                         colors.red
                                     } else if self.response_received
@@ -1375,11 +1785,17 @@ impl Render for AgentSessionWindow {
                                             }
                                         ) || matches!(
                                             &self.state,
-                                            ConnectivityState::MergeCompleted {
-                                                outcome: AgentMergeOutcome::Merged { .. }
-                                                    | AgentMergeOutcome::AlreadyUpToDate,
-                                            }
-                                        ) {
+                                        ConnectivityState::MergeCompleted {
+                                            outcome: AgentMergeOutcome::Merged { .. }
+                                                | AgentMergeOutcome::AlreadyUpToDate,
+                                        }
+                                    ) || matches!(
+                                        &self.state,
+                                        ConnectivityState::RebaseCompleted {
+                                            outcome: AgentRebaseOutcome::Rebased { .. }
+                                                | AgentRebaseOutcome::AlreadyUpToDate,
+                                        }
+                                    ) {
                                         colors.green
                                     } else {
                                         colors.foreground
@@ -1398,6 +1814,11 @@ impl Render for AgentSessionWindow {
                                         i18n::text(
                                             self.locale,
                                             "agent-merge-stop",
+                                        )
+                                    } else if is_rebase {
+                                        i18n::text(
+                                            self.locale,
+                                            "agent-rebase-stop",
                                         )
                                     } else if is_commit {
                                         i18n::text(
@@ -1481,6 +1902,8 @@ impl Render for AgentSessionWindow {
                                 self.locale,
                                 if is_merge {
                                     "agent-merge-note"
+                                } else if is_rebase {
+                                    "agent-rebase-note"
                                 } else if is_commit {
                                     "agent-commit-note"
                                 } else {
@@ -1612,6 +2035,7 @@ fn session_kind_label(kind: AgentSessionKind) -> &'static str {
         AgentSessionKind::Connectivity => "connectivity test",
         AgentSessionKind::Commit => "commit session",
         AgentSessionKind::Merge => "merge session",
+        AgentSessionKind::Rebase => "rebase session",
     }
 }
 
@@ -1637,6 +2061,17 @@ fn merge_outcome_label(outcome: &AgentMergeOutcome) -> &'static str {
     }
 }
 
+fn rebase_outcome_label(outcome: &AgentRebaseOutcome) -> &'static str {
+    match outcome {
+        AgentRebaseOutcome::Rebased { .. } => "rebased",
+        AgentRebaseOutcome::AlreadyUpToDate => "already-up-to-date",
+        AgentRebaseOutcome::Conflict => "conflict",
+        AgentRebaseOutcome::Failed => "failed",
+        AgentRebaseOutcome::Cancelled => "cancelled",
+        AgentRebaseOutcome::ExitedUnverified { .. } => "exited-unverified",
+    }
+}
+
 fn connectivity_key(profile_id: &str) -> String {
     format!("connectivity:{profile_id}")
 }
@@ -1646,6 +2081,10 @@ fn commit_key(repo_path: &str) -> String {
 }
 
 fn merge_key(repo_path: &str) -> String {
+    commit_key(repo_path)
+}
+
+fn rebase_key(repo_path: &str) -> String {
     commit_key(repo_path)
 }
 
@@ -1714,6 +2153,11 @@ fn open_session_window(
     startup_error: Option<String>,
     begin_agent: Option<(TabId, u64)>,
     begin_merge_agent: Option<(TabId, u64)>,
+    rebase_completion: Option<RebaseCompletion>,
+    rebase_challenge: Option<AgentOperationChallenge>,
+    rebase_mode: Option<AgentRebaseMode>,
+    rebase_baseline: Option<AgentRebaseProbe>,
+    begin_rebase_agent: Option<(TabId, u64)>,
     cx: &mut Context<Workspace>,
 ) {
     let options = WindowOptions {
@@ -1738,6 +2182,10 @@ fn open_session_window(
     let merge_challenge_for_window = merge_challenge.clone();
     let merge_mode_for_window = merge_mode.clone();
     let merge_baseline_for_window = merge_baseline.clone();
+    let rebase_completion_for_window = rebase_completion.clone();
+    let rebase_challenge_for_window = rebase_challenge.clone();
+    let rebase_mode_for_window = rebase_mode.clone();
+    let rebase_baseline_for_window = rebase_baseline.clone();
     let startup_error_for_window = startup_error.clone();
     log::info!(
         "[agent_terminal] opening {}: profile={}",
@@ -1786,6 +2234,23 @@ fn open_session_window(
                     .expect("merge challenge is required"),
                 merge_mode_for_window.expect("merge mode is required"),
                 merge_baseline_for_window.expect("merge baseline is required"),
+                startup_error_for_window,
+                window.window_handle().window_id().as_u64(),
+                cx,
+            ),
+            AgentSessionKind::Rebase => AgentSessionWindow::new_rebase(
+                locale,
+                profile_for_window,
+                spec_for_window,
+                prompt_for_window,
+                working_directory_for_window,
+                rebase_completion_for_window
+                    .expect("rebase completion is required"),
+                rebase_challenge_for_window
+                    .expect("rebase challenge is required"),
+                rebase_mode_for_window.expect("rebase mode is required"),
+                rebase_baseline_for_window
+                    .expect("rebase baseline is required"),
                 startup_error_for_window,
                 window.window_handle().window_id().as_u64(),
                 cx,
@@ -1843,6 +2308,28 @@ fn open_session_window(
                     .unwrap_or(false);
                 if should_begin {
                     workspace.begin_agent_merge(tab_id, session_id, cx);
+                }
+            }
+            if let Some((tab_id, session_id)) = begin_rebase_agent
+                && startup_error.is_none()
+            {
+                let should_begin = workspace
+                    .agent_sessions
+                    .iter()
+                    .find(|(_, candidate)| {
+                        candidate.read(cx).is_ok_and(|session| {
+                            session.session_id() == Some(session_id)
+                        })
+                    })
+                    .and_then(|(_, candidate)| {
+                        candidate
+                            .read(cx)
+                            .ok()
+                            .map(|session| session.is_running())
+                    })
+                    .unwrap_or(false);
+                if should_begin {
+                    workspace.begin_agent_rebase(tab_id, session_id, cx);
                 }
             }
         }
@@ -1967,6 +2454,11 @@ pub(super) fn open_commit(
         startup_error,
         Some((tab_id, session_id)),
         None,
+        None,
+        None,
+        None,
+        None,
+        None,
         cx,
     );
 }
@@ -1974,6 +2466,83 @@ pub(super) fn open_commit(
 struct PreparedMerge {
     mode: AgentMergeMode,
     baseline: AgentMergeProbe,
+}
+
+struct PreparedRebase {
+    mode: AgentRebaseMode,
+    baseline: AgentRebaseProbe,
+}
+
+fn prepare_rebase(
+    repo_path: &std::path::Path,
+    source: &str,
+) -> Result<PreparedRebase, String> {
+    let upstream_oid = resolve_agent_merge_target(repo_path, source)?;
+    let probe = probe_agent_rebase(repo_path, Some(&upstream_oid))?;
+    if has_other_git_operation(repo_path)?
+        || has_other_git_operation_except_rebase(repo_path)?
+    {
+        return Err(
+            "another Git operation is already in progress; finish or abort it first"
+                .to_string(),
+        );
+    }
+    if probe.rebase_in_progress {
+        return Err(
+            "a rebase is already in progress; finish or abort it first"
+                .to_string(),
+        );
+    }
+    if probe.has_conflicts {
+        return Err("the repository has unresolved conflicts".to_string());
+    }
+    if probe.has_changes {
+        return Err(
+            "the working tree must be clean before Rebase by AI".to_string()
+        );
+    }
+    Ok(PreparedRebase {
+        mode: AgentRebaseMode::Start { upstream_oid },
+        baseline: probe,
+    })
+}
+
+fn prepare_rebase_resolution(
+    repo_path: &std::path::Path,
+    rebase_head: Option<&str>,
+    upstream_oid: Option<&str>,
+    baseline_head: Option<&str>,
+) -> Result<PreparedRebase, String> {
+    let probe = probe_agent_rebase(repo_path, upstream_oid)?;
+    if has_other_git_operation_except_rebase(repo_path)? {
+        return Err(
+            "another Git operation is already in progress; finish or abort it first"
+                .to_string(),
+        );
+    }
+    if !probe.rebase_in_progress {
+        return Err("the rebase is no longer in progress".to_string());
+    }
+    if let Some(expected) = rebase_head
+        && probe.rebase_head.as_deref() != Some(expected)
+    {
+        return Err(
+            "the rebase state changed while the dialog was open".to_string()
+        );
+    }
+    if probe.head.as_deref() != baseline_head {
+        return Err(
+            "the repository HEAD changed while the rebase dialog was open"
+                .to_string(),
+        );
+    }
+    Ok(PreparedRebase {
+        mode: AgentRebaseMode::Resolve {
+            upstream_oid: upstream_oid.map(str::to_owned),
+            rebase_head_oid: probe.rebase_head.clone(),
+        },
+        baseline: probe,
+    })
 }
 
 fn prepare_merge(
@@ -2292,6 +2861,260 @@ fn start_merge_session(
         startup_error,
         None,
         Some((tab_id, session_id)),
+        None,
+        None,
+        None,
+        None,
+        None,
+        cx,
+    );
+}
+
+/// Open or activate a visible Agent session that performs a complete rebase.
+pub(super) fn open_rebase(
+    workspace: &mut Workspace,
+    tab_id: TabId,
+    repo_path: String,
+    source: String,
+    cx: &mut Context<Workspace>,
+) {
+    open_rebase_preflight(workspace, tab_id, repo_path, source, cx);
+}
+
+/// Open or activate a visible Agent session that continues an existing
+/// rebase, including one left by `git pull --rebase`.
+pub(super) fn open_rebase_resolution(
+    workspace: &mut Workspace,
+    tab_id: TabId,
+    repo_path: String,
+    rebase_head: Option<String>,
+    upstream_oid: Option<String>,
+    baseline_head: Option<String>,
+    cx: &mut Context<Workspace>,
+) {
+    let key = rebase_key(&repo_path);
+    workspace
+        .agent_sessions
+        .retain(|(_, handle)| handle.update(cx, |_, _, _| ()).is_ok());
+    if let Some((_, handle)) =
+        workspace.agent_sessions.iter().find(|(entry, handle)| {
+            entry == &key
+                && handle.read(cx).is_ok_and(|session| session.is_running())
+        })
+    {
+        let _ = handle.update(cx, |_, window, _| window.activate_window());
+        return;
+    }
+    if workspace
+        .agent_preflight_keys
+        .iter()
+        .any(|entry| entry == &key)
+    {
+        return;
+    }
+    workspace.agent_preflight_keys.insert(key.clone());
+    let entity = cx.entity();
+    let path = PathBuf::from(repo_path);
+    let probe_path = path.clone();
+    cx.spawn(async move |_, cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move {
+                prepare_rebase_resolution(
+                    &probe_path,
+                    rebase_head.as_deref(),
+                    upstream_oid.as_deref(),
+                    baseline_head.as_deref(),
+                )
+            })
+            .await;
+        let _ = entity.update(cx, |workspace, cx| {
+            workspace.agent_preflight_keys.retain(|entry| entry != &key);
+            match result {
+                Ok(prepared) => {
+                    start_rebase_session(workspace, tab_id, path, prepared, cx)
+                }
+                Err(error) => workspace.agent_rebase_preflight_failed(
+                    tab_id,
+                    first_line(&error).to_string(),
+                    cx,
+                ),
+            }
+        });
+    })
+    .detach();
+}
+
+fn open_rebase_preflight(
+    workspace: &mut Workspace,
+    tab_id: TabId,
+    repo_path: String,
+    source: String,
+    cx: &mut Context<Workspace>,
+) {
+    let key = rebase_key(&repo_path);
+    workspace
+        .agent_sessions
+        .retain(|(_, handle)| handle.update(cx, |_, _, _| ()).is_ok());
+    if let Some((_, handle)) =
+        workspace.agent_sessions.iter().find(|(entry, handle)| {
+            entry == &key
+                && handle.read(cx).is_ok_and(|session| session.is_running())
+        })
+    {
+        let _ = handle.update(cx, |_, window, _| window.activate_window());
+        return;
+    }
+    if workspace
+        .agent_preflight_keys
+        .iter()
+        .any(|entry| entry == &key)
+    {
+        return;
+    }
+    workspace.agent_preflight_keys.insert(key.clone());
+    let entity = cx.entity();
+    let path = PathBuf::from(repo_path);
+    let probe_path = path.clone();
+    cx.spawn(async move |_, cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { prepare_rebase(&probe_path, &source) })
+            .await;
+        let _ = entity.update(cx, |workspace, cx| {
+            workspace.agent_preflight_keys.retain(|entry| entry != &key);
+            match result {
+                Ok(prepared) => {
+                    start_rebase_session(workspace, tab_id, path, prepared, cx)
+                }
+                Err(error) => workspace.agent_rebase_preflight_failed(
+                    tab_id,
+                    first_line(&error).to_string(),
+                    cx,
+                ),
+            }
+        });
+    })
+    .detach();
+}
+
+fn start_rebase_session(
+    workspace: &mut Workspace,
+    tab_id: TabId,
+    repo_path: PathBuf,
+    prepared: PreparedRebase,
+    cx: &mut Context<Workspace>,
+) {
+    let key = rebase_key(&repo_path.to_string_lossy());
+    let tab_busy = workspace
+        .tabs
+        .iter()
+        .find(|entry| entry.id == tab_id)
+        .map(|entry| match &entry.content {
+            super::TabContent::Repo(tab) => tab.read(cx).is_busy(),
+            super::TabContent::Welcome => true,
+        })
+        .unwrap_or(true);
+    if tab_busy {
+        log::info!(
+            "[agent_terminal] rebase preflight completed after the repository became busy"
+        );
+        return;
+    }
+    if workspace.agent_sessions.iter().any(|(entry, handle)| {
+        entry == &key
+            && handle.read(cx).is_ok_and(|session| session.is_running())
+    }) {
+        return;
+    }
+    let mode = prepared.mode;
+    let operation = match &mode {
+        AgentRebaseMode::Start { upstream_oid } => AgentOperation::Rebase {
+            upstream_oid: upstream_oid.clone(),
+            baseline_head: prepared.baseline.head.clone(),
+        },
+        AgentRebaseMode::Resolve {
+            rebase_head_oid,
+            upstream_oid,
+        } => AgentOperation::ResolveRebase {
+            rebase_head_oid: rebase_head_oid.clone(),
+            upstream_oid: upstream_oid.clone(),
+            baseline_head: prepared.baseline.head.clone(),
+        },
+    };
+    let challenge = AgentOperationChallenge::new();
+    let prompt = match operation.prompt_with_challenge(None, &challenge) {
+        Ok(prompt) => prompt,
+        Err(error) => {
+            workspace.agent_rebase_preflight_failed(
+                tab_id,
+                first_line(&error.to_string()).to_string(),
+                cx,
+            );
+            return;
+        }
+    };
+    let profile_id = workspace.config.agent.default_profile_id();
+    let (profile, spec, startup_error) =
+        match workspace.config.agent.profile(&profile_id) {
+            Some(profile) => {
+                let (spec, launch_error) =
+                    launch_for_profile(workspace, &profile, &prompt, cx);
+                (profile, spec, launch_error)
+            }
+            None => {
+                let profile = ResolvedAgentProfile {
+                    id: profile_id.clone(),
+                    name: profile_id.clone(),
+                    executable: PathBuf::new(),
+                    args: Vec::new(),
+                    prompt_mode: crate::agent::PromptMode::TrailingArgument,
+                    built_in: None,
+                };
+                (
+                    profile,
+                    AgentLaunchSpec {
+                        executable: PathBuf::new(),
+                        args: Vec::new(),
+                    },
+                    Some(i18n::text_args(
+                        workspace.locale,
+                        "agent-rebase-invalid-profile",
+                        &[("profile", &profile_id)],
+                    )),
+                )
+            }
+        };
+    let session_id = next_session_id();
+    let completion = RebaseCompletion {
+        workspace: cx.entity().downgrade(),
+        tab_id,
+        session_id,
+    };
+    open_session_window(
+        workspace,
+        key,
+        AgentSessionKind::Rebase,
+        workspace.locale,
+        profile,
+        spec,
+        prompt,
+        None,
+        repo_path,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        startup_error,
+        None,
+        None,
+        Some(completion),
+        Some(challenge),
+        Some(mode),
+        Some(prepared.baseline),
+        Some((tab_id, session_id)),
         cx,
     );
 }
@@ -2501,6 +3324,66 @@ impl Workspace {
         }
     }
 
+    pub(super) fn begin_agent_rebase(
+        &mut self,
+        tab_id: TabId,
+        session_id: u64,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(entry) = self.tabs.iter().find(|entry| entry.id == tab_id)
+            && let super::TabContent::Repo(tab) = &entry.content
+        {
+            tab.update(cx, |tab, cx| tab.begin_agent_rebase(session_id, cx));
+        }
+    }
+
+    pub(super) fn observe_agent_rebase(
+        &mut self,
+        tab_id: TabId,
+        session_id: u64,
+        oid: String,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(entry) = self.tabs.iter().find(|entry| entry.id == tab_id)
+            && let super::TabContent::Repo(tab) = &entry.content
+        {
+            tab.update(cx, |tab, cx| {
+                tab.observe_agent_rebase(session_id, oid, cx)
+            });
+        }
+    }
+
+    pub(super) fn finish_agent_rebase(
+        &mut self,
+        tab_id: TabId,
+        session_id: u64,
+        outcome: AgentRebaseOutcome,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(entry) = self.tabs.iter().find(|entry| entry.id == tab_id)
+            && let super::TabContent::Repo(tab) = &entry.content
+        {
+            tab.update(cx, |tab, cx| {
+                tab.finish_agent_rebase(session_id, outcome, cx)
+            });
+        }
+    }
+
+    pub(super) fn agent_rebase_preflight_failed(
+        &mut self,
+        tab_id: TabId,
+        summary: String,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(entry) = self.tabs.iter().find(|entry| entry.id == tab_id)
+            && let super::TabContent::Repo(tab) = &entry.content
+        {
+            tab.update(cx, |tab, cx| {
+                tab.agent_rebase_preflight_failed(summary, cx)
+            });
+        }
+    }
+
     pub(super) fn close_agent_session(
         &mut self,
         session_id: u64,
@@ -2520,4 +3403,9 @@ impl Workspace {
 
 fn first_line(value: &str) -> &str {
     value.lines().next().unwrap_or(value)
+}
+
+fn format_exit_code(code: Option<i32>) -> String {
+    code.map(|value| value.to_string())
+        .unwrap_or_else(|| "unknown".to_string())
 }

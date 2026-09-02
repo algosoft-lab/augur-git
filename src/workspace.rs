@@ -9,6 +9,7 @@ mod agent_connectivity;
 mod agent_lifecycle;
 mod agent_merge;
 mod agent_profiles;
+mod agent_rebase;
 mod app_menu;
 mod focus_refresh;
 mod persistence;
@@ -687,6 +688,36 @@ impl Workspace {
                     *id,
                     repo_path.clone(),
                     merge_head.clone(),
+                    baseline_head.clone(),
+                    cx,
+                );
+            }
+            RepoTabEvent::AgentRebaseRequested {
+                id,
+                repo_path,
+                source,
+            } => {
+                agent_connectivity::open_rebase(
+                    self,
+                    *id,
+                    repo_path.clone(),
+                    source.clone(),
+                    cx,
+                );
+            }
+            RepoTabEvent::AgentRebaseResolveRequested {
+                id,
+                repo_path,
+                rebase_head,
+                upstream_oid,
+                baseline_head,
+            } => {
+                agent_connectivity::open_rebase_resolution(
+                    self,
+                    *id,
+                    repo_path.clone(),
+                    rebase_head.clone(),
+                    upstream_oid.clone(),
                     baseline_head.clone(),
                     cx,
                 );

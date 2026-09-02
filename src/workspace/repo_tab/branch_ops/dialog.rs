@@ -594,7 +594,10 @@ fn confirm_branch_dialog(tab: &mut RepoTab, cx: &mut Context<RepoTab>) {
             let Some(source) = tab.dialogs.merge_source.clone() else {
                 return;
             };
-            ("rebase", vec!["rebase".into(), source])
+            tab.dialogs.close();
+            tab.start_rebase_command(source, cx);
+            cx.notify();
+            return;
         }
         PendingBranchDialog::DeleteRef { name, is_tag } => {
             args::delete_args(&name, tab.dialogs.force_delete, is_tag)

@@ -82,6 +82,9 @@ pub(super) fn handle_sidebar_event(
         SidebarEvent::MergeByAgent(name) => {
             tab.start_agent_merge(name.clone(), cx);
         }
+        SidebarEvent::RebaseByAgent(name) => {
+            tab.start_agent_rebase(name.clone(), cx);
+        }
         SidebarEvent::RenameRemoteBranch { remote, branch } => {
             tab.open_branch_dialog(
                 PendingBranchDialog::RenameRemote {
