@@ -13,6 +13,7 @@ mod agent_rebase;
 mod app_menu;
 mod extension_runtime;
 mod extensions;
+mod extensions_window;
 mod focus_refresh;
 mod persistence;
 mod preferences;
@@ -216,6 +217,8 @@ pub struct Workspace {
     config: AppConfig,
     settings_panel: Entity<SettingsPanel>,
     extensions_panel: Entity<ExtensionsPanel>,
+    extensions_window:
+        Option<WindowHandle<extensions_window::ExtensionsWindow>>,
     extension_host: HostBridge,
     extension_manager: Option<ExtensionManager>,
     extension_events: Receiver<ExtensionEvent>,
@@ -227,7 +230,6 @@ pub struct Workspace {
         HashMap<(String, String), extension_runtime::PendingEventBatch>,
     extension_interval_ticks:
         HashMap<(String, String), chrono::DateTime<chrono::Local>>,
-    show_extensions: bool,
     last_extension_tick: chrono::DateTime<chrono::Local>,
     ui_state: UiState,
     locale: Locale,
@@ -305,16 +307,6 @@ impl Workspace {
                 cx,
             )
         });
-
-        let extensions_panel_for_events = extensions_panel.clone();
-        cx.subscribe_in(
-            &extensions_panel_for_events,
-            window,
-            |workspace, _panel, event, window, cx| {
-                workspace.handle_extensions_panel_event(event, window, cx);
-            },
-        )
-        .detach();
 
         let app_menu_for_events = app_menu.clone();
         cx.subscribe_in(
@@ -455,6 +447,7 @@ impl Workspace {
             config,
             settings_panel,
             extensions_panel,
+            extensions_window: None,
             extension_host,
             extension_manager,
             extension_events,
@@ -464,7 +457,6 @@ impl Workspace {
             extension_pending_origins: HashMap::new(),
             extension_pending_events: HashMap::new(),
             extension_interval_ticks: HashMap::new(),
-            show_extensions: false,
             last_extension_tick: chrono::Local::now(),
             ui_state,
             locale,
@@ -1182,9 +1174,6 @@ impl Render for Workspace {
             .when(self.show_settings, |element| {
                 element.child(self.settings_overlay())
             })
-            .when(self.show_extensions, |element| {
-                element.child(self.extensions_overlay(cx))
-            })
             .when(self.pending_close.is_some(), |element| {
                 element.child(self.close_confirmation_overlay(cx))
             })
@@ -1203,18 +1192,6 @@ impl Workspace {
 
     fn settings_overlay(&self) -> impl IntoElement {
         self.settings_panel.clone()
-    }
-
-    fn extensions_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
-            .id("extensions-overlay")
-            .absolute()
-            .top_0()
-            .left_0()
-            .w_full()
-            .h_full()
-            .bg(cx.theme().colors.background.opacity(0.95))
-            .child(self.extensions_panel.clone())
     }
 
     fn empty_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {

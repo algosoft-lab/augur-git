@@ -12,6 +12,7 @@ use crate::extension::{
 };
 
 use super::extensions::ExtensionsPanelEvent;
+use super::extensions_window::ExtensionsWindow;
 use super::{TabContent, Workspace};
 
 pub(super) struct PendingEventBatch {
@@ -21,17 +22,82 @@ pub(super) struct PendingEventBatch {
 
 impl Workspace {
     pub(super) fn open_extensions(&mut self, cx: &mut Context<Self>) {
+        if let Some(existing) = self.extensions_window {
+            if existing
+                .update(cx, |_, window, _| window.activate_window())
+                .is_ok()
+            {
+                return;
+            }
+            self.extensions_window = None;
+        }
         self.show_settings = false;
-        self.show_extensions = true;
         self.sync_extension_repositories(cx);
-        self.extensions_panel.update(cx, |panel, cx| {
-            panel.set_status("sync-open-tabs", "Ready", cx);
-        });
-        cx.notify();
+        let definitions = self.extension_definitions.clone();
+        let config = self.config.clone();
+        let locale = self.locale;
+        let workspace = cx.entity().downgrade();
+        let extension_window_state = self.ui_state.extensions_window.clone();
+        let options = super::extensions_window::window_options(
+            cx,
+            &extension_window_state,
+        );
+        match cx.open_window(options, move |window, cx| {
+            let panel = cx.new(|cx| {
+                super::extensions::ExtensionsPanel::new(
+                    definitions,
+                    &config,
+                    locale,
+                    window,
+                    cx,
+                )
+            });
+            let workspace_for_close = workspace.clone();
+            let extension_window = cx.new(|cx| {
+                ExtensionsWindow::new(
+                    panel,
+                    locale,
+                    workspace.clone(),
+                    window,
+                    cx,
+                )
+            });
+            window.on_window_should_close(cx, move |window, app| {
+                let _ = workspace_for_close.update(app, |workspace, _| {
+                    super::window_state::update_ui_state_extensions_window(
+                        &mut workspace.ui_state,
+                        window,
+                    );
+                    workspace.extensions_window = None;
+                });
+                true
+            });
+            window.activate_window();
+            extension_window
+        }) {
+            Ok(handle) => {
+                if let Ok(panel) =
+                    handle.update(cx, |window, _, _| window.panel.clone())
+                {
+                    self.extensions_panel = panel;
+                }
+                self.extensions_window = Some(handle);
+                self.extensions_panel.update(cx, |panel, cx| {
+                    panel.set_status("sync-open-tabs", "Ready", cx);
+                });
+            }
+            Err(error) => log::error!(
+                "[extension_runtime] failed to open Extensions window: {error}"
+            ),
+        }
     }
 
     pub(super) fn close_extensions(&mut self, cx: &mut Context<Self>) {
-        self.show_extensions = false;
+        if let Some(handle) = self.extensions_window.take() {
+            let _ = handle.update(cx, |_extensions, window, _| {
+                window.remove_window();
+            });
+        }
         cx.notify();
     }
 
@@ -205,6 +271,8 @@ impl Workspace {
                             ),
                         events: Vec::new(),
                     });
+                entry.due_at = now
+                    + Duration::from_millis(trigger.debounce_duration_ms());
                 if let Some(tab_id) = event
                     .repository
                     .as_ref()
@@ -557,6 +625,78 @@ impl Workspace {
                 });
                 self.persist_config();
             }
+            ExtensionsPanelEvent::SubscriptionChanged {
+                extension_id,
+                trigger_id,
+                subscribed,
+            } => {
+                let Some(definition) = self
+                    .extension_definitions
+                    .iter()
+                    .find(|definition| {
+                        definition.package.manifest.id == *extension_id
+                    })
+                    .cloned()
+                else {
+                    return;
+                };
+                let Some(trigger) = definition
+                    .package
+                    .manifest
+                    .event_triggers()
+                    .into_iter()
+                    .find(|trigger| trigger.id == *trigger_id)
+                else {
+                    return;
+                };
+                let mut settings = self
+                    .config
+                    .extensions
+                    .get(extension_id)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        ExtensionSettings::with_defaults(
+                            &definition.package.manifest,
+                        )
+                    })
+                    .normalized_for(&definition.package.manifest);
+                if *subscribed && !settings.trusted {
+                    self.extensions_panel.update(cx, |panel, cx| {
+                        panel.set_status(
+                            extension_id,
+                            "Trust this extension before subscribing to events",
+                            cx,
+                        );
+                    });
+                    return;
+                }
+                if *subscribed {
+                    settings.subscribed_triggers.insert(trigger.id.clone());
+                } else {
+                    settings.subscribed_triggers.remove(trigger.id.as_str());
+                }
+                self.config
+                    .extensions
+                    .insert(extension_id.clone(), settings);
+                self.extensions_panel.update(cx, |panel, cx| {
+                    panel.update_subscription(
+                        extension_id,
+                        trigger_id,
+                        *subscribed,
+                        cx,
+                    );
+                    panel.set_status(
+                        extension_id,
+                        if *subscribed {
+                            format!("Subscribed to {}", trigger.label())
+                        } else {
+                            format!("Unsubscribed from {}", trigger.label())
+                        },
+                        cx,
+                    );
+                });
+                self.persist_config();
+            }
             ExtensionsPanelEvent::TrustedChanged {
                 extension_id,
                 trusted,
@@ -571,12 +711,7 @@ impl Workspace {
                     settings.subscribed_triggers.clear();
                 }
                 self.extensions_panel.update(cx, |panel, cx| {
-                    panel.update_flags(
-                        extension_id,
-                        !settings.subscribed_triggers.is_empty(),
-                        *trusted,
-                        cx,
-                    );
+                    panel.update_trust(extension_id, *trusted, cx);
                 });
                 self.persist_config();
             }
@@ -615,6 +750,26 @@ impl Workspace {
                     panel.set_status(extension_id, "Setting saved", cx);
                 });
             }
+            ExtensionsPanelEvent::Cancel(extension_id) => {
+                let cancelled = self
+                    .extension_manager
+                    .as_ref()
+                    .map(|manager| manager.cancel_extension(extension_id))
+                    .unwrap_or(0);
+                self.extensions_panel.update(cx, |panel, cx| {
+                    panel.set_status(
+                        extension_id,
+                        if cancelled == 0 {
+                            "No active run to cancel".to_string()
+                        } else {
+                            format!(
+                                "Cancellation requested for {cancelled} run(s)"
+                            )
+                        },
+                        cx,
+                    );
+                });
+            }
             ExtensionsPanelEvent::RunNow(extension_id) => {
                 let Some(manager) = &self.extension_manager else {
                     return;
@@ -639,7 +794,7 @@ impl Workspace {
                     self.extensions_panel.update(cx, |panel, cx| {
                         panel.set_status(
                             extension_id,
-                            "Enable and trust this extension before running it",
+                            "Trust this extension before running it",
                             cx,
                         );
                     });

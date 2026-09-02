@@ -196,6 +196,10 @@ pub const DEFAULT_WINDOW_WIDTH: u32 = 1280;
 pub const DEFAULT_WINDOW_HEIGHT: u32 = 800;
 pub const MIN_WINDOW_WIDTH: u32 = 860;
 pub const MIN_WINDOW_HEIGHT: u32 = 480;
+pub const DEFAULT_EXTENSIONS_WINDOW_WIDTH: u32 = 1000;
+pub const DEFAULT_EXTENSIONS_WINDOW_HEIGHT: u32 = 720;
+pub const MIN_EXTENSIONS_WINDOW_WIDTH: u32 = 760;
+pub const MIN_EXTENSIONS_WINDOW_HEIGHT: u32 = 520;
 
 pub const MIN_SIDEBAR_WIDTH: f32 = 180.0;
 pub const MAX_SIDEBAR_WIDTH: f32 = 400.0;
@@ -274,21 +278,49 @@ impl Default for WindowState {
 
 impl WindowState {
     pub fn normalize(&mut self) {
-        self.width = self.width.max(MIN_WINDOW_WIDTH);
-        self.height = self.height.max(MIN_WINDOW_HEIGHT);
+        self.normalize_with(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
+    }
+
+    pub fn normalize_with(&mut self, min_width: u32, min_height: u32) {
+        self.width = self.width.max(min_width);
+        self.height = self.height.max(min_height);
+    }
+
+    pub fn extensions_default() -> Self {
+        Self {
+            width: DEFAULT_EXTENSIONS_WINDOW_WIDTH,
+            height: DEFAULT_EXTENSIONS_WINDOW_HEIGHT,
+            ..Self::default()
+        }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct UiState {
     pub window: WindowState,
+    #[serde(default = "WindowState::extensions_default")]
+    pub extensions_window: WindowState,
     pub layout: LayoutSettings,
+}
+
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            window: WindowState::default(),
+            extensions_window: WindowState::extensions_default(),
+            layout: LayoutSettings::default(),
+        }
+    }
 }
 
 impl UiState {
     pub fn normalize(&mut self) {
         self.window.normalize();
+        self.extensions_window.normalize_with(
+            MIN_EXTENSIONS_WINDOW_WIDTH,
+            MIN_EXTENSIONS_WINDOW_HEIGHT,
+        );
         self.layout.normalize();
     }
 }
@@ -984,6 +1016,7 @@ mod tests {
                 height: 400,
                 maximized: true,
             },
+            extensions_window: WindowState::extensions_default(),
             layout: LayoutSettings {
                 sidebar_width: 1000.0,
                 right_panel_width: 100.0,

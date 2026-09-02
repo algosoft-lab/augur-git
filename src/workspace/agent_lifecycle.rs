@@ -1,8 +1,8 @@
-//! Workspace-level lifecycle guards for visible external Agent sessions.
+//! Workspace-level lifecycle guards for Agent and extension operations.
 //!
 //! This module coordinates actions that can close the workspace or the whole
-//! application. A running Agent session is always listed behind an explicit
-//! confirmation before it is terminated.
+//! application. Active background operations are always listed behind an
+//! explicit confirmation before they are terminated.
 
 use gpui::prelude::*;
 use gpui::*;
@@ -31,12 +31,12 @@ impl Workspace {
         if self.pending_close.is_some() {
             return;
         }
-        let count = super::agent_connectivity::running_count(self, cx);
+        let count = self.active_operation_count(cx);
         if count == 0 {
             cx.quit();
         } else {
             log::info!(
-                "[agent_terminal] delaying application quit for {count} active Agent session(s)"
+                "[workspace] delaying application quit for {count} active operation(s)"
             );
             self.pending_close = Some(PendingWorkspaceClose::Application);
             cx.notify();
@@ -53,12 +53,12 @@ impl Workspace {
         if self.pending_close.is_some() {
             return false;
         }
-        let count = super::agent_connectivity::running_count(self, cx);
+        let count = self.active_operation_count(cx);
         if count == 0 {
             true
         } else {
             log::info!(
-                "[agent_terminal] delaying window close for {count} active Agent session(s)"
+                "[workspace] delaying window close for {count} active operation(s)"
             );
             self.pending_close = Some(PendingWorkspaceClose::Application);
             cx.notify();
@@ -132,6 +132,14 @@ impl Workspace {
         match pending {
             PendingWorkspaceClose::Application => {
                 super::agent_connectivity::stop_all(self, cx);
+                if let Some(manager) = &self.extension_manager {
+                    let cancelled = manager.cancel_all();
+                    if cancelled > 0 {
+                        log::info!(
+                            "[extension_runtime] cancelled {cancelled} active extension run(s) during application close"
+                        );
+                    }
+                }
                 log::info!("[agent_terminal] confirmed application close");
                 // `TerminalBackend::shutdown` gives each child a short grace
                 // period before closing its PTY. Keep the app alive for that
@@ -167,7 +175,7 @@ impl Workspace {
             return div().into_any_element();
         };
         let colors = cx.theme().colors.clone();
-        let test_labels = match pending {
+        let mut test_labels = match pending {
             PendingWorkspaceClose::Application => {
                 super::agent_connectivity::running_labels(self, cx)
             }
@@ -183,6 +191,11 @@ impl Workspace {
                 })
                 .unwrap_or_default(),
         };
+        if matches!(pending, PendingWorkspaceClose::Application) {
+            if let Some(manager) = &self.extension_manager {
+                test_labels.extend(manager.active_labels());
+            }
+        }
         let count = test_labels.len();
         let count_text = count.to_string();
         let title = i18n::text(self.locale, "workspace-close-title");
@@ -296,5 +309,14 @@ impl Workspace {
                     ),
             )
             .into_any_element()
+    }
+
+    fn active_operation_count(&self, cx: &mut Context<Self>) -> usize {
+        super::agent_connectivity::running_count(self, cx)
+            + self
+                .extension_manager
+                .as_ref()
+                .map(|manager| manager.active_count())
+                .unwrap_or(0)
     }
 }

@@ -28,6 +28,29 @@ about-author = 作者
 about-version = 版本
 about-commit = 提交
 
+# ===== 扩展 =====
+extensions-title = 扩展
+extensions-install = 安装目录
+extensions-reload = 重新加载
+extensions-close = 关闭
+extensions-run-once = 运行一次
+extensions-cancel = 取消
+extensions-trust = 信任
+extensions-trusted = 已信任
+extensions-event-subscriptions = 事件订阅
+extensions-subscribe = 订阅
+extensions-subscribed = 已订阅
+extensions-settings = 设置
+extensions-recent-runs = 最近运行
+extensions-next-run = 下次运行
+extensions-manual = 手动
+extensions-events = 事件
+extensions-bundled = 内置
+extensions-path = 路径
+extensions-source = 来源
+extensions-permission-warning = 已信任扩展拥有完整 Lua 标准库权限，可能执行本地命令。
+extensions-untrusted-warning = 此扩展可以执行本地代码。请仅在审阅扩展包后信任它。
+
 # ===== Tab 栏 / 状态栏 =====
 no-repo-open = 未打开仓库
 status-scanning = 扫描中…
@@ -70,8 +93,8 @@ toolbar-settings = 设置
 toolbar-busy = 操作中…
 
 # ===== Agent lifecycle =====
-workspace-close-title = 停止正在运行的 Agent 会话？
-workspace-close-warning = 当前仍有 { $count } 个 Agent 会话运行中。关闭 Augur Git 将终止这些会话。
+workspace-close-title = 停止正在运行的操作？
+workspace-close-warning = 当前仍有 { $count } 个后台操作运行中。关闭 Augur Git 将终止这些操作。
 workspace-close-cancel = 保持打开
 workspace-close-confirm = 停止并关闭
 

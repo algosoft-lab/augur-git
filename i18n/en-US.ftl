@@ -29,6 +29,29 @@ about-author = Author
 about-version = Version
 about-commit = Commit
 
+# ===== Extensions =====
+extensions-title = Extensions
+extensions-install = Install directory
+extensions-reload = Reload
+extensions-close = Close
+extensions-run-once = Run once
+extensions-cancel = Cancel
+extensions-trust = Trust
+extensions-trusted = Trusted
+extensions-event-subscriptions = Event subscriptions
+extensions-subscribe = Subscribe
+extensions-subscribed = Subscribed
+extensions-settings = Settings
+extensions-recent-runs = Recent runs
+extensions-next-run = Next run
+extensions-manual = Manual
+extensions-events = Events
+extensions-bundled = Bundled
+extensions-path = Path
+extensions-source = Source
+extensions-permission-warning = Trusted extensions run with full Lua standard libraries and may execute local commands.
+extensions-untrusted-warning = This extension can execute local code. Trust it only if you reviewed the package.
+
 # ===== Tab bar / Status bar =====
 no-repo-open = No repository open
 status-scanning = Scanning…
@@ -71,8 +94,8 @@ toolbar-settings = Settings
 toolbar-busy = Working…
 
 # ===== Agent lifecycle =====
-workspace-close-title = Stop active Agent sessions?
-workspace-close-warning = { $count } Agent session(s) are still running. Closing Augur Git will terminate them.
+workspace-close-title = Stop active operations?
+workspace-close-warning = { $count } background operation(s) are still running. Closing Augur Git will terminate them.
 workspace-close-cancel = Keep open
 workspace-close-confirm = Stop and close
 

@@ -95,6 +95,7 @@ pub struct ExtensionManager {
     pending: Arc<Mutex<HashSet<String>>>,
     coalesced: Arc<Mutex<HashMap<String, ExtensionRunRequest>>>,
     cancellations: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>>,
+    run_extensions: Arc<Mutex<HashMap<u64, String>>>,
     next_run_id: Arc<AtomicU64>,
 }
 
@@ -125,11 +126,13 @@ impl ExtensionManager {
         let pending = Arc::new(Mutex::new(HashSet::new()));
         let coalesced = Arc::new(Mutex::new(HashMap::new()));
         let cancellations = Arc::new(Mutex::new(HashMap::new()));
+        let run_extensions = Arc::new(Mutex::new(HashMap::new()));
         let next_run_id = Arc::new(AtomicU64::new(1));
         let dispatch_workers = workers.clone();
         let dispatch_pending = pending.clone();
         let dispatch_coalesced = coalesced.clone();
         let dispatch_cancellations = cancellations.clone();
+        let dispatch_run_extensions = run_extensions.clone();
         let dispatch_host = host.clone();
         let dispatch_next_run_id = next_run_id.clone();
         thread::Builder::new()
@@ -141,6 +144,7 @@ impl ExtensionManager {
                     dispatch_pending,
                     dispatch_coalesced,
                     dispatch_cancellations,
+                    dispatch_run_extensions,
                     dispatch_next_run_id,
                     dispatch_host,
                     event_tx,
@@ -159,6 +163,7 @@ impl ExtensionManager {
                 pending,
                 coalesced,
                 cancellations,
+                run_extensions,
                 next_run_id,
             },
             event_rx,
@@ -283,6 +288,9 @@ impl ExtensionManager {
         if let Ok(mut cancellations) = self.cancellations.lock() {
             cancellations.insert(run_id, cancelled.clone());
         }
+        if let Ok(mut run_extensions) = self.run_extensions.lock() {
+            run_extensions.insert(run_id, extension_id.clone());
+        }
         let job = QueueJob {
             extension_id: extension_id.clone(),
             run_id,
@@ -296,6 +304,9 @@ impl ExtensionManager {
             }
             if let Ok(mut cancellations) = self.cancellations.lock() {
                 cancellations.remove(&run_id);
+            }
+            if let Ok(mut run_extensions) = self.run_extensions.lock() {
+                run_extensions.remove(&run_id);
             }
             return Err("extension queue is unavailable".into());
         }
@@ -314,6 +325,58 @@ impl ExtensionManager {
                 let _ = worker.tx.send(WorkerCommand::Shutdown);
             }
         }
+    }
+
+    pub fn active_count(&self) -> usize {
+        self.cancellations
+            .lock()
+            .map(|cancellations| cancellations.len())
+            .unwrap_or(0)
+    }
+
+    pub fn active_labels(&self) -> Vec<String> {
+        let Ok(run_extensions) = self.run_extensions.lock() else {
+            return Vec::new();
+        };
+        let mut labels = run_extensions
+            .iter()
+            .map(|(run_id, extension_id)| {
+                format!("{extension_id} (run {run_id})")
+            })
+            .collect::<Vec<_>>();
+        labels.sort();
+        labels
+    }
+
+    pub fn cancel_all(&self) -> usize {
+        let Ok(cancellations) = self.cancellations.lock() else {
+            return 0;
+        };
+        for flag in cancellations.values() {
+            flag.store(true, Ordering::Release);
+        }
+        cancellations.len()
+    }
+
+    pub fn cancel_extension(&self, extension_id: &str) -> usize {
+        let Ok(run_extensions) = self.run_extensions.lock() else {
+            return 0;
+        };
+        let run_ids = run_extensions
+            .iter()
+            .filter_map(|(run_id, id)| (id == extension_id).then_some(*run_id))
+            .collect::<Vec<_>>();
+        let Ok(cancellations) = self.cancellations.lock() else {
+            return 0;
+        };
+        let mut cancelled = 0;
+        for run_id in run_ids {
+            if let Some(flag) = cancellations.get(&run_id) {
+                flag.store(true, Ordering::Release);
+                cancelled += 1;
+            }
+        }
+        cancelled
     }
 
     /// Request cancellation at the next Lua instruction or host-operation
@@ -400,6 +463,7 @@ fn dispatcher_loop(
     pending: Arc<Mutex<HashSet<String>>>,
     coalesced: Arc<Mutex<HashMap<String, ExtensionRunRequest>>>,
     cancellations: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>>,
+    run_extensions: Arc<Mutex<HashMap<u64, String>>>,
     next_run_id: Arc<AtomicU64>,
     host: Arc<dyn ExtensionHost>,
     event_tx: Sender<ExtensionEvent>,
@@ -594,6 +658,9 @@ fn dispatcher_loop(
             if let Ok(mut all_cancellations) = cancellations.lock() {
                 all_cancellations.insert(run_id, cancelled.clone());
             }
+            if let Ok(mut all_run_extensions) = run_extensions.lock() {
+                all_run_extensions.insert(run_id, request.extension_id.clone());
+            }
             queue.push_back(QueueJob {
                 extension_id: request.extension_id.clone(),
                 run_id,
@@ -608,6 +675,9 @@ fn dispatcher_loop(
         }
         if let Ok(mut cancellations) = cancellations.lock() {
             cancellations.remove(&job.run_id);
+        }
+        if let Ok(mut run_extensions) = run_extensions.lock() {
+            run_extensions.remove(&job.run_id);
         }
     }
 }
