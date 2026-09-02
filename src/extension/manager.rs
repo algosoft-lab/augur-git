@@ -306,24 +306,15 @@ fn spawn_worker(
     let extension_id = definition.package.manifest.id.clone();
     let source = definition.source.clone();
     let (tx, rx) = mpsc::channel();
-    let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+    let (ready_tx, ready_rx) = mpsc::sync_channel::<Result<(), String>>(1);
     thread::Builder::new()
         .name(format!("augur-extension-{extension_id}"))
         .spawn(move || {
-            let runtime = ExtensionRuntime::load(
-                extension_id.clone(),
-                &source,
-                package_root,
-                host,
-            );
-            let runtime = match runtime {
-                Ok(runtime) => runtime,
-                Err(error) => {
-                    let _ = ready_tx.send(Err(error.to_string()));
-                    return;
-                }
-            };
             let _ = ready_tx.send(Ok(()));
+            // Do not evaluate untrusted package source during discovery or
+            // reload. The first invocation is only queued after the
+            // Workspace has confirmed the user's trust and enabled state.
+            let mut runtime = None;
             while let Ok(command) = rx.recv() {
                 match command {
                     WorkerCommand::Run {
@@ -331,6 +322,28 @@ fn spawn_worker(
                         handler,
                         completed,
                     } => {
+                        if runtime.is_none() {
+                            runtime = match ExtensionRuntime::load(
+                                extension_id.clone(),
+                                &source,
+                                package_root.clone(),
+                                host.clone(),
+                            ) {
+                                Ok(runtime) => Some(runtime),
+                                Err(error) => {
+                                    let _ = completed.send(Err(error));
+                                    continue;
+                                }
+                            };
+                        }
+                        let Some(runtime) = runtime.as_ref() else {
+                            let _ = completed.send(Err(
+                                ExtensionRuntimeError::Lua(
+                                    "extension runtime is unavailable".into(),
+                                ),
+                            ));
+                            continue;
+                        };
                         let result = runtime.run(invocation, &handler);
                         let _ = completed.send(result);
                     }
