@@ -22,7 +22,7 @@ impl RepoTab {
         pending: PendingBranchDialog,
         cx: &mut Context<Self>,
     ) {
-        if self.operation_busy || self.dialogs.pending.is_some() {
+        if self.is_busy() || self.dialogs.pending.is_some() {
             return;
         }
         if !self.dialog_allowed(&pending) {
@@ -49,14 +49,15 @@ impl RepoTab {
 
     fn dialog_allowed(&self, pending: &PendingBranchDialog) -> bool {
         match pending {
-            PendingBranchDialog::NewBranch => true,
+            PendingBranchDialog::NewBranch => !self.has_unresolved_conflicts,
             PendingBranchDialog::Rename { old } => !old.is_empty(),
             PendingBranchDialog::Stash => self.local_change_count > 0,
             PendingBranchDialog::DropStash { reference } => {
                 !reference.is_empty() && self.stash_count > 0
             }
             PendingBranchDialog::Merge { .. } | PendingBranchDialog::Rebase => {
-                !self.local_branches.is_empty()
+                !self.has_unresolved_conflicts
+                    && !self.local_branches.is_empty()
             }
             PendingBranchDialog::DeleteRef { name, is_tag } => {
                 // The current branch can never be deleted.
@@ -555,6 +556,15 @@ fn confirm_branch_dialog(tab: &mut RepoTab, cx: &mut Context<RepoTab>) {
     let Some(pending) = tab.dialogs.pending.clone() else {
         return;
     };
+    if let PendingBranchDialog::Merge { no_ff } = pending {
+        let Some(source) = tab.dialogs.merge_source.clone() else {
+            return;
+        };
+        tab.dialogs.close();
+        tab.start_merge_command(source, no_ff, cx);
+        cx.notify();
+        return;
+    }
     let (label, args) = match pending {
         PendingBranchDialog::NewBranch => {
             let Some(name) = validated_name(tab, cx, None) else {
@@ -577,17 +587,17 @@ fn confirm_branch_dialog(tab: &mut RepoTab, cx: &mut Context<RepoTab>) {
             }
             ("stash", args)
         }
-        PendingBranchDialog::Merge { no_ff } => {
-            let Some(source) = tab.dialogs.merge_source.clone() else {
-                return;
-            };
-            args::merge_args(&source, no_ff)
+        PendingBranchDialog::Merge { .. } => {
+            unreachable!("merge handled above")
         }
         PendingBranchDialog::Rebase => {
             let Some(source) = tab.dialogs.merge_source.clone() else {
                 return;
             };
-            ("rebase", vec!["rebase".into(), source])
+            tab.dialogs.close();
+            tab.start_rebase_command(source, cx);
+            cx.notify();
+            return;
         }
         PendingBranchDialog::DeleteRef { name, is_tag } => {
             args::delete_args(&name, tab.dialogs.force_delete, is_tag)

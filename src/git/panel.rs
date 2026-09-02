@@ -16,11 +16,21 @@ use crate::git::shared;
 
 pub use crate::git::bottom_panel::{BottomPanel, BottomPanelEvent};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommitAction {
+    Commit,
+    Amend,
+    CommitByAgent,
+}
+
 /// CommitPanel to Workspace events.
 #[derive(Clone, Debug)]
 pub enum CommitPanelEvent {
-    /// Commit the current message, optionally amending the last commit.
-    Submit { message: String, amend: bool },
+    /// Commit the current message or delegate the operation to an Agent.
+    Submit {
+        message: String,
+        action: CommitAction,
+    },
 }
 
 /// Commit message input panel.
@@ -28,10 +38,12 @@ pub struct CommitPanel {
     input: Entity<TextareaState>,
     /// Whether staged changes are available for a normal commit.
     has_staged: bool,
+    /// Whether any staged, unstaged, or untracked changes are available.
+    has_changes: bool,
     /// Whether another repository operation is currently running.
     busy: bool,
-    /// Whether the selected action amends the last commit.
-    amend: bool,
+    /// The selected commit action.
+    action: CommitAction,
     /// UI locale, synchronized by Workspace.
     locale: Locale,
 }
@@ -63,8 +75,9 @@ impl CommitPanel {
         Self {
             input,
             has_staged: false,
+            has_changes: false,
             busy: false,
-            amend: false,
+            action: CommitAction::Commit,
             locale,
         }
     }
@@ -94,6 +107,17 @@ impl CommitPanel {
         }
     }
 
+    pub fn set_has_changes(
+        &mut self,
+        has_changes: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.has_changes != has_changes {
+            self.has_changes = has_changes;
+            cx.notify();
+        }
+    }
+
     /// Disable commit submission while another repository operation is active.
     pub fn set_busy(&mut self, busy: bool, cx: &mut Context<Self>) {
         if self.busy != busy {
@@ -102,9 +126,9 @@ impl CommitPanel {
         }
     }
 
-    fn set_amend(&mut self, amend: bool, cx: &mut Context<Self>) {
-        if self.amend != amend {
-            self.amend = amend;
+    fn set_action(&mut self, action: CommitAction, cx: &mut Context<Self>) {
+        if self.action != action {
+            self.action = action;
             cx.notify();
         }
     }
@@ -114,12 +138,12 @@ impl CommitPanel {
             return;
         }
         let msg = self.input.read(cx).value().to_string();
-        if msg.trim().is_empty() {
+        if self.action != CommitAction::CommitByAgent && msg.trim().is_empty() {
             return;
         }
         cx.emit(CommitPanelEvent::Submit {
             message: msg,
-            amend: self.amend,
+            action: self.action,
         });
     }
 }
@@ -152,15 +176,15 @@ impl Render for CommitPanel {
                     .child(shared(i18n::text(self.locale, "commit-title"))),
             );
 
-        let can_commit = !self.busy && (self.has_staged || self.amend);
-        let commit_button_label = i18n::text(
-            self.locale,
-            if self.amend {
-                "commit-amend-btn"
-            } else {
-                "commit-btn"
-            },
-        );
+        let can_commit = !self.busy
+            && can_submit(self.action, self.has_staged, self.has_changes);
+        let commit_button_label = match self.action {
+            CommitAction::Commit => i18n::text(self.locale, "commit-btn"),
+            CommitAction::Amend => i18n::text(self.locale, "commit-amend-btn"),
+            CommitAction::CommitByAgent => {
+                i18n::text(self.locale, "commit-ai-btn")
+            }
+        };
         let btn_commit = cx.entity();
         let commit_btn = Button::new("btn-commit")
             .label(commit_button_label)
@@ -175,11 +199,12 @@ impl Render for CommitPanel {
                 })
             });
 
-        let amend = self.amend;
+        let action = self.action;
         let mode_panel = cx.entity();
         let commit_action_label =
             i18n::text(self.locale, "commit-action-commit");
         let amend_action_label = i18n::text(self.locale, "commit-action-amend");
+        let agent_action_label = i18n::text(self.locale, "commit-action-ai");
         let commit_mode_menu = Button::new("btn-commit-mode")
             .icon(IconName::ChevronDown)
             .primary()
@@ -192,21 +217,34 @@ impl Render for CommitPanel {
                 move |menu, _window, _cx| {
                     let commit_panel = mode_panel.clone();
                     let amend_panel = mode_panel.clone();
+                    let agent_panel = mode_panel.clone();
                     menu.item(
                         PopupMenuItem::new(commit_action_label.clone())
-                            .checked(!amend)
+                            .checked(action == CommitAction::Commit)
                             .on_click(move |_event, _window, cx| {
                                 commit_panel.update(cx, |panel, cx| {
-                                    panel.set_amend(false, cx);
+                                    panel.set_action(CommitAction::Commit, cx);
                                 });
                             }),
                     )
                     .item(
                         PopupMenuItem::new(amend_action_label.clone())
-                            .checked(amend)
+                            .checked(action == CommitAction::Amend)
                             .on_click(move |_event, _window, cx| {
                                 amend_panel.update(cx, |panel, cx| {
-                                    panel.set_amend(true, cx);
+                                    panel.set_action(CommitAction::Amend, cx);
+                                });
+                            }),
+                    )
+                    .item(
+                        PopupMenuItem::new(agent_action_label.clone())
+                            .checked(action == CommitAction::CommitByAgent)
+                            .on_click(move |_event, _window, cx| {
+                                agent_panel.update(cx, |panel, cx| {
+                                    panel.set_action(
+                                        CommitAction::CommitByAgent,
+                                        cx,
+                                    );
                                 });
                             }),
                     )
@@ -241,5 +279,36 @@ impl Render for CommitPanel {
                             .child(commit_mode_menu),
                     ),
             )
+    }
+}
+
+fn can_submit(
+    action: CommitAction,
+    has_staged: bool,
+    has_changes: bool,
+) -> bool {
+    match action {
+        CommitAction::Commit | CommitAction::Amend => has_staged,
+        CommitAction::CommitByAgent => has_changes,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CommitAction, can_submit};
+
+    #[test]
+    fn normal_commit_actions_require_staged_changes() {
+        assert!(!can_submit(CommitAction::Commit, false, true));
+        assert!(!can_submit(CommitAction::Amend, false, true));
+        assert!(can_submit(CommitAction::Commit, true, true));
+        assert!(can_submit(CommitAction::Amend, true, true));
+    }
+
+    #[test]
+    fn agent_commit_accepts_any_working_tree_change() {
+        assert!(!can_submit(CommitAction::CommitByAgent, false, false));
+        assert!(can_submit(CommitAction::CommitByAgent, false, true));
+        assert!(can_submit(CommitAction::CommitByAgent, true, true));
     }
 }

@@ -1,9 +1,9 @@
-//! M1：Toolbar 工具栏（镜像 rgitui toolbar.rs；M1.5 图标化 ghost 风格）
+//! M1: Toolbar controls (mirrors rgitui toolbar.rs; M1.5 iconified ghost style).
 //!
-//! 左组：Branch 下拉菜单（新建/重命名/贮藏/合并/变基）+ Fetch/Pull/Push
-//! + ahead/behind 徽标 + Compare
-//! 右组：busy Spinner / 刷新 / 设置
-//! 动作经 ToolbarEvent 事件链下发 Workspace → GitCommand（git 子进程后台执行）
+//! Left group: Branch menu (new/rename/stash/merge/rebase) + Fetch/Pull/Push.
+//! + ahead/behind badges + Compare.
+//! Right group: busy spinner / refresh / settings.
+//! Actions flow through ToolbarEvent to Workspace → GitCommand (Git runs in the background).
 
 use gpui::prelude::*;
 use gpui::*;
@@ -18,20 +18,22 @@ use gpui_component::{
 use crate::core::i18n::{self, Locale};
 use crate::git::{lucide, shared};
 
-/// Branch 菜单各入口的可用性（RepoTab 依据仓库状态同步）
+/// Availability of Branch menu entries, synchronized from repository state.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BranchMenuContext {
-    /// 存在当前分支（重命名需要）
+    /// Whether a current branch exists (required for rename).
     pub can_rename: bool,
-    /// 存在至少一个非当前本地分支（合并/变基需要）
+    /// Whether at least one other local branch exists (required for merge/rebase).
     pub can_integrate: bool,
-    /// 工作区存在可贮藏的改动
+    /// Whether the working tree has changes that can be stashed.
     pub can_stash: bool,
-    /// stash 记录数（弹出贮藏需要）
+    /// Number of stash entries (required for stash pop).
     pub stash_count: usize,
+    /// Whether unresolved merge conflicts block integration and pull actions.
+    pub has_conflicts: bool,
 }
 
-/// Toolbar → Workspace 事件
+/// Toolbar-to-Workspace events.
 #[derive(Clone, Debug)]
 pub enum ToolbarEvent {
     BranchNew,
@@ -53,13 +55,15 @@ pub enum ToolbarEvent {
 pub struct Toolbar {
     ahead: usize,
     behind: usize,
-    /// 是否有远程（无远程时 fetch/pull/push 禁用）
+    /// Whether a remote exists (fetch/pull/push are disabled without one).
     has_remote: bool,
-    /// 操作进行中（右侧 Spinner）
+    /// Whether an operation is in progress (right-side spinner).
     busy: bool,
-    /// Branch 菜单入口可用性
+    /// Branch menu entry availability.
     branch_ctx: BranchMenuContext,
-    /// 界面语言（Workspace 切换语言时同步）
+    /// Whether unresolved merge conflicts block pull actions.
+    has_conflicts: bool,
+    /// UI locale, synchronized when Workspace changes language.
     locale: Locale,
 }
 
@@ -73,17 +77,18 @@ impl Toolbar {
             has_remote: true,
             busy: false,
             branch_ctx: BranchMenuContext::default(),
+            has_conflicts: false,
             locale,
         }
     }
 
-    /// 切换语言（Workspace::set_language 同步）
+    /// Change the locale, synchronized by Workspace::set_language.
     pub fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
         self.locale = locale;
         cx.notify();
     }
 
-    /// 同步 Branch 菜单入口可用性（RepoTab 在状态/引用刷新后调用）
+    /// Synchronize Branch menu availability after repository status/ref refreshes.
     pub fn set_branch_context(
         &mut self,
         ctx: BranchMenuContext,
@@ -117,7 +122,19 @@ impl Toolbar {
         }
     }
 
-    /// 工具按钮：图标(14px)+文字(12px) ghost 风格（无常态底色，hover 提亮）
+    /// Synchronize whether unresolved merge conflicts block pull actions.
+    pub fn set_conflicts(
+        &mut self,
+        has_conflicts: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.has_conflicts != has_conflicts {
+            self.has_conflicts = has_conflicts;
+            cx.notify();
+        }
+    }
+
+    /// Toolbar button: 14px icon + 12px text in ghost style (no resting fill; hover highlight).
     fn tool_button(
         &self,
         id: &'static str,
@@ -199,6 +216,7 @@ impl Toolbar {
                 menu.item(
                     PopupMenuItem::new(i18n::text(locale, "menu-branch-new"))
                         .icon(lucide("git-branch-plus"))
+                        .disabled(ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
                             new_item.update(cx, |_t, cx| {
                                 cx.emit(ToolbarEvent::BranchNew)
@@ -232,7 +250,7 @@ impl Toolbar {
                 .item(
                     PopupMenuItem::new(i18n::text(locale, "menu-stash-pop"))
                         .icon(lucide("archive-restore"))
-                        .disabled(ctx.stash_count == 0)
+                        .disabled(ctx.stash_count == 0 || ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
                             pop_item.update(cx, |_t, cx| {
                                 cx.emit(ToolbarEvent::StashPop)
@@ -243,7 +261,7 @@ impl Toolbar {
                 .item(
                     PopupMenuItem::new(i18n::text(locale, "menu-merge"))
                         .icon(lucide("git-merge"))
-                        .disabled(!ctx.can_integrate)
+                        .disabled(!ctx.can_integrate || ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
                             merge_item.update(cx, |_t, cx| {
                                 cx.emit(ToolbarEvent::Merge { no_ff: false })
@@ -253,7 +271,7 @@ impl Toolbar {
                 .item(
                     PopupMenuItem::new(i18n::text(locale, "menu-merge-no-ff"))
                         .icon(lucide("git-merge"))
-                        .disabled(!ctx.can_integrate)
+                        .disabled(!ctx.can_integrate || ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
                             merge_ff_item.update(cx, |_t, cx| {
                                 cx.emit(ToolbarEvent::Merge { no_ff: true })
@@ -263,7 +281,7 @@ impl Toolbar {
                 .item(
                     PopupMenuItem::new(i18n::text(locale, "menu-rebase"))
                         .icon(lucide("git-commit-horizontal"))
-                        .disabled(!ctx.can_integrate)
+                        .disabled(!ctx.can_integrate || ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
                             rebase_item.update(cx, |_t, cx| {
                                 cx.emit(ToolbarEvent::Rebase)
@@ -273,7 +291,7 @@ impl Toolbar {
             })
     }
 
-    /// ahead/behind 徽标（箭头图标 + 计数，11px 微字号）
+    /// Ahead/behind badges (arrow icon + count in an 11px label).
     fn count_badge(
         &self,
         id: &'static str,
@@ -312,6 +330,7 @@ impl Render for Toolbar {
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let enabled = self.has_remote && !self.busy;
+        let pull_enabled = enabled && !self.has_conflicts;
 
         h_flex()
             .id("toolbar")
@@ -339,7 +358,7 @@ impl Render for Toolbar {
                 Icon::new(IconName::ArrowDown),
                 "toolbar-pull-merge",
                 &colors,
-                enabled,
+                pull_enabled,
                 ToolbarEvent::PullMerge,
                 cx,
             ))
@@ -348,7 +367,7 @@ impl Render for Toolbar {
                 lucide("git-commit-horizontal"),
                 "toolbar-pull-rebase",
                 &colors,
-                enabled,
+                pull_enabled,
                 ToolbarEvent::PullRebase,
                 cx,
             ))
@@ -379,7 +398,7 @@ impl Render for Toolbar {
                 ToolbarEvent::Compare,
                 cx,
             ))
-            // ahead/behind 徽标
+            // Ahead/behind badges.
             .child(self.count_badge(
                 "tb-ahead",
                 IconName::ArrowUp,
@@ -395,7 +414,7 @@ impl Render for Toolbar {
                 &colors,
             ))
             .child(div().flex_1())
-            // 忙碌指示（动画 Spinner 替代静态文字）
+            // Busy indicator (animated spinner instead of static text).
             .when(self.busy, |el| {
                 el.child(Spinner::new().with_size(px(14.)).color(colors.blue))
             })

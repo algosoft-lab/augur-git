@@ -23,21 +23,28 @@ pub(super) fn new_view(
 
 pub(super) fn subscribe(
     compare: &Entity<BranchCompareView>,
+    window: &mut Window,
     cx: &mut Context<RepoTab>,
 ) {
-    cx.subscribe(compare, |tab, _event, event, cx| match event {
-        BranchCompareEvent::Cancel => {
-            tab.git_view
-                .update(cx, |view, _| view.cancel_branch_compare());
-        }
-        BranchCompareEvent::Compare {
-            request_id,
-            base,
-            target,
-        } => {
-            tab.git_view.update(cx, |view, _| {
-                view.branch_compare(*request_id, base.clone(), target.clone());
-            });
+    cx.subscribe_in(compare, window, |tab, _event, event, _window, cx| {
+        match event {
+            BranchCompareEvent::Cancel => {
+                tab.git_view
+                    .update(cx, |view, _| view.cancel_branch_compare());
+            }
+            BranchCompareEvent::Compare {
+                request_id,
+                base,
+                target,
+            } => {
+                tab.git_view.update(cx, |view, _| {
+                    view.branch_compare(
+                        *request_id,
+                        base.clone(),
+                        target.clone(),
+                    );
+                });
+            }
         }
     })
     .detach();

@@ -1,5 +1,6 @@
 use gpui::*;
 
+use crate::agent::{AgentLaunchOverrides, BuiltInAgent, CustomAgentProfile};
 use crate::core::config::{
     DiffLayoutPreference, GraphHistoryPreference, LanguagePreference,
     ThemePreference, normalized_diff_font_size, normalized_ui_font_size,
@@ -9,6 +10,7 @@ use crate::git::diff_view::DiffLayoutMode;
 use crate::theme;
 
 use super::about;
+use super::agent_connectivity;
 use super::app_menu;
 use super::{TabContent, Workspace};
 
@@ -65,6 +67,7 @@ impl Workspace {
                 self.about_window = None;
             }
         }
+        agent_connectivity::set_locale(self, locale, cx);
         self.config.language = preference;
         self.settings_panel.update(cx, |panel, cx| {
             panel.set_locale(self.locale, window, cx);
@@ -214,4 +217,278 @@ impl Workspace {
         log::info!("[workspace] auto refresh on focus: {enabled}");
         cx.notify();
     }
+
+    pub(super) fn set_agent_default_profile(
+        &mut self,
+        profile_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.config.agent.profile(&profile_id).is_none() {
+            log::warn!(
+                "[agent_terminal] ignoring unknown default profile: {profile_id}"
+            );
+            return;
+        }
+        if self.config.agent.default_profile_id.as_deref() == Some(&profile_id)
+        {
+            return;
+        }
+        self.config.agent.default_profile_id = Some(profile_id.clone());
+        self.config_saver.schedule(&self.config);
+        log::info!("[agent_terminal] default profile changed: {profile_id}");
+        cx.notify();
+    }
+
+    pub(super) fn set_agent_executable_override(
+        &mut self,
+        agent: BuiltInAgent,
+        executable: Option<std::path::PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
+        if executable.as_ref().is_some_and(|path| {
+            path.as_os_str().is_empty()
+                || path.to_string_lossy().chars().any(char::is_control)
+        }) {
+            log::warn!(
+                "[agent_terminal] ignoring invalid executable override for {}",
+                agent.id()
+            );
+            return;
+        }
+        if executable.as_ref()
+            == self.config.agent.executable_overrides.get(&agent)
+        {
+            return;
+        }
+        match executable {
+            Some(path) => {
+                self.config.agent.executable_overrides.insert(agent, path);
+            }
+            None => {
+                self.config.agent.executable_overrides.remove(&agent);
+            }
+        }
+        let settings = self.config.agent.clone();
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.update_agent_settings(settings.clone(), cx);
+        });
+        self.config_saver.schedule(&self.config);
+        log::info!(
+            "[agent_terminal] executable override changed: {}",
+            agent.id()
+        );
+        cx.notify();
+    }
+
+    pub(super) fn set_agent_model_override(
+        &mut self,
+        agent: BuiltInAgent,
+        model: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let model = normalize_agent_override(model);
+        let current = self
+            .config
+            .agent
+            .launch_overrides
+            .get(&agent)
+            .and_then(|overrides| overrides.model.clone());
+        if current == model {
+            return;
+        }
+
+        let mut settings = self.config.agent.clone();
+        let overrides = settings
+            .launch_overrides
+            .entry(agent)
+            .or_insert_with(AgentLaunchOverrides::default);
+        overrides.model = model;
+        if let Err(error) = overrides.validate_for(agent) {
+            log::warn!(
+                "[agent_terminal] ignoring invalid model override for {}: {error}",
+                agent.id()
+            );
+            return;
+        }
+        if overrides.model.is_none()
+            && overrides.reasoning_effort.is_none()
+            && overrides.variant.is_none()
+        {
+            settings.launch_overrides.remove(&agent);
+        }
+        self.config.agent = settings.clone();
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.update_agent_settings(settings, cx);
+        });
+        self.config_saver.schedule(&self.config);
+        log::info!(
+            "[agent_terminal] model override changed: agent={}",
+            agent.id()
+        );
+        cx.notify();
+    }
+
+    pub(super) fn set_agent_reasoning_override(
+        &mut self,
+        agent: BuiltInAgent,
+        reasoning_effort: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let reasoning_effort = normalize_agent_override(reasoning_effort);
+        let current = self
+            .config
+            .agent
+            .launch_overrides
+            .get(&agent)
+            .and_then(|overrides| overrides.reasoning_effort.clone());
+        if current == reasoning_effort {
+            return;
+        }
+
+        let mut settings = self.config.agent.clone();
+        let overrides = settings
+            .launch_overrides
+            .entry(agent)
+            .or_insert_with(AgentLaunchOverrides::default);
+        overrides.reasoning_effort = reasoning_effort;
+        if let Err(error) = overrides.validate_for(agent) {
+            log::warn!(
+                "[agent_terminal] ignoring invalid reasoning override for {}: {error}",
+                agent.id()
+            );
+            return;
+        }
+        if overrides.model.is_none()
+            && overrides.reasoning_effort.is_none()
+            && overrides.variant.is_none()
+        {
+            settings.launch_overrides.remove(&agent);
+        }
+        self.config.agent = settings.clone();
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.update_agent_settings(settings, cx);
+        });
+        self.config_saver.schedule(&self.config);
+        log::info!(
+            "[agent_terminal] reasoning override changed: agent={}",
+            agent.id()
+        );
+        cx.notify();
+    }
+
+    pub(super) fn set_agent_variant_override(
+        &mut self,
+        agent: BuiltInAgent,
+        variant: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let variant = normalize_agent_override(variant);
+        let current = self
+            .config
+            .agent
+            .launch_overrides
+            .get(&agent)
+            .and_then(|overrides| overrides.variant.clone());
+        if current == variant {
+            return;
+        }
+
+        let mut settings = self.config.agent.clone();
+        let overrides = settings
+            .launch_overrides
+            .entry(agent)
+            .or_insert_with(AgentLaunchOverrides::default);
+        overrides.variant = variant;
+        if let Err(error) = overrides.validate_for(agent) {
+            log::warn!(
+                "[agent_terminal] ignoring invalid variant override for {}: {error}",
+                agent.id()
+            );
+            return;
+        }
+        if overrides.model.is_none()
+            && overrides.reasoning_effort.is_none()
+            && overrides.variant.is_none()
+        {
+            settings.launch_overrides.remove(&agent);
+        }
+        self.config.agent = settings.clone();
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.update_agent_settings(settings, cx);
+        });
+        self.config_saver.schedule(&self.config);
+        log::info!(
+            "[agent_terminal] variant override changed: agent={}",
+            agent.id()
+        );
+        cx.notify();
+    }
+
+    pub(super) fn save_agent_profile(
+        &mut self,
+        previous_id: Option<String>,
+        profile: CustomAgentProfile,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut settings = self.config.agent.clone();
+        if let Some(previous_id) = previous_id.as_deref() {
+            if settings.default_profile_id.as_deref() == Some(previous_id) {
+                settings.default_profile_id = Some(profile.id.clone());
+            }
+            settings
+                .custom_profiles
+                .retain(|entry| entry.id != previous_id);
+        }
+        settings.custom_profiles.push(profile.clone());
+        if let Err(errors) = settings.validate() {
+            log::warn!(
+                "[agent_terminal] rejected custom profile update: {}",
+                errors
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or("invalid profile")
+            );
+            return;
+        }
+        self.config.agent = settings.clone();
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.set_agent_settings(settings.clone(), window, cx);
+        });
+        self.config_saver.schedule(&self.config);
+        log::info!("[agent_terminal] custom profile saved: id={}", profile.id);
+        cx.notify();
+    }
+
+    pub(super) fn remove_agent_profile(
+        &mut self,
+        profile_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let before = self.config.agent.custom_profiles.len();
+        self.config
+            .agent
+            .custom_profiles
+            .retain(|profile| profile.id != profile_id);
+        if self.config.agent.custom_profiles.len() == before {
+            return;
+        }
+        if self.config.agent.default_profile_id.as_deref() == Some(profile_id) {
+            self.config.agent.default_profile_id = None;
+        }
+        let settings = self.config.agent.clone();
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.set_agent_settings(settings.clone(), window, cx);
+        });
+        self.config_saver.schedule(&self.config);
+        log::info!("[agent_terminal] custom profile removed: id={profile_id}");
+        cx.notify();
+    }
+}
+
+fn normalize_agent_override(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }

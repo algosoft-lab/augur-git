@@ -99,6 +99,25 @@ Coding agent or editor
   authors, relative dates, changed-file lists, and commit diffs.
 - **Revision comparison** — compare branches, tags, commits, or manually entered
   revisions in a dedicated comparison window.
+- **Visible Agent connectivity tests** — test any valid configured CLI from
+  Settings in a separate interactive terminal and a fresh empty temporary
+  directory. The fixed diagnostic challenge does not touch the current
+  repository or persist its prompt and transcript.
+- **Commit by AI** — choose the current Agent profile from Settings and launch
+  a fixed, visible commit operation from the Commit menu. The Agent reviews and
+  stages all non-ignored working-tree changes, creates one Conventional Commit,
+  and never pushes or changes file contents.
+- **Merge by AI and conflict recovery** — start a fixed merge operation from a
+  local branch context menu, or hand an ordinary merge conflict to the current
+  Agent. Clean-worktree preflight, immutable target IDs, visible PTY output, and
+  Git-state verification keep the result explicit; failed merges can be
+  aborted or left open for manual resolution.
+- **Rebase by AI and pull-rebase recovery** — rebase onto a selected local
+  branch through the current Agent, or hand conflicts from ordinary Rebase and
+  Pull (Rebase) operations to that Agent. Clean-worktree checks, immutable
+  upstream IDs, visible PTY output, and Git-state verification keep the
+  history rewrite explicit; failed rebases can be aborted or left open for
+  manual resolution.
 - **Repository operations** — browse branches, remotes, tags, and stashes, and
   run explicit fetch, pull, push, checkout, branch, and commit operations.
 - **Multiple repositories** — keep several repositories open as tabs and return
@@ -109,6 +128,30 @@ Coding agent or editor
 
 The system `git` executable is the only runtime dependency for repository
 operations; Augur Git does not embed or emulate a separate Git implementation.
+Agent connectivity tests are optional and require the corresponding CLI to be
+installed by the user. Each test runs in a fresh empty temporary directory and
+does not touch an open repository. On macOS and Linux, the directory is placed
+under the per-user application data directory so Agent CLIs that restrict
+system temporary locations can access it; Windows keeps using the system
+temporary directory.
+
+Built-in Agent profiles can optionally override the model at launch. Codex and
+Claude Code expose a per-session reasoning-effort setting, while OpenCode
+accepts a model-specific Variant name when the installed root TUI advertises
+`--variant`. Use OpenCode's `opencode models` or `/models` command to discover
+available model and Variant values. Current OpenCode releases expose this flag
+for `opencode run`, but not for the root interactive TUI; Augur detects that
+case and reports it in the visible test window.
+Leaving these fields empty preserves the CLI's environment and configuration
+defaults.
+Augur Git does not inject generic permission or mode flags.
+
+The Agent terminal is intentionally dedicated to visible connectivity tests and
+fixed Git operations rather than a general-purpose shell. Test state, operation
+state, and terminal transcripts are not persisted across application restarts.
+See
+[`docs/agent-terminal.md`](docs/agent-terminal.md) for profile configuration,
+executable lookup, lifecycle rules, and troubleshooting.
 
 ## Supported platforms
 
@@ -161,6 +204,8 @@ src/
 ├── workspace/       # Tabs, repository state, dialogs, settings, and windows
 ├── core/            # Configuration, Git worker, parsers, graph, diff, and i18n
 ├── git/             # GPUI presentation for Git history, changes, and diffs
+├── agent/            # External Agent profiles and secure launch specs
+├── terminal/         # Alacritty PTY state machine and Agent terminal view
 └── theme.rs         # Embedded themes and runtime theme switching
 i18n/                # English and Simplified Chinese translations
 assets/              # Logos, interface icons, and theme definitions

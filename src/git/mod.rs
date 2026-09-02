@@ -688,13 +688,12 @@ impl GitView {
                 }
                 GitEvent::Error(err) => {
                     log::error!("[git_view] Git operation failed: {}", err.key);
+                    let message = localized_error(self.locale, &err);
+                    cx.emit(GitUiEvent::Error(message.clone()));
                     self.handle = None;
                     self.rx = None;
                     keep_polling = false;
-                    self.set_status(
-                        GitStatus::Error(localized_error(self.locale, &err)),
-                        cx,
-                    );
+                    self.set_status(GitStatus::Error(message), cx);
                 }
             }
         }

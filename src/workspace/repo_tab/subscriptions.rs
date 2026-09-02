@@ -2,7 +2,7 @@
 //! shared workspace state. Each `wire_*` function owns the `cx.subscribe`
 //! channel for one panel; `RepoTab::new` only calls [`wire`].
 
-use gpui::{Context, Entity};
+use gpui::{Context, Entity, Window};
 
 use crate::core::git::{
     WorkingTreeAction, WorkingTreeDiffKind, WorkingTreeScopeKind,
@@ -11,7 +11,7 @@ use crate::core::i18n;
 use crate::git::changes_panel::{ChangesPanel, ChangesPanelEvent};
 use crate::git::graph::{GraphEvent, GraphView};
 use crate::git::panel::{
-    BottomPanel, BottomPanelEvent, CommitPanel, CommitPanelEvent,
+    BottomPanel, BottomPanelEvent, CommitAction, CommitPanel, CommitPanelEvent,
 };
 use crate::git::sidebar::Sidebar;
 use crate::git::toolbar::{Toolbar, ToolbarEvent};
@@ -30,10 +30,11 @@ pub(super) fn wire(
     commit: &Entity<CommitPanel>,
     changes: &Entity<ChangesPanel>,
     bottom: &Entity<BottomPanel>,
+    window: &mut Window,
     cx: &mut Context<RepoTab>,
 ) {
     wire_sidebar(sidebar, cx);
-    wire_toolbar(toolbar, cx);
+    wire_toolbar(toolbar, window, cx);
     wire_graph(graph, cx);
     wire_commit(commit, cx);
     wire_changes(changes, cx);
@@ -48,95 +49,103 @@ fn wire_sidebar(sidebar: &Entity<Sidebar>, cx: &mut Context<RepoTab>) {
     .detach();
 }
 
-fn wire_toolbar(toolbar: &Entity<Toolbar>, cx: &mut Context<RepoTab>) {
-    cx.subscribe(toolbar, |tab, _event, event, cx| match event {
-        ToolbarEvent::Fetch => {
-            if tab.operation_busy {
-                return;
+fn wire_toolbar(
+    toolbar: &Entity<Toolbar>,
+    window: &mut Window,
+    cx: &mut Context<RepoTab>,
+) {
+    cx.subscribe_in(toolbar, window, |tab, _event, event, _window, cx| {
+        match event {
+            ToolbarEvent::Fetch => {
+                if tab.is_busy() {
+                    return;
+                }
+                tab.git_view.update(cx, |view, _| {
+                    view.run(
+                        "fetch --all --prune",
+                        vec!["fetch".into(), "--all".into(), "--prune".into()],
+                    );
+                });
+                tab.set_operation_busy(true, cx);
             }
-            tab.git_view.update(cx, |view, _| {
-                view.run(
-                    "fetch --all --prune",
-                    vec!["fetch".into(), "--all".into(), "--prune".into()],
+            ToolbarEvent::PullMerge => {
+                if tab.is_busy() || tab.has_unresolved_conflicts {
+                    return;
+                }
+                tab.git_view.update(cx, |view, _| {
+                    view.run("pull", vec!["pull".into()]);
+                });
+                tab.set_operation_busy(true, cx);
+            }
+            ToolbarEvent::PullRebase => {
+                if tab.is_busy() || tab.has_unresolved_conflicts {
+                    return;
+                }
+                tab.start_pull_rebase(cx);
+            }
+            ToolbarEvent::Push => {
+                if tab.is_busy() {
+                    return;
+                }
+                // Publish a branch that has no upstream through a confirmed
+                // `--set-upstream` push instead of letting plain push fail.
+                if tab.request_push_upstream(cx) {
+                    return;
+                }
+                tab.git_view.update(cx, |view, _| {
+                    view.run("push", vec!["push".into()]);
+                });
+                tab.set_operation_busy(true, cx);
+            }
+            ToolbarEvent::PushForce => {
+                // Never run directly: open the confirmation dialog first.
+                if !tab.is_busy() {
+                    tab.confirmation = Some(PendingConfirmation::ForcePush);
+                    cx.notify();
+                }
+            }
+            ToolbarEvent::BranchNew => {
+                tab.open_branch_dialog(
+                    branch_ops::PendingBranchDialog::NewBranch,
+                    cx,
                 );
-            });
-            tab.set_operation_busy(true, cx);
-        }
-        ToolbarEvent::PullMerge => {
-            if tab.operation_busy {
-                return;
             }
-            tab.git_view.update(cx, |view, _| {
-                view.run("pull", vec!["pull".into()]);
-            });
-            tab.set_operation_busy(true, cx);
-        }
-        ToolbarEvent::PullRebase => {
-            if tab.operation_busy {
-                return;
-            }
-            tab.git_view.update(cx, |view, _| {
-                view.run(
-                    "pull --rebase",
-                    vec!["pull".into(), "--rebase".into()],
+            ToolbarEvent::BranchRename => tab.open_branch_dialog(
+                branch_ops::PendingBranchDialog::Rename {
+                    old: tab.branch.clone(),
+                },
+                cx,
+            ),
+            ToolbarEvent::Stash => {
+                tab.open_branch_dialog(
+                    branch_ops::PendingBranchDialog::Stash,
+                    cx,
                 );
-            });
-            tab.set_operation_busy(true, cx);
-        }
-        ToolbarEvent::Push => {
-            if tab.operation_busy {
-                return;
             }
-            // Publish a branch that has no upstream through a confirmed
-            // `--set-upstream` push instead of letting plain push fail.
-            if tab.request_push_upstream(cx) {
-                return;
+            ToolbarEvent::StashPop => {
+                tab.start_stash_pop(None, cx);
             }
-            tab.git_view.update(cx, |view, _| {
-                view.run("push", vec!["push".into()]);
-            });
-            tab.set_operation_busy(true, cx);
-        }
-        ToolbarEvent::PushForce => {
-            // Never run directly: open the confirmation dialog first.
-            if !tab.operation_busy {
-                tab.confirmation = Some(PendingConfirmation::ForcePush);
-                cx.notify();
+            ToolbarEvent::Merge { no_ff } => {
+                tab.open_branch_dialog(
+                    branch_ops::PendingBranchDialog::Merge { no_ff: *no_ff },
+                    cx,
+                );
             }
-        }
-        ToolbarEvent::BranchNew => {
-            tab.open_branch_dialog(
-                branch_ops::PendingBranchDialog::NewBranch,
-                cx,
-            );
-        }
-        ToolbarEvent::BranchRename => tab.open_branch_dialog(
-            branch_ops::PendingBranchDialog::Rename {
-                old: tab.branch.clone(),
-            },
-            cx,
-        ),
-        ToolbarEvent::Stash => {
-            tab.open_branch_dialog(branch_ops::PendingBranchDialog::Stash, cx);
-        }
-        ToolbarEvent::StashPop => {
-            tab.start_stash_pop(None, cx);
-        }
-        ToolbarEvent::Merge { no_ff } => {
-            tab.open_branch_dialog(
-                branch_ops::PendingBranchDialog::Merge { no_ff: *no_ff },
-                cx,
-            );
-        }
-        ToolbarEvent::Rebase => {
-            tab.open_branch_dialog(branch_ops::PendingBranchDialog::Rebase, cx);
-        }
-        ToolbarEvent::Compare => branch_compare::open(tab, cx),
-        ToolbarEvent::Refresh => {
-            tab.refresh_repository(cx);
-        }
-        ToolbarEvent::Settings => {
-            cx.emit(RepoTabEvent::RequestSettings);
+            ToolbarEvent::Rebase => {
+                tab.open_branch_dialog(
+                    branch_ops::PendingBranchDialog::Rebase,
+                    cx,
+                );
+            }
+            ToolbarEvent::Compare => branch_compare::open(tab, cx),
+            ToolbarEvent::Refresh => {
+                if !tab.is_busy() {
+                    tab.refresh_repository(cx);
+                }
+            }
+            ToolbarEvent::Settings => {
+                cx.emit(RepoTabEvent::RequestSettings);
+            }
         }
     })
     .detach();
@@ -189,15 +198,36 @@ fn wire_graph(graph: &Entity<GraphView>, cx: &mut Context<RepoTab>) {
 
 fn wire_commit(commit: &Entity<CommitPanel>, cx: &mut Context<RepoTab>) {
     cx.subscribe(commit, |tab, _event, event, cx| match event {
-        CommitPanelEvent::Submit { message, amend } => {
-            if tab.operation_busy {
+        CommitPanelEvent::Submit { message, action } => {
+            if tab.is_busy() {
                 return;
             }
-            log::info!("[commit_panel] submit requested: amend={amend}");
-            tab.git_view.update(cx, |view, _| {
-                view.commit(message.clone(), *amend);
-            });
-            tab.set_operation_busy(true, cx);
+            match action {
+                CommitAction::Commit => {
+                    log::info!(
+                        "[commit_panel] submit requested: action=commit"
+                    );
+                    tab.git_view.update(cx, |view, _| {
+                        view.commit(message.clone(), false);
+                    });
+                    tab.set_operation_busy(true, cx);
+                }
+                CommitAction::Amend => {
+                    log::info!("[commit_panel] submit requested: action=amend");
+                    tab.git_view.update(cx, |view, _| {
+                        view.commit(message.clone(), true);
+                    });
+                    tab.set_operation_busy(true, cx);
+                }
+                CommitAction::CommitByAgent => {
+                    log::info!("[commit_panel] submit requested: action=agent");
+                    cx.emit(RepoTabEvent::AgentCommitRequested {
+                        id: tab.id,
+                        repo_path: tab.repo_path.clone(),
+                        hint: message.clone(),
+                    });
+                }
+            }
         }
     })
     .detach();
@@ -296,6 +326,8 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                         file.is_conflicted() || file.has_worktree_changes()
                     })
                     .count();
+                let has_unresolved_conflicts =
+                    files.iter().any(|file| file.is_conflicted());
                 let ahead_text = ahead.to_string();
                 let behind_text = behind.to_string();
                 let staged_text = staged_count.to_string();
@@ -316,6 +348,18 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                             || file.is_conflicted()
                     })
                     .count();
+                let had_conflict_guard = tab.has_unresolved_conflicts;
+                // Keep an existing guard until the asynchronous probe confirms
+                // that MERGE_HEAD is gone. A resolved index can have no `U`
+                // entries while Git is still waiting for the merge commit.
+                tab.has_unresolved_conflicts = has_unresolved_conflicts
+                    || had_conflict_guard;
+                if has_unresolved_conflicts
+                    || had_conflict_guard
+                    || tab.merge_state_probe_request_id == 0
+                {
+                    tab.schedule_merge_state_probe(cx);
+                }
                 tab.sync_log_scope(cx);
                 tab.status = GitStatus::Ready(i18n::text_args(
                     tab.locale,
@@ -330,6 +374,10 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 ));
                 tab.sidebar.update(cx, |sidebar, cx| {
                     sidebar.set_status(branch.clone(), branches.clone(), cx);
+                    sidebar.set_conflicts(
+                        tab.has_unresolved_conflicts,
+                        cx,
+                    );
                 });
                 tab.changes.update(cx, |changes, cx| {
                     changes.set_files(files.clone(), cx);
@@ -339,10 +387,12 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 });
                 tab.toolbar.update(cx, |toolbar, cx| {
                     toolbar.set_ahead_behind(*ahead, *behind, cx);
+                    toolbar.set_conflicts(tab.has_unresolved_conflicts, cx);
                 });
                 tab.sync_branch_menu_context(cx);
                 tab.commit.update(cx, |commit, cx| {
                     commit.set_has_staged(has_staged, cx);
+                    commit.set_has_changes(tab.local_change_count > 0, cx);
                 });
                 tab.emit_summary(cx);
                 cx.notify();
@@ -478,6 +528,30 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 success,
                 message,
             } => {
+                if label == "merge"
+                    || label == "merge --no-ff"
+                    || label == "merge --abort"
+                {
+                    tab.handle_merge_result(
+                        label.clone(),
+                        *success,
+                        message.clone(),
+                        cx,
+                    );
+                    return;
+                }
+                if label == "rebase"
+                    || label == "pull --rebase"
+                    || label == "rebase --abort"
+                {
+                    tab.handle_rebase_result(
+                        label.clone(),
+                        *success,
+                        message.clone(),
+                        cx,
+                    );
+                    return;
+                }
                 if label == "checkout" {
                     log::info!(
                         "[git_checkout] result received: success={success}"
@@ -559,6 +633,47 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 tab.emit_summary(cx);
             }
             GitUiEvent::Error(message) => {
+                if tab.pending_merge_command.is_some()
+                    || tab.merge_abort_pending
+                {
+                    let label = if tab.merge_abort_pending {
+                        "merge --abort".to_string()
+                    } else if tab
+                        .pending_merge_command
+                        .as_ref()
+                        .is_some_and(|pending| pending.no_ff)
+                    {
+                        "merge --no-ff".to_string()
+                    } else {
+                        "merge".to_string()
+                    };
+                    tab.handle_merge_result(
+                        label,
+                        false,
+                        message.clone(),
+                        cx,
+                    );
+                    return;
+                }
+                if tab.pending_rebase_command.is_some()
+                    || tab.rebase_abort_pending
+                {
+                    let label = if tab.rebase_abort_pending {
+                        "rebase --abort".to_string()
+                    } else {
+                        tab.pending_rebase_command
+                            .as_ref()
+                            .map(|pending| pending.label.clone())
+                            .unwrap_or_else(|| "rebase".to_string())
+                    };
+                    tab.handle_rebase_result(
+                        label,
+                        false,
+                        message.clone(),
+                        cx,
+                    );
+                    return;
+                }
                 tab.set_operation_busy(false, cx);
                 tab.status = GitStatus::Error(message.clone());
                 tab.emit_summary(cx);

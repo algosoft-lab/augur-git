@@ -29,6 +29,7 @@ pub use crate::core::diff::{
 use crate::core::diff::{merge_numstat, parse_numstat, parse_raw_records};
 use crate::core::graph::LogRow;
 
+pub mod agent_operation;
 mod branch_compare;
 mod commit_log;
 mod working_tree;
@@ -767,17 +768,27 @@ fn run_git(
         }
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+            let message =
+                match (stderr.trim().is_empty(), stdout.trim().is_empty()) {
+                    (false, false) => format!("{stderr}\n{stdout}"),
+                    (false, true) => stderr.clone(),
+                    (true, false) => stdout.clone(),
+                    (true, true) => {
+                        format!("git exited with {:?}", output.status.code())
+                    }
+                };
             log::warn!(
                 "[git_command] command failed: label={label}, args={args:?}, \
                  exit={:?}, stderr={}, stdout={}",
                 output.status.code(),
                 truncated(&stderr),
-                truncated(&String::from_utf8_lossy(&output.stdout))
+                truncated(&stdout)
             );
             let _ = event_tx.send(GitEvent::CommandDone {
                 label: label.to_string(),
                 success: false,
-                message: stderr,
+                message,
             });
         }
         Err(e) => {

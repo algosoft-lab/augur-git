@@ -15,6 +15,8 @@ use crate::git::sidebar::Sidebar;
 use crate::git::toolbar::Toolbar;
 use crate::git::{GitStatus, GitView};
 
+use super::agent_commit::AgentCommitOutcome;
+use super::agent_rebase::AgentRebaseOutcome;
 use super::tabs::{TabId, TabState, TabSummary};
 
 mod branch_compare;
@@ -25,10 +27,41 @@ mod subscriptions;
 
 #[derive(Clone, Debug)]
 pub enum RepoTabEvent {
-    Opened { id: TabId, path: String },
+    Opened {
+        id: TabId,
+        path: String,
+    },
     SummaryChanged(TabSummary),
     RequestSettings,
     LayoutChanged(LayoutSettings),
+    AgentCommitRequested {
+        id: TabId,
+        repo_path: String,
+        hint: String,
+    },
+    AgentMergeRequested {
+        id: TabId,
+        repo_path: String,
+        source: String,
+    },
+    AgentMergeResolveRequested {
+        id: TabId,
+        repo_path: String,
+        merge_head: String,
+        baseline_head: Option<String>,
+    },
+    AgentRebaseRequested {
+        id: TabId,
+        repo_path: String,
+        source: String,
+    },
+    AgentRebaseResolveRequested {
+        id: TabId,
+        repo_path: String,
+        rebase_head: Option<String>,
+        upstream_oid: Option<String>,
+        baseline_head: Option<String>,
+    },
 }
 
 enum PendingConfirmation {
@@ -42,6 +75,43 @@ enum PendingConfirmation {
         tracked_count: usize,
         untracked_count: usize,
     },
+    MergeConflict {
+        source: String,
+        detail: String,
+        merge_head: String,
+        baseline_head: Option<String>,
+    },
+    MergeError {
+        label: String,
+        detail: String,
+    },
+    RebaseConflict {
+        label: String,
+        source: Option<String>,
+        detail: String,
+        rebase_head: Option<String>,
+        upstream_oid: Option<String>,
+        baseline_head: Option<String>,
+    },
+    RebaseError {
+        label: String,
+        detail: String,
+    },
+}
+
+#[derive(Clone, Debug)]
+struct PendingMergeCommand {
+    source: String,
+    no_ff: bool,
+}
+
+#[derive(Clone, Debug)]
+struct PendingRebaseCommand {
+    source: Option<String>,
+    upstream_oid: Option<String>,
+    baseline_head: Option<String>,
+    label: String,
+    pull: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -89,6 +159,23 @@ pub struct RepoTab {
     working_diff_request_id: u64,
     working_tree_operation_id: u64,
     operation_busy: bool,
+    agent_commit_session_id: Option<u64>,
+    agent_commit_observed_head: Option<String>,
+    agent_merge_session_id: Option<u64>,
+    agent_merge_observed_head: Option<String>,
+    agent_rebase_session_id: Option<u64>,
+    agent_rebase_observed_head: Option<String>,
+    /// Whether the latest Git status contains unmerged entries.
+    has_unresolved_conflicts: bool,
+    merge_state_probe_pending: bool,
+    merge_state_probe_request_id: u64,
+    pending_agent_refresh: bool,
+    pending_merge_command: Option<PendingMergeCommand>,
+    pending_rebase_command: Option<PendingRebaseCommand>,
+    merge_probe_request_id: u64,
+    rebase_probe_request_id: u64,
+    merge_abort_pending: bool,
+    rebase_abort_pending: bool,
     layout: LayoutSettings,
     confirmation: Option<PendingConfirmation>,
     dialogs: branch_ops::BranchDialogs,
@@ -119,11 +206,11 @@ impl RepoTab {
             BottomPanel::new(locale, diff_layout, layout.file_list_ratio)
         });
         let compare = branch_compare::new_view(window, cx, locale, diff_layout);
-        branch_compare::subscribe(&compare, cx);
+        branch_compare::subscribe(&compare, window, cx);
 
         subscriptions::wire(
             &git_view, &sidebar, &toolbar, &graph, &commit, &changes, &bottom,
-            cx,
+            window, cx,
         );
 
         Self {
@@ -154,6 +241,22 @@ impl RepoTab {
             working_diff_request_id: 0,
             working_tree_operation_id: 0,
             operation_busy: false,
+            agent_commit_session_id: None,
+            agent_commit_observed_head: None,
+            agent_merge_session_id: None,
+            agent_merge_observed_head: None,
+            agent_rebase_session_id: None,
+            agent_rebase_observed_head: None,
+            has_unresolved_conflicts: false,
+            merge_state_probe_pending: false,
+            merge_state_probe_request_id: 0,
+            pending_agent_refresh: false,
+            pending_merge_command: None,
+            pending_rebase_command: None,
+            merge_probe_request_id: 0,
+            rebase_probe_request_id: 0,
+            merge_abort_pending: false,
+            rebase_abort_pending: false,
             layout,
             confirmation: None,
             dialogs: branch_ops::BranchDialogs::default(),
@@ -177,7 +280,7 @@ impl RepoTab {
     }
 
     fn refresh_if_ready(&mut self, cx: &mut Context<Self>) -> bool {
-        if !self.opened || self.operation_busy {
+        if !self.opened || self.is_busy() {
             return false;
         }
         self.refresh_repository(cx);
@@ -192,11 +295,94 @@ impl RepoTab {
         self.git_view.update(cx, |view, _| view.refresh());
     }
 
-    fn set_operation_busy(&mut self, busy: bool, cx: &mut Context<Self>) {
-        if self.operation_busy == busy {
+    pub(super) fn is_busy(&self) -> bool {
+        self.operation_busy
+            || self.agent_commit_session_id.is_some()
+            || self.agent_merge_session_id.is_some()
+            || self.agent_rebase_session_id.is_some()
+    }
+
+    /// Re-check the merge marker after a conflict-bearing status snapshot.
+    /// Git status exposes unmerged paths, but it does not expose a merge that
+    /// has been fully resolved in the index and is still waiting for its
+    /// merge commit. Keep integration actions guarded until this probe sees
+    /// that `MERGE_HEAD` has been removed.
+    pub(super) fn schedule_merge_state_probe(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) {
+        if self.merge_state_probe_pending {
             return;
         }
-        self.operation_busy = busy;
+        self.merge_state_probe_pending = true;
+        self.merge_state_probe_request_id =
+            self.merge_state_probe_request_id.wrapping_add(1).max(1);
+        let request_id = self.merge_state_probe_request_id;
+        let repo_path = std::path::PathBuf::from(self.repo_path.clone());
+        let entity = cx.entity();
+        cx.spawn(async move |_, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    crate::core::git::agent_operation::probe_merge_state(
+                        &repo_path,
+                    )
+                })
+                .await;
+            let _ = entity.update(cx, |tab, cx| {
+                tab.finish_merge_state_probe(request_id, result, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn finish_merge_state_probe(
+        &mut self,
+        request_id: u64,
+        result: Result<
+            crate::core::git::agent_operation::AgentMergeProbe,
+            String,
+        >,
+        cx: &mut Context<RepoTab>,
+    ) {
+        if request_id != self.merge_state_probe_request_id {
+            return;
+        }
+        self.merge_state_probe_pending = false;
+        let Ok(probe) = result else {
+            log::debug!(
+                "[branch_ops] merge state probe unavailable; retaining conflict guard"
+            );
+            return;
+        };
+        let merge_in_progress = probe.merge_head.is_some();
+        let has_conflicts = probe.has_conflicts
+            || merge_in_progress
+            || probe.rebase_in_progress;
+        if self.has_unresolved_conflicts != has_conflicts {
+            self.has_unresolved_conflicts = has_conflicts;
+            self.sidebar.update(cx, |sidebar, cx| {
+                sidebar.set_conflicts(has_conflicts, cx);
+            });
+            self.toolbar.update(cx, |toolbar, cx| {
+                toolbar.set_conflicts(has_conflicts, cx);
+            });
+            self.sync_branch_menu_context(cx);
+            cx.notify();
+        }
+    }
+
+    /// Invalidate a probe that predates a new merge or abort command. The
+    /// command's result owns the next merge-state decision, so an older
+    /// asynchronous snapshot must not clear its conflict guard.
+    pub(super) fn invalidate_merge_state_probe(&mut self) {
+        self.merge_state_probe_pending = false;
+        self.merge_state_probe_request_id =
+            self.merge_state_probe_request_id.wrapping_add(1).max(1);
+    }
+
+    fn sync_busy_controls(&mut self, cx: &mut Context<Self>) {
+        let busy = self.is_busy();
         self.toolbar.update(cx, |toolbar, cx| {
             toolbar.set_busy(busy, cx);
         });
@@ -214,13 +400,321 @@ impl RepoTab {
         });
     }
 
+    fn set_operation_busy(&mut self, busy: bool, cx: &mut Context<Self>) {
+        if self.operation_busy == busy {
+            return;
+        }
+        self.operation_busy = busy;
+        self.sync_busy_controls(cx);
+        if !busy && self.pending_agent_refresh && !self.is_busy() {
+            self.pending_agent_refresh = false;
+            self.refresh_repository(cx);
+        }
+    }
+
+    pub(super) fn begin_agent_commit(
+        &mut self,
+        session_id: u64,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_commit_session_id.is_some() {
+            return;
+        }
+        self.agent_commit_session_id = Some(session_id);
+        self.agent_commit_observed_head = None;
+        self.sync_busy_controls(cx);
+        cx.notify();
+    }
+
+    pub(super) fn begin_agent_merge(
+        &mut self,
+        session_id: u64,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_merge_session_id.is_some() {
+            return;
+        }
+        self.agent_merge_session_id = Some(session_id);
+        self.agent_merge_observed_head = None;
+        self.sync_busy_controls(cx);
+        cx.notify();
+    }
+
+    pub(super) fn observe_agent_merge(
+        &mut self,
+        session_id: u64,
+        oid: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_merge_session_id != Some(session_id)
+            || self.agent_merge_observed_head.as_deref() == Some(&oid)
+        {
+            return;
+        }
+        self.agent_merge_observed_head = Some(oid.clone());
+        self.status_message = Some(i18n::text_args(
+            self.locale,
+            "agent-merge-observed",
+            &[("oid", &short_oid(&oid))],
+        ));
+        self.status_message_ok = None;
+        self.refresh_repository(cx);
+        cx.notify();
+    }
+
+    pub(super) fn finish_agent_merge(
+        &mut self,
+        session_id: u64,
+        outcome: super::agent_merge::AgentMergeOutcome,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_merge_session_id != Some(session_id) {
+            return;
+        }
+        self.agent_merge_session_id = None;
+        self.agent_merge_observed_head = None;
+        let (message, ok) = match &outcome {
+            super::agent_merge::AgentMergeOutcome::Merged { oid } => (
+                i18n::text_args(
+                    self.locale,
+                    "agent-merge-created",
+                    &[("oid", &short_oid(oid))],
+                ),
+                true,
+            ),
+            super::agent_merge::AgentMergeOutcome::AlreadyUpToDate => (
+                i18n::text(self.locale, "agent-merge-already-up-to-date"),
+                true,
+            ),
+            super::agent_merge::AgentMergeOutcome::Conflict => {
+                (i18n::text(self.locale, "agent-merge-conflict"), false)
+            }
+            super::agent_merge::AgentMergeOutcome::Failed => {
+                (i18n::text(self.locale, "agent-merge-failed"), false)
+            }
+            super::agent_merge::AgentMergeOutcome::Cancelled => {
+                (i18n::text(self.locale, "agent-merge-cancelled"), false)
+            }
+            super::agent_merge::AgentMergeOutcome::ExitedUnverified {
+                code,
+            } => (
+                i18n::text_args(
+                    self.locale,
+                    "agent-merge-unverified",
+                    &[("code", &format_exit_code(*code))],
+                ),
+                false,
+            ),
+        };
+        self.status_message = Some(message);
+        self.status_message_ok = Some(ok);
+        if self.operation_busy {
+            self.pending_agent_refresh = true;
+        } else {
+            self.refresh_repository(cx);
+        }
+        self.sync_busy_controls(cx);
+        cx.notify();
+    }
+
+    pub(super) fn agent_merge_preflight_failed(
+        &mut self,
+        summary: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.status_message = Some(i18n::text_args(
+            self.locale,
+            "agent-merge-preflight-failed",
+            &[("error", &summary)],
+        ));
+        self.status_message_ok = Some(false);
+        cx.notify();
+    }
+
+    pub(super) fn begin_agent_rebase(
+        &mut self,
+        session_id: u64,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_rebase_session_id.is_some() {
+            return;
+        }
+        self.agent_rebase_session_id = Some(session_id);
+        self.agent_rebase_observed_head = None;
+        self.sync_busy_controls(cx);
+        cx.notify();
+    }
+
+    pub(super) fn observe_agent_rebase(
+        &mut self,
+        session_id: u64,
+        oid: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_rebase_session_id != Some(session_id)
+            || self.agent_rebase_observed_head.as_deref() == Some(&oid)
+        {
+            return;
+        }
+        self.agent_rebase_observed_head = Some(oid.clone());
+        self.status_message = Some(i18n::text_args(
+            self.locale,
+            "agent-rebase-observed",
+            &[("oid", &short_oid(&oid))],
+        ));
+        self.status_message_ok = None;
+        self.refresh_repository(cx);
+        cx.notify();
+    }
+
+    pub(super) fn finish_agent_rebase(
+        &mut self,
+        session_id: u64,
+        outcome: AgentRebaseOutcome,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_rebase_session_id != Some(session_id) {
+            return;
+        }
+        self.agent_rebase_session_id = None;
+        self.agent_rebase_observed_head = None;
+        let (message, ok) = match &outcome {
+            AgentRebaseOutcome::Rebased { oid } => (
+                i18n::text_args(
+                    self.locale,
+                    "agent-rebase-created",
+                    &[("oid", &short_oid(oid))],
+                ),
+                true,
+            ),
+            AgentRebaseOutcome::AlreadyUpToDate => (
+                i18n::text(self.locale, "agent-rebase-already-up-to-date"),
+                true,
+            ),
+            AgentRebaseOutcome::Conflict => {
+                (i18n::text(self.locale, "agent-rebase-conflict"), false)
+            }
+            AgentRebaseOutcome::Failed => {
+                (i18n::text(self.locale, "agent-rebase-failed"), false)
+            }
+            AgentRebaseOutcome::Cancelled => {
+                (i18n::text(self.locale, "agent-rebase-cancelled"), false)
+            }
+            AgentRebaseOutcome::ExitedUnverified { code } => (
+                i18n::text_args(
+                    self.locale,
+                    "agent-rebase-unverified",
+                    &[("code", &format_exit_code(*code))],
+                ),
+                false,
+            ),
+        };
+        self.status_message = Some(message);
+        self.status_message_ok = Some(ok);
+        if self.operation_busy {
+            self.pending_agent_refresh = true;
+        } else {
+            self.refresh_repository(cx);
+        }
+        self.sync_busy_controls(cx);
+        cx.notify();
+    }
+
+    pub(super) fn agent_rebase_preflight_failed(
+        &mut self,
+        summary: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.status_message = Some(i18n::text_args(
+            self.locale,
+            "agent-rebase-preflight-failed",
+            &[("error", &summary)],
+        ));
+        self.status_message_ok = Some(false);
+        cx.notify();
+    }
+
+    pub(super) fn observe_agent_commit(
+        &mut self,
+        session_id: u64,
+        oid: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_commit_session_id != Some(session_id)
+            || self.agent_commit_observed_head.as_deref() == Some(&oid)
+        {
+            return;
+        }
+        self.agent_commit_observed_head = Some(oid.clone());
+        self.status_message = Some(i18n::text_args(
+            self.locale,
+            "agent-commit-observed",
+            &[("oid", &short_oid(&oid))],
+        ));
+        self.status_message_ok = None;
+        self.refresh_repository(cx);
+        cx.notify();
+    }
+
+    pub(super) fn finish_agent_commit(
+        &mut self,
+        session_id: u64,
+        outcome: AgentCommitOutcome,
+        cx: &mut Context<Self>,
+    ) {
+        if self.agent_commit_session_id != Some(session_id) {
+            return;
+        }
+        self.agent_commit_session_id = None;
+        self.agent_commit_observed_head = None;
+        let (message, ok) = match &outcome {
+            AgentCommitOutcome::Committed { oid } => (
+                i18n::text_args(
+                    self.locale,
+                    "agent-commit-created",
+                    &[("oid", &short_oid(oid))],
+                ),
+                true,
+            ),
+            AgentCommitOutcome::NoChanges => {
+                (i18n::text(self.locale, "agent-commit-no-changes"), false)
+            }
+            AgentCommitOutcome::Conflict => {
+                (i18n::text(self.locale, "agent-commit-conflict"), false)
+            }
+            AgentCommitOutcome::Failed => {
+                (i18n::text(self.locale, "agent-commit-failed"), false)
+            }
+            AgentCommitOutcome::Cancelled => {
+                (i18n::text(self.locale, "agent-commit-cancelled"), false)
+            }
+            AgentCommitOutcome::ExitedUnverified { code } => (
+                i18n::text_args(
+                    self.locale,
+                    "agent-commit-unverified",
+                    &[("code", &format_exit_code(*code))],
+                ),
+                false,
+            ),
+        };
+        self.status_message = Some(message);
+        self.status_message_ok = Some(ok);
+        if self.operation_busy {
+            self.pending_agent_refresh = true;
+        } else {
+            self.refresh_repository(cx);
+        }
+        self.sync_busy_controls(cx);
+        cx.notify();
+    }
+
     fn start_working_tree_operation(
         &mut self,
         action: WorkingTreeAction,
         scope: WorkingTreeScope,
         cx: &mut Context<Self>,
     ) {
-        if self.operation_busy {
+        if self.is_busy() {
             return;
         }
         self.working_tree_operation_id =
@@ -244,7 +738,7 @@ impl RepoTab {
         target: CheckoutTarget,
         cx: &mut Context<Self>,
     ) {
-        if self.operation_busy {
+        if self.is_busy() || self.has_unresolved_conflicts {
             return;
         }
         self.git_view.update(cx, |view, _| view.checkout(target));
@@ -267,7 +761,7 @@ impl RepoTab {
         oid: String,
         cx: &mut Context<Self>,
     ) {
-        if self.operation_busy {
+        if self.is_busy() {
             return;
         }
         self.git_view.update(cx, |view, _| {
@@ -442,6 +936,10 @@ impl RepoTab {
     }
 }
 
+fn short_oid(oid: &str) -> String {
+    oid.get(..7).unwrap_or(oid).to_string()
+}
+
 impl Render for RepoTab {
     fn render(
         &mut self,
@@ -473,4 +971,9 @@ fn repo_title(path: &str) -> String {
     } else {
         crate::git::dir_name(trimmed).to_string()
     }
+}
+
+fn format_exit_code(code: Option<i32>) -> String {
+    code.map(|code| code.to_string())
+        .unwrap_or_else(|| "unknown".to_string())
 }

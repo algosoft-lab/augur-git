@@ -581,10 +581,13 @@ impl BranchCompareView {
                             .compact()
                             .flex_shrink_0()
                             .disabled(!compare_enabled)
-                            .on_click(move |_event, _window, cx| {
-                                this.update(cx, |view, cx| {
-                                    view.start_compare(cx)
-                                });
+                            .on_click({
+                                let this = this.clone();
+                                move |_event, _window, cx| {
+                                    this.update(cx, |view, cx| {
+                                        view.start_compare(cx)
+                                    });
+                                }
                             })
                             .child(
                                 div()
