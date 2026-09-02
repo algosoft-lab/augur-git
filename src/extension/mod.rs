@@ -1,5 +1,6 @@
 //! Lua extension runtime and the host bridge used by the Workspace.
 
+mod agent_runner;
 mod api;
 mod builtin;
 mod history;
