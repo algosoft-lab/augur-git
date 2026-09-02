@@ -8,6 +8,7 @@ use gpui::*;
 use crate::core::extension::{self, ExtensionSettings, SettingValue};
 use crate::extension::{
     ExtensionEvent, ExtensionRunRequest, ExtensionTrigger, HostEvent,
+    discover_definitions,
 };
 
 use super::extensions::ExtensionsPanelEvent;
@@ -210,6 +211,7 @@ impl Workspace {
     ) {
         match event {
             ExtensionsPanelEvent::Close => self.close_extensions(cx),
+            ExtensionsPanelEvent::Reload => self.reload_extensions(window, cx),
             ExtensionsPanelEvent::InstallDirectory => {
                 self.install_extension_directory(window, cx);
             }
@@ -221,13 +223,14 @@ impl Workspace {
                     return;
                 }
                 match extension::uninstall_local_package(extension_id) {
-                    Ok(()) => self.extensions_panel.update(cx, |panel, cx| {
-                        panel.set_status(
-                            extension_id,
-                            "Uninstalled; restart to reload extensions",
-                            cx,
-                        );
-                    }),
+                    Ok(()) => {
+                        self.reload_extensions(window, cx);
+                        self.extensions_panel.update(cx, |panel, cx| {
+                            panel.set_status(extension_id, "Uninstalled", cx);
+                        });
+                        self.config.extensions.remove(extension_id);
+                        self.persist_config();
+                    }
                     Err(error) => {
                         self.extensions_panel.update(cx, |panel, cx| {
                             panel.set_status(
@@ -238,8 +241,6 @@ impl Workspace {
                         })
                     }
                 }
-                self.config.extensions.remove(extension_id);
-                self.persist_config();
             }
             ExtensionsPanelEvent::EnabledChanged {
                 extension_id,
@@ -437,28 +438,63 @@ impl Workspace {
                 .background_executor()
                 .spawn(async move { extension::install_local_package(&path) })
                 .await;
-            let _ = entity.update(cx, |workspace, cx| match result {
-                Ok(package) => {
-                    workspace.extensions_panel.update(cx, |panel, cx| {
-                        panel.set_status(
-                            &package.manifest.id,
-                            "Installed; restart to load the extension",
-                            cx,
-                        )
-                    });
-                }
-                Err(error) => {
-                    workspace.extensions_panel.update(cx, |panel, cx| {
-                        panel.set_status(
-                            "sync-open-tabs",
-                            error.to_string(),
-                            cx,
-                        )
-                    });
-                }
+            let _ = cx.update(|window, app| {
+                entity.update(app, |workspace, cx| match result {
+                    Ok(package) => {
+                        let id = package.manifest.id.clone();
+                        workspace.reload_extensions(window, cx);
+                        workspace.extensions_panel.update(cx, |panel, cx| {
+                            panel.set_status(&id, "Installed and reloaded", cx)
+                        });
+                    }
+                    Err(error) => {
+                        workspace.extensions_panel.update(cx, |panel, cx| {
+                            panel.set_status(
+                                "sync-open-tabs",
+                                error.to_string(),
+                                cx,
+                            )
+                        });
+                    }
+                })
             });
         })
         .detach();
+    }
+
+    fn reload_extensions(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let definitions = discover_definitions();
+        let reload_result = self
+            .extension_manager
+            .as_ref()
+            .ok_or_else(|| "extension runtime is unavailable".to_string())
+            .and_then(|manager| manager.reload(definitions.clone()));
+        if let Err(error) = reload_result {
+            self.extensions_panel.update(cx, |panel, cx| {
+                panel.set_status("sync-open-tabs", error, cx)
+            });
+            return;
+        }
+        for definition in &definitions {
+            let id = definition.package.manifest.id.clone();
+            let entry = self.config.extensions.entry(id).or_insert_with(|| {
+                ExtensionSettings::with_defaults(&definition.package.manifest)
+            });
+            *entry = entry.normalized_for(&definition.package.manifest);
+            entry.last_seen_fingerprint =
+                Some(definition.package.fingerprint.clone());
+        }
+        self.extension_definitions = definitions.clone();
+        self.extensions_panel.update(cx, |panel, cx| {
+            panel.replace_definitions(definitions, &self.config, window, cx);
+            panel.set_status("sync-open-tabs", "Extensions reloaded", cx);
+        });
+        self.sync_extension_repositories(cx);
+        self.persist_config();
     }
 
     fn handle_extension_event(

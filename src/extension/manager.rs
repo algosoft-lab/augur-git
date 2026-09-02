@@ -87,6 +87,7 @@ enum QueueCommand {
 pub struct ExtensionManager {
     definitions: Arc<Mutex<HashMap<String, ExtensionDefinition>>>,
     workers: Arc<Mutex<HashMap<String, Worker>>>,
+    host: Arc<dyn ExtensionHost>,
     queue_tx: Sender<QueueCommand>,
     pending: Arc<Mutex<HashSet<String>>>,
     cancellations: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>>,
@@ -100,8 +101,9 @@ impl ExtensionManager {
         definitions: Vec<ExtensionDefinition>,
         host: Arc<dyn ExtensionHost>,
     ) -> Result<(Self, Receiver<ExtensionEvent>), String> {
-        let mut definition_map = HashMap::new();
-        let mut worker_map = HashMap::new();
+        let mut definition_map: HashMap<String, ExtensionDefinition> =
+            HashMap::new();
+        let mut worker_map: HashMap<String, Worker> = HashMap::new();
         for definition in definitions {
             let id = definition.package.manifest.id.clone();
             if definition_map.contains_key(&id) {
@@ -121,7 +123,7 @@ impl ExtensionManager {
         let dispatch_workers = workers.clone();
         let dispatch_pending = pending.clone();
         let dispatch_cancellations = cancellations.clone();
-        let dispatch_host = host;
+        let dispatch_host = host.clone();
         thread::Builder::new()
             .name("augur-extension-queue".into())
             .spawn(move || {
@@ -142,6 +144,7 @@ impl ExtensionManager {
             Self {
                 definitions,
                 workers,
+                host,
                 queue_tx,
                 pending,
                 cancellations,
@@ -156,6 +159,66 @@ impl ExtensionManager {
             .lock()
             .map(|definitions| definitions.values().cloned().collect())
             .unwrap_or_default()
+    }
+
+    /// Replace the package set and recreate long-lived Lua workers.
+    ///
+    /// Reloading while a run is active could invalidate its VM or package
+    /// source, so callers must wait until the queue is idle. New workers are
+    /// started before the shared maps are swapped; a failed package leaves the
+    /// currently running manager untouched.
+    pub fn reload(
+        &self,
+        definitions: Vec<ExtensionDefinition>,
+    ) -> Result<(), String> {
+        if self
+            .pending
+            .lock()
+            .map_err(|_| "extension queue state is unavailable".to_string())?
+            .len()
+            != 0
+        {
+            return Err("cannot reload extensions while a run is active".into());
+        }
+
+        let mut definition_map: HashMap<String, ExtensionDefinition> =
+            HashMap::new();
+        let mut worker_map: HashMap<String, Worker> = HashMap::new();
+        for definition in definitions {
+            let id = definition.package.manifest.id.clone();
+            if definition_map.contains_key(&id) {
+                for worker in worker_map.values() {
+                    let _ = worker.tx.send(WorkerCommand::Shutdown);
+                }
+                return Err(format!("duplicate extension id: {id}"));
+            }
+            let worker = match spawn_worker(&definition, self.host.clone()) {
+                Ok(worker) => worker,
+                Err(error) => {
+                    for worker in worker_map.values() {
+                        let _ = worker.tx.send(WorkerCommand::Shutdown);
+                    }
+                    return Err(error);
+                }
+            };
+            definition_map.insert(id.clone(), definition);
+            worker_map.insert(id, worker);
+        }
+
+        let mut old_workers = self
+            .workers
+            .lock()
+            .map_err(|_| "extension workers are unavailable".to_string())?;
+        let mut old_definitions = self
+            .definitions
+            .lock()
+            .map_err(|_| "extension definitions are unavailable".to_string())?;
+        for worker in old_workers.values() {
+            let _ = worker.tx.send(WorkerCommand::Shutdown);
+        }
+        *old_workers = worker_map;
+        *old_definitions = definition_map;
+        Ok(())
     }
 
     /// Queue a run. A second trigger while the same extension is queued or

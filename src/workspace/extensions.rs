@@ -24,6 +24,7 @@ use crate::extension::ExtensionDefinition;
 pub enum ExtensionsPanelEvent {
     Close,
     InstallDirectory,
+    Reload,
     Uninstall(String),
     RunNow(String),
     EnabledChanged {
@@ -63,6 +64,24 @@ impl ExtensionsPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let (rows, inputs) = Self::build_rows(definitions, config, window, cx);
+        Self {
+            locale,
+            rows,
+            inputs,
+            statuses: BTreeMap::new(),
+        }
+    }
+
+    fn build_rows(
+        definitions: Vec<ExtensionDefinition>,
+        config: &AppConfig,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> (
+        Vec<ExtensionRow>,
+        BTreeMap<(String, String), Entity<InputState>>,
+    ) {
         let mut rows = Vec::new();
         let mut inputs = BTreeMap::new();
         for definition in definitions {
@@ -119,12 +138,25 @@ impl ExtensionsPanel {
                 settings,
             });
         }
-        Self {
-            locale,
-            rows,
-            inputs,
-            statuses: BTreeMap::new(),
-        }
+        (rows, inputs)
+    }
+
+    pub fn replace_definitions(
+        &mut self,
+        definitions: Vec<ExtensionDefinition>,
+        config: &AppConfig,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (rows, inputs) = Self::build_rows(definitions, config, window, cx);
+        self.rows = rows;
+        self.inputs = inputs;
+        self.statuses.retain(|id, _| {
+            self.rows
+                .iter()
+                .any(|row| row.definition.package.manifest.id == *id)
+        });
+        cx.notify();
     }
 
     pub fn set_locale(&mut self, locale: Locale) {
@@ -246,12 +278,16 @@ impl ExtensionsPanel {
                 Some(SettingValue::Select(current)) => current.clone(),
                 _ => default.clone(),
             };
-            let next = options
-                .iter()
-                .position(|option| option.value == current)
-                .and_then(|index| options.get((index + 1) % options.len()))
-                .map(|option| option.value.clone())
-                .unwrap_or(current.clone());
+            let next = if options.is_empty() {
+                current.clone()
+            } else {
+                options
+                    .iter()
+                    .position(|option| option.value == current)
+                    .and_then(|index| options.get((index + 1) % options.len()))
+                    .map(|option| option.value.clone())
+                    .unwrap_or_else(|| options[0].value.clone())
+            };
             let panel = cx.entity();
             let extension_id = row.definition.package.manifest.id.clone();
             let key = key.to_string();
@@ -356,7 +392,7 @@ impl Render for ExtensionsPanel {
             .p_4()
             .overflow_y_scrollbar()
             .bg(colors.background)
-            .child(h_flex().w_full().items_center().child(div().flex_1().font_weight(FontWeight::BOLD).text_color(colors.foreground).text_size(crate::theme::scaled_text_size(18.)).child("Extensions")).child(Button::new("extensions-install").label("Install directory").ghost().on_click({ let this = this.clone(); move |_event, _window, cx| { this.update(cx, |_panel, cx| cx.emit(ExtensionsPanelEvent::InstallDirectory)); }})).child(Button::new("extensions-close").label("Close").ghost().on_click(move |_event, _window, cx| { this.update(cx, |_panel, cx| cx.emit(ExtensionsPanelEvent::Close)); })))
+            .child(h_flex().w_full().items_center().child(div().flex_1().font_weight(FontWeight::BOLD).text_color(colors.foreground).text_size(crate::theme::scaled_text_size(18.)).child("Extensions")).child(Button::new("extensions-install").label("Install directory").ghost().on_click({ let this = this.clone(); move |_event, _window, cx| { this.update(cx, |_panel, cx| cx.emit(ExtensionsPanelEvent::InstallDirectory)); }})).child(Button::new("extensions-reload").label("Reload").ghost().on_click({ let this = this.clone(); move |_event, _window, cx| { this.update(cx, |_panel, cx| cx.emit(ExtensionsPanelEvent::Reload)); }})).child(Button::new("extensions-close").label("Close").ghost().on_click(move |_event, _window, cx| { this.update(cx, |_panel, cx| cx.emit(ExtensionsPanelEvent::Close)); })))
             .child(div().text_color(colors.warning).text_size(crate::theme::scaled_text_size(12.)).child("Trusted extensions run with full Lua standard libraries and may execute local commands."))
             .children(rows)
     }

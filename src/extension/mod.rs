@@ -5,6 +5,7 @@ mod builtin;
 mod history;
 mod host;
 mod manager;
+mod storage;
 
 pub use api::{
     AgentPromptOptions, AgentRequest, ExtensionHost, ExtensionInvocation,

@@ -15,7 +15,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use chrono::{Local, Utc};
-use serde_json::{Map, Value as JsonValue};
+use serde_json::Value as JsonValue;
 
 use crate::agent::{
     AgentLaunchSpec, AgentOperation, AgentOperationChallenge, AgentSettings,
@@ -27,6 +27,7 @@ use super::api::{
     AgentPromptOptions, AgentRequest, ExtensionHost, ExtensionHostRequest,
     HostRequest, HostResponse, RepositoryOperation, RepositorySnapshot,
 };
+use super::storage::ExtensionStorage;
 
 const DEFAULT_AGENT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
@@ -70,17 +71,13 @@ struct HostState {
 pub struct HostBridge {
     state: Arc<Mutex<HostState>>,
     event_tx: Sender<HostEvent>,
-    storage_root: PathBuf,
+    storage: ExtensionStorage,
     agent_settings: Arc<Mutex<AgentSettings>>,
 }
 
 impl HostBridge {
     pub fn new(agent_settings: AgentSettings) -> (Self, Receiver<HostEvent>) {
         let (event_tx, event_rx) = mpsc::channel();
-        let storage_root = dirs::data_local_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("augur-git")
-            .join("extension-data");
         (
             Self {
                 state: Arc::new(Mutex::new(HostState {
@@ -89,7 +86,7 @@ impl HostBridge {
                     run_identities: HashMap::new(),
                 })),
                 event_tx,
-                storage_root,
+                storage: ExtensionStorage::new(),
                 agent_settings: Arc::new(Mutex::new(agent_settings)),
             },
             event_rx,
@@ -611,13 +608,13 @@ impl ExtensionHost for HostBridge {
                 "locale": sys_locale::get_locale().unwrap_or_else(|| "en-US".into()),
             })),
             HostRequest::StorageGet(key) => {
-                self.storage_get(&request.extension_id, key)?
+                self.storage.get(&request.extension_id, key)?
             }
             HostRequest::StorageSet { key, value } => {
-                self.storage_set(&request.extension_id, &key, value)?
+                self.storage.set(&request.extension_id, &key, value)?
             }
             HostRequest::StorageDelete(key) => {
-                self.storage_delete(&request.extension_id, key)?
+                self.storage.delete(&request.extension_id, key)?
             }
             HostRequest::Log {
                 level,
@@ -901,119 +898,4 @@ fn resolve_marker(path: &Path, marker: &str) -> Option<String> {
 
 fn json_response(value: JsonValue) -> HostResponse {
     HostResponse::Json(value)
-}
-
-impl HostBridge {
-    fn storage_path(&self, extension_id: &str) -> Result<PathBuf, String> {
-        validate_extension_id(extension_id)?;
-        Ok(self.storage_root.join(format!("{extension_id}.json")))
-    }
-
-    fn read_storage(
-        &self,
-        extension_id: &str,
-    ) -> Result<Map<String, JsonValue>, String> {
-        let path = self.storage_path(extension_id)?;
-        match fs::read_to_string(path) {
-            Ok(text) => serde_json::from_str(&text).map_err(|error| {
-                format!("extension storage is invalid: {error}")
-            }),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                Ok(Map::new())
-            }
-            Err(error) => {
-                Err(format!("failed to read extension storage: {error}"))
-            }
-        }
-    }
-
-    fn write_storage(
-        &self,
-        extension_id: &str,
-        storage: &Map<String, JsonValue>,
-    ) -> Result<(), String> {
-        let path = self.storage_path(extension_id)?;
-        fs::create_dir_all(&self.storage_root).map_err(|error| {
-            format!("failed to create extension storage: {error}")
-        })?;
-        let text = serde_json::to_string_pretty(storage).map_err(|error| {
-            format!("failed to encode extension storage: {error}")
-        })?;
-        let temp =
-            path.with_extension(format!("json.tmp-{}", std::process::id()));
-        fs::write(&temp, text).map_err(|error| {
-            format!("failed to write extension storage: {error}")
-        })?;
-        fs::rename(&temp, &path).map_err(|error| {
-            let _ = fs::remove_file(&temp);
-            format!("failed to replace extension storage: {error}")
-        })
-    }
-
-    fn storage_get(
-        &self,
-        extension_id: &str,
-        key: Option<String>,
-    ) -> Result<HostResponse, String> {
-        let storage = self.read_storage(extension_id)?;
-        let value = match key {
-            Some(key) => storage.get(&key).cloned().unwrap_or(JsonValue::Null),
-            None => JsonValue::Object(storage),
-        };
-        Ok(json_response(value))
-    }
-
-    fn storage_set(
-        &self,
-        extension_id: &str,
-        key: &str,
-        value: JsonValue,
-    ) -> Result<HostResponse, String> {
-        validate_storage_key(key)?;
-        let mut storage = self.read_storage(extension_id)?;
-        storage.insert(key.to_string(), value);
-        self.write_storage(extension_id, &storage)?;
-        Ok(json_response(serde_json::json!({ "ok": true })))
-    }
-
-    fn storage_delete(
-        &self,
-        extension_id: &str,
-        key: Option<String>,
-    ) -> Result<HostResponse, String> {
-        let mut storage = self.read_storage(extension_id)?;
-        if let Some(key) = key {
-            validate_storage_key(&key)?;
-            storage.remove(&key);
-        } else {
-            storage.clear();
-        }
-        self.write_storage(extension_id, &storage)?;
-        Ok(json_response(serde_json::json!({ "ok": true })))
-    }
-}
-
-fn validate_extension_id(id: &str) -> Result<(), String> {
-    if id.is_empty()
-        || id.len() > 64
-        || !id.bytes().all(|byte| {
-            byte.is_ascii_lowercase()
-                || byte.is_ascii_digit()
-                || matches!(byte, b'.' | b'_' | b'-')
-        })
-        || !id.as_bytes()[0].is_ascii_alphanumeric()
-    {
-        return Err("invalid extension id".into());
-    }
-    Ok(())
-}
-
-fn validate_storage_key(key: &str) -> Result<(), String> {
-    if key.trim().is_empty() || key.chars().any(char::is_control) {
-        return Err(
-            "storage key must not be empty or contain control characters"
-                .into(),
-        );
-    }
-    Ok(())
 }
