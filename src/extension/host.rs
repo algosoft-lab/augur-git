@@ -25,6 +25,7 @@ use super::api::{
     ExtensionRunAdmission, HostRequest, HostResponse, RepositoryOperation,
     RepositorySnapshot,
 };
+use super::file_log::ExtensionFileLogger;
 use super::storage::ExtensionStorage;
 
 const DEFAULT_AGENT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -69,6 +70,7 @@ struct HostState {
 pub struct HostBridge {
     state: Arc<Mutex<HostState>>,
     event_tx: Sender<HostEvent>,
+    file_logger: ExtensionFileLogger,
     storage: ExtensionStorage,
     agent_settings: Arc<Mutex<AgentSettings>>,
 }
@@ -84,6 +86,7 @@ impl HostBridge {
                     run_identities: HashMap::new(),
                 })),
                 event_tx,
+                file_logger: ExtensionFileLogger::default(),
                 storage: ExtensionStorage::new(),
                 agent_settings: Arc::new(Mutex::new(agent_settings)),
             },
@@ -790,6 +793,25 @@ impl ExtensionHost for HostBridge {
                     fields,
                 });
                 json_response(serde_json::json!({ "ok": true }))
+            }
+            HostRequest::LogFileAppend { path, content } => {
+                match self.file_logger.append(&path, &content) {
+                    Ok(bytes_written) => json_response(serde_json::json!({
+                        "ok": true,
+                        "bytes_written": bytes_written,
+                    })),
+                    Err(error) => {
+                        log::warn!(
+                            "[extension_log] append failed: id={}, code={}",
+                            request.extension_id,
+                            error.code()
+                        );
+                        HostResponse::Failure {
+                            code: error.code().into(),
+                            summary: error.to_string(),
+                        }
+                    }
+                }
             }
             HostRequest::Notify { level, title, body } => {
                 let _ = self.event_tx.send(HostEvent::Notify {

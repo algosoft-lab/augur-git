@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::core::extension::{ExtensionRunTrigger, SettingValue};
+
+use super::file_log::MAX_EXTENSION_LOG_ENTRY_BYTES;
 
 pub const LUA_MEMORY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_AGENT_TRANSCRIPT_BYTES: usize = 1024 * 1024;
@@ -119,6 +121,10 @@ pub enum HostRequest {
         level: String,
         message: String,
         fields: JsonValue,
+    },
+    LogFileAppend {
+        path: String,
+        content: String,
     },
     Notify {
         level: String,
@@ -458,6 +464,40 @@ fn install_api(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<()> {
         let _ = log_state.request(HostRequest::Log { level, message, fields })?;
         Ok(())
     })?)?;
+
+    let file_log_state = state.clone();
+    augur.set(
+        "log_file",
+        lua.create_function(move |lua, (path, content): (String, String)| {
+            if path.trim().is_empty() {
+                return Err(mlua::Error::runtime(
+                    "extension log path must not be empty",
+                ));
+            }
+            if path.as_bytes().contains(&0) {
+                return Err(mlua::Error::runtime(
+                    "extension log path must not contain a NUL byte",
+                ));
+            }
+            if !Path::new(&path).is_absolute() {
+                return Err(mlua::Error::runtime(
+                    "extension log path must be absolute",
+                ));
+            }
+            if content.len() > MAX_EXTENSION_LOG_ENTRY_BYTES {
+                return Err(mlua::Error::runtime(format!(
+                    "extension log entry exceeds {MAX_EXTENSION_LOG_ENTRY_BYTES} bytes"
+                )));
+            }
+            response_to_lua(
+                lua,
+                file_log_state.request(HostRequest::LogFileAppend {
+                    path,
+                    content,
+                })?,
+            )
+        })?,
+    )?;
 
     let notify_state = state.clone();
     augur.set(
@@ -1119,6 +1159,12 @@ mod tests {
                 | HostRequest::Notify { .. } => {
                     HostResponse::Json(serde_json::json!({ "ok": true }))
                 }
+                HostRequest::LogFileAppend { content, .. } => {
+                    HostResponse::Json(serde_json::json!({
+                        "ok": true,
+                        "bytes_written": content.len(),
+                    }))
+                }
                 HostRequest::TimeNow => {
                     HostResponse::Json(serde_json::json!({ "unix_ms": 1 }))
                 }
@@ -1233,6 +1279,77 @@ mod tests {
         runtime
             .run(current, "on_run")
             .expect("event context should be immutable");
+    }
+
+    #[test]
+    fn runtime_forwards_raw_file_log_content() {
+        let host = Arc::new(FakeHost::default());
+        let path = std::env::temp_dir()
+            .join("augur-git-extension-api-log-test.log")
+            .to_string_lossy()
+            .to_string();
+        let source = format!(
+            r#"
+                local augur = require("augur")
+                return {{
+                    on_run = function()
+                        local result = augur.log_file({path:?}, "line\n")
+                        assert(result.ok)
+                        assert(result.bytes_written == 5)
+                        return {{ok = true}}
+                    end
+                }}
+            "#,
+            path = path,
+        );
+        let runtime = ExtensionRuntime::load(
+            "test-extension".into(),
+            &source,
+            None,
+            host.clone(),
+        )
+        .expect("runtime should load");
+        runtime
+            .run(invocation(), "on_run")
+            .expect("file log should complete");
+
+        let requests = host.requests.lock().expect("requests");
+        assert!(requests.iter().any(|request| {
+            matches!(
+                request,
+                HostRequest::LogFileAppend {
+                    path: received_path,
+                    content,
+                } if received_path == &path && content == "line\n"
+            )
+        }));
+    }
+
+    #[test]
+    fn runtime_rejects_relative_file_log_paths_as_lua_errors() {
+        let host = Arc::new(FakeHost::default());
+        let runtime = ExtensionRuntime::load(
+            "test-extension".into(),
+            r#"
+                local augur = require("augur")
+                return {
+                    on_run = function()
+                        local ok = pcall(function()
+                            augur.log_file("relative.log", "line")
+                        end)
+                        assert(not ok)
+                        return {ok = true}
+                    end
+                }
+            "#,
+            None,
+            host.clone(),
+        )
+        .expect("runtime should load");
+        runtime
+            .run(invocation(), "on_run")
+            .expect("invalid path should be contained by pcall");
+        assert!(host.requests.lock().expect("requests").is_empty());
     }
 }
 

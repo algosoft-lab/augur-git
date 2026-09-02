@@ -5,6 +5,7 @@ use std::collections::HashSet;
 mod agent_runner;
 mod api;
 mod builtin;
+mod file_log;
 mod history;
 mod host;
 mod manager;
