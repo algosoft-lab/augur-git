@@ -15,10 +15,11 @@ use gpui_component::{
 
 use crate::core::config::AppConfig;
 use crate::core::extension::{
-    ExtensionSettings, SettingDefinition, SettingValue,
+    ExtensionRunRecord, ExtensionSettings, RepositoryRunResult,
+    SettingDefinition, SettingValue,
 };
 use crate::core::i18n::Locale;
-use crate::extension::ExtensionDefinition;
+use crate::extension::{ExtensionDefinition, load_run_history};
 
 #[derive(Clone, Debug)]
 pub enum ExtensionsPanelEvent {
@@ -45,6 +46,7 @@ pub enum ExtensionsPanelEvent {
 struct ExtensionRow {
     definition: ExtensionDefinition,
     settings: ExtensionSettings,
+    history: Vec<ExtensionRunRecord>,
 }
 
 pub struct ExtensionsPanel {
@@ -136,6 +138,7 @@ impl ExtensionsPanel {
             rows.push(ExtensionRow {
                 definition,
                 settings,
+                history: load_run_history(&id).unwrap_or_default(),
             });
         }
         (rows, inputs)
@@ -205,6 +208,29 @@ impl ExtensionsPanel {
         {
             row.settings.enabled = enabled;
             row.settings.trusted = trusted;
+            cx.notify();
+        }
+    }
+
+    pub fn append_history(
+        &mut self,
+        extension_id: &str,
+        record: ExtensionRunRecord,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(row) = self
+            .rows
+            .iter_mut()
+            .find(|row| row.definition.package.manifest.id == extension_id)
+        {
+            row.history.push(record);
+            if row.history.len()
+                > crate::core::extension::MAX_EXTENSION_RUN_HISTORY
+            {
+                let keep_from = row.history.len()
+                    - crate::core::extension::MAX_EXTENSION_RUN_HISTORY;
+                row.history.drain(..keep_from);
+            }
             cx.notify();
         }
     }
@@ -345,6 +371,31 @@ impl Render for ExtensionsPanel {
             let source = format!("source: {:?} · fingerprint: {}", row.definition.package.source, row.definition.package.fingerprint);
             let path = row.definition.package.root.as_ref().map(|path| path.display().to_string()).unwrap_or_else(|| "bundled".to_string());
             let status = self.statuses.get(&id).cloned();
+            let history = row.history.iter().rev().take(3).map(|record| {
+                let repository_summary = record
+                    .repositories
+                    .iter()
+                    .map(|repository| {
+                        let result = match &repository.result {
+                            RepositoryRunResult::Success { summary } => {
+                                format!("ok: {summary}")
+                            }
+                            RepositoryRunResult::Failed { code, summary } => {
+                                format!("failed ({code}): {summary}")
+                            }
+                        };
+                        format!("{} — {result}", repository.display_name)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                div()
+                    .text_color(colors.muted_foreground)
+                    .text_size(crate::theme::scaled_text_size(10.))
+                    .child(SharedString::from(format!(
+                        "run {} · {} · {}",
+                        record.run_id, record.summary, repository_summary
+                    )))
+            }).collect::<Vec<_>>();
             let can_uninstall = !row.definition.package.bundled;
             let settings = row.definition.package.manifest.settings.iter().map(|(key, definition)| {
                 self.render_setting(row, key, definition, &colors, cx)
@@ -380,6 +431,11 @@ impl Render for ExtensionsPanel {
                 .child(div().text_color(colors.muted_foreground).text_size(crate::theme::scaled_text_size(10.)).child(SharedString::from(format!("path: {path}"))))
                 .when(!row.settings.trusted, |element| element.child(div().text_color(colors.warning).text_size(crate::theme::scaled_text_size(11.)).child("This extension can execute local code. Trust it only if you reviewed the package.")))
                 .children(settings)
+                .when(!history.is_empty(), |element| {
+                    element
+                        .child(div().text_color(colors.foreground).text_size(crate::theme::scaled_text_size(11.)).child("Recent runs"))
+                        .children(history)
+                })
                 .when_some(status, |element, status| element.child(div().text_color(colors.blue).text_size(crate::theme::scaled_text_size(11.)).child(SharedString::from(status))))
                 .into_any_element()
         }).collect::<Vec<_>>();

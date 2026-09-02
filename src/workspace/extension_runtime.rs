@@ -551,6 +551,9 @@ impl Workspace {
                         "[extensions] failed to save run history: {write_error}"
                     );
                 }
+                self.extensions_panel.update(cx, |panel, cx| {
+                    panel.append_history(&extension_id, record, cx)
+                });
                 let status = error
                     .map(|error| format!("Run {run_id} failed: {error}"))
                     .unwrap_or_else(|| format!("Run {run_id} completed"));
