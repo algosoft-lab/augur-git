@@ -81,13 +81,20 @@ pub enum HostRequest {
     Repository {
         tab_id: u64,
         operation: RepositoryOperation,
+        /// Identity captured when the repository handle was created. The
+        /// host rejects mutating operations when the branch or HEAD changed.
+        expected_branch: String,
+        expected_head: Option<String>,
     },
     AgentPrompt(AgentRequest),
     TimeNow,
     SystemInfo,
-    StorageGet,
-    StorageSet(JsonValue),
-    StorageDelete,
+    StorageGet(Option<String>),
+    StorageSet {
+        key: String,
+        value: JsonValue,
+    },
+    StorageDelete(Option<String>),
     Log {
         level: String,
         message: String,
@@ -124,6 +131,21 @@ pub trait ExtensionHost: Send + Sync {
         &self,
         request: ExtensionHostRequest,
     ) -> Result<HostResponse, String>;
+
+    /// Reserve captured repositories for one run. Implementations can use
+    /// this to serialize extension writes with one another; the default keeps
+    /// the trait convenient for embedders and unit-test hosts.
+    fn begin_run(
+        &self,
+        _extension_id: &str,
+        _run_id: u64,
+        _repositories: &[RepositorySnapshot],
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Release reservations made by `begin_run`.
+    fn finish_run(&self, _extension_id: &str, _run_id: u64) {}
 }
 
 #[derive(Clone, Debug)]
@@ -271,6 +293,11 @@ impl ExtensionRuntime {
         invocation: ExtensionInvocation,
         handler: &str,
     ) -> Result<(), ExtensionRuntimeError> {
+        if !self.has_handler(handler) {
+            return Err(ExtensionRuntimeError::MissingHandler(
+                handler.to_string(),
+            ));
+        }
         self.state.set_invocation(invocation);
         let result = (|| {
             let function =
@@ -391,24 +418,33 @@ fn install_api(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<()> {
     let get_state = state.clone();
     storage.set(
         "get",
-        lua.create_function(move |lua, ()| {
-            response_to_lua(lua, get_state.request(HostRequest::StorageGet)?)
+        lua.create_function(move |lua, key: Option<String>| {
+            response_to_lua(
+                lua,
+                get_state.request(HostRequest::StorageGet(key))?,
+            )
         })?,
     )?;
     let set_state = state.clone();
     storage.set(
         "set",
-        lua.create_function(move |_, value: Value| {
+        lua.create_function(move |_, (key, value): (String, Value)| {
+            if key.trim().is_empty() {
+                return Err(mlua::Error::runtime(
+                    "storage key must not be empty",
+                ));
+            }
             let value = value_to_json(&value)?;
-            let _ = set_state.request(HostRequest::StorageSet(value))?;
+            let _ =
+                set_state.request(HostRequest::StorageSet { key, value })?;
             Ok(())
         })?,
     )?;
     let delete_state = state.clone();
     storage.set(
         "delete",
-        lua.create_function(move |_, ()| {
-            let _ = delete_state.request(HostRequest::StorageDelete)?;
+        lua.create_function(move |_, key: Option<String>| {
+            let _ = delete_state.request(HostRequest::StorageDelete(key))?;
             Ok(())
         })?,
     )?;
@@ -529,6 +565,8 @@ impl UserData for LuaRepository {
                 repository.state.request(HostRequest::Repository {
                     tab_id: repository.snapshot.tab_id,
                     operation: RepositoryOperation::Status,
+                    expected_branch: repository.snapshot.branch.clone(),
+                    expected_head: repository.snapshot.head.clone(),
                 })?,
             )
         });
@@ -565,6 +603,8 @@ impl UserData for LuaRepository {
                             label,
                             timeout_seconds,
                         },
+                        expected_branch: repository.snapshot.branch.clone(),
+                        expected_head: repository.snapshot.head.clone(),
                     })?,
                 )
             },
@@ -575,6 +615,8 @@ impl UserData for LuaRepository {
                 repository.state.request(HostRequest::Repository {
                     tab_id: repository.snapshot.tab_id,
                     operation: RepositoryOperation::PullRebase,
+                    expected_branch: repository.snapshot.branch.clone(),
+                    expected_head: repository.snapshot.head.clone(),
                 })?,
             )
         });
@@ -592,6 +634,8 @@ impl UserData for LuaRepository {
                     repository.state.request(HostRequest::Repository {
                         tab_id: repository.snapshot.tab_id,
                         operation: RepositoryOperation::Push { remote, branch },
+                        expected_branch: repository.snapshot.branch.clone(),
+                        expected_head: repository.snapshot.head.clone(),
                     })?,
                 )
             },
@@ -607,6 +651,8 @@ impl UserData for LuaRepository {
                     repository.state.request(HostRequest::Repository {
                         tab_id: repository.snapshot.tab_id,
                         operation: RepositoryOperation::AgentCommit { hint },
+                        expected_branch: repository.snapshot.branch.clone(),
+                        expected_head: repository.snapshot.head.clone(),
                     })?,
                 )
             },
@@ -617,6 +663,8 @@ impl UserData for LuaRepository {
                 repository.state.request(HostRequest::Repository {
                     tab_id: repository.snapshot.tab_id,
                     operation: RepositoryOperation::AgentMerge { source },
+                    expected_branch: repository.snapshot.branch.clone(),
+                    expected_head: repository.snapshot.head.clone(),
                 })?,
             )
         });
@@ -628,6 +676,8 @@ impl UserData for LuaRepository {
                     repository.state.request(HostRequest::Repository {
                         tab_id: repository.snapshot.tab_id,
                         operation: RepositoryOperation::AgentRebase { source },
+                        expected_branch: repository.snapshot.branch.clone(),
+                        expected_head: repository.snapshot.head.clone(),
                     })?,
                 )
             },
@@ -638,6 +688,8 @@ impl UserData for LuaRepository {
                 repository.state.request(HostRequest::Repository {
                     tab_id: repository.snapshot.tab_id,
                     operation: RepositoryOperation::ResolveMerge,
+                    expected_branch: repository.snapshot.branch.clone(),
+                    expected_head: repository.snapshot.head.clone(),
                 })?,
             )
         });
@@ -647,6 +699,8 @@ impl UserData for LuaRepository {
                 repository.state.request(HostRequest::Repository {
                     tab_id: repository.snapshot.tab_id,
                     operation: RepositoryOperation::ResolveRebase,
+                    expected_branch: repository.snapshot.branch.clone(),
+                    expected_head: repository.snapshot.head.clone(),
                 })?,
             )
         });

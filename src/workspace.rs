@@ -11,6 +11,8 @@ mod agent_merge;
 mod agent_profiles;
 mod agent_rebase;
 mod app_menu;
+mod extension_runtime;
+mod extensions;
 mod focus_refresh;
 mod persistence;
 mod preferences;
@@ -22,6 +24,8 @@ mod window_state;
 
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
 use gpui::prelude::*;
@@ -34,9 +38,14 @@ use gpui_component::{
 
 use crate::core::config::{self, AppConfig, UiState};
 use crate::core::i18n::{self, Locale};
+use crate::extension::{
+    ExtensionDefinition, ExtensionEvent, ExtensionHost, ExtensionManager,
+    HostBridge, HostEvent, discover_definitions,
+};
 
 use self::agent_lifecycle::PendingWorkspaceClose;
 use self::app_menu::{AppMenu, AppMenuEvent};
+use self::extensions::ExtensionsPanel;
 use self::persistence::{
     installed_font_families, normalize_typography, normalized_path, repo_key,
     welcome_tab_key,
@@ -114,6 +123,12 @@ pub fn run(app: Application) {
             log::info!("[app_menu] routing global open settings action");
             update_active_workspace(cx, |workspace, cx| {
                 workspace.open_settings(cx)
+            });
+        });
+        cx.on_action(|_: &app_menu::OpenExtensions, cx| {
+            log::info!("[app_menu] routing global open extensions action");
+            update_active_workspace(cx, |workspace, cx| {
+                workspace.open_extensions(cx)
             });
         });
         app_menu::install_native_menu(i18n::resolve(&config.language), cx);
@@ -200,6 +215,14 @@ pub struct Workspace {
     app_menu: Entity<AppMenu>,
     config: AppConfig,
     settings_panel: Entity<SettingsPanel>,
+    extensions_panel: Entity<ExtensionsPanel>,
+    extension_host: HostBridge,
+    extension_manager: Option<ExtensionManager>,
+    extension_events: Receiver<ExtensionEvent>,
+    host_events: Receiver<HostEvent>,
+    extension_definitions: Vec<ExtensionDefinition>,
+    show_extensions: bool,
+    last_extension_tick: chrono::DateTime<chrono::Local>,
     ui_state: UiState,
     locale: Locale,
     config_saver: config::ConfigSaveQueue,
@@ -215,7 +238,7 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn new(
-        config: AppConfig,
+        mut config: AppConfig,
         ui_state: UiState,
         font_families: Vec<String>,
         window: &mut Window,
@@ -235,6 +258,57 @@ impl Workspace {
             cx.new(|_cx| AppMenu::new(locale, config.recent_repos.clone()));
         let settings_panel =
             cx.new(|cx| SettingsPanel::new(&config, font_families, window, cx));
+        let extension_definitions = discover_definitions();
+        for definition in &extension_definitions {
+            let id = definition.package.manifest.id.clone();
+            let entry = config.extensions.entry(id).or_insert_with(|| {
+                let mut settings =
+                    crate::core::extension::ExtensionSettings::with_defaults(
+                        &definition.package.manifest,
+                    );
+                // Bundled packages are reviewed with the application and do
+                // not need a second trust prompt; they remain disabled.
+                settings.trusted = definition.package.bundled;
+                settings
+            });
+            *entry = entry.normalized_for(&definition.package.manifest);
+            entry.last_seen_fingerprint =
+                Some(definition.package.fingerprint.clone());
+        }
+        let (extension_host, host_events) =
+            HostBridge::new(config.agent.clone());
+        let extension_host_for_manager: Arc<dyn ExtensionHost> =
+            Arc::new(extension_host.clone());
+        let (extension_manager, extension_events) = match ExtensionManager::new(
+            extension_definitions.clone(),
+            extension_host_for_manager,
+        ) {
+            Ok((manager, events)) => (Some(manager), events),
+            Err(error) => {
+                log::error!("[extensions] failed to start runtime: {error}");
+                let (_tx, events) = std::sync::mpsc::channel();
+                (None, events)
+            }
+        };
+        let extensions_panel = cx.new(|cx| {
+            ExtensionsPanel::new(
+                extension_definitions.clone(),
+                &config,
+                locale,
+                window,
+                cx,
+            )
+        });
+
+        let extensions_panel_for_events = extensions_panel.clone();
+        cx.subscribe_in(
+            &extensions_panel_for_events,
+            window,
+            |workspace, _panel, event, _window, cx| {
+                workspace.handle_extensions_panel_event(event, cx);
+            },
+        )
+        .detach();
 
         let app_menu_for_events = app_menu.clone();
         cx.subscribe_in(
@@ -374,6 +448,14 @@ impl Workspace {
             app_menu,
             config,
             settings_panel,
+            extensions_panel,
+            extension_host,
+            extension_manager,
+            extension_events,
+            host_events,
+            extension_definitions,
+            show_extensions: false,
+            last_extension_tick: chrono::Local::now(),
             ui_state,
             locale,
             config_saver,
@@ -401,6 +483,8 @@ impl Workspace {
         }
         workspace.restoring = false;
         workspace.refresh_tab_bar(cx);
+        workspace.sync_extension_repositories(cx);
+        workspace.start_extension_polling(cx);
         workspace.persist_config();
         cx.observe_window_bounds(window, |workspace, window, _cx| {
             window_state::update_ui_state_window(
@@ -924,6 +1008,16 @@ impl Workspace {
         self.open_settings(cx);
     }
 
+    fn handle_open_extensions(
+        &mut self,
+        _: &app_menu::OpenExtensions,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        log::info!("[app_menu] open extensions action");
+        self.open_extensions(cx);
+    }
+
     fn handle_open_about(
         &mut self,
         _: &app_menu::OpenAbout,
@@ -1071,11 +1165,15 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::handle_open_repository))
             .on_action(cx.listener(Self::handle_new_tab))
             .on_action(cx.listener(Self::handle_open_settings))
+            .on_action(cx.listener(Self::handle_open_extensions))
             .on_action(cx.listener(Self::handle_open_about))
             .child(self.title_bar(window, cx))
             .child(content)
             .when(self.show_settings, |element| {
                 element.child(self.settings_overlay())
+            })
+            .when(self.show_extensions, |element| {
+                element.child(self.extensions_overlay(cx))
             })
             .when(self.pending_close.is_some(), |element| {
                 element.child(self.close_confirmation_overlay(cx))
@@ -1095,6 +1193,18 @@ impl Workspace {
 
     fn settings_overlay(&self) -> impl IntoElement {
         self.settings_panel.clone()
+    }
+
+    fn extensions_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .id("extensions-overlay")
+            .absolute()
+            .top_0()
+            .left_0()
+            .w_full()
+            .h_full()
+            .bg(cx.theme().colors.background.opacity(0.95))
+            .child(self.extensions_panel.clone())
     }
 
     fn empty_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {

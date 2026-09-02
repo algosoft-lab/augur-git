@@ -13,7 +13,14 @@ use crate::core::i18n;
 
 gpui::actions!(
     augur_git,
-    [OpenRepository, NewTab, OpenSettings, OpenAbout, Quit,]
+    [
+        OpenRepository,
+        NewTab,
+        OpenSettings,
+        OpenExtensions,
+        OpenAbout,
+        Quit,
+    ]
 );
 
 #[derive(Clone, Debug)]
@@ -105,6 +112,10 @@ impl Render for AppMenu {
                         i18n::text(locale, "menu-settings"),
                         Box::new(OpenSettings),
                     )
+                    .menu(
+                        i18n::text(locale, "menu-extensions"),
+                        Box::new(OpenExtensions),
+                    )
                 });
 
                 let help_menu = PopupMenu::build(window, cx, move |menu, _, _| {
@@ -159,6 +170,7 @@ pub(crate) fn install_native_menu(locale: i18n::Locale, cx: &mut App) {
     menus.push(Menu::new(i18n::text(locale, "menu-file")).items(file_items));
     menus.push(Menu::new(i18n::text(locale, "menu-edit")).items([
         MenuItem::action(i18n::text(locale, "menu-settings"), OpenSettings),
+        MenuItem::action(i18n::text(locale, "menu-extensions"), OpenExtensions),
     ]));
     menus.push(Menu::new(i18n::text(locale, "menu-help")).items([
         MenuItem::action(i18n::text(locale, "menu-about"), OpenAbout),

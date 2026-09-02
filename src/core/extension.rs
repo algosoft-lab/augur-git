@@ -668,19 +668,19 @@ impl ExtensionSettings {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ExtensionRunTrigger {
     Manual,
     Schedule { trigger_id: String },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum RepositoryRunResult {
     Success { summary: String },
     Failed { code: String, summary: String },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ExtensionRunRecord {
     pub run_id: u64,
     pub trigger: ExtensionRunTrigger,
@@ -690,7 +690,7 @@ pub struct ExtensionRunRecord {
     pub summary: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RepositoryRunRecord {
     pub display_name: String,
     pub result: RepositoryRunResult,

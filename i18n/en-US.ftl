@@ -19,6 +19,7 @@ menu-recent-repositories = Recent Repositories
 menu-no-recent-repositories = No Recent Repositories
 menu-edit = Edit
 menu-settings = Settings
+menu-extensions = Extensions
 menu-help = Help
 menu-about = About Augur Git
 menu-quit = Quit

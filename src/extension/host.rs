@@ -1,0 +1,1012 @@
+//! Concrete host bridge for the Lua extension runtime.
+//!
+//! The bridge owns no GPUI entities. Workspace refreshes its immutable tab
+//! registry and drains `HostEvent`s on the UI thread; Git and Agent work is
+//! performed on the extension request thread with structured process args.
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use chrono::{Local, Utc};
+use serde_json::{Map, Value as JsonValue};
+
+use crate::agent::{
+    AgentLaunchSpec, AgentOperation, AgentOperationChallenge, AgentSettings,
+};
+use crate::core::build_info;
+use crate::core::git::automation;
+
+use super::api::{
+    AgentPromptOptions, AgentRequest, ExtensionHost, ExtensionHostRequest,
+    HostRequest, HostResponse, RepositoryOperation, RepositorySnapshot,
+};
+
+const DEFAULT_AGENT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const POLL_INTERVAL: Duration = Duration::from_millis(25);
+const MAX_AGENT_TRANSCRIPT_BYTES: usize = 1024 * 1024;
+
+/// UI-facing events emitted by host calls.
+#[derive(Clone, Debug)]
+pub enum HostEvent {
+    Log {
+        extension_id: String,
+        level: String,
+        message: String,
+        fields: JsonValue,
+    },
+    Notify {
+        extension_id: String,
+        level: String,
+        title: String,
+        body: String,
+    },
+    RepositoryChanged {
+        tab_id: u64,
+    },
+}
+
+#[derive(Clone)]
+struct RepositoryEntry {
+    snapshot: RepositorySnapshot,
+}
+
+struct HostState {
+    repositories: BTreeMap<u64, RepositoryEntry>,
+    /// A repository can be owned by at most one extension invocation. This
+    /// prevents two queued extensions from interleaving Git mutations.
+    owners: HashMap<u64, (String, u64)>,
+    run_identities: HashMap<(String, u64, u64), (String, Option<String>)>,
+}
+
+/// Thread-safe host implementation shared by all extension workers.
+#[derive(Clone)]
+pub struct HostBridge {
+    state: Arc<Mutex<HostState>>,
+    event_tx: Sender<HostEvent>,
+    storage_root: PathBuf,
+    agent_settings: Arc<Mutex<AgentSettings>>,
+}
+
+impl HostBridge {
+    pub fn new(agent_settings: AgentSettings) -> (Self, Receiver<HostEvent>) {
+        let (event_tx, event_rx) = mpsc::channel();
+        let storage_root = dirs::data_local_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("augur-git")
+            .join("extension-data");
+        (
+            Self {
+                state: Arc::new(Mutex::new(HostState {
+                    repositories: BTreeMap::new(),
+                    owners: HashMap::new(),
+                    run_identities: HashMap::new(),
+                })),
+                event_tx,
+                storage_root,
+                agent_settings: Arc::new(Mutex::new(agent_settings)),
+            },
+            event_rx,
+        )
+    }
+
+    /// Replace the current tab snapshot. This is called from Workspace after
+    /// tab lifecycle/status events; no GPUI entity crosses the bridge.
+    pub fn set_repositories(&self, snapshots: Vec<RepositorySnapshot>) {
+        if let Ok(mut state) = self.state.lock() {
+            state.repositories = snapshots
+                .into_iter()
+                .map(|snapshot| (snapshot.tab_id, RepositoryEntry { snapshot }))
+                .collect();
+        }
+    }
+
+    pub fn set_agent_settings(&self, settings: AgentSettings) {
+        if let Ok(mut current) = self.agent_settings.lock() {
+            *current = settings;
+        }
+    }
+
+    fn snapshots(&self) -> Result<Vec<RepositorySnapshot>, String> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "extension host state is poisoned".to_string())?;
+        Ok(state
+            .repositories
+            .values()
+            .map(|entry| entry.snapshot.clone())
+            .collect())
+    }
+
+    fn repository(&self, tab_id: u64) -> Result<RepositorySnapshot, String> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "extension host state is poisoned".to_string())?;
+        state
+            .repositories
+            .get(&tab_id)
+            .map(|entry| entry.snapshot.clone())
+            .ok_or_else(|| "repository tab is no longer open".to_string())
+    }
+
+    fn check_owner(
+        &self,
+        tab_id: u64,
+        extension_id: &str,
+        run_id: u64,
+    ) -> Result<(), String> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "extension host state is poisoned".to_string())?;
+        match state.owners.get(&tab_id) {
+            Some(owner) if owner == &(extension_id.to_string(), run_id) => {
+                Ok(())
+            }
+            Some(_) => {
+                Err("repository is busy with another extension run".into())
+            }
+            None => Err("extension run does not own this repository".into()),
+        }
+    }
+
+    fn check_identity(
+        &self,
+        snapshot: &RepositorySnapshot,
+        expected_branch: &str,
+        expected_head: Option<&str>,
+    ) -> Result<automation::RepositoryState, HostResponse> {
+        let current = automation::capture(Path::new(&snapshot.path)).map_err(
+            |summary| HostResponse::Failure {
+                code: "status_failed".into(),
+                summary,
+            },
+        )?;
+        if current.branch != expected_branch {
+            return Err(HostResponse::Failure {
+                code: "branch_changed".into(),
+                summary: "repository branch changed since the trigger snapshot"
+                    .into(),
+            });
+        }
+        if current.head.as_deref() != expected_head {
+            return Err(HostResponse::Failure {
+                code: "head_changed".into(),
+                summary: "repository HEAD changed since the trigger snapshot"
+                    .into(),
+            });
+        }
+        Ok(current)
+    }
+
+    fn run_identity(
+        &self,
+        extension_id: &str,
+        run_id: u64,
+        tab_id: u64,
+        fallback_branch: &str,
+        fallback_head: Option<&str>,
+    ) -> Result<(String, Option<String>), String> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "extension host state is poisoned".to_string())?;
+        Ok(state
+            .run_identities
+            .get(&(extension_id.to_string(), run_id, tab_id))
+            .cloned()
+            .unwrap_or_else(|| {
+                (
+                    fallback_branch.to_string(),
+                    fallback_head.map(ToString::to_string),
+                )
+            }))
+    }
+
+    fn update_run_identity(
+        &self,
+        extension_id: &str,
+        run_id: u64,
+        tab_id: u64,
+        state_after: &automation::RepositoryState,
+    ) {
+        if let Ok(mut state) = self.state.lock() {
+            state.run_identities.insert(
+                (extension_id.to_string(), run_id, tab_id),
+                (state_after.branch.clone(), state_after.head.clone()),
+            );
+        }
+    }
+
+    fn handle_repository(
+        &self,
+        request: &ExtensionHostRequest,
+        tab_id: u64,
+        operation: RepositoryOperation,
+        expected_branch: String,
+        expected_head: Option<String>,
+    ) -> Result<HostResponse, String> {
+        let snapshot = match self.repository(tab_id) {
+            Ok(snapshot) => snapshot,
+            Err(summary) => {
+                return Ok(HostResponse::Failure {
+                    code: "tab_closed".into(),
+                    summary,
+                });
+            }
+        };
+        if matches!(operation, RepositoryOperation::Status) {
+            return Ok(self.status_response(&snapshot));
+        }
+        self.check_owner(tab_id, &request.extension_id, request.run_id)
+            .map_err(|summary| summary)?;
+        let (identity_branch, identity_head) = self.run_identity(
+            &request.extension_id,
+            request.run_id,
+            tab_id,
+            &expected_branch,
+            expected_head.as_deref(),
+        )?;
+        let current = match self.check_identity(
+            &snapshot,
+            &identity_branch,
+            identity_head.as_deref(),
+        ) {
+            Ok(current) => current,
+            Err(response) => return Ok(response),
+        };
+        let path = Path::new(&snapshot.path);
+        let cancelled = request.cancelled.as_ref();
+        let response = match operation {
+            RepositoryOperation::Status => unreachable!(),
+            RepositoryOperation::Git {
+                args,
+                label: _,
+                timeout_seconds,
+            } => {
+                let result = automation::run(
+                    path,
+                    &args,
+                    Some(Duration::from_secs(
+                        timeout_seconds.clamp(1, 30 * 60),
+                    )),
+                    cancelled,
+                );
+                self.command_response(tab_id, result)
+            }
+            RepositoryOperation::PullRebase => {
+                let result = automation::pull_rebase(path, cancelled)?;
+                self.command_response(tab_id, result)
+            }
+            RepositoryOperation::Push { remote, branch } => {
+                let result = automation::push(
+                    path,
+                    remote.as_deref(),
+                    branch.as_deref(),
+                    cancelled,
+                )?;
+                self.command_response(tab_id, result)
+            }
+            RepositoryOperation::AgentCommit { hint } => {
+                self.agent_commit(path, &current, hint.as_deref(), cancelled)?
+            }
+            RepositoryOperation::AgentMerge { source } => {
+                let target = match resolve_commit(path, &source) {
+                    Ok(target) => target,
+                    Err(summary) => {
+                        return Ok(HostResponse::Failure {
+                            code: "invalid_source".into(),
+                            summary,
+                        });
+                    }
+                };
+                self.agent_merge(path, &current, &target, cancelled)?
+            }
+            RepositoryOperation::AgentRebase { source } => {
+                let upstream = match resolve_commit(path, &source) {
+                    Ok(upstream) => upstream,
+                    Err(summary) => {
+                        return Ok(HostResponse::Failure {
+                            code: "invalid_source".into(),
+                            summary,
+                        });
+                    }
+                };
+                self.agent_rebase(path, &current, &upstream, cancelled)?
+            }
+            RepositoryOperation::ResolveMerge => {
+                self.agent_resolve_merge(path, &current, cancelled)?
+            }
+            RepositoryOperation::ResolveRebase => {
+                self.agent_resolve_rebase(path, &current, cancelled)?
+            }
+        };
+        let _ = self.event_tx.send(HostEvent::RepositoryChanged { tab_id });
+        if let Ok(after) = automation::capture(path) {
+            self.update_run_identity(
+                &request.extension_id,
+                request.run_id,
+                tab_id,
+                &after,
+            );
+        }
+        Ok(response)
+    }
+
+    fn status_response(&self, snapshot: &RepositorySnapshot) -> HostResponse {
+        match automation::capture(Path::new(&snapshot.path)) {
+            Ok(state) => json_response(
+                serde_json::to_value(state).unwrap_or_else(|_| JsonValue::Null),
+            ),
+            Err(summary) => HostResponse::Failure {
+                code: "status_failed".into(),
+                summary,
+            },
+        }
+    }
+
+    fn command_response(
+        &self,
+        _tab_id: u64,
+        result: automation::CommandResult,
+    ) -> HostResponse {
+        let mut value =
+            serde_json::to_value(&result).unwrap_or_else(|_| JsonValue::Null);
+        if let JsonValue::Object(object) = &mut value {
+            if !result.ok && !result.cancelled && !result.timed_out {
+                if result.stderr.contains("CONFLICT")
+                    || result.summary.to_ascii_lowercase().contains("conflict")
+                {
+                    object.insert(
+                        "code".into(),
+                        JsonValue::String("conflict".into()),
+                    );
+                }
+            }
+            object.insert("ok".into(), JsonValue::Bool(result.ok));
+        }
+        json_response(value)
+    }
+
+    fn agent_commit(
+        &self,
+        path: &Path,
+        before: &automation::RepositoryState,
+        hint: Option<&str>,
+        cancelled: &AtomicBool,
+    ) -> Result<HostResponse, String> {
+        let operation = AgentOperation::Commit;
+        let challenge = AgentOperationChallenge::new();
+        let prompt = operation
+            .prompt_with_challenge(hint, &challenge)
+            .map_err(|error| error.to_string())?;
+        let result =
+            self.run_agent(path, &prompt, DEFAULT_AGENT_TIMEOUT, cancelled)?;
+        let after =
+            automation::capture(path).map_err(|error| error.to_string())?;
+        let verified = result.completed
+            && before.head != after.head
+            && !after.dirty
+            && !after.conflicts
+            && after.operation.is_none();
+        Ok(agent_response(
+            result,
+            verified,
+            "agent commit was not verified",
+        ))
+    }
+
+    fn agent_merge(
+        &self,
+        path: &Path,
+        before: &automation::RepositoryState,
+        target: &str,
+        cancelled: &AtomicBool,
+    ) -> Result<HostResponse, String> {
+        let operation = AgentOperation::Merge {
+            target_oid: target.to_string(),
+            baseline_head: before.head.clone(),
+        };
+        self.run_verified_operation(
+            path,
+            before,
+            operation,
+            cancelled,
+            |after| after.operation.is_none() && !after.conflicts,
+        )
+    }
+
+    fn agent_rebase(
+        &self,
+        path: &Path,
+        before: &automation::RepositoryState,
+        upstream: &str,
+        cancelled: &AtomicBool,
+    ) -> Result<HostResponse, String> {
+        let operation = AgentOperation::Rebase {
+            upstream_oid: upstream.to_string(),
+            baseline_head: before.head.clone(),
+        };
+        self.run_verified_operation(
+            path,
+            before,
+            operation,
+            cancelled,
+            |after| after.operation.is_none() && !after.conflicts,
+        )
+    }
+
+    fn agent_resolve_merge(
+        &self,
+        path: &Path,
+        before: &automation::RepositoryState,
+        cancelled: &AtomicBool,
+    ) -> Result<HostResponse, String> {
+        if before.operation.as_deref() != Some("merge") {
+            return Ok(HostResponse::Failure {
+                code: "not_in_merge".into(),
+                summary: "repository is not in a merge operation".into(),
+            });
+        }
+        let merge_head = resolve_marker(path, "MERGE_HEAD");
+        let operation = AgentOperation::ResolveMerge {
+            merge_head_oid: merge_head.unwrap_or_else(|| "unknown".into()),
+            baseline_head: before.head.clone(),
+        };
+        self.run_verified_operation(
+            path,
+            before,
+            operation,
+            cancelled,
+            |after| after.operation.is_none() && !after.conflicts,
+        )
+    }
+
+    fn agent_resolve_rebase(
+        &self,
+        path: &Path,
+        before: &automation::RepositoryState,
+        cancelled: &AtomicBool,
+    ) -> Result<HostResponse, String> {
+        if before.operation.as_deref() != Some("rebase") {
+            return Ok(HostResponse::Failure {
+                code: "not_in_rebase".into(),
+                summary: "repository is not in a rebase operation".into(),
+            });
+        }
+        let operation = AgentOperation::ResolveRebase {
+            rebase_head_oid: resolve_marker(path, "REBASE_HEAD"),
+            upstream_oid: None,
+            baseline_head: before.head.clone(),
+        };
+        self.run_verified_operation(
+            path,
+            before,
+            operation,
+            cancelled,
+            |after| after.operation.is_none() && !after.conflicts,
+        )
+    }
+
+    fn run_verified_operation(
+        &self,
+        path: &Path,
+        before: &automation::RepositoryState,
+        operation: AgentOperation,
+        cancelled: &AtomicBool,
+        verify: impl FnOnce(&automation::RepositoryState) -> bool,
+    ) -> Result<HostResponse, String> {
+        let challenge = AgentOperationChallenge::new();
+        let prompt = operation
+            .prompt_with_challenge(None, &challenge)
+            .map_err(|error| error.to_string())?;
+        let result =
+            self.run_agent(path, &prompt, DEFAULT_AGENT_TIMEOUT, cancelled)?;
+        let after =
+            automation::capture(path).map_err(|error| error.to_string())?;
+        let verified = result.completed && verify(&after);
+        let summary = if verified {
+            "agent operation completed and repository state was verified"
+        } else {
+            "agent operation was not verified"
+        };
+        let _ = before;
+        Ok(agent_response(result, verified, summary))
+    }
+
+    fn run_agent(
+        &self,
+        repository: &Path,
+        prompt: &str,
+        timeout: Duration,
+        cancelled: &AtomicBool,
+    ) -> Result<AgentResult, String> {
+        let settings = self
+            .agent_settings
+            .lock()
+            .map_err(|_| "agent settings are unavailable".to_string())?
+            .clone();
+        let profile_id = settings.default_profile_id();
+        let profile = settings.profile(&profile_id).ok_or_else(|| {
+            format!("configured Agent profile is unavailable: {profile_id}")
+        })?;
+        let overrides = settings.launch_overrides_for(&profile);
+        let spec = profile
+            .launch_spec_for_prompt_with_overrides(prompt, &overrides)
+            .map_err(|error| error.to_string())?;
+        run_agent_process(spec, Some(repository), timeout, cancelled)
+    }
+}
+
+impl ExtensionHost for HostBridge {
+    fn request(
+        &self,
+        request: ExtensionHostRequest,
+    ) -> Result<HostResponse, String> {
+        if request.cancelled.load(Ordering::Acquire) {
+            return Err("extension run cancelled".into());
+        }
+        let response = match request.request.clone() {
+            HostRequest::WorkspaceRepositoryTabs => json_response(
+                serde_json::to_value(self.snapshots()?)
+                    .map_err(|error| error.to_string())?,
+            ),
+            HostRequest::Repository {
+                tab_id,
+                operation,
+                expected_branch,
+                expected_head,
+            } => self.handle_repository(
+                &request,
+                tab_id,
+                operation,
+                expected_branch,
+                expected_head,
+            )?,
+            HostRequest::AgentPrompt(AgentRequest {
+                repository,
+                options:
+                    AgentPromptOptions {
+                        prompt,
+                        timeout_seconds,
+                    },
+            }) => {
+                let path = repository
+                    .map(|tab_id| {
+                        self.repository(tab_id).map(|snapshot| snapshot.path)
+                    })
+                    .transpose()?;
+                let result = self.run_agent(
+                    path.as_deref()
+                        .map(Path::new)
+                        .unwrap_or_else(|| Path::new(".")),
+                    &prompt,
+                    Duration::from_secs(timeout_seconds.clamp(1, 30 * 60)),
+                    request.cancelled.as_ref(),
+                )?;
+                json_response(
+                    serde_json::to_value(result)
+                        .map_err(|error| error.to_string())?,
+                )
+            }
+            HostRequest::TimeNow => json_response(serde_json::json!({
+                "unix_ms": Utc::now().timestamp_millis(),
+                "utc_rfc3339": Utc::now().to_rfc3339(),
+                "local_rfc3339": Local::now().to_rfc3339(),
+                "offset_seconds": Local::now().offset().local_minus_utc(),
+            })),
+            HostRequest::SystemInfo => json_response(serde_json::json!({
+                "app_name": build_info::APP_NAME,
+                "app_version": build_info::APP_VERSION,
+                "platform": std::env::consts::OS,
+                "architecture": std::env::consts::ARCH,
+                "locale": sys_locale::get_locale().unwrap_or_else(|| "en-US".into()),
+            })),
+            HostRequest::StorageGet(key) => {
+                self.storage_get(&request.extension_id, key)?
+            }
+            HostRequest::StorageSet { key, value } => {
+                self.storage_set(&request.extension_id, &key, value)?
+            }
+            HostRequest::StorageDelete(key) => {
+                self.storage_delete(&request.extension_id, key)?
+            }
+            HostRequest::Log {
+                level,
+                message,
+                fields,
+            } => {
+                let _ = self.event_tx.send(HostEvent::Log {
+                    extension_id: request.extension_id.clone(),
+                    level,
+                    message,
+                    fields,
+                });
+                json_response(serde_json::json!({ "ok": true }))
+            }
+            HostRequest::Notify { level, title, body } => {
+                let _ = self.event_tx.send(HostEvent::Notify {
+                    extension_id: request.extension_id.clone(),
+                    level,
+                    title,
+                    body,
+                });
+                json_response(serde_json::json!({ "ok": true }))
+            }
+        };
+        if request.cancelled.load(Ordering::Acquire) {
+            return Err("extension run cancelled".into());
+        }
+        Ok(response)
+    }
+
+    fn begin_run(
+        &self,
+        extension_id: &str,
+        run_id: u64,
+        repositories: &[RepositorySnapshot],
+    ) -> Result<(), String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "extension host state is poisoned".to_string())?;
+        let mut touched = HashSet::new();
+        for repository in repositories {
+            if !touched.insert(repository.tab_id) {
+                continue;
+            }
+            if !state.repositories.contains_key(&repository.tab_id) {
+                return Err("repository tab is no longer open".into());
+            }
+            if let Some(owner) = state.owners.get(&repository.tab_id) {
+                return Err(format!(
+                    "repository is already owned by extension run {}",
+                    owner.1
+                ));
+            }
+        }
+        for tab_id in touched {
+            state
+                .owners
+                .insert(tab_id, (extension_id.to_string(), run_id));
+            if let Some(path) = state
+                .repositories
+                .get(&tab_id)
+                .map(|repository| repository.snapshot.path.clone())
+            {
+                let captured = automation::capture(Path::new(&path)).map_err(
+                    |summary| {
+                        format!("failed to capture repository: {summary}")
+                    },
+                )?;
+                state.run_identities.insert(
+                    (extension_id.to_string(), run_id, tab_id),
+                    (captured.branch, captured.head),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn finish_run(&self, extension_id: &str, run_id: u64) {
+        if let Ok(mut state) = self.state.lock() {
+            state.owners.retain(|_, owner| {
+                owner != &(extension_id.to_string(), run_id)
+            });
+            state.run_identities.retain(|(id, current_run, _), _| {
+                id != extension_id || *current_run != run_id
+            });
+        }
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+struct AgentResult {
+    ok: bool,
+    completed: bool,
+    exit_code: Option<i32>,
+    cancelled: bool,
+    timed_out: bool,
+    summary: String,
+    transcript: String,
+}
+
+fn agent_response(
+    result: AgentResult,
+    verified: bool,
+    summary: &str,
+) -> HostResponse {
+    json_response(serde_json::json!({
+        "ok": verified,
+        "verified": verified,
+        "completed": result.completed,
+        "exit_code": result.exit_code,
+        "cancelled": result.cancelled,
+        "timed_out": result.timed_out,
+        "summary": if verified { summary } else { result.summary.as_str() },
+    }))
+}
+
+fn run_agent_process(
+    spec: AgentLaunchSpec,
+    cwd: Option<&Path>,
+    timeout: Duration,
+    cancelled: &AtomicBool,
+) -> Result<AgentResult, String> {
+    let mut command = std::process::Command::new(&spec.executable);
+    command
+        .args(&spec.args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("failed to start Agent: {error}"))?;
+    let started = Instant::now();
+    let mut was_cancelled = false;
+    let mut timed_out = false;
+    loop {
+        if cancelled.load(Ordering::Acquire) {
+            was_cancelled = true;
+            let _ = child.kill();
+            break;
+        }
+        if started.elapsed() >= timeout {
+            timed_out = true;
+            let _ = child.kill();
+            break;
+        }
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => thread::sleep(POLL_INTERVAL),
+            Err(error) => {
+                let _ = child.kill();
+                return Err(error.to_string());
+            }
+        }
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("failed to collect Agent output: {error}"))?;
+    let transcript = bounded_transcript(&output.stdout, &output.stderr);
+    let completed = transcript
+        .lines()
+        .any(|line| line.trim().starts_with("AUGUR_GIT_DONE:"));
+    let result = AgentResult {
+        ok: output.status.success()
+            && completed
+            && !was_cancelled
+            && !timed_out,
+        completed,
+        exit_code: output.status.code(),
+        cancelled: was_cancelled,
+        timed_out,
+        summary: if output.status.success() {
+            "Agent exited without a verified completion marker".into()
+        } else {
+            summarize_agent_output(
+                &output.stderr,
+                &output.stdout,
+                output.status.code(),
+            )
+        },
+        transcript,
+    };
+    log::info!(
+        "[agent_operation] extension Agent finished: ok={}, completed={}, code={:?}, cancelled={}, timed_out={}",
+        result.ok,
+        result.completed,
+        result.exit_code,
+        result.cancelled,
+        result.timed_out
+    );
+    Ok(result)
+}
+
+fn bounded_transcript(stdout: &[u8], stderr: &[u8]) -> String {
+    let mut bytes = Vec::with_capacity(
+        (stdout.len() + stderr.len()).min(MAX_AGENT_TRANSCRIPT_BYTES),
+    );
+    bytes.extend_from_slice(stdout);
+    if !stderr.is_empty() {
+        bytes.extend_from_slice(b"\n[stderr]\n");
+        bytes.extend_from_slice(stderr);
+    }
+    bytes.truncate(MAX_AGENT_TRANSCRIPT_BYTES);
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+fn summarize_agent_output(
+    stderr: &[u8],
+    stdout: &[u8],
+    code: Option<i32>,
+) -> String {
+    let bytes = if !stderr.is_empty() { stderr } else { stdout };
+    let output = String::from_utf8_lossy(bytes).trim().to_string();
+    if output.is_empty() {
+        code.map(|code| format!("Agent exited with status {code}"))
+            .unwrap_or_else(|| "Agent terminated unexpectedly".into())
+    } else {
+        output.chars().take(2000).collect()
+    }
+}
+
+fn resolve_commit(path: &Path, source: &str) -> Result<String, String> {
+    if source.trim().is_empty()
+        || source.starts_with('-')
+        || source.contains('\0')
+    {
+        return Err("invalid commit or branch reference".into());
+    }
+    let result = automation::run(
+        path,
+        &[
+            "rev-parse".into(),
+            "--verify".into(),
+            format!("{source}^{{commit}}"),
+        ],
+        Some(Duration::from_secs(30)),
+        &AtomicBool::new(false),
+    );
+    if !result.ok {
+        return Err(result.summary);
+    }
+    result
+        .stdout
+        .lines()
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .ok_or_else(|| "Git did not return a commit id".into())
+}
+
+fn resolve_marker(path: &Path, marker: &str) -> Option<String> {
+    let git_dir = automation::run(
+        path,
+        &["rev-parse".into(), "--git-path".into(), marker.into()],
+        Some(Duration::from_secs(30)),
+        &AtomicBool::new(false),
+    );
+    if !git_dir.ok {
+        return None;
+    }
+    fs::read_to_string(git_dir.stdout.trim())
+        .ok()
+        .map(|value| value.trim().to_string())
+}
+
+fn json_response(value: JsonValue) -> HostResponse {
+    HostResponse::Json(value)
+}
+
+impl HostBridge {
+    fn storage_path(&self, extension_id: &str) -> Result<PathBuf, String> {
+        validate_extension_id(extension_id)?;
+        Ok(self.storage_root.join(format!("{extension_id}.json")))
+    }
+
+    fn read_storage(
+        &self,
+        extension_id: &str,
+    ) -> Result<Map<String, JsonValue>, String> {
+        let path = self.storage_path(extension_id)?;
+        match fs::read_to_string(path) {
+            Ok(text) => serde_json::from_str(&text).map_err(|error| {
+                format!("extension storage is invalid: {error}")
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(Map::new())
+            }
+            Err(error) => {
+                Err(format!("failed to read extension storage: {error}"))
+            }
+        }
+    }
+
+    fn write_storage(
+        &self,
+        extension_id: &str,
+        storage: &Map<String, JsonValue>,
+    ) -> Result<(), String> {
+        let path = self.storage_path(extension_id)?;
+        fs::create_dir_all(&self.storage_root).map_err(|error| {
+            format!("failed to create extension storage: {error}")
+        })?;
+        let text = serde_json::to_string_pretty(storage).map_err(|error| {
+            format!("failed to encode extension storage: {error}")
+        })?;
+        let temp =
+            path.with_extension(format!("json.tmp-{}", std::process::id()));
+        fs::write(&temp, text).map_err(|error| {
+            format!("failed to write extension storage: {error}")
+        })?;
+        fs::rename(&temp, &path).map_err(|error| {
+            let _ = fs::remove_file(&temp);
+            format!("failed to replace extension storage: {error}")
+        })
+    }
+
+    fn storage_get(
+        &self,
+        extension_id: &str,
+        key: Option<String>,
+    ) -> Result<HostResponse, String> {
+        let storage = self.read_storage(extension_id)?;
+        let value = match key {
+            Some(key) => storage.get(&key).cloned().unwrap_or(JsonValue::Null),
+            None => JsonValue::Object(storage),
+        };
+        Ok(json_response(value))
+    }
+
+    fn storage_set(
+        &self,
+        extension_id: &str,
+        key: &str,
+        value: JsonValue,
+    ) -> Result<HostResponse, String> {
+        validate_storage_key(key)?;
+        let mut storage = self.read_storage(extension_id)?;
+        storage.insert(key.to_string(), value);
+        self.write_storage(extension_id, &storage)?;
+        Ok(json_response(serde_json::json!({ "ok": true })))
+    }
+
+    fn storage_delete(
+        &self,
+        extension_id: &str,
+        key: Option<String>,
+    ) -> Result<HostResponse, String> {
+        let mut storage = self.read_storage(extension_id)?;
+        if let Some(key) = key {
+            validate_storage_key(&key)?;
+            storage.remove(&key);
+        } else {
+            storage.clear();
+        }
+        self.write_storage(extension_id, &storage)?;
+        Ok(json_response(serde_json::json!({ "ok": true })))
+    }
+}
+
+fn validate_extension_id(id: &str) -> Result<(), String> {
+    if id.is_empty()
+        || id.len() > 64
+        || !id.bytes().all(|byte| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || matches!(byte, b'.' | b'_' | b'-')
+        })
+        || !id.as_bytes()[0].is_ascii_alphanumeric()
+    {
+        return Err("invalid extension id".into());
+    }
+    Ok(())
+}
+
+fn validate_storage_key(key: &str) -> Result<(), String> {
+    if key.trim().is_empty() || key.chars().any(char::is_control) {
+        return Err(
+            "storage key must not be empty or contain control characters"
+                .into(),
+        );
+    }
+    Ok(())
+}
