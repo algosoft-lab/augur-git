@@ -522,10 +522,32 @@ fn create_context(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<Table> {
         invocation.scheduled_at.map(|value| value.to_rfc3339()),
     )?;
     context.set("started_at", invocation.started_at.to_rfc3339())?;
-    let settings = lua.create_table()?;
+    let setting_values = lua.create_table()?;
     for (key, value) in &invocation.settings {
-        settings.set(key.as_str(), setting_to_lua(lua, value)?)?;
+        setting_values.set(key.as_str(), setting_to_lua(lua, value)?)?;
     }
+    let settings = lua.create_table()?;
+    let read_only = lua.create_table()?;
+    let pairs_values = setting_values.clone();
+    read_only.set("__index", setting_values)?;
+    read_only.set(
+        "__pairs",
+        lua.create_function(move |lua, _table: Table| {
+            let next: Function = lua.globals().get("next")?;
+            Ok((next, pairs_values.clone(), Value::Nil))
+        })?,
+    )?;
+    read_only.set(
+        "__newindex",
+        lua.create_function(
+            |_,
+             (_table, _key, _value): (Table, Value, Value)|
+             -> mlua::Result<()> {
+                Err(mlua::Error::runtime("extension settings are read-only"))
+            },
+        )?,
+    )?;
+    settings.set_metatable(Some(read_only))?;
     context.set("settings", settings)?;
     let repositories = lua.create_table()?;
     for (index, snapshot) in invocation.repositories.iter().enumerate() {
@@ -892,13 +914,15 @@ mod tests {
     }
 
     fn invocation() -> ExtensionInvocation {
+        let mut settings = BTreeMap::new();
+        settings.insert("answer".into(), SettingValue::Integer(7));
         ExtensionInvocation {
             extension_id: "test-extension".into(),
             run_id: 1,
             trigger: ExtensionTrigger::Manual,
             scheduled_at: None,
             started_at: Local::now(),
-            settings: BTreeMap::new(),
+            settings,
             repositories: Vec::new(),
             cancelled: Arc::new(AtomicBool::new(false)),
         }
@@ -915,6 +939,14 @@ mod tests {
                     on_run = function(ctx)
                         local _ = os.date("!*t")
                         local _ = io.type(io.tmpfile())
+                        assert(ctx.settings.answer == 7)
+                        local count = 0
+                        for key, value in pairs(ctx.settings) do
+                            if key == "answer" and value == 7 then count = count + 1 end
+                        end
+                        assert(count == 1)
+                        local writable = pcall(function() ctx.settings.answer = 8 end)
+                        assert(not writable)
                         augur.log("info", "hello", {run_id = ctx.run_id})
                         return {ok = true, value = 7}
                     end

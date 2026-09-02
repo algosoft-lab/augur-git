@@ -4,7 +4,7 @@
 //! schedule calculations, package identity, and run summaries can therefore
 //! be tested without starting the application.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -229,6 +229,15 @@ impl ExtensionManifest {
                 "name and description must not be empty".to_string(),
             ));
         }
+        if self
+            .manual_handler
+            .as_deref()
+            .is_some_and(|handler| handler.trim().is_empty())
+        {
+            return Err(ExtensionError::InvalidManifest(
+                "manual handler must not be empty".to_string(),
+            ));
+        }
         for (key, definition) in &self.settings {
             if key.trim().is_empty() || key.contains('.') {
                 return Err(ExtensionError::InvalidManifest(format!(
@@ -243,6 +252,7 @@ impl ExtensionManifest {
                     ))
                 })?;
         }
+        let mut trigger_ids = HashSet::new();
         for trigger in &self.daily {
             if trigger.id.trim().is_empty() || trigger.handler.trim().is_empty()
             {
@@ -250,6 +260,12 @@ impl ExtensionManifest {
                     "daily trigger id and handler must not be empty"
                         .to_string(),
                 ));
+            }
+            if !trigger_ids.insert(&trigger.id) {
+                return Err(ExtensionError::InvalidManifest(format!(
+                    "duplicate daily trigger id: {}",
+                    trigger.id
+                )));
             }
             if !matches!(
                 self.settings.get(&trigger.time_setting),
@@ -850,6 +866,38 @@ handler = "on_schedule"
         )
         .unwrap_err();
         assert!(matches!(error, ExtensionError::InvalidManifest(_)));
+    }
+
+    #[test]
+    fn rejects_empty_or_duplicate_handlers() {
+        let empty = ExtensionManifest::parse(
+            r#"id="example" version="1.0.0" api_version=1 name="x" description="x" manual_handler="""#,
+        )
+        .unwrap_err();
+        assert!(matches!(empty, ExtensionError::InvalidManifest(_)));
+        let duplicate = ExtensionManifest::parse(
+            r#"
+id = "example"
+version = "1.0.0"
+api_version = 1
+name = "x"
+description = "x"
+[settings.when]
+type = "time"
+label = "When"
+default = "02:00"
+[[daily]]
+id = "same"
+time_setting = "when"
+handler = "run"
+[[daily]]
+id = "same"
+time_setting = "when"
+handler = "run"
+"#,
+        )
+        .unwrap_err();
+        assert!(matches!(duplicate, ExtensionError::InvalidManifest(_)));
     }
 
     #[test]

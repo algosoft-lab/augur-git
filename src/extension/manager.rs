@@ -53,6 +53,7 @@ pub enum ExtensionEvent {
         record: ExtensionRunRecord,
         error: Option<String>,
     },
+    #[allow(dead_code)]
     WorkerError {
         extension_id: String,
         summary: String,
@@ -155,6 +156,7 @@ impl ExtensionManager {
         ))
     }
 
+    #[allow(dead_code)]
     pub fn definitions(&self) -> Vec<ExtensionDefinition> {
         self.definitions
             .lock()
@@ -286,6 +288,7 @@ impl ExtensionManager {
 
     /// Request cancellation at the next Lua instruction or host-operation
     /// boundary. Running Git subprocesses are terminated by the host bridge.
+    #[allow(dead_code)]
     pub fn cancel(&self, run_id: u64) -> bool {
         self.cancellations
             .lock()
