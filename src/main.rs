@@ -5,13 +5,10 @@ mod agent;
 mod core;
 mod extension;
 mod git;
+mod logging;
 mod terminal;
 mod theme;
 mod workspace;
-
-use std::backtrace::Backtrace;
-use std::fs::OpenOptions;
-use std::io::{self, Write};
 
 use gpui::{AssetSource, SharedString};
 
@@ -134,7 +131,7 @@ mod tests {
 
 fn main() {
     configure_windows_error_mode();
-    init_logging();
+    logging::init();
     log::info!("[app] starting augur-git");
 
     let app = gpui_platform::application().with_assets(AppAssets);
@@ -155,67 +152,3 @@ fn configure_windows_error_mode() {
 
 #[cfg(not(windows))]
 fn configure_windows_error_mode() {}
-
-/// Initialize file-only logging without making startup depend on log-file creation.
-fn init_logging() {
-    let mut builder = env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or(default_log_filter()),
-    );
-    builder
-        .target(env_logger::Target::Pipe(logging_writer()))
-        .write_style(env_logger::WriteStyle::Never);
-    let _ = builder.try_init();
-    install_panic_hook();
-}
-
-fn default_log_filter() -> &'static str {
-    #[cfg(debug_assertions)]
-    {
-        "warn"
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        "info"
-    }
-}
-
-fn install_panic_hook() {
-    std::panic::set_hook(Box::new(|panic_info| {
-        let backtrace = Backtrace::force_capture();
-        log::error!("[panic] {panic_info}\n{backtrace}");
-    }));
-}
-
-#[cfg(debug_assertions)]
-fn logging_writer() -> Box<dyn Write + Send> {
-    match OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("debug.log")
-    {
-        Ok(file) => Box::new(file),
-        Err(_) => Box::new(io::sink()),
-    }
-}
-
-#[cfg(not(debug_assertions))]
-fn logging_writer() -> Box<dyn Write + Send> {
-    let Some(log_directory) = dirs::data_local_dir()
-        .map(|directory| directory.join("augur-git").join("logs"))
-    else {
-        return Box::new(io::sink());
-    };
-
-    if std::fs::create_dir_all(&log_directory).is_err() {
-        return Box::new(io::sink());
-    }
-
-    match OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_directory.join("augur-git.log"))
-    {
-        Ok(file) => Box::new(file),
-        Err(_) => Box::new(io::sink()),
-    }
-}
