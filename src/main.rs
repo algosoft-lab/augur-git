@@ -3,6 +3,7 @@
 
 mod agent;
 mod core;
+mod dropdown;
 mod extension;
 mod git;
 mod logging;

@@ -12,10 +12,11 @@ use gpui_component::{
     ActiveTheme, Disableable, Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
     h_flex,
-    menu::{DropdownMenu, PopupMenuItem},
+    menu::PopupMenuItem,
 };
 
 use crate::core::i18n::{self, Locale};
+use crate::dropdown::DropdownMenuExt;
 use crate::git::{lucide, shared};
 
 /// Availability of Branch menu entries, synchronized from repository state.
@@ -204,7 +205,7 @@ impl Toolbar {
                     .text_size(crate::theme::scaled_text_size(12.))
                     .child(shared(label)),
             )
-            .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
+            .dropdown_menu_below(move |menu, _, _| {
                 let this = this.clone();
                 let new_item = this.clone();
                 let rename_item = this.clone();

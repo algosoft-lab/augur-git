@@ -5,11 +5,12 @@ use gpui::*;
 use gpui_component::{
     IconName,
     button::{Button, ButtonVariants},
-    menu::{DropdownMenu, PopupMenu, PopupMenuItem},
+    menu::{PopupMenu, PopupMenuItem},
 };
 use std::rc::Rc;
 
 use crate::core::i18n;
+use crate::dropdown::DropdownMenuExt;
 
 gpui::actions!(
     augur_git,
@@ -67,63 +68,76 @@ impl Render for AppMenu {
             .compact()
             .icon(IconName::Menu)
             .tooltip(i18n::text(locale, "menu-open"))
-            .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, window, cx| {
+            .dropdown_menu_below(move |menu, window, cx| {
                 let recent_repos = recent_repos.clone();
                 let app_menu = app_menu.clone();
-                let recent_menu = PopupMenu::build(window, cx, move |menu, _, _| {
-                    if recent_repos.is_empty() {
-                        return menu.item(PopupMenuItem::label(i18n::text(
-                            locale,
-                            "menu-no-recent-repositories",
-                        )));
-                    }
+                let recent_menu =
+                    PopupMenu::build(window, cx, move |menu, _, _| {
+                        if recent_repos.is_empty() {
+                            return menu.item(PopupMenuItem::label(
+                                i18n::text(
+                                    locale,
+                                    "menu-no-recent-repositories",
+                                ),
+                            ));
+                        }
 
-                    recent_repos.iter().fold(menu, |menu, path| {
-                        let path_for_event = path.clone();
-                        let app_menu = app_menu.clone();
-                        menu.item(PopupMenuItem::new(path.clone()).on_click(
-                            move |_event, _window, cx| {
-                                let _ = app_menu.update(cx, |_menu, cx| {
-                                    cx.emit(AppMenuEvent::OpenRecent(path_for_event.clone()));
-                                });
-                            },
+                        recent_repos.iter().fold(menu, |menu, path| {
+                            let path_for_event = path.clone();
+                            let app_menu = app_menu.clone();
+                            menu.item(
+                                PopupMenuItem::new(path.clone()).on_click(
+                                    move |_event, _window, cx| {
+                                        let _ =
+                                            app_menu.update(cx, |_menu, cx| {
+                                                cx.emit(
+                                                    AppMenuEvent::OpenRecent(
+                                                        path_for_event.clone(),
+                                                    ),
+                                                );
+                                            });
+                                    },
+                                ),
+                            )
+                        })
+                    });
+
+                let file_menu =
+                    PopupMenu::build(window, cx, move |menu, _, _| {
+                        menu.menu(
+                            i18n::text(locale, "menu-open-repository"),
+                            Box::new(OpenRepository),
+                        )
+                        .menu(
+                            i18n::text(locale, "menu-new-tab"),
+                            Box::new(NewTab),
+                        )
+                        .separator()
+                        .item(PopupMenuItem::submenu(
+                            i18n::text(locale, "menu-recent-repositories"),
+                            recent_menu.clone(),
                         ))
-                    })
-                });
+                    });
 
-                let file_menu = PopupMenu::build(window, cx, move |menu, _, _| {
-                    menu.menu(
-                        i18n::text(locale, "menu-open-repository"),
-                        Box::new(OpenRepository),
-                    )
-                    .menu(
-                        i18n::text(locale, "menu-new-tab"),
-                        Box::new(NewTab),
-                    )
-                    .separator()
-                    .item(PopupMenuItem::submenu(
-                        i18n::text(locale, "menu-recent-repositories"),
-                        recent_menu.clone(),
-                    ))
-                });
+                let edit_menu =
+                    PopupMenu::build(window, cx, move |menu, _, _| {
+                        menu.menu(
+                            i18n::text(locale, "menu-settings"),
+                            Box::new(OpenSettings),
+                        )
+                        .menu(
+                            i18n::text(locale, "menu-extensions"),
+                            Box::new(OpenExtensions),
+                        )
+                    });
 
-                let edit_menu = PopupMenu::build(window, cx, move |menu, _, _| {
-                    menu.menu(
-                        i18n::text(locale, "menu-settings"),
-                        Box::new(OpenSettings),
-                    )
-                    .menu(
-                        i18n::text(locale, "menu-extensions"),
-                        Box::new(OpenExtensions),
-                    )
-                });
-
-                let help_menu = PopupMenu::build(window, cx, move |menu, _, _| {
-                    menu.menu(
-                        i18n::text(locale, "menu-about"),
-                        Box::new(OpenAbout),
-                    )
-                });
+                let help_menu =
+                    PopupMenu::build(window, cx, move |menu, _, _| {
+                        menu.menu(
+                            i18n::text(locale, "menu-about"),
+                            Box::new(OpenAbout),
+                        )
+                    });
 
                 menu.item(PopupMenuItem::submenu(
                     i18n::text(locale, "menu-file"),

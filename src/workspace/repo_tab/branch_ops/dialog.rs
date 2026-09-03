@@ -6,13 +6,14 @@ use gpui_component::{
     checkbox::Checkbox,
     h_flex,
     input::{Input, InputState},
-    menu::{DropdownMenu, PopupMenuItem},
+    menu::PopupMenuItem,
     v_flex,
 };
 
 use super::super::RepoTab;
 use super::{PendingBranchDialog, args};
 use crate::core::i18n::{self, Locale};
+use crate::dropdown::DropdownMenuExt;
 use crate::git::shared;
 
 impl RepoTab {
@@ -481,7 +482,7 @@ fn source_selector(
         .small()
         .label(label)
         .icon(IconName::ChevronDown)
-        .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
+        .dropdown_menu_below(move |menu, _, _| {
             let menu_entity = menu_entity.clone();
             let selected = selected.clone();
             branches.iter().fold(menu, |menu, name| {
