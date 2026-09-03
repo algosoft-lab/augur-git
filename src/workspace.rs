@@ -16,6 +16,7 @@ mod extension_runtime;
 mod extensions;
 mod extensions_window;
 mod focus_refresh;
+mod keymap;
 mod persistence;
 mod preferences;
 mod repo_tab;
@@ -135,6 +136,9 @@ pub fn run(app: Application) {
                 workspace.open_extensions(cx)
             });
         });
+        // Bind user-customizable shortcuts before menus so native menu
+        // key equivalents (for example the macOS Cmd-Q item) are picked up.
+        keymap::install(cx);
         app_menu::install_native_menu(i18n::resolve(&config.language), cx);
 
         cx.activate(true);
@@ -365,6 +369,17 @@ impl Workspace {
                 }
                 SettingsPanelEvent::DiffFontSizeChanged(size) => {
                     workspace.set_diff_font_size(*size, cx);
+                }
+                SettingsPanelEvent::ShortcutChanged { command, keys } => {
+                    workspace.set_shortcut(
+                        command.clone(),
+                        keys.clone(),
+                        window,
+                        cx,
+                    );
+                }
+                SettingsPanelEvent::ShortcutReset(command) => {
+                    workspace.reset_shortcut(command.clone(), window, cx);
                 }
                 SettingsPanelEvent::AgentDefaultProfileChanged(profile_id) => {
                     workspace.set_agent_default_profile(profile_id.clone(), cx);

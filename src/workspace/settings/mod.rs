@@ -1,6 +1,7 @@
 mod agents;
 mod agents_view;
 mod options;
+mod shortcuts;
 
 use gpui::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -43,6 +44,11 @@ pub enum SettingsPanelEvent {
     MonoFontChanged(Option<String>),
     UiFontSizeChanged(f32),
     DiffFontSizeChanged(f32),
+    ShortcutChanged {
+        command: String,
+        keys: Vec<String>,
+    },
+    ShortcutReset(String),
     AgentDefaultProfileChanged(String),
     AgentExecutableOverrideChanged {
         agent: BuiltInAgent,
@@ -75,6 +81,7 @@ enum SettingsSection {
     General,
     Appearance,
     Layout,
+    Shortcuts,
     Agents,
 }
 
@@ -148,6 +155,8 @@ pub struct SettingsPanel {
         BuiltInAgent,
         Entity<SelectState<Vec<SettingsOption<Option<String>>>>>,
     )>,
+    shortcut_inputs: Vec<(String, Entity<InputState>)>,
+    shortcut_errors: HashMap<String, String>,
     agent_profile_editor: Option<Entity<AgentProfileEditor>>,
 }
 
@@ -349,6 +358,20 @@ impl SettingsPanel {
                 (agent, state)
             })
             .collect::<Vec<_>>();
+        let shortcut_inputs = super::keymap::COMMANDS
+            .iter()
+            .map(|spec| {
+                let command = spec.id.to_string();
+                let value = super::keymap::resolved_display(cx, &command);
+                let placeholder = super::keymap::default_display(cx, &command);
+                let input = cx.new(|cx| {
+                    InputState::new(window, cx)
+                        .default_value(value)
+                        .placeholder(placeholder)
+                });
+                (command, input)
+            })
+            .collect::<Vec<_>>();
 
         let mut panel = Self {
             locale,
@@ -384,6 +407,8 @@ impl SettingsPanel {
             agent_model_inputs,
             agent_variant_inputs,
             agent_reasoning_states,
+            shortcut_inputs,
+            shortcut_errors: HashMap::new(),
             agent_profile_editor: None,
         };
 
@@ -495,6 +520,7 @@ impl SettingsPanel {
         .detach();
 
         panel.wire_agent_subscriptions(cx);
+        panel.wire_shortcut_subscriptions(cx);
         panel
     }
 
@@ -821,6 +847,7 @@ impl SettingsPanel {
                         ))),
                 )
                 .into_any_element(),
+            SettingsSection::Shortcuts => self.render_shortcuts_section(cx),
             SettingsSection::Agents => self.render_agents_section(cx),
         }
     }
@@ -887,6 +914,12 @@ impl Render for SettingsPanel {
                         "settings-category-layout",
                         i18n::text(self.locale, "settings-layout"),
                         SettingsSection::Layout,
+                        cx,
+                    ))
+                    .child(self.category_button(
+                        "settings-category-shortcuts",
+                        i18n::text(self.locale, "settings-shortcuts"),
+                        SettingsSection::Shortcuts,
                         cx,
                     ))
                     .child(self.category_button(

@@ -470,6 +470,11 @@ pub fn ui_state_store_path() -> PathBuf {
     config_dir().join("ui-state.json")
 }
 
+/// User shortcut overrides merged on top of the compiled-in system defaults.
+pub fn keybindings_store_path() -> PathBuf {
+    config_dir().join("keybindings.json")
+}
+
 fn config_dir() -> PathBuf {
     let dir = dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -539,7 +544,10 @@ pub fn save_ui_state(state: &UiState) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn write_atomically(path: &std::path::Path, text: &str) -> anyhow::Result<()> {
+pub(crate) fn write_atomically(
+    path: &std::path::Path,
+    text: &str,
+) -> anyhow::Result<()> {
     static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
     let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
     let filename = path

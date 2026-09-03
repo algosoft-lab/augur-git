@@ -257,6 +257,46 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Override one command's shortcut keys: persists the user keybindings
+    /// file, rebinds immediately, and refreshes the native menu so key
+    /// equivalents stay in sync.
+    pub(super) fn set_shortcut(
+        &mut self,
+        command: String,
+        keys: Vec<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(error) = super::keymap::set_shortcut(cx, &command, keys) {
+            log::error!(
+                "[keymap] failed to persist shortcut {command}: {error}"
+            );
+        }
+        self.refresh_app_menu(cx);
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.sync_shortcuts(window, cx);
+        });
+    }
+
+    /// Remove one command's user override, restoring the compiled-in system
+    /// defaults.
+    pub(super) fn reset_shortcut(
+        &mut self,
+        command: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(error) = super::keymap::reset_shortcut(cx, &command) {
+            log::error!(
+                "[keymap] failed to persist shortcut reset for {command}: {error}"
+            );
+        }
+        self.refresh_app_menu(cx);
+        self.settings_panel.update(cx, |panel, cx| {
+            panel.sync_shortcuts(window, cx);
+        });
+    }
+
     pub(super) fn set_agent_default_profile(
         &mut self,
         profile_id: String,
