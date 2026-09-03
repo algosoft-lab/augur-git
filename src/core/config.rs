@@ -103,6 +103,23 @@ impl Default for GraphHistoryPreference {
     }
 }
 
+/// Default commit action selected in the commit panel split button.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub enum CommitActionPreference {
+    #[serde(rename = "commit")]
+    Commit,
+    #[serde(rename = "amend")]
+    Amend,
+    #[serde(rename = "agent")]
+    Agent,
+}
+
+impl Default for CommitActionPreference {
+    fn default() -> Self {
+        Self::Commit
+    }
+}
+
 /// Serde default for `ViewSettings::auto_refresh_on_focus`: config files
 /// written before the field existed keep the feature enabled.
 fn default_true() -> bool {
@@ -119,6 +136,8 @@ pub struct ViewSettings {
     pub graph_history: GraphHistoryPreference,
     #[serde(default = "default_true")]
     pub auto_refresh_on_focus: bool,
+    #[serde(default)]
+    pub commit_action: CommitActionPreference,
 }
 
 impl Default for ViewSettings {
@@ -129,6 +148,7 @@ impl Default for ViewSettings {
             diff_layout: DiffLayoutPreference::SideBySide,
             graph_history: GraphHistoryPreference::AllBranches,
             auto_refresh_on_focus: true,
+            commit_action: CommitActionPreference::Commit,
         }
     }
 }
@@ -1039,6 +1059,27 @@ mod tests {
 
         let serialized = serde_json::to_string(&AppConfig::default()).unwrap();
         assert!(serialized.contains(r#""auto_refresh_on_focus":true"#));
+    }
+
+    #[test]
+    fn commit_action_preference_round_trips() {
+        let json = r#"{"view":{"show_untracked":true,"auto_follow":true,"commit_action":"agent"}}"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(config.view.commit_action, CommitActionPreference::Agent);
+
+        let serialized = serde_json::to_string(&AppConfig::default()).unwrap();
+        assert!(serialized.contains(r#""commit_action":"commit""#));
+    }
+
+    #[test]
+    fn missing_commit_action_defaults_to_commit() {
+        let json = r#"{"view":{"show_untracked":false,"auto_follow":true}}"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(config.view.commit_action, CommitActionPreference::Commit);
     }
 
     #[test]

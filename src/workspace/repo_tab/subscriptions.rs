@@ -232,6 +232,10 @@ fn wire_commit(commit: &Entity<CommitPanel>, cx: &mut Context<RepoTab>) {
                 }
             }
         }
+        CommitPanelEvent::ActionChanged(action) => {
+            log::info!("[commit_panel] action changed: action={action:?}");
+            cx.emit(RepoTabEvent::CommitActionChanged(*action));
+        }
     })
     .detach();
 }

@@ -11,6 +11,7 @@ use gpui_component::{
     v_flex,
 };
 
+use crate::core::config::CommitActionPreference;
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
 
@@ -23,6 +24,26 @@ pub enum CommitAction {
     CommitByAgent,
 }
 
+impl From<CommitActionPreference> for CommitAction {
+    fn from(preference: CommitActionPreference) -> Self {
+        match preference {
+            CommitActionPreference::Commit => Self::Commit,
+            CommitActionPreference::Amend => Self::Amend,
+            CommitActionPreference::Agent => Self::CommitByAgent,
+        }
+    }
+}
+
+impl From<CommitAction> for CommitActionPreference {
+    fn from(action: CommitAction) -> Self {
+        match action {
+            CommitAction::Commit => Self::Commit,
+            CommitAction::Amend => Self::Amend,
+            CommitAction::CommitByAgent => Self::Agent,
+        }
+    }
+}
+
 /// CommitPanel to Workspace events.
 #[derive(Clone, Debug)]
 pub enum CommitPanelEvent {
@@ -31,6 +52,8 @@ pub enum CommitPanelEvent {
         message: String,
         action: CommitAction,
     },
+    /// The selected commit action changed and should be persisted.
+    ActionChanged(CommitAction),
 }
 
 /// Commit message input panel.
@@ -55,6 +78,7 @@ impl CommitPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
         locale: Locale,
+        action: CommitAction,
     ) -> Self {
         let input = cx.new(|cx| {
             TextareaState::new(window, cx)
@@ -77,7 +101,7 @@ impl CommitPanel {
             has_staged: false,
             has_changes: false,
             busy: false,
-            action: CommitAction::Commit,
+            action,
             locale,
         }
     }
@@ -126,10 +150,20 @@ impl CommitPanel {
         }
     }
 
-    fn set_action(&mut self, action: CommitAction, cx: &mut Context<Self>) {
+    /// Apply an externally persisted action without emitting a change event,
+    /// so global fan-out from Workspace does not bounce back as an event.
+    pub fn set_action(&mut self, action: CommitAction, cx: &mut Context<Self>) {
         if self.action != action {
             self.action = action;
             cx.notify();
+        }
+    }
+
+    /// Record a user-selected action and request its persistence.
+    fn select_action(&mut self, action: CommitAction, cx: &mut Context<Self>) {
+        if self.action != action {
+            self.set_action(action, cx);
+            cx.emit(CommitPanelEvent::ActionChanged(action));
         }
     }
 
@@ -223,7 +257,10 @@ impl Render for CommitPanel {
                             .checked(action == CommitAction::Commit)
                             .on_click(move |_event, _window, cx| {
                                 commit_panel.update(cx, |panel, cx| {
-                                    panel.set_action(CommitAction::Commit, cx);
+                                    panel.select_action(
+                                        CommitAction::Commit,
+                                        cx,
+                                    );
                                 });
                             }),
                     )
@@ -232,7 +269,8 @@ impl Render for CommitPanel {
                             .checked(action == CommitAction::Amend)
                             .on_click(move |_event, _window, cx| {
                                 amend_panel.update(cx, |panel, cx| {
-                                    panel.set_action(CommitAction::Amend, cx);
+                                    panel
+                                        .select_action(CommitAction::Amend, cx);
                                 });
                             }),
                     )
@@ -241,7 +279,7 @@ impl Render for CommitPanel {
                             .checked(action == CommitAction::CommitByAgent)
                             .on_click(move |_event, _window, cx| {
                                 agent_panel.update(cx, |panel, cx| {
-                                    panel.set_action(
+                                    panel.select_action(
                                         CommitAction::CommitByAgent,
                                         cx,
                                     );

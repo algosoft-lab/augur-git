@@ -10,7 +10,7 @@ use crate::core::i18n::{self, Locale};
 use crate::git::changes_panel::ChangesPanel;
 use crate::git::diff_view::DiffLayoutMode;
 use crate::git::graph::GraphView;
-use crate::git::panel::{BottomPanel, CommitPanel};
+use crate::git::panel::{BottomPanel, CommitAction, CommitPanel};
 use crate::git::sidebar::Sidebar;
 use crate::git::toolbar::Toolbar;
 use crate::git::{GitStatus, GitView};
@@ -35,6 +35,7 @@ pub enum RepoTabEvent {
     RequestSettings,
     RequestExtensions,
     LayoutChanged(LayoutSettings),
+    CommitActionChanged(CommitAction),
     AgentCommitRequested {
         id: TabId,
         repo_path: String,
@@ -196,6 +197,7 @@ impl RepoTab {
         locale: Locale,
         diff_layout: DiffLayoutMode,
         graph_history: GraphHistoryPreference,
+        commit_action: CommitAction,
         mut layout: LayoutSettings,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -205,7 +207,8 @@ impl RepoTab {
         let sidebar = cx.new(|cx| Sidebar::new(window, cx, locale));
         let graph = cx.new(|cx| GraphView::new(id, locale, window, cx));
         let toolbar = cx.new(|_cx| Toolbar::new(locale));
-        let commit = cx.new(|cx| CommitPanel::new(window, cx, locale));
+        let commit =
+            cx.new(|cx| CommitPanel::new(window, cx, locale, commit_action));
         let changes = cx.new(|_cx| ChangesPanel::new(locale));
         let bottom = cx.new(|_cx| {
             BottomPanel::new(locale, diff_layout, layout.file_list_ratio)
@@ -886,6 +889,16 @@ impl RepoTab {
     ) {
         self.graph_history = preference;
         self.sync_log_scope(cx);
+    }
+
+    /// Apply the globally shared commit action to this tab's commit panel.
+    pub fn set_commit_action(
+        &mut self,
+        action: CommitAction,
+        cx: &mut Context<Self>,
+    ) {
+        self.commit
+            .update(cx, |panel, cx| panel.set_action(action, cx));
     }
 
     /// Send the commit-graph log scope to the worker when it changes.

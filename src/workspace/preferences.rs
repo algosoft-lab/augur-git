@@ -2,11 +2,13 @@ use gpui::*;
 
 use crate::agent::{AgentLaunchOverrides, BuiltInAgent, CustomAgentProfile};
 use crate::core::config::{
-    DiffLayoutPreference, GraphHistoryPreference, LanguagePreference,
-    ThemePreference, normalized_diff_font_size, normalized_ui_font_size,
+    CommitActionPreference, DiffLayoutPreference, GraphHistoryPreference,
+    LanguagePreference, ThemePreference, normalized_diff_font_size,
+    normalized_ui_font_size,
 };
 use crate::core::i18n;
 use crate::git::diff_view::DiffLayoutMode;
+use crate::git::panel::CommitAction;
 use crate::theme;
 
 use super::about;
@@ -212,6 +214,29 @@ impl Workspace {
         }
         self.config_saver.schedule(&self.config);
         log::info!("[workspace] graph history preference: {preference:?}");
+        cx.notify();
+    }
+
+    /// Switch the globally shared commit panel action: persists the choice
+    /// and applies it to every open repository tab immediately, so all tabs
+    /// always commit with the same remembered mode.
+    pub(super) fn set_commit_action(
+        &mut self,
+        preference: CommitActionPreference,
+        cx: &mut Context<Self>,
+    ) {
+        if self.config.view.commit_action == preference {
+            return;
+        }
+        self.config.view.commit_action = preference;
+        let action = CommitAction::from(preference);
+        for entry in &self.tabs {
+            if let TabContent::Repo(tab) = &entry.content {
+                tab.update(cx, |tab, cx| tab.set_commit_action(action, cx));
+            }
+        }
+        self.config_saver.schedule(&self.config);
+        log::info!("[workspace] commit action preference: {preference:?}");
         cx.notify();
     }
 

@@ -581,6 +581,7 @@ impl Workspace {
                 locale,
                 self.config.view.diff_layout.into(),
                 self.config.view.graph_history,
+                self.config.view.commit_action.into(),
                 self.ui_state.layout.clone(),
                 window,
                 cx,
@@ -648,6 +649,7 @@ impl Workspace {
                 locale,
                 self.config.view.diff_layout.into(),
                 self.config.view.graph_history,
+                self.config.view.commit_action.into(),
                 self.ui_state.layout.clone(),
                 window,
                 cx,
@@ -751,6 +753,9 @@ impl Workspace {
                     }
                 }
                 cx.notify();
+            }
+            RepoTabEvent::CommitActionChanged(action) => {
+                self.set_commit_action((*action).into(), cx);
             }
             RepoTabEvent::AgentCommitRequested {
                 id,
