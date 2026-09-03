@@ -11,4 +11,5 @@ pub mod git;
 pub mod graph;
 pub mod i18n;
 pub mod keymap;
+pub mod paths;
 pub mod refs;

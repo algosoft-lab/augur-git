@@ -628,22 +628,9 @@ fn terminal_program(path: &Path) -> String {
 /// and other shell shims used by CLI agents. `std::fs::canonicalize` returns
 /// paths with a `\\?\\` prefix on Windows, but `cmd.exe` treats that spelling
 /// as an unsupported UNC working directory and silently falls back to
-/// `C:\\Windows`. Keep non-verbatim and non-drive extended paths unchanged.
+/// `C:\\Windows`.
 pub(crate) fn normalize_working_directory(path: &Path) -> std::path::PathBuf {
-    #[cfg(windows)]
-    {
-        let value = path.to_string_lossy();
-        if let Some(rest) = value.strip_prefix("\\\\?\\UNC\\") {
-            return std::path::PathBuf::from(format!("\\\\{rest}"));
-        }
-        if let Some(rest) = value.strip_prefix("\\\\?\\") {
-            let is_drive_path = rest.as_bytes().get(1) == Some(&b':');
-            if is_drive_path {
-                return std::path::PathBuf::from(rest);
-            }
-        }
-    }
-    path.to_path_buf()
+    crate::core::paths::normalize_extended_path(path)
 }
 
 fn grid_contains_text(grid: &Grid<Cell>, needle: &str) -> bool {

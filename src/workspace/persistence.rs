@@ -74,8 +74,12 @@ impl Workspace {
 
 pub(super) fn normalized_path(path: &str) -> String {
     let path = Path::new(path);
-    std::fs::canonicalize(path)
-        .unwrap_or_else(|_| path.to_path_buf())
+    // `std::fs::canonicalize` returns verbatim `\\?\C:\...` paths on
+    // Windows; strip that prefix so repository paths display and persist in
+    // their plain form.
+    let canonical =
+        std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    crate::core::paths::normalize_extended_path(&canonical)
         .to_string_lossy()
         .into_owned()
 }
