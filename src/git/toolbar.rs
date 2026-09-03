@@ -48,6 +48,7 @@ pub enum ToolbarEvent {
     Push,
     PushForce,
     Compare,
+    Extensions,
     Refresh,
     Settings,
 }
@@ -396,6 +397,15 @@ impl Render for Toolbar {
                 &colors,
                 !self.busy,
                 ToolbarEvent::Compare,
+                cx,
+            ))
+            .child(self.tool_button(
+                "tb-extensions",
+                Icon::new(IconName::LayoutDashboard),
+                "toolbar-extensions",
+                &colors,
+                true,
+                ToolbarEvent::Extensions,
                 cx,
             ))
             // Ahead/behind badges.

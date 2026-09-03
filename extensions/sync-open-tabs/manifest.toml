@@ -1,0 +1,33 @@
+id = "sync-open-tabs"
+version = "1.0.0"
+api_version = 1
+entrypoint = "main.lua"
+name = "Sync open tabs"
+description = "Sequentially commit, pull with rebase, resolve conflicts with AI, and push every open repository."
+author = "Augur Git"
+manual_handler = "on_run"
+
+[settings.sync_time]
+type = "time"
+label = "Daily sync time"
+description = "Local time at which the daily sync is queued."
+default = "02:00"
+
+[settings.default_remote]
+type = "string"
+label = "Default remote"
+description = "Remote used when the current branch has no upstream."
+default = "origin"
+
+[settings.log_path]
+type = "string"
+label = "Log path"
+description = "Absolute file path (not a folder) for optional extension logs; parent directories are created. Leave empty to disable."
+default = ""
+
+[[events]]
+id = "daily-sync"
+type = "schedule.daily"
+label = "Daily sync"
+time_setting = "sync_time"
+handler = "on_schedule"

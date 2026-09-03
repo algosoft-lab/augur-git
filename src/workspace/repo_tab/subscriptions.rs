@@ -138,6 +138,9 @@ fn wire_toolbar(
                 );
             }
             ToolbarEvent::Compare => branch_compare::open(tab, cx),
+            ToolbarEvent::Extensions => {
+                cx.emit(RepoTabEvent::RequestExtensions);
+            }
             ToolbarEvent::Refresh => {
                 if !tab.is_busy() {
                     tab.refresh_repository(cx);
@@ -307,6 +310,7 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
         match event {
             GitUiEvent::StatusChanged {
                 branch,
+                head,
                 upstream,
                 ahead,
                 behind,
@@ -334,7 +338,10 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 let unstaged_text = unstaged_count.to_string();
 
                 tab.branch = branch_name;
+                tab.head = head.clone();
                 tab.upstream = upstream.clone();
+                tab.ahead = *ahead;
+                tab.behind = *behind;
                 tab.local_branches = branches
                     .iter()
                     .filter(|info| !info.is_head)

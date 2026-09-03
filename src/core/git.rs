@@ -30,6 +30,7 @@ use crate::core::diff::{merge_numstat, parse_numstat, parse_raw_records};
 use crate::core::graph::LogRow;
 
 pub mod agent_operation;
+pub mod automation;
 mod branch_compare;
 mod commit_log;
 mod working_tree;
@@ -165,6 +166,8 @@ pub enum GitEvent {
     /// Repository status, tracked upstream, changed files, and branch list.
     Status {
         branch: String,
+        /// Current commit id, or `None` for an unborn branch.
+        head: Option<String>,
         /// Tracked upstream ref, when the current branch has one.
         upstream: Option<String>,
         files: Vec<FileStatus>,
@@ -727,6 +730,7 @@ fn refresh_status(repo_path: &str, event_tx: &Sender<GitEvent>) {
         Ok((branch, upstream, files, ahead, behind)) => {
             let _ = event_tx.send(GitEvent::Status {
                 branch,
+                head: read_head(repo_path),
                 upstream,
                 files,
                 branches,
@@ -741,10 +745,22 @@ fn refresh_status(repo_path: &str, event_tx: &Sender<GitEvent>) {
     }
 }
 
+fn read_head(repo_path: &str) -> Option<String> {
+    let output = git_command()
+        .args(["-C", repo_path, "rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let head = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!head.is_empty()).then_some(head)
+}
+
 /// Execute a git command (blocking subprocess; worker thread only).
 ///
-/// Logs every invocation at the worker boundary: successes at info level
-/// (visible with `RUST_LOG=info`), failures at warn level with the full
+/// Logs every invocation at the worker boundary: successes at debug level,
+/// failures at warn level with the full
 /// arguments, exit status, and git output so `debug.log` keeps an actionable
 /// trail even under the default filter.
 fn run_git(
@@ -756,7 +772,7 @@ fn run_git(
     let output = git_command().arg("-C").arg(repo_path).args(args).output();
     match output {
         Ok(output) if output.status.success() => {
-            log::info!(
+            log::debug!(
                 "[git_command] command ok: label={label}, args={args:?}, {}",
                 truncated(&String::from_utf8_lossy(&output.stdout))
             );

@@ -33,6 +33,7 @@ pub enum RepoTabEvent {
     },
     SummaryChanged(TabSummary),
     RequestSettings,
+    RequestExtensions,
     LayoutChanged(LayoutSettings),
     AgentCommitRequested {
         id: TabId,
@@ -129,8 +130,12 @@ pub struct RepoTab {
     repo_path: String,
     opened: bool,
     branch: String,
+    head: Option<String>,
     /// Tracked upstream of the current branch from the latest status.
     upstream: Option<String>,
+    /// Ahead/behind counts from the latest status snapshot.
+    ahead: usize,
+    behind: usize,
     /// Configured remote names from the latest refs snapshot.
     remotes: Vec<String>,
     /// Persisted commit-graph history scope chosen in settings.
@@ -218,7 +223,10 @@ impl RepoTab {
             repo_path,
             opened: false,
             branch: String::new(),
+            head: None,
             upstream: None,
+            ahead: 0,
+            behind: 0,
             remotes: Vec::new(),
             graph_history,
             log_scope: None,
@@ -293,6 +301,15 @@ impl RepoTab {
             changes.set_refresh_selected(refresh_working_diff);
         });
         self.git_view.update(cx, |view, _| view.refresh());
+    }
+
+    /// Refresh a repository after a background extension mutation. Inactive
+    /// tabs retain their Git worker events until activation; this request is
+    /// harmless when the tab has not been opened yet.
+    pub(super) fn refresh_after_extension(&mut self, cx: &mut Context<Self>) {
+        if self.opened && !self.is_busy() {
+            self.refresh_repository(cx);
+        }
     }
 
     pub(super) fn is_busy(&self) -> bool {
@@ -928,6 +945,28 @@ impl RepoTab {
             title: repo_title(&self.repo_path),
             branch: (!self.branch.is_empty()).then(|| self.branch.clone()),
             state,
+        }
+    }
+
+    /// Return the latest UI-known identity used to seed an extension trigger.
+    /// The host refreshes the exact Git HEAD on its worker thread before the
+    /// run starts, so this method never blocks the UI.
+    pub(super) fn extension_snapshot(
+        &self,
+    ) -> crate::extension::RepositorySnapshot {
+        crate::extension::RepositorySnapshot {
+            tab_id: self.id,
+            path: self.repo_path.clone(),
+            display_name: repo_title(&self.repo_path),
+            branch: self.branch.clone(),
+            head: self.head.clone(),
+            upstream: self.upstream.clone(),
+            ahead: self.ahead,
+            behind: self.behind,
+            dirty: self.local_change_count > 0,
+            conflicts: self.has_unresolved_conflicts,
+            busy: self.is_busy(),
+            remotes: self.remotes.clone(),
         }
     }
 

@@ -72,6 +72,20 @@ impl Workspace {
         self.settings_panel.update(cx, |panel, cx| {
             panel.set_locale(self.locale, window, cx);
         });
+        self.extensions_panel.update(cx, |panel, cx| {
+            panel.set_locale(self.locale);
+            cx.notify();
+        });
+        if let Some(extensions_window) = self.extensions_window {
+            if extensions_window
+                .update(cx, |window, _window, cx| {
+                    window.set_locale(locale, cx);
+                })
+                .is_err()
+            {
+                self.extensions_window = None;
+            }
+        }
         self.config_saver.schedule(&self.config);
         self.refresh_app_menu(cx);
         log::info!(
