@@ -65,6 +65,38 @@ impl Default for AgentOperationChallenge {
     }
 }
 
+/// A per-session completion marker for free-form Agent prompts. The wording
+/// is task-neutral so it can wrap any user prompt.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AgentPromptChallenge {
+    pub prompt: String,
+    pub expected_marker: String,
+}
+
+impl AgentPromptChallenge {
+    pub fn new() -> Self {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let token =
+            format!("augur-git-prompt-{}-{counter:016x}", std::process::id());
+        let reversed = token.chars().rev().collect::<String>();
+        let expected_marker = format!("AUGUR_GIT_DONE:{reversed}");
+        let prompt = format!(
+            "When you have finished the task above, report the result and output exactly one standalone line in the form `AUGUR_GIT_DONE:<reversed-token>`, using the reverse of this token: {token}. Do not output that line before finishing. Do not attempt to exit the interactive session; Augur Git will close it after detecting the marker."
+        );
+        Self {
+            prompt,
+            expected_marker,
+        }
+    }
+}
+
+impl Default for AgentPromptChallenge {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Backwards-compatible name retained for existing Commit by AI callers.
 #[allow(dead_code)]
 pub type AgentCommitChallenge = AgentOperationChallenge;

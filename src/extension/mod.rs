@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-mod agent_runner;
+mod agent_session;
 mod api;
 mod builtin;
 mod file_log;
@@ -11,6 +11,9 @@ mod host;
 mod manager;
 mod storage;
 
+pub(crate) use agent_session::{
+    AgentSessionOperation, AgentSessionOutcome, AgentSessionRequest,
+};
 #[allow(unused_imports)]
 pub use api::{
     AgentPromptOptions, AgentRequest, ExtensionEventPayload, ExtensionHost,

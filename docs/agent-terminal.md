@@ -281,6 +281,19 @@ worker boundary. Commit outcomes and probe classification are pure logic in
 shared PTY window, monitor, marker handling, and lifecycle callbacks; it does
 not duplicate Git parsing or provider-specific command construction.
 
+Lua extension Agent operations reuse the same visible sessions instead of a
+headless process runner. The extension host sends an `AgentSessionRequest`
+(`src/extension/agent_session.rs`) and blocks; the workspace opens the matching
+session window through `src/workspace/agent_extension.rs`, and the window
+reports one `AgentSessionOutcome` back to the blocked extension worker. The
+session appears in the normal session registry, so the app-close guard, the
+per-repository deduplication key, and the Stop button behave as for manual
+operations. A repository already covered by a running Agent session rejects an
+extension request instead of stealing it. Free-form `augur.agent.prompt`
+sessions use a dedicated prompt window whose completion is marker-based: the
+host appends a per-session `AUGUR_GIT_DONE:` instruction to the user prompt,
+and the window closes when the marker appears or the session ends.
+
 ## Troubleshooting
 
 1. Open Settings → Agents and check the executable probe result.

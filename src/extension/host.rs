@@ -1,8 +1,10 @@
 //! Concrete host bridge for the Lua extension runtime.
 //!
 //! The bridge owns no GPUI entities. Workspace refreshes its immutable tab
-//! registry and drains `HostEvent`s on the UI thread; Git and Agent work is
-//! performed on the extension request thread with structured process args.
+//! registry and drains `HostEvent`s on the UI thread; Git work is performed
+//! on the extension request thread with structured process args, and Agent
+//! operations open a visible interactive session through
+//! [`AgentSessionRequest`] and block until the session reports its outcome.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
@@ -15,11 +17,14 @@ use std::time::{Duration, Instant};
 use chrono::{Local, Utc};
 use serde_json::Value as JsonValue;
 
-use crate::agent::{AgentOperation, AgentOperationChallenge, AgentSettings};
+use crate::agent::{AgentOperation, AgentSettings, resolve_executable};
 use crate::core::build_info;
 use crate::core::git::automation;
 
-use super::agent_runner::{AgentResult, agent_response, run_agent_process};
+use super::agent_session::{
+    AgentResult, AgentSessionOperation, AgentSessionRequest, agent_response,
+    wait_for_agent_session,
+};
 use super::api::{
     AgentPromptOptions, AgentRequest, ExtensionHost, ExtensionHostRequest,
     ExtensionRunAdmission, HostRequest, HostResponse, RepositoryOperation,
@@ -70,14 +75,18 @@ struct HostState {
 pub struct HostBridge {
     state: Arc<Mutex<HostState>>,
     event_tx: Sender<HostEvent>,
+    session_tx: Sender<AgentSessionRequest>,
     file_logger: ExtensionFileLogger,
     storage: ExtensionStorage,
     agent_settings: Arc<Mutex<AgentSettings>>,
 }
 
 impl HostBridge {
-    pub fn new(agent_settings: AgentSettings) -> (Self, Receiver<HostEvent>) {
+    pub fn new(
+        agent_settings: AgentSettings,
+    ) -> (Self, Receiver<HostEvent>, Receiver<AgentSessionRequest>) {
         let (event_tx, event_rx) = mpsc::channel();
+        let (session_tx, session_rx) = mpsc::channel();
         (
             Self {
                 state: Arc::new(Mutex::new(HostState {
@@ -86,11 +95,13 @@ impl HostBridge {
                     run_identities: HashMap::new(),
                 })),
                 event_tx,
+                session_tx,
                 file_logger: ExtensionFileLogger::default(),
                 storage: ExtensionStorage::new(),
                 agent_settings: Arc::new(Mutex::new(agent_settings)),
             },
             event_rx,
+            session_rx,
         )
     }
 
@@ -508,15 +519,13 @@ impl HostBridge {
         hint: Option<&str>,
         cancelled: &AtomicBool,
     ) -> Result<HostResponse, String> {
-        let operation = AgentOperation::Commit;
-        let challenge = AgentOperationChallenge::new();
-        let prompt = operation
-            .prompt_with_challenge(hint, &challenge)
-            .map_err(|error| error.to_string())?;
         let result = self.run_agent(
             extension_id,
-            path,
-            &prompt,
+            Some(path),
+            AgentSessionOperation::Repository {
+                operation: AgentOperation::Commit,
+                hint: hint.map(str::to_owned),
+            },
             DEFAULT_AGENT_TIMEOUT,
             cancelled,
         )?;
@@ -527,10 +536,12 @@ impl HostBridge {
             && !after.dirty
             && !after.conflicts
             && after.operation.is_none();
+        // The verified summary replaces the session summary only when
+        // verification succeeded; failures surface the session summary.
         Ok(agent_response(
             result,
             verified,
-            "agent commit was not verified",
+            "agent commit completed and repository state was verified",
         ))
     }
 
@@ -643,14 +654,13 @@ impl HostBridge {
         cancelled: &AtomicBool,
         verify: impl FnOnce(&automation::RepositoryState) -> bool,
     ) -> Result<HostResponse, String> {
-        let challenge = AgentOperationChallenge::new();
-        let prompt = operation
-            .prompt_with_challenge(None, &challenge)
-            .map_err(|error| error.to_string())?;
         let result = self.run_agent(
             extension_id,
-            path,
-            &prompt,
+            Some(path),
+            AgentSessionOperation::Repository {
+                operation,
+                hint: None,
+            },
             DEFAULT_AGENT_TIMEOUT,
             cancelled,
         )?;
@@ -666,11 +676,18 @@ impl HostBridge {
         Ok(agent_response(result, verified, summary))
     }
 
+    /// Open a visible interactive Agent session for `operation` and block the
+    /// extension worker until it reports an outcome.
+    ///
+    /// The profile and executable are validated here so configuration and
+    /// launch failures surface as ordinary extension failures without opening
+    /// a window; the UI layer rebuilds the same launch spec when it opens the
+    /// session.
     fn run_agent(
         &self,
         extension_id: &str,
-        repository: &Path,
-        prompt: &str,
+        repository: Option<&Path>,
+        operation: AgentSessionOperation,
         timeout: Duration,
         cancelled: &AtomicBool,
     ) -> Result<AgentResult, String> {
@@ -683,18 +700,44 @@ impl HostBridge {
         let profile = settings.profile(&profile_id).ok_or_else(|| {
             format!("configured Agent profile is unavailable: {profile_id}")
         })?;
-        let overrides = settings.launch_overrides_for(&profile);
-        let spec = profile
-            .launch_spec_for_prompt_with_overrides(prompt, &overrides)
-            .map_err(|error| error.to_string())?;
-        run_agent_process(
-            extension_id,
-            spec,
-            Some(repository),
-            timeout,
+        resolve_executable(&profile.executable).map_err(|error| {
+            log::warn!(
+                "[agent_operation] extension Agent for {extension_id} did not start: {error}"
+            );
+            format!("failed to start Agent: {error}")
+        })?;
+        let (reply_tx, reply_rx) = mpsc::channel();
+        let session_cancelled = Arc::new(AtomicBool::new(false));
+        let request = AgentSessionRequest {
+            extension_id: extension_id.to_string(),
+            operation,
+            repository_path: repository.map(Path::to_path_buf),
+            reply: reply_tx,
+            cancelled: session_cancelled.clone(),
+        };
+        log::info!(
+            "[agent_operation] extension Agent session requested: extension={extension_id}, timeout={timeout:?}"
+        );
+        let started = Instant::now();
+        self.session_tx.send(request).map_err(|_| {
+            "the Agent session channel is unavailable".to_string()
+        })?;
+        let outcome = wait_for_agent_session(
+            reply_rx,
             cancelled,
-            &self.event_tx,
-        )
+            &session_cancelled,
+            timeout,
+        )?;
+        let result =
+            AgentResult::from_outcome(outcome, started.elapsed(), timeout);
+        log::info!(
+            "[agent_operation] extension Agent session finished: completed={}, cancelled={}, timed_out={}, elapsed={:?}",
+            result.completed,
+            result.cancelled,
+            result.timed_out,
+            started.elapsed()
+        );
+        Ok(result)
     }
 }
 
@@ -738,10 +781,8 @@ impl ExtensionHost for HostBridge {
                     .transpose()?;
                 let result = match self.run_agent(
                     &request.extension_id,
-                    path.as_deref()
-                        .map(Path::new)
-                        .unwrap_or_else(|| Path::new(".")),
-                    &prompt,
+                    path.as_deref().map(Path::new),
+                    AgentSessionOperation::Prompt { prompt },
                     Duration::from_secs(timeout_seconds.clamp(1, 30 * 60)),
                     request.cancelled.as_ref(),
                 ) {
@@ -978,7 +1019,8 @@ mod tests {
     fn file_log_host_request_appends_and_reports_bytes() {
         let root = temporary_root("append");
         let path = root.join("nested").join("run.log");
-        let (host, _events) = HostBridge::new(AgentSettings::default());
+        let (host, _events, _sessions) =
+            HostBridge::new(AgentSettings::default());
 
         let response = host
             .request(file_log_request(&path, "hello\n"))
@@ -998,7 +1040,8 @@ mod tests {
     fn file_log_host_request_maps_filesystem_failures() {
         let root = temporary_root("directory");
         fs::create_dir_all(&root).unwrap();
-        let (host, _events) = HostBridge::new(AgentSettings::default());
+        let (host, _events, _sessions) =
+            HostBridge::new(AgentSettings::default());
 
         let response = host
             .request(file_log_request(&root, "content"))
@@ -1046,7 +1089,8 @@ mod tests {
             busy: false,
             remotes: Vec::new(),
         };
-        let (host, _events) = HostBridge::new(AgentSettings::default());
+        let (host, _events, _sessions) =
+            HostBridge::new(AgentSettings::default());
         host.set_repositories(vec![snapshot.clone()]);
 
         let status_request = ExtensionHostRequest {

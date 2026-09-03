@@ -6,6 +6,7 @@
 mod about;
 mod agent_commit;
 mod agent_connectivity;
+mod agent_extension;
 mod agent_lifecycle;
 mod agent_merge;
 mod agent_profiles;
@@ -41,8 +42,9 @@ use gpui_component::{
 use crate::core::config::{self, AppConfig, UiState};
 use crate::core::i18n::{self, Locale};
 use crate::extension::{
-    ExtensionDefinition, ExtensionEvent, ExtensionHost, ExtensionManager,
-    HostBridge, HostEvent, RepositorySnapshot, discover_definitions,
+    AgentSessionRequest, ExtensionDefinition, ExtensionEvent, ExtensionHost,
+    ExtensionManager, HostBridge, HostEvent, RepositorySnapshot,
+    discover_definitions,
 };
 
 use self::agent_lifecycle::PendingWorkspaceClose;
@@ -224,6 +226,7 @@ pub struct Workspace {
     extension_manager: Option<ExtensionManager>,
     extension_events: Receiver<ExtensionEvent>,
     host_events: Receiver<HostEvent>,
+    agent_session_requests: Receiver<AgentSessionRequest>,
     extension_definitions: Vec<ExtensionDefinition>,
     extension_observed_repositories: BTreeMap<u64, RepositorySnapshot>,
     extension_pending_origins: HashMap<u64, (String, u64, Instant)>,
@@ -289,7 +292,7 @@ impl Workspace {
             entry.last_seen_fingerprint =
                 Some(definition.package.fingerprint.clone());
         }
-        let (extension_host, host_events) =
+        let (extension_host, host_events, agent_session_requests) =
             HostBridge::new(config.agent.clone());
         let extension_host_for_manager: Arc<dyn ExtensionHost> =
             Arc::new(extension_host.clone());
@@ -468,6 +471,7 @@ impl Workspace {
             extension_manager,
             extension_events,
             host_events,
+            agent_session_requests,
             extension_definitions,
             extension_observed_repositories: BTreeMap::new(),
             extension_pending_origins: HashMap::new(),

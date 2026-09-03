@@ -19,7 +19,6 @@ use crate::core::extension::{ExtensionRunTrigger, SettingValue};
 use super::file_log::MAX_EXTENSION_LOG_ENTRY_BYTES;
 
 pub const LUA_MEMORY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
-pub const MAX_AGENT_TRANSCRIPT_BYTES: usize = 1024 * 1024;
 
 /// Repository identity captured when an extension run is queued.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

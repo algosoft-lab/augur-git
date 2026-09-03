@@ -261,6 +261,9 @@ impl Workspace {
         while let Ok(event) = self.host_events.try_recv() {
             self.handle_host_event(event, cx);
         }
+        while let Ok(request) = self.agent_session_requests.try_recv() {
+            super::agent_extension::open_extension_session(self, request, cx);
+        }
         self.sync_extension_repositories(cx);
         while let Ok(event) = self.extension_events.try_recv() {
             self.handle_extension_event(event, cx);

@@ -72,6 +72,26 @@ storage is a JSON file below the platform data directory's
 records contain repository display names and step summaries, never Agent
 transcripts or complete repository paths.
 
+## Agent operations in extensions
+
+Extension Agent operations run in the same visible interactive Agent windows
+as manual operations. When a script calls `agent_commit`, `agent_merge`,
+`agent_rebase`, a recovery operation, or `augur.agent.prompt`, the
+application opens the session window for the configured default Agent
+profile, and the script blocks until the session reports its outcome. The
+user can watch the terminal and intervene at any time (approve commands,
+answer provider prompts, or press `Stop`), the completion marker is detected
+in the live terminal grid, and repository operations are verified against
+repository state exactly like manual operations.
+
+Session failures are reported as ordinary `{ok = false, code, summary}`
+results: an invalid profile or unresolvable executable fails without opening
+a window, an Agent session that is already active for the repository reports
+`an Agent session is already active for this repository`, and a run that
+exceeds the configured timeout reports `cancelled`/`timed_out` fields as
+usual while stopping the session. Stopping the session (or cancelling the
+run) surfaces as `cancelled = true` in the Lua result.
+
 ## Lua API
 
 An entrypoint returns a table containing `on_run(ctx)` and/or
@@ -111,11 +131,14 @@ on failure. Optional fields surface as Lua `nil` when they do not apply:
 otherwise, and `status.head` and `status.upstream` are `nil` when they cannot
 be resolved. Scripts can therefore test these fields with
 `value == nil` and rely on `or` fallbacks. Invalid API use, a missing handler, cancellation, or a
-disconnected host is a Lua error. `augur.agent.prompt(repo, options)` returns completion state, exit
-code, and at most 1 MiB of in-memory transcript. Its
+disconnected host is a Lua error. `augur.agent.prompt(repo, options)` runs the
+prompt in a visible interactive session: the host appends a per-session
+completion-marker instruction to the prompt, and the result reports
+`completed = true` once the Agent outputs that marker (or when the session
+ends). Its
 `side_effects_verified` field is always false because generic prompts are not
-given a repository-specific verification protocol. Transcripts are not logged
-or written to run history.
+given a repository-specific verification protocol. Terminal transcripts are
+not part of the result; they are visible in the session window only.
 
 `augur.log(level, message, fields)` writes to Augur Git's application log. For
 an extension-owned log file, use `augur.log_file(path, content)`. The path must

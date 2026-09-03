@@ -27,12 +27,14 @@ use crate::core::git::agent_operation::{
     resolve_agent_merge_target,
 };
 use crate::core::i18n::{self, Locale};
+use crate::extension::AgentSessionOutcome;
 use crate::terminal::{
     TerminalBackend, TerminalView, normalize_working_directory,
 };
 
 use super::Workspace;
 use super::agent_commit::{AgentCommitOutcome, classify_probe};
+use super::agent_extension::ExtensionChannel;
 use super::agent_merge::{
     AgentMergeMode, AgentMergeOutcome, classify_merge_probe,
 };
@@ -42,29 +44,30 @@ use super::agent_rebase::{
 use super::tabs::TabId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum AgentSessionKind {
+pub(super) enum AgentSessionKind {
     Connectivity,
     Commit,
     Merge,
     Rebase,
+    Prompt,
 }
 
 #[derive(Clone)]
-struct CommitCompletion {
+pub(super) struct CommitCompletion {
     workspace: WeakEntity<Workspace>,
     tab_id: TabId,
     session_id: u64,
 }
 
 #[derive(Clone)]
-struct MergeCompletion {
+pub(super) struct MergeCompletion {
     workspace: WeakEntity<Workspace>,
     tab_id: TabId,
     session_id: u64,
 }
 
 #[derive(Clone)]
-struct RebaseCompletion {
+pub(super) struct RebaseCompletion {
     workspace: WeakEntity<Workspace>,
     tab_id: TabId,
     session_id: u64,
@@ -135,6 +138,13 @@ pub(super) struct AgentSessionWindow {
     rebase_head_observed: Option<String>,
     rebase_head_observed_at: Option<Instant>,
     rebase_completed: bool,
+    /// Marker instruction for free-form prompt sessions.
+    prompt_marker: Option<String>,
+    prompt_completed: bool,
+    /// Set when the session was started by a Lua extension. The extension
+    /// worker blocks on the reply channel and the window reports exactly one
+    /// outcome through it.
+    extension: Option<ExtensionChannel>,
     window_id: u64,
     // Keep the polling task owned by the window for its whole lifetime.
     _monitor_task: Option<Task<()>>,
@@ -174,7 +184,7 @@ impl AgentSessionWindow {
         )
     }
 
-    fn new_commit(
+    pub(super) fn new_commit(
         locale: Locale,
         profile: ResolvedAgentProfile,
         spec: AgentLaunchSpec,
@@ -205,13 +215,13 @@ impl AgentSessionWindow {
         )
     }
 
-    fn new_merge(
+    pub(super) fn new_merge(
         locale: Locale,
         profile: ResolvedAgentProfile,
         spec: AgentLaunchSpec,
         prompt: String,
         working_directory: PathBuf,
-        completion: MergeCompletion,
+        completion: Option<MergeCompletion>,
         challenge: AgentOperationChallenge,
         mode: AgentMergeMode,
         baseline: AgentMergeProbe,
@@ -228,7 +238,7 @@ impl AgentSessionWindow {
             None,
             working_directory,
             None,
-            Some(completion),
+            completion,
             startup_error,
             None,
             None,
@@ -252,13 +262,13 @@ impl AgentSessionWindow {
         session
     }
 
-    fn new_rebase(
+    pub(super) fn new_rebase(
         locale: Locale,
         profile: ResolvedAgentProfile,
         spec: AgentLaunchSpec,
         prompt: String,
         working_directory: PathBuf,
-        completion: RebaseCompletion,
+        completion: Option<RebaseCompletion>,
         challenge: AgentOperationChallenge,
         mode: AgentRebaseMode,
         baseline: AgentRebaseProbe,
@@ -283,11 +293,53 @@ impl AgentSessionWindow {
             window_id,
             cx,
         );
-        session.session_id = Some(completion.session_id);
-        session.rebase_completion = Some(completion);
+        session.session_id =
+            completion.as_ref().map(|completion| completion.session_id);
+        session.rebase_completion = completion;
         session.rebase_challenge = Some(challenge);
         session.rebase_mode = Some(mode);
         session.rebase_baseline = Some(baseline);
+        if session.backend.is_none()
+            && !session.stop_requested
+            && !matches!(session.state, ConnectivityState::Failed(_))
+        {
+            session.start_terminal(None, cx);
+        }
+        session
+    }
+
+    /// A free-form prompt session started by a Lua extension. Completion is
+    /// marker-based: the window closes once the agent reports the per-session
+    /// `AUGUR_GIT_DONE:` marker, or when its process or terminal ends.
+    pub(super) fn new_prompt(
+        locale: Locale,
+        profile: ResolvedAgentProfile,
+        spec: AgentLaunchSpec,
+        prompt: String,
+        working_directory: PathBuf,
+        marker: String,
+        startup_error: Option<String>,
+        window_id: u64,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut session = Self::new_inner(
+            AgentSessionKind::Prompt,
+            locale,
+            profile,
+            spec,
+            prompt,
+            None,
+            working_directory,
+            None,
+            None,
+            startup_error,
+            None,
+            None,
+            true,
+            window_id,
+            cx,
+        );
+        session.prompt_marker = Some(marker);
         if session.backend.is_none()
             && !session.stop_requested
             && !matches!(session.state, ConnectivityState::Failed(_))
@@ -364,6 +416,9 @@ impl AgentSessionWindow {
             rebase_head_observed: None,
             rebase_head_observed_at: None,
             rebase_completed: false,
+            prompt_marker: None,
+            prompt_completed: false,
+            extension: None,
             window_id,
             _monitor_task: None,
         };
@@ -428,7 +483,7 @@ impl AgentSessionWindow {
             Ok(value) => Arc::new(value),
             Err(error) => {
                 let summary = first_line(&error.to_string()).to_string();
-                self.state = ConnectivityState::Failed(summary);
+                self.state = ConnectivityState::Failed(summary.clone());
                 if let Some(directory) = self.test_directory.as_ref() {
                     if directory.cleanup().is_err() {
                         log::debug!(
@@ -442,6 +497,15 @@ impl AgentSessionWindow {
                     self.finish_merge(AgentMergeOutcome::Failed, cx);
                 } else if self.kind == AgentSessionKind::Rebase {
                     self.finish_rebase(AgentRebaseOutcome::Failed, cx);
+                } else if self.kind == AgentSessionKind::Prompt {
+                    self.finish_prompt(
+                        AgentSessionOutcome::Unconfirmed {
+                            exit_code: None,
+                            summary,
+                        },
+                        false,
+                        cx,
+                    );
                 }
                 return;
             }
@@ -467,7 +531,8 @@ impl AgentSessionWindow {
                 self.rebase_challenge
                     .as_ref()
                     .map(|challenge| challenge.expected_marker.clone())
-            });
+            })
+            .or_else(|| self.prompt_marker.clone());
         let profile_id_for_monitor = self.profile.id.clone();
         let kind_for_monitor = self.kind;
         let repo_path = self.working_directory.clone();
@@ -556,6 +621,11 @@ impl AgentSessionWindow {
                 let finished = completion.is_some();
                 let mut should_break = false;
                 let _ = window_entity.update(cx, |window, cx| {
+                    if let Some(extension) = window.extension.as_ref()
+                        && extension.is_cancelled()
+                    {
+                        window.stop(cx);
+                    }
                     if kind_for_monitor == AgentSessionKind::Connectivity {
                         window.handle_connectivity_tick(
                             response_received,
@@ -570,6 +640,8 @@ impl AgentSessionWindow {
                             completion.clone(),
                             cx,
                         );
+                    } else if kind_for_monitor == AgentSessionKind::Prompt {
+                        window.handle_prompt_tick(marker_seen, completion, cx);
                     } else {
                         if kind_for_monitor == AgentSessionKind::Merge {
                             window.handle_merge_tick(
@@ -591,6 +663,7 @@ impl AgentSessionWindow {
                         || window.commit_completed
                         || window.merge_completed;
                     should_break = should_break || window.rebase_completed;
+                    should_break = should_break || window.prompt_completed;
                     cx.notify();
                 });
                 if should_break {
@@ -1010,6 +1083,84 @@ impl AgentSessionWindow {
         })
     }
 
+    fn handle_prompt_tick(
+        &mut self,
+        marker_seen: bool,
+        completion: Option<Result<Option<i32>, String>>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.prompt_completed {
+            return;
+        }
+        if marker_seen {
+            log::info!(
+                "[agent_terminal] prompt completion marker observed: profile={}",
+                self.profile.id
+            );
+            self.finish_prompt(
+                AgentSessionOutcome::Confirmed {
+                    summary: "the Agent reported completion".into(),
+                },
+                true,
+                cx,
+            );
+            return;
+        }
+        if let Some(result) = completion {
+            let code = result.as_ref().ok().copied().flatten();
+            log::info!(
+                "[agent_terminal] prompt PTY exited: profile={}, code={code:?}",
+                self.profile.id
+            );
+            self.finish_prompt(
+                AgentSessionOutcome::Unconfirmed {
+                    exit_code: code,
+                    summary: "the Agent exited without reporting completion"
+                        .into(),
+                },
+                false,
+                cx,
+            );
+            return;
+        }
+        if matches!(self.state, ConnectivityState::Starting) {
+            self.state = ConnectivityState::WaitingForResponse;
+        }
+    }
+
+    fn finish_prompt(
+        &mut self,
+        outcome: AgentSessionOutcome,
+        marker_seen: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.prompt_completed {
+            return;
+        }
+        self.prompt_completed = true;
+        self.stop_requested = true;
+        let completed =
+            matches!(outcome, AgentSessionOutcome::Confirmed { .. });
+        if let Some(extension) = self.extension.take() {
+            let _ = extension.report(outcome);
+            if completed {
+                schedule_extension_close(extension, cx);
+            }
+        }
+        self.state = ConnectivityState::Exited {
+            code: None,
+            response_received: marker_seen,
+        };
+        if let Some(backend) = &self.backend {
+            backend.shutdown();
+        }
+        log::info!(
+            "[agent_terminal] prompt operation completed: profile={}, marker={marker_seen}",
+            self.profile.id
+        );
+        cx.notify();
+    }
+
     fn finish_merge(
         &mut self,
         outcome: AgentMergeOutcome,
@@ -1037,6 +1188,15 @@ impl AgentSessionWindow {
         }
         if let Some(backend) = &self.backend {
             backend.shutdown();
+        }
+        if let Some(extension) = self.extension.take() {
+            let _ = extension
+                .report(super::agent_extension::merge_outcome(&outcome));
+            if success {
+                schedule_extension_close(extension, cx);
+            }
+            cx.notify();
+            return;
         }
         let Some(completion) = self.merge_completion.take() else {
             cx.notify();
@@ -1101,6 +1261,15 @@ impl AgentSessionWindow {
         if let Some(backend) = &self.backend {
             backend.shutdown();
         }
+        if let Some(extension) = self.extension.take() {
+            let _ = extension
+                .report(super::agent_extension::rebase_outcome(&outcome));
+            if success {
+                schedule_extension_close(extension, cx);
+            }
+            cx.notify();
+            return;
+        }
         let Some(completion) = self.rebase_completion.take() else {
             cx.notify();
             return;
@@ -1158,6 +1327,15 @@ impl AgentSessionWindow {
         if let Some(backend) = &self.backend {
             backend.shutdown();
         }
+        if let Some(extension) = self.extension.take() {
+            let _ = extension
+                .report(super::agent_extension::commit_outcome(&outcome));
+            if success {
+                schedule_extension_close(extension, cx);
+            }
+            cx.notify();
+            return;
+        }
         let Some(completion) = self.commit_completion.take() else {
             cx.notify();
             return;
@@ -1213,11 +1391,26 @@ impl AgentSessionWindow {
             AgentSessionKind::Rebase => {
                 format!("{} rebase", self.profile.name)
             }
+            AgentSessionKind::Prompt => {
+                format!("{} prompt", self.profile.name)
+            }
         }
     }
 
     pub(super) fn session_id(&self) -> Option<u64> {
         self.session_id
+    }
+
+    /// Register the extension reply channel for an extension-started session.
+    /// Called on the UI thread immediately after construction, before the
+    /// monitor task can observe any completion.
+    pub(super) fn set_extension_channel(
+        &mut self,
+        session_id: u64,
+        extension: ExtensionChannel,
+    ) {
+        self.session_id = Some(session_id);
+        self.extension = Some(extension);
     }
 
     pub(super) fn stop(&mut self, cx: &mut Context<Self>) {
@@ -1251,6 +1444,15 @@ impl AgentSessionWindow {
             cx.notify();
             return;
         }
+        if self.kind == AgentSessionKind::Prompt {
+            self.finish_prompt(AgentSessionOutcome::Cancelled, false, cx);
+            log::info!(
+                "[agent_terminal] prompt termination requested: profile={}",
+                self.profile.id,
+            );
+            cx.notify();
+            return;
+        }
         self.stop_requested = true;
         if let Some(backend) = &self.backend {
             backend.shutdown();
@@ -1268,6 +1470,26 @@ impl AgentSessionWindow {
     }
 
     fn state_label(&self) -> String {
+        if self.kind == AgentSessionKind::Prompt {
+            return match &self.state {
+                ConnectivityState::Starting => {
+                    i18n::text(self.locale, "agent-test-status-starting")
+                }
+                ConnectivityState::Exited {
+                    response_received: true,
+                    ..
+                } => i18n::text(self.locale, "agent-prompt-status-completed"),
+                ConnectivityState::Exited { .. } => {
+                    i18n::text(self.locale, "agent-prompt-status-unverified")
+                }
+                ConnectivityState::Failed(summary) => i18n::text_args(
+                    self.locale,
+                    "agent-test-status-failed",
+                    &[("error", summary)],
+                ),
+                _ => i18n::text(self.locale, "agent-prompt-status-running"),
+            };
+        }
         if self.kind == AgentSessionKind::Commit {
             return match &self.state {
                 ConnectivityState::Starting => {
@@ -1607,8 +1829,9 @@ impl Render for AgentSessionWindow {
         let is_commit = self.kind == AgentSessionKind::Commit;
         let is_merge = self.kind == AgentSessionKind::Merge;
         let is_rebase = self.kind == AgentSessionKind::Rebase;
+        let is_prompt = self.kind == AgentSessionKind::Prompt;
         let is_git_operation = is_commit || is_merge || is_rebase;
-        let can_close = is_git_operation && !can_stop;
+        let can_close = (is_git_operation || is_prompt) && !can_stop;
         let cwd = if self.working_directory.as_os_str().is_empty() {
             i18n::text(self.locale, "agent-test-temp-directory-unavailable")
         } else {
@@ -1663,6 +1886,12 @@ impl Render for AgentSessionWindow {
             } if self.kind == AgentSessionKind::Connectivity => {
                 Some(i18n::text(self.locale, "agent-test-no-response"))
             }
+            ConnectivityState::Exited {
+                response_received: false,
+                ..
+            } if self.kind == AgentSessionKind::Prompt => {
+                Some(i18n::text(self.locale, "agent-prompt-status-unverified"))
+            }
             _ => None,
         };
 
@@ -1691,6 +1920,13 @@ impl Render for AgentSessionWindow {
                                             } else {
                                                 "agent-commit-window-title"
                                             },
+                                        )
+                                    } else if self.kind
+                                        == AgentSessionKind::Prompt
+                                    {
+                                        i18n::text(
+                                            self.locale,
+                                            "agent-prompt-window-title",
                                         )
                                     } else {
                                         i18n::text(
@@ -1824,6 +2060,11 @@ impl Render for AgentSessionWindow {
                                         i18n::text(
                                             self.locale,
                                             "agent-commit-stop",
+                                        )
+                                    } else if is_prompt {
+                                        i18n::text(
+                                            self.locale,
+                                            "agent-prompt-stop",
                                         )
                                     } else {
                                         i18n::text(
@@ -2026,7 +2267,7 @@ pub(super) fn open(
 
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-fn next_session_id() -> u64 {
+pub(super) fn next_session_id() -> u64 {
     SESSION_COUNTER.fetch_add(1, Ordering::Relaxed).max(1)
 }
 
@@ -2036,7 +2277,26 @@ fn session_kind_label(kind: AgentSessionKind) -> &'static str {
         AgentSessionKind::Commit => "commit session",
         AgentSessionKind::Merge => "merge session",
         AgentSessionKind::Rebase => "rebase session",
+        AgentSessionKind::Prompt => "prompt session",
     }
+}
+
+/// Close an extension-started session window shortly after a confirmed
+/// outcome, mirroring the auto-close of manually started Git operations.
+fn schedule_extension_close(
+    extension: ExtensionChannel,
+    cx: &mut Context<AgentSessionWindow>,
+) {
+    let (workspace, session_id) = extension.close_target();
+    cx.spawn(async move |_, cx| {
+        cx.background_executor()
+            .timer(Duration::from_millis(300))
+            .await;
+        let _ = workspace.update(cx, move |workspace, cx| {
+            workspace.close_agent_session(session_id, cx);
+        });
+    })
+    .detach();
 }
 
 fn commit_outcome_label(outcome: &AgentCommitOutcome) -> &'static str {
@@ -2076,7 +2336,7 @@ fn connectivity_key(profile_id: &str) -> String {
     format!("connectivity:{profile_id}")
 }
 
-fn commit_key(repo_path: &str) -> String {
+pub(super) fn commit_key(repo_path: &str) -> String {
     format!("git-agent:{repo_path}")
 }
 
@@ -2088,7 +2348,7 @@ fn rebase_key(repo_path: &str) -> String {
     commit_key(repo_path)
 }
 
-fn launch_for_profile(
+pub(super) fn launch_for_profile(
     workspace: &Workspace,
     profile: &ResolvedAgentProfile,
     prompt: &str,
@@ -2228,8 +2488,7 @@ fn open_session_window(
                 spec_for_window,
                 prompt_for_window,
                 working_directory_for_window,
-                merge_completion_for_window
-                    .expect("merge completion is required"),
+                merge_completion_for_window,
                 merge_challenge_for_window
                     .expect("merge challenge is required"),
                 merge_mode_for_window.expect("merge mode is required"),
@@ -2244,8 +2503,7 @@ fn open_session_window(
                 spec_for_window,
                 prompt_for_window,
                 working_directory_for_window,
-                rebase_completion_for_window
-                    .expect("rebase completion is required"),
+                rebase_completion_for_window,
                 rebase_challenge_for_window
                     .expect("rebase challenge is required"),
                 rebase_mode_for_window.expect("rebase mode is required"),
@@ -2255,6 +2513,9 @@ fn open_session_window(
                 window.window_handle().window_id().as_u64(),
                 cx,
             ),
+            AgentSessionKind::Prompt => {
+                unreachable!("prompt sessions are opened by agent_extension")
+            }
         });
         let weak_session = session.downgrade();
         window.on_window_should_close(cx, move |_window, app| {
