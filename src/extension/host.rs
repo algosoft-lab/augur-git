@@ -800,9 +800,10 @@ impl ExtensionHost for HostBridge {
                     })),
                     Err(error) => {
                         log::warn!(
-                            "[extension_log] append failed: id={}, code={}",
+                            "[extension_log] append failed: id={}, code={}, error={}",
                             request.extension_id,
-                            error.code()
+                            error.code(),
+                            error
                         );
                         HostResponse::Failure {
                             code: error.code().into(),

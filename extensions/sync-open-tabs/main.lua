@@ -31,6 +31,7 @@ local function new_file_logger(ctx)
       disabled = true
       pcall(augur.log, "warn", "extension file log write failed", {
         code = type(result) == "table" and (result.code or "log_write_failed") or "log_write_failed",
+        summary = type(result) == "table" and result.summary or nil,
       })
     end
   end
