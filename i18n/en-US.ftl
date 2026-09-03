@@ -100,7 +100,6 @@ no-repo-open = No repository open
 status-scanning = Scanning…
 status-no-repo-selected = No repository selected
 status-scanning-at = Scanning @ { $repo }
-status-summary = { $branch } · ↑{ $ahead }↓{ $behind } · staged { $staged }, changed { $unstaged }
 
 # ===== Command results / messages =====
 command-success = { $label } succeeded

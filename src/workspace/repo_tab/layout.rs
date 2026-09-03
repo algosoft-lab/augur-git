@@ -47,23 +47,26 @@ impl Render for DiffViewerResize {
 }
 
 impl RepoTab {
-    /// Bottom status bar: repository path, last operation message, and the
-    /// repository connection state.
+    /// Bottom status bar: repository path, the last operation result
+    /// message, and transient or failing connection states.
     pub(super) fn status_bar(
         &self,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
-        let (text, color) = match &self.status {
-            GitStatus::None => (
+        let state_text = match &self.status {
+            GitStatus::Ready(_) => None,
+            GitStatus::None => Some((
                 i18n::text(self.locale, "no-repo-open"),
                 colors.muted_foreground,
-            ),
-            GitStatus::Scanning => {
-                (i18n::text(self.locale, "status-scanning"), colors.warning)
+            )),
+            GitStatus::Scanning => Some((
+                i18n::text(self.locale, "status-scanning"),
+                colors.warning,
+            )),
+            GitStatus::Error(message) => {
+                Some((format!("✗ {message}"), colors.red))
             }
-            GitStatus::Ready(label) => (format!("● {label}"), colors.green),
-            GitStatus::Error(message) => (format!("✗ {message}"), colors.red),
         };
         let msg = self.status_message.clone();
         let msg_color = match self.status_message_ok {
@@ -101,12 +104,14 @@ impl RepoTab {
                                 .child(SharedString::from(message)),
                         )
                     })
-                    .child(
-                        div()
-                            .text_size(crate::theme::scaled_text_size(11.))
-                            .text_color(color)
-                            .child(text),
-                    ),
+                    .when_some(state_text, |row, (text, color)| {
+                        row.child(
+                            div()
+                                .text_size(crate::theme::scaled_text_size(11.))
+                                .text_color(color)
+                                .child(text),
+                        )
+                    }),
             )
     }
 

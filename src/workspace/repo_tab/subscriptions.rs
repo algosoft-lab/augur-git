@@ -324,22 +324,8 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 let branch_name = branch.clone();
                 let has_staged =
                     files.iter().any(|file| file.has_staged_changes());
-                let staged_count = files
-                    .iter()
-                    .filter(|file| file.has_staged_changes())
-                    .count();
-                let unstaged_count = files
-                    .iter()
-                    .filter(|file| {
-                        file.is_conflicted() || file.has_worktree_changes()
-                    })
-                    .count();
                 let has_unresolved_conflicts =
                     files.iter().any(|file| file.is_conflicted());
-                let ahead_text = ahead.to_string();
-                let behind_text = behind.to_string();
-                let staged_text = staged_count.to_string();
-                let unstaged_text = unstaged_count.to_string();
 
                 tab.branch = branch_name;
                 tab.head = head.clone();
@@ -372,17 +358,9 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                     tab.schedule_merge_state_probe(cx);
                 }
                 tab.sync_log_scope(cx);
-                tab.status = GitStatus::Ready(i18n::text_args(
-                    tab.locale,
-                    "status-summary",
-                    &[
-                        ("branch", branch),
-                        ("ahead", &ahead_text),
-                        ("behind", &behind_text),
-                        ("staged", &staged_text),
-                        ("unstaged", &unstaged_text),
-                    ],
-                ));
+                // The summary label is no longer rendered; only the state
+                // matters for the tab indicator.
+                tab.status = GitStatus::Ready(String::new());
                 tab.sidebar.update(cx, |sidebar, cx| {
                     sidebar.set_status(branch.clone(), branches.clone(), cx);
                     sidebar.set_conflicts(

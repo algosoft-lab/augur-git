@@ -99,7 +99,6 @@ no-repo-open = 未打开仓库
 status-scanning = 扫描中…
 status-no-repo-selected = 未选择仓库
 status-scanning-at = 扫描中 @ { $repo }
-status-summary = { $branch } · ↑{ $ahead }↓{ $behind } · 暂存{ $staged } 变更{ $unstaged }
 
 # ===== 命令结果 / 消息 =====
 command-success = { $label } 成功
