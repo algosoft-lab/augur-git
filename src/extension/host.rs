@@ -469,9 +469,7 @@ impl HostBridge {
 
     fn status_response(&self, snapshot: &RepositorySnapshot) -> HostResponse {
         match automation::capture(Path::new(&snapshot.path)) {
-            Ok(state) => json_response(
-                serde_json::to_value(state).unwrap_or_else(|_| JsonValue::Null),
-            ),
+            Ok(state) => json_response(status_value(state)),
             Err(summary) => HostResponse::Failure {
                 code: "status_failed".into(),
                 summary,
@@ -930,6 +928,19 @@ fn resolve_marker(path: &Path, marker: &str) -> Option<String> {
         .map(|value| value.trim().to_string())
 }
 
+/// Serialize a captured repository state with a uniform `ok` flag. Lua
+/// treats `ok` as the success marker for every repository operation, so
+/// `status` and `wait_until_ready` results carry it just like command and
+/// Agent results do.
+fn status_value(state: automation::RepositoryState) -> JsonValue {
+    let mut value =
+        serde_json::to_value(state).unwrap_or_else(|_| JsonValue::Null);
+    if let JsonValue::Object(object) = &mut value {
+        object.insert("ok".into(), JsonValue::Bool(true));
+    }
+    value
+}
+
 fn json_response(value: JsonValue) -> HostResponse {
     HostResponse::Json(value)
 }
@@ -995,6 +1006,89 @@ mod tests {
             response,
             HostResponse::Failure { ref code, .. }
                 if code == "log_write_failed"
+        ));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn create_repository(path: &Path) {
+        fs::create_dir_all(path).expect("create repository directory");
+        let output = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(path)
+            .output()
+            .expect("run git init");
+        assert!(
+            output.status.success(),
+            "git init failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn status_and_wait_until_ready_results_carry_ok_flag() {
+        let root = temporary_root("status-ok");
+        create_repository(&root);
+        let state =
+            automation::capture(&root).expect("capture repository state");
+        let snapshot = RepositorySnapshot {
+            tab_id: 1,
+            path: root.to_string_lossy().to_string(),
+            display_name: "status-ok".into(),
+            branch: state.branch.clone(),
+            head: state.head.clone(),
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            dirty: false,
+            conflicts: false,
+            busy: false,
+            remotes: Vec::new(),
+        };
+        let (host, _events) = HostBridge::new(AgentSettings::default());
+        host.set_repositories(vec![snapshot.clone()]);
+
+        let status_request = ExtensionHostRequest {
+            extension_id: "test-extension".into(),
+            run_id: 1,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            request: HostRequest::Repository {
+                tab_id: 1,
+                operation: RepositoryOperation::Status,
+                expected_branch: snapshot.branch.clone(),
+                expected_head: snapshot.head.clone(),
+            },
+        };
+        let response = host.request(status_request).expect("status request");
+        assert!(matches!(
+            response,
+            HostResponse::Json(JsonValue::Object(ref object))
+                if object.get("ok") == Some(&JsonValue::Bool(true))
+                    && object.contains_key("branch")
+        ));
+
+        // wait_until_ready additionally passes run ownership and identity
+        // checks before it can return the same success shape.
+        host.begin_run("test-extension", 1, std::slice::from_ref(&snapshot))
+            .expect("begin run");
+        let wait_request = ExtensionHostRequest {
+            extension_id: "test-extension".into(),
+            run_id: 1,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            request: HostRequest::Repository {
+                tab_id: 1,
+                operation: RepositoryOperation::WaitUntilReady {
+                    timeout_seconds: 1,
+                },
+                expected_branch: snapshot.branch.clone(),
+                expected_head: snapshot.head.clone(),
+            },
+        };
+        let response = host.request(wait_request).expect("wait request");
+        assert!(matches!(
+            response,
+            HostResponse::Json(JsonValue::Object(ref object))
+                if object.get("ok") == Some(&JsonValue::Bool(true))
         ));
 
         let _ = fs::remove_dir_all(root);

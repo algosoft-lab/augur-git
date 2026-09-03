@@ -145,10 +145,18 @@ local function sync(ctx)
     tostring(cancelled)
   ))
   augur.notify(failed == 0 and "info" or "warning", "Open tabs sync", string.format("%d repositories synchronized, %d failed", #summary - failed, failed))
+  local summary_text
+  if cancelled then
+    summary_text = "sync cancelled"
+  elseif failed > 0 then
+    summary_text = string.format("%d of %d repositories failed", failed, #summary)
+  else
+    summary_text = "synchronized"
+  end
   return {
     ok = not cancelled and failed == 0,
     code = cancelled and "cancelled" or nil,
-    summary = cancelled and "sync cancelled" or nil,
+    summary = summary_text,
     repositories = summary,
   }
 end

@@ -102,9 +102,11 @@ command string is constructed.
 
 `augur.system.info`, `augur.time.now`, `augur.log`, `augur.log_file`, `augur.notify`,
 `augur.storage.get/set/delete`, and `augur.workspace.repository_tabs()` are
-also available. Git and Agent failures return `{ok = false, code, summary}`;
-invalid API use, a missing handler, cancellation, or a disconnected host is a
-Lua error. `augur.agent.prompt(repo, options)` returns completion state, exit
+also available. Repository operations (`status`, `wait_until_ready`, `git`,
+`pull_rebase`, `push`, and the Agent operations) return `ok = true` alongside
+the repository state or command result on success, and `{ok = false, code, summary}`
+on failure; invalid API use, a missing handler, cancellation, or a
+disconnected host is a Lua error. `augur.agent.prompt(repo, options)` returns completion state, exit
 code, and at most 1 MiB of in-memory transcript. Its
 `side_effects_verified` field is always false because generic prompts are not
 given a repository-specific verification protocol. Transcripts are not logged
@@ -112,8 +114,9 @@ or written to run history.
 
 `augur.log(level, message, fields)` writes to Augur Git's application log. For
 an extension-owned log file, use `augur.log_file(path, content)`. The path must
-be absolute and is not expanded by the host; the parent directory is created
-when needed. The content is appended as raw UTF-8 bytes without an automatic
+name a file, not a directory, and must be absolute; it is not expanded by the
+host, and the parent directory is created when needed. The content is appended
+as raw UTF-8 bytes without an automatic
 newline or metadata, so the extension controls its own text, JSONL, or other
 format. Each call is limited to 1 MiB, and file errors return
 `{ok = false, code = "log_write_failed", summary = ...}`. The host does not
@@ -122,9 +125,10 @@ available only to trusted extensions and can write anywhere the application
 process has permission to access.
 
 The bundled synchronization sample declares an ordinary `log_path` string
-setting. Leave it empty to disable file logging, or enter an absolute path in
-the Extensions window. The sample writes its own timestamped step summaries
-and continues synchronization if the configured file cannot be written.
+setting. Leave it empty to disable file logging, or enter an absolute file
+path in the Extensions window. The sample writes its own timestamped step
+summaries and continues synchronization if the configured file cannot be
+written.
 
 ## Scheduling and synchronization sample
 

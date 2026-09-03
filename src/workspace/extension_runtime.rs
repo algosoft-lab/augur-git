@@ -1322,7 +1322,8 @@ impl Workspace {
                 message,
                 fields,
             } => {
-                log::info!(
+                log::log!(
+                    host_log_level(&level),
                     "[extensions] id={extension_id}, level={level}, message={message}, fields={fields}"
                 );
             }
@@ -1379,4 +1380,33 @@ fn repository_state_changed(
         || previous.ahead != current.ahead
         || previous.behind != current.behind
         || previous.remotes != current.remotes
+}
+
+/// Map the extension-provided log level onto the application log so warn and
+/// error entries can reach the summary debug log instead of being flattened
+/// into info records.
+fn host_log_level(level: &str) -> log::Level {
+    match level.to_ascii_lowercase().as_str() {
+        "error" => log::Level::Error,
+        "warn" | "warning" => log::Level::Warn,
+        "debug" | "trace" => log::Level::Debug,
+        _ => log::Level::Info,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::host_log_level;
+
+    #[test]
+    fn host_log_level_maps_extension_levels() {
+        assert_eq!(host_log_level("error"), log::Level::Error);
+        assert_eq!(host_log_level("Warn"), log::Level::Warn);
+        assert_eq!(host_log_level("warning"), log::Level::Warn);
+        assert_eq!(host_log_level("info"), log::Level::Info);
+        assert_eq!(host_log_level("debug"), log::Level::Debug);
+        assert_eq!(host_log_level("trace"), log::Level::Debug);
+        assert_eq!(host_log_level("unknown"), log::Level::Info);
+        assert_eq!(host_log_level(""), log::Level::Info);
+    }
 }

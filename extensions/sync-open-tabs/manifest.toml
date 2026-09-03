@@ -22,7 +22,7 @@ default = "origin"
 [settings.log_path]
 type = "string"
 label = "Log path"
-description = "Absolute path for optional extension logs. Leave empty to disable."
+description = "Absolute file path (not a folder) for optional extension logs; parent directories are created. Leave empty to disable."
 default = ""
 
 [[events]]
