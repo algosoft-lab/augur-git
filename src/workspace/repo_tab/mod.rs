@@ -162,6 +162,12 @@ pub struct RepoTab {
     status: GitStatus,
     status_message: Option<String>,
     status_message_ok: Option<bool>,
+    /// In-progress verb shown while a generic Git command runs on the worker.
+    busy_verb: Option<&'static str>,
+    /// Current animation step (1..=3 dots) for the busy indicator.
+    progress_dots: usize,
+    /// Whether the dot-animation tick loop is currently running.
+    progress_running: bool,
     working_diff_request_id: u64,
     working_tree_operation_id: u64,
     operation_busy: bool,
@@ -249,6 +255,9 @@ impl RepoTab {
             status: GitStatus::None,
             status_message: None,
             status_message_ok: None,
+            busy_verb: None,
+            progress_dots: 0,
+            progress_running: false,
             working_diff_request_id: 0,
             working_tree_operation_id: 0,
             operation_busy: false,

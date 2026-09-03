@@ -68,11 +68,21 @@ impl RepoTab {
                 Some((format!("✗ {message}"), colors.red))
             }
         };
-        let msg = self.status_message.clone();
-        let msg_color = match self.status_message_ok {
-            Some(true) => colors.green,
-            Some(false) => colors.red,
-            None => colors.muted_foreground,
+        // While a generic Git command runs, its animated verb takes over the
+        // result slot; a finished operation's message is stale anyway
+        // because the worker executes commands serially.
+        let (msg, msg_color) = if let Some(verb) = self.busy_verb {
+            (
+                Some(format!("{verb}{}", ".".repeat(self.progress_dots))),
+                colors.warning,
+            )
+        } else {
+            let color = match self.status_message_ok {
+                Some(true) => colors.green,
+                Some(false) => colors.red,
+                None => colors.muted_foreground,
+            };
+            (self.status_message.clone(), color)
         };
 
         h_flex()

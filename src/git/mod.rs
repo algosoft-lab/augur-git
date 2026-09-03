@@ -114,6 +114,12 @@ pub enum GitUiEvent {
         success: bool,
         detail: String,
     },
+    /// 通用命令开始执行（fetch/pull/push/commit/show…）
+    CommandStarted {
+        label: String,
+        /// Git subcommand (`args[0]`), used to derive a progress verb.
+        subcommand: String,
+    },
     /// 通用命令执行结果（fetch/pull/push/commit/show…）
     CommandDone {
         label: String,
@@ -664,6 +670,10 @@ impl GitView {
                         self.locale,
                         &error,
                     )));
+                }
+                GitEvent::CommandStarted { label, subcommand } => {
+                    log::debug!("[git_view] command {label} started");
+                    cx.emit(GitUiEvent::CommandStarted { label, subcommand });
                 }
                 GitEvent::CommandDone {
                     label,

@@ -33,9 +33,11 @@ pub mod agent_operation;
 pub mod automation;
 mod branch_compare;
 mod commit_log;
+mod progress;
 mod working_tree;
 
 pub use commit_log::LogScope;
+pub(crate) use progress::progress_verb;
 
 /// The kind of revision exposed by the comparison selector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -250,6 +252,16 @@ pub enum GitEvent {
     },
     /// Status parsing or execution failed, but the worker can continue.
     StatusError(GitError),
+    /// 通用命令开始执行（fetch/pull/push/commit/show…）
+    ///
+    /// The worker executes commands serially, so at most one command is
+    /// in flight per repository and `CommandDone`/`Error` always ends the
+    /// previously announced command.
+    CommandStarted {
+        label: String,
+        /// Git subcommand (`args[0]`), used to derive a progress verb.
+        subcommand: String,
+    },
     /// 通用命令执行结果（fetch/pull/push/commit/show…）
     CommandDone {
         label: String,
@@ -769,6 +781,11 @@ fn run_git(
     args: &[String],
     event_tx: &Sender<GitEvent>,
 ) {
+    log::debug!("[git_command] command started: label={label}, args={args:?}");
+    let _ = event_tx.send(GitEvent::CommandStarted {
+        label: label.to_string(),
+        subcommand: args.first().cloned().unwrap_or_default(),
+    });
     let output = git_command().arg("-C").arg(repo_path).args(args).output();
     match output {
         Ok(output) if output.status.success() => {
