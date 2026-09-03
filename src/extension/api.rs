@@ -1062,7 +1062,14 @@ fn response_to_lua(lua: &Lua, response: HostResponse) -> mlua::Result<Value> {
 }
 
 fn json_to_lua(lua: &Lua, value: JsonValue) -> mlua::Result<Value> {
-    lua.to_value(&value)
+    // JSON null must surface as Lua nil, not mlua's null light-userdata
+    // sentinel, so scripts can rely on `value == nil` and `or` fallbacks.
+    lua.to_value_with(
+        &value,
+        mlua::serde::SerializeOptions::new()
+            .serialize_none_to_null(false)
+            .serialize_unit_to_null(false),
+    )
 }
 
 fn setting_to_lua(lua: &Lua, value: &SettingValue) -> mlua::Result<Value> {
@@ -1168,6 +1175,22 @@ mod tests {
                 HostRequest::TimeNow => {
                     HostResponse::Json(serde_json::json!({ "unix_ms": 1 }))
                 }
+                HostRequest::Repository {
+                    operation: RepositoryOperation::Status,
+                    ..
+                } => HostResponse::Json(serde_json::json!({
+                    "ok": true,
+                    "branch": "main",
+                    "head": null,
+                    "upstream": null,
+                    "operation": null,
+                    "dirty": false,
+                    "conflicts": false,
+                    "busy": false,
+                    "ahead": 0,
+                    "behind": 0,
+                    "remotes": [],
+                })),
                 _ => HostResponse::Json(JsonValue::Null),
             };
             self.requests
@@ -1192,6 +1215,93 @@ mod tests {
             events: Vec::new(),
             cancelled: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    fn repository_snapshot() -> RepositorySnapshot {
+        RepositorySnapshot {
+            tab_id: 1,
+            path: "/tmp/repo".into(),
+            display_name: "repo".into(),
+            branch: "main".into(),
+            head: None,
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            dirty: false,
+            conflicts: false,
+            busy: false,
+            remotes: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn json_to_lua_maps_null_to_nil() {
+        let lua = Lua::new();
+        let value = json_to_lua(
+            &lua,
+            serde_json::json!({ "operation": null, "branch": "main" }),
+        )
+        .expect("json should convert to lua");
+        let Value::Table(table) = value else {
+            panic!("json object should convert to a lua table");
+        };
+        assert_eq!(
+            table.get::<Value>("operation").expect("operation"),
+            Value::Nil
+        );
+        assert_eq!(
+            table.get::<String>("branch").expect("branch"),
+            "main".to_string()
+        );
+        lua.globals().set("state", table).expect("global");
+        let operation_type: String = lua
+            .load("return type(state.operation)")
+            .eval()
+            .expect("chunk should run");
+        assert_eq!(operation_type, "nil");
+    }
+
+    #[test]
+    fn repository_status_exposes_missing_fields_as_nil() {
+        let host = Arc::new(FakeHost::default());
+        let runtime = ExtensionRuntime::load(
+            "test-extension".into(),
+            r#"
+                return {
+                    on_run = function(ctx)
+                        local state = ctx.repositories[1]:status()
+                        return {
+                            ok = true,
+                            operation_type = type(state.operation),
+                            operation_is_nil = state.operation == nil,
+                            head_is_nil = state.head == nil,
+                            branch = state.branch,
+                        }
+                    end
+                }
+            "#,
+            None,
+            host,
+        )
+        .expect("runtime should load");
+        let mut current = invocation();
+        current.repositories = vec![repository_snapshot()];
+        let result = runtime
+            .run(current, "on_run")
+            .expect("status run should complete");
+        assert_eq!(
+            result.get("operation_type").and_then(JsonValue::as_str),
+            Some("nil")
+        );
+        assert_eq!(
+            result.get("operation_is_nil"),
+            Some(&JsonValue::Bool(true))
+        );
+        assert_eq!(result.get("head_is_nil"), Some(&JsonValue::Bool(true)));
+        assert_eq!(
+            result.get("branch").and_then(JsonValue::as_str),
+            Some("main")
+        );
     }
 
     #[test]

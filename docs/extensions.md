@@ -105,7 +105,12 @@ command string is constructed.
 also available. Repository operations (`status`, `wait_until_ready`, `git`,
 `pull_rebase`, `push`, and the Agent operations) return `ok = true` alongside
 the repository state or command result on success, and `{ok = false, code, summary}`
-on failure; invalid API use, a missing handler, cancellation, or a
+on failure. Optional fields surface as Lua `nil` when they do not apply:
+`status.operation` is one of `merge`, `rebase`, `cherry-pick`, `revert`,
+`bisect`, or `sequencer` while such a state is in progress and `nil`
+otherwise, and `status.head` and `status.upstream` are `nil` when they cannot
+be resolved. Scripts can therefore test these fields with
+`value == nil` and rely on `or` fallbacks. Invalid API use, a missing handler, cancellation, or a
 disconnected host is a Lua error. `augur.agent.prompt(repo, options)` returns completion state, exit
 code, and at most 1 MiB of in-memory transcript. Its
 `side_effects_verified` field is always false because generic prompts are not
