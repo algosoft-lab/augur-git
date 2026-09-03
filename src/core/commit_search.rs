@@ -9,19 +9,11 @@ pub enum CommitSearchField {
     FullMessage,
 }
 
-/// Matching semantics for commit-message searches.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CommitSearchMode {
-    Loose,
-    Strict,
-}
-
 /// Filter commits while preserving their existing Git order.
 pub fn search_log_rows(
     commits: &[LogRow],
     query: &str,
     field: CommitSearchField,
-    mode: CommitSearchMode,
 ) -> Vec<LogRow> {
     if query.is_empty() {
         return commits.to_vec();
@@ -29,33 +21,27 @@ pub fn search_log_rows(
 
     commits
         .iter()
-        .filter(|commit| commit_matches(commit, query, field, mode))
+        .filter(|commit| commit_matches(commit, query, field))
         .cloned()
         .collect()
 }
 
-/// Return whether a commit matches the requested field and mode.
+/// Return whether a commit matches the requested field.
 pub fn commit_matches(
     commit: &LogRow,
     query: &str,
     field: CommitSearchField,
-    mode: CommitSearchMode,
 ) -> bool {
     let haystack = match field {
         CommitSearchField::Subject => &commit.subject,
         CommitSearchField::FullMessage => &commit.message,
     };
 
-    match mode {
-        CommitSearchMode::Strict => haystack.contains(query),
-        CommitSearchMode::Loose => {
-            let needle = normalize_loose(query);
-            if needle.is_empty() {
-                return true;
-            }
-            normalize_loose(haystack).contains(&needle)
-        }
+    let needle = normalize_loose(query);
+    if needle.is_empty() {
+        return true;
     }
+    normalize_loose(haystack).contains(&needle)
 }
 
 fn normalize_loose(value: &str) -> String {
@@ -93,50 +79,23 @@ mod tests {
         assert!(commit_matches(
             &commit,
             "fix_login",
-            CommitSearchField::Subject,
-            CommitSearchMode::Loose
+            CommitSearchField::Subject
         ));
         assert!(commit_matches(
             &commit,
             "FIX-LOGIN",
-            CommitSearchField::Subject,
-            CommitSearchMode::Loose
+            CommitSearchField::Subject
         ));
     }
 
     #[test]
-    fn loose_mode_does_not_correct_spelling() {
+    fn search_does_not_correct_spelling() {
         let commit = row("Fix Login", "Fix Login");
 
         assert!(!commit_matches(
             &commit,
             "fix_lgoin",
-            CommitSearchField::Subject,
-            CommitSearchMode::Loose
-        ));
-    }
-
-    #[test]
-    fn strict_mode_preserves_case_and_separators() {
-        let commit = row("Fix_Login", "Fix_Login");
-
-        assert!(commit_matches(
-            &commit,
-            "Fix_Login",
-            CommitSearchField::Subject,
-            CommitSearchMode::Strict
-        ));
-        assert!(!commit_matches(
-            &commit,
-            "fix_login",
-            CommitSearchField::Subject,
-            CommitSearchMode::Strict
-        ));
-        assert!(!commit_matches(
-            &commit,
-            "Fix Login",
-            CommitSearchField::Subject,
-            CommitSearchMode::Strict
+            CommitSearchField::Subject
         ));
     }
 
@@ -147,14 +106,12 @@ mod tests {
         assert!(!commit_matches(
             &commit,
             "sso_login",
-            CommitSearchField::Subject,
-            CommitSearchMode::Loose
+            CommitSearchField::Subject
         ));
         assert!(commit_matches(
             &commit,
             "sso_login",
-            CommitSearchField::FullMessage,
-            CommitSearchMode::Loose
+            CommitSearchField::FullMessage
         ));
     }
 
@@ -163,23 +120,11 @@ mod tests {
         let commits = vec![row("One", "One"), row("Two", "Two")];
 
         assert_eq!(
-            search_log_rows(
-                &commits,
-                "",
-                CommitSearchField::Subject,
-                CommitSearchMode::Loose
-            )
-            .len(),
+            search_log_rows(&commits, "", CommitSearchField::Subject).len(),
             2
         );
         assert_eq!(
-            search_log_rows(
-                &commits,
-                "___",
-                CommitSearchField::Subject,
-                CommitSearchMode::Loose
-            )
-            .len(),
+            search_log_rows(&commits, "___", CommitSearchField::Subject).len(),
             2
         );
     }

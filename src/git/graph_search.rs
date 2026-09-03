@@ -5,14 +5,13 @@ use gpui::*;
 use gpui_component::{
     Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
-    checkbox::Checkbox,
     h_flex,
     input::{Input, InputState},
     menu::{DropdownMenu, PopupMenuItem},
     theme::ThemeColor,
 };
 
-use crate::core::commit_search::{CommitSearchField, CommitSearchMode};
+use crate::core::commit_search::CommitSearchField;
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
 
@@ -23,7 +22,6 @@ pub(super) fn render(
     search_input: &Entity<InputState>,
     locale: Locale,
     field: CommitSearchField,
-    mode: CommitSearchMode,
     query: &str,
     matches: usize,
     total: usize,
@@ -38,7 +36,6 @@ pub(super) fn render(
     );
     let subject_label = i18n::text(locale, "commit-search-subject");
     let full_message_label = i18n::text(locale, "commit-search-full-message");
-    let strict_label = i18n::text(locale, "commit-search-strict");
     let field_graph = graph.clone();
     let field_button = Button::new("commit-search-field")
         .label(field_label)
@@ -76,22 +73,6 @@ pub(super) fn render(
                 )
             },
         );
-    let strict_graph = graph.clone();
-    let strict_toggle = Checkbox::new("commit-search-strict")
-        .label(strict_label)
-        .checked(mode == CommitSearchMode::Strict)
-        .on_click(move |checked, _window, cx| {
-            strict_graph.update(cx, |graph, cx| {
-                graph.set_search_mode(
-                    if *checked {
-                        CommitSearchMode::Strict
-                    } else {
-                        CommitSearchMode::Loose
-                    },
-                    cx,
-                );
-            });
-        });
     let result_label = i18n::text_args(
         locale,
         "commit-search-results",
@@ -119,7 +100,6 @@ pub(super) fn render(
                 .prefix(Icon::new(IconName::Search).small()),
         )
         .child(field_button)
-        .child(strict_toggle)
         .when(!query.is_empty(), |toolbar| {
             toolbar.child(
                 div()

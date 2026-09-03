@@ -18,9 +18,7 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::core::commit_search::{
-    CommitSearchField, CommitSearchMode, search_log_rows,
-};
+use crate::core::commit_search::{CommitSearchField, search_log_rows};
 use crate::core::graph::{
     AUTHOR_COL_WIDTH, DATE_COL_WIDTH, GraphRow, HASH_COL_WIDTH, LogRow,
     RefKind, RefLabel, column_visibility, compute_graph, format_relative_time,
@@ -82,7 +80,6 @@ pub struct GraphView {
     selected: Option<usize>,
     search_input: Entity<InputState>,
     search_field: CommitSearchField,
-    search_mode: CommitSearchMode,
     search_query: String,
     /// Full messages cached after selection or hover requests.
     commit_messages: HashMap<String, CommitMessage>,
@@ -132,12 +129,12 @@ impl GraphView {
         let search_input_entity = search_input.clone();
         cx.subscribe(&search_input_entity, |graph, _event, event, cx| {
             if matches!(event, InputEvent::Change) {
-                graph.search_query = graph.search_input.read(cx).value().to_string();
+                graph.search_query =
+                    graph.search_input.read(cx).value().to_string();
                 graph.rebuild_rows(cx);
                 log::debug!(
-                    "[commit_search] input changed: field={:?}, mode={:?}, matches={}/{}",
+                    "[commit_search] input changed: field={:?}, matches={}/{}",
                     graph.search_field,
-                    graph.search_mode,
                     graph.rows.len(),
                     graph.history_count
                 );
@@ -156,7 +153,6 @@ impl GraphView {
             selected: None,
             search_input,
             search_field: CommitSearchField::Subject,
-            search_mode: CommitSearchMode::Loose,
             search_query: String::new(),
             commit_messages: HashMap::new(),
             hover_preview,
@@ -262,16 +258,14 @@ impl GraphView {
             &self.all_rows,
             &self.search_query,
             self.search_field,
-            self.search_mode,
         );
         log::debug!(
-            "[commit_search] rows rebuilt: source={}, history={}, matches={}, active={}, field={:?}, mode={:?}",
+            "[commit_search] rows rebuilt: source={}, history={}, matches={}, active={}, field={:?}",
             self.all_rows.len(),
             self.history_count,
             self.rows.len(),
             !self.search_query.is_empty(),
             self.search_field,
-            self.search_mode
         );
         let visible_oids = self
             .rows
@@ -330,28 +324,7 @@ impl GraphView {
         self.rebuild_rows(cx);
         self.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
         log::debug!(
-            "[commit_search] field changed: field={field:?}, mode={:?}, matches={}/{}",
-            self.search_mode,
-            self.rows.len(),
-            self.history_count
-        );
-        cx.notify();
-    }
-
-    fn set_search_mode(
-        &mut self,
-        mode: CommitSearchMode,
-        cx: &mut Context<Self>,
-    ) {
-        if self.search_mode == mode {
-            return;
-        }
-        self.search_mode = mode;
-        self.rebuild_rows(cx);
-        self.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
-        log::debug!(
-            "[commit_search] mode changed: field={:?}, mode={mode:?}, matches={}/{}",
-            self.search_field,
+            "[commit_search] field changed: field={field:?}, matches={}/{}",
             self.rows.len(),
             self.history_count
         );
@@ -569,7 +542,6 @@ impl Render for GraphView {
                 &self.search_input,
                 self.locale,
                 self.search_field,
-                self.search_mode,
                 &self.search_query,
                 self.rows.len(),
                 self.history_count,
