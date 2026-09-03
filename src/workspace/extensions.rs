@@ -1,28 +1,30 @@
 //! Declarative management page for installed Lua extensions.
 
+mod detail;
+mod settings;
+
 use std::collections::BTreeMap;
 
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, IndexPath, Sizable,
+    ActiveTheme, Sizable,
     button::{Button, ButtonVariants},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::InputState,
     scroll::ScrollableElement,
-    searchable_list::SearchableListItem,
-    select::{Select, SelectEvent, SelectState},
-    switch::Switch,
+    select::SelectState,
     v_flex,
 };
 
 use crate::core::config::AppConfig;
 use crate::core::extension::{
-    EventTrigger, ExtensionRunRecord, ExtensionRunTrigger, ExtensionSettings,
-    ExtensionSource, RepositoryRunResult, SettingDefinition, SettingValue,
+    ExtensionRunRecord, ExtensionSettings, SettingDefinition, SettingValue,
 };
 use crate::core::i18n::{self, Locale};
 use crate::extension::{ExtensionDefinition, load_run_history};
+
+use settings::ExtensionSelectOption;
 
 #[derive(Clone, Debug)]
 pub enum ExtensionsPanelEvent {
@@ -55,24 +57,6 @@ struct ExtensionRow {
     definition: ExtensionDefinition,
     settings: ExtensionSettings,
     history: Vec<ExtensionRunRecord>,
-}
-
-#[derive(Clone, Debug)]
-struct ExtensionSelectOption {
-    value: String,
-    label: SharedString,
-}
-
-impl SearchableListItem for ExtensionSelectOption {
-    type Value = String;
-
-    fn title(&self) -> SharedString {
-        self.label.clone()
-    }
-
-    fn value(&self) -> &Self::Value {
-        &self.value
-    }
 }
 
 pub struct ExtensionsPanel {
@@ -147,90 +131,39 @@ impl ExtensionsPanel {
                 })
                 .normalized_for(&definition.package.manifest);
             for (key, setting) in &definition.package.manifest.settings {
-                let text = settings
-                    .values
-                    .get(key)
-                    .map(setting_display)
-                    .unwrap_or_default();
                 if matches!(
                     setting,
                     SettingDefinition::String { .. }
                         | SettingDefinition::Integer { .. }
                         | SettingDefinition::Time { .. }
                 ) {
-                    let input = cx.new(|cx| {
-                        InputState::new(window, cx).default_value(text.clone())
-                    });
-                    let extension_id = id.clone();
-                    let key_for_event = key.clone();
-                    let is_time =
-                        matches!(setting, SettingDefinition::Time { .. });
-                    let is_integer =
-                        matches!(setting, SettingDefinition::Integer { .. });
-                    cx.subscribe(&input, move |_panel, state, event, cx| {
-                        if !matches!(event, InputEvent::Change) {
-                            return;
-                        }
-                        let value = state.read(cx).value().trim().to_string();
-                        let setting_value = if is_time {
-                            SettingValue::Time(value)
-                        } else if is_integer {
-                            value
-                                .parse::<i64>()
-                                .map(SettingValue::Integer)
-                                .unwrap_or(SettingValue::String(value))
-                        } else {
-                            SettingValue::String(value)
-                        };
-                        cx.emit(ExtensionsPanelEvent::SettingChanged {
-                            extension_id: extension_id.clone(),
-                            key: key_for_event.clone(),
-                            value: setting_value,
-                        });
-                    })
-                    .detach();
+                    let text = settings
+                        .values
+                        .get(key)
+                        .map(settings::setting_display)
+                        .unwrap_or_default();
+                    let input = settings::build_text_editor(
+                        &id,
+                        key,
+                        text,
+                        matches!(setting, SettingDefinition::Time { .. }),
+                        matches!(setting, SettingDefinition::Integer { .. }),
+                        window,
+                        cx,
+                    );
                     inputs.insert((id.clone(), key.clone()), input);
                 }
                 if let SettingDefinition::Select {
                     options, default, ..
                 } = setting
                 {
-                    let select_options = options
-                        .iter()
-                        .map(|option| ExtensionSelectOption {
-                            value: option.value.clone(),
-                            label: SharedString::from(option.label.clone()),
-                        })
-                        .collect::<Vec<_>>();
                     let current = match settings.values.get(key) {
                         Some(SettingValue::Select(value)) => value.clone(),
                         _ => default.clone(),
                     };
-                    let selected_index = select_options
-                        .iter()
-                        .position(|option| option.value == current)
-                        .map(|index| IndexPath::default().row(index));
-                    let state = cx.new(|cx| {
-                        SelectState::new(
-                            select_options.clone(),
-                            selected_index,
-                            window,
-                            cx,
-                        )
-                    });
-                    let extension_id = id.clone();
-                    let key_for_event = key.clone();
-                    cx.subscribe(&state, move |_panel, _, event, cx| {
-                        let SelectEvent::Confirm(Some(value)) = event else {
-                            return;
-                        };
-                        cx.emit(ExtensionsPanelEvent::SettingChanged {
-                            extension_id: extension_id.clone(),
-                            key: key_for_event.clone(),
-                            value: SettingValue::Select(value.clone()),
-                        });
-                    })
-                    .detach();
+                    let state = settings::build_select_editor(
+                        &id, key, options, current, window, cx,
+                    );
                     selects.insert((id.clone(), key.clone()), state);
                 }
             }
@@ -465,96 +398,6 @@ impl ExtensionsPanel {
             cx.notify();
         }
     }
-
-    fn render_setting(
-        &self,
-        row: &ExtensionRow,
-        key: &str,
-        definition: &SettingDefinition,
-        colors: &gpui_component::theme::ThemeColor,
-        cx: &Context<Self>,
-    ) -> AnyElement {
-        let value = row.settings.values.get(key);
-        let label = definition.label().to_string();
-        let description = match definition {
-            SettingDefinition::String { description, .. }
-            | SettingDefinition::Integer { description, .. }
-            | SettingDefinition::Boolean { description, .. }
-            | SettingDefinition::Time { description, .. }
-            | SettingDefinition::Select { description, .. } => {
-                description.clone()
-            }
-        };
-        let mut line = v_flex().w_full().gap_1().child(
-            div()
-                .text_color(colors.foreground)
-                .text_size(crate::theme::scaled_text_size(12.))
-                .child(SharedString::from(label)),
-        );
-        if let Some(description) = description {
-            line = line.child(
-                div()
-                    .text_color(colors.muted_foreground)
-                    .text_size(crate::theme::scaled_text_size(11.))
-                    .child(SharedString::from(description)),
-            );
-        }
-        let id = row.definition.package.manifest.id.clone();
-        let setting_error = self
-            .setting_errors
-            .get(&(id.clone(), key.to_string()))
-            .cloned();
-        if let Some(input) = self.inputs.get(&(id.clone(), key.to_string())) {
-            line = line.child(Input::new(input).w_full());
-        } else if let Some(select) = self
-            .selects
-            .get(&(row.definition.package.manifest.id.clone(), key.to_string()))
-        {
-            line = line.child(Select::new(select).w_full().into_any_element());
-        } else if let SettingDefinition::Boolean { default, .. } = definition {
-            let current = match value {
-                Some(SettingValue::Boolean(current)) => *current,
-                _ => *default,
-            };
-            let panel = cx.entity();
-            let extension_id = row.definition.package.manifest.id.clone();
-            let key = key.to_string();
-            line = line.child(
-                Switch::new(SharedString::from(format!(
-                    "extension-setting-{extension_id}-{key}"
-                )))
-                .small()
-                .checked(current)
-                .on_click(move |_event, _window, cx| {
-                    panel.update(cx, |_panel, cx| {
-                        cx.emit(ExtensionsPanelEvent::SettingChanged {
-                            extension_id: extension_id.clone(),
-                            key: key.clone(),
-                            value: SettingValue::Boolean(!current),
-                        });
-                    });
-                }),
-            );
-        } else {
-            line = line.child(
-                div()
-                    .text_color(colors.muted_foreground)
-                    .text_size(crate::theme::scaled_text_size(12.))
-                    .child(SharedString::from(
-                        value.map(setting_display).unwrap_or_default(),
-                    )),
-            );
-        }
-        if let Some(error) = setting_error {
-            line = line.child(
-                div()
-                    .text_color(colors.red)
-                    .text_size(crate::theme::scaled_text_size(11.))
-                    .child(SharedString::from(error)),
-            );
-        }
-        line.into_any_element()
-    }
 }
 
 impl Render for ExtensionsPanel {
@@ -576,33 +419,10 @@ impl Render for ExtensionsPanel {
             i18n::text(locale, "extensions-update-pending");
         let reload_label = i18n::text(locale, "extensions-reload");
         let close_label = i18n::text(locale, "extensions-close");
-        let run_once_label = i18n::text(locale, "extensions-run-once");
-        let cancel_label = i18n::text(locale, "extensions-cancel");
-        let save_settings_label =
-            i18n::text(locale, "extensions-save-settings");
-        let trust_label_text = i18n::text(locale, "extensions-trust");
-        let trusted_label = i18n::text(locale, "extensions-trusted");
-        let subscribe_label = i18n::text(locale, "extensions-subscribe");
-        let subscribed_label = i18n::text(locale, "extensions-subscribed");
-        let events_title = i18n::text(locale, "extensions-event-subscriptions");
-        let next_run_label = i18n::text(locale, "extensions-next-run");
-        let settings_title = i18n::text(locale, "extensions-settings");
-        let history_title = i18n::text(locale, "extensions-recent-runs");
         let manual_capability = i18n::text(locale, "extensions-manual");
         let events_capability = i18n::text(locale, "extensions-events");
-        let source_label = i18n::text(locale, "extensions-source");
-        let fingerprint_label = i18n::text(locale, "extensions-fingerprint");
-        let version_label = i18n::text(locale, "extensions-version");
-        let author_label = i18n::text(locale, "extensions-author");
-        let path_label = i18n::text(locale, "extensions-path");
-        let bundled_label = i18n::text(locale, "extensions-bundled");
-        let local_source_label =
-            i18n::text(locale, "extensions-local-directory");
-        let uninstall_label = i18n::text(locale, "extensions-uninstall");
         let permission_warning =
             i18n::text(locale, "extensions-permission-warning");
-        let untrusted_warning =
-            i18n::text(locale, "extensions-untrusted-warning");
         let selected_id = self.selected_extension.clone().or_else(|| {
             self.rows
                 .first()
@@ -616,256 +436,7 @@ impl Render for ExtensionsPanel {
                 selected_id.as_deref()
                     == Some(row.definition.package.manifest.id.as_str())
             })
-            .map(|row| {
-            let id = row.definition.package.manifest.id.clone();
-            let id_for_run = id.clone();
-            let id_for_trust = id.clone();
-            let panel_for_trust = this.clone();
-            let panel_for_run = this.clone();
-            let panel_for_cancel = this.clone();
-            let panel_for_save = this.clone();
-            let panel_for_uninstall = this.clone();
-            let id_for_uninstall = id.clone();
-            let id_for_cancel = id.clone();
-            let id_for_save = id.clone();
-            let trust_label = if row.settings.trusted {
-                trusted_label.clone()
-            } else {
-                trust_label_text.clone()
-            };
-            let source_name = match row.definition.package.source {
-                ExtensionSource::Bundled => bundled_label.clone(),
-                ExtensionSource::LocalDirectory => local_source_label.clone(),
-            };
-            let source = format!(
-                "{source_label}: {source_name} · {fingerprint_label}: {}",
-                row.definition.package.fingerprint
-            );
-            let path = row
-                .definition
-                .package
-                .root
-                .as_ref()
-                .map(|path| path.display().to_string())
-                .unwrap_or_else(|| bundled_label.clone());
-            let author = row.definition.package.manifest.author.clone().unwrap_or_else(|| "—".to_string());
-            let version = row.definition.package.manifest.version.clone();
-            let status = self.statuses.get(&id).cloned();
-            let capabilities = [
-                row.definition
-                    .package
-                    .manifest
-                    .manual_handler
-                    .as_ref()
-                        .map(|_| manual_capability.as_str()),
-                (!row.definition.package.manifest.event_triggers().is_empty())
-                    .then_some(events_capability.as_str()),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · ");
-            let history = row.history.iter().rev().take(3).map(|record| {
-                let trigger = trigger_display(locale, &record.trigger);
-                let repository_summary = record
-                    .repositories
-                    .iter()
-                    .map(|repository| {
-                        let result = match &repository.result {
-                            RepositoryRunResult::Success { summary } => {
-                                i18n::text_args(
-                                    locale,
-                                    "extensions-history-ok",
-                                    &[("summary", summary)],
-                                )
-                            }
-                            RepositoryRunResult::Failed { code, summary } => {
-                                i18n::text_args(
-                                    locale,
-                                    "extensions-history-failed",
-                                    &[("code", code), ("summary", summary)],
-                                )
-                            }
-                        };
-                        format!("{} — {result}", repository.display_name)
-                    })
-                    .collect::<Vec<_>>()
-                    .join("; ");
-                div()
-                    .text_color(colors.muted_foreground)
-                    .text_size(crate::theme::scaled_text_size(10.))
-                    .child(SharedString::from(format!(
-                        "{} · {}",
-                        i18n::text_args(
-                            locale,
-                            "extensions-history-run",
-                            &[
-                                ("run_id", &record.run_id.to_string()),
-                                ("trigger", &trigger),
-                                ("summary", &record.summary),
-                            ],
-                        ),
-                        repository_summary
-                    )))
-            }).collect::<Vec<_>>();
-            let can_uninstall = !row.definition.package.bundled;
-            let has_settings =
-                !row.definition.package.manifest.settings.is_empty();
-            let settings = row.definition.package.manifest.settings.iter().map(|(key, definition)| {
-                self.render_setting(row, key, definition, &colors, cx)
-            }).collect::<Vec<_>>();
-            let events = row
-                .definition
-                .package
-                .manifest
-                .event_triggers()
-                .into_iter()
-                .map(|trigger| {
-                    let trigger_id = trigger.id.clone();
-                    let extension_id = id.clone();
-                    let subscribed = row.settings.is_subscribed(&trigger_id);
-                    let panel = this.clone();
-                    let subscription_label = if subscribed {
-                        subscribed_label.clone()
-                    } else {
-                        subscribe_label.clone()
-                    };
-                    let mut label =
-                        format!("{} · {}", trigger.label(), trigger.event_type);
-                    if let Some(description) = trigger.description.as_deref() {
-                        label.push_str(" — ");
-                        label.push_str(description);
-                    }
-                    if let Some(schedule) =
-                        next_event_hint(locale, &trigger, &row.settings)
-                    {
-                        label.push_str(" · ");
-                        label.push_str(&next_run_label);
-                        label.push_str(": ");
-                        label.push_str(&schedule);
-                    }
-                    h_flex()
-                        .w_full()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .flex_1()
-                                .text_color(colors.foreground)
-                                .text_size(crate::theme::scaled_text_size(11.))
-                                .child(SharedString::from(label)),
-                        )
-                        .child(
-                            h_flex()
-                                .items_center()
-                                .gap_1()
-                                .child(
-                                    Switch::new(SharedString::from(format!(
-                                        "extension-event-{extension_id}-{trigger_id}"
-                                    )))
-                                    .small()
-                                    .checked(subscribed)
-                                    .on_click(move |_event, _window, cx| {
-                                        panel.update(cx, |_panel, cx| {
-                                            cx.emit(ExtensionsPanelEvent::SubscriptionChanged {
-                                                extension_id: extension_id.clone(),
-                                                trigger_id: trigger_id.clone(),
-                                                subscribed: !subscribed,
-                                            });
-                                        });
-                                    }),
-                                )
-                                .child(
-                                    div()
-                                        .text_color(colors.muted_foreground)
-                                        .text_size(crate::theme::scaled_text_size(10.))
-                                        .child(SharedString::from(subscription_label)),
-                                ),
-                        )
-                        .into_any_element()
-                })
-                .collect::<Vec<_>>();
-            v_flex()
-                .w_full()
-                .gap_2()
-                .p_3()
-                .rounded_md()
-                .border_1()
-                .border_color(colors.border)
-                .child(
-                    h_flex()
-                        .w_full()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(colors.foreground)
-                                .child(SharedString::from(
-                                    row.definition.package.manifest.name.clone(),
-                                )),
-                        )
-                        .child(
-                            div()
-                                .text_color(colors.muted_foreground)
-                                .text_size(crate::theme::scaled_text_size(10.))
-                                .child(SharedString::from(capabilities)),
-                        ),
-                )
-                .child(
-                    h_flex()
-                        .w_full()
-                        .flex_wrap()
-                        .items_center()
-                        .gap_2()
-                        .child(Button::new(SharedString::from(format!("extension-trust-{id}"))).label(trust_label).ghost().small().on_click(move |_event, _window, cx| {
-                            panel_for_trust.update(cx, |panel, cx| panel.handle_trust_click(id_for_trust.clone(), cx));
-                        }))
-                        .child(Button::new(SharedString::from(format!("extension-run-{id}"))).label(run_once_label.clone()).primary().small().on_click(move |_event, _window, cx| {
-                            panel_for_run.update(cx, |_panel, cx| cx.emit(ExtensionsPanelEvent::RunNow(id_for_run.clone())));
-                        }))
-                        .child(Button::new(SharedString::from(format!("extension-cancel-{id}"))).label(cancel_label.clone()).ghost().small().on_click(move |_event, _window, cx| {
-                            panel_for_cancel.update(cx, |_panel, cx| cx.emit(ExtensionsPanelEvent::Cancel(id_for_cancel.clone())));
-                        }))
-                        .when(has_settings, |element| element.child(Button::new(SharedString::from(format!("extension-save-{id}"))).label(save_settings_label.clone()).ghost().small().on_click(move |_event, _window, cx| {
-                            panel_for_save.update(cx, |_panel, cx| cx.emit(ExtensionsPanelEvent::SaveSettings(id_for_save.clone())));
-                        })))
-                        .when(can_uninstall, |element| element.child(Button::new(SharedString::from(format!("extension-uninstall-{id}"))).label(uninstall_label.clone()).ghost().small().on_click(move |_event, _window, cx| {
-                            panel_for_uninstall.update(cx, |_panel, cx| cx.emit(ExtensionsPanelEvent::Uninstall(id_for_uninstall.clone())));
-                        }))),
-                )
-                .child(div().text_color(colors.muted_foreground).text_size(crate::theme::scaled_text_size(11.)).child(SharedString::from(row.definition.package.manifest.description.clone())))
-                .child(div().text_color(colors.muted_foreground).text_size(crate::theme::scaled_text_size(10.)).child(SharedString::from(source)))
-                .child(div().text_color(colors.muted_foreground).text_size(crate::theme::scaled_text_size(10.)).child(SharedString::from(format!("{version_label}: {version} · {author_label}: {author}"))))
-                .child(div().text_color(colors.muted_foreground).text_size(crate::theme::scaled_text_size(10.)).child(SharedString::from(format!("{path_label}: {path}"))))
-                .when(!row.settings.trusted, |element| {
-                    element
-                        .child(div().text_color(colors.warning).text_size(crate::theme::scaled_text_size(11.)).child(SharedString::from(untrusted_warning.clone())))
-                        .when(self.trust_confirmations.contains(&id), |element| {
-                            element.child(div().text_color(colors.warning).text_size(crate::theme::scaled_text_size(11.)).child(SharedString::from(i18n::text(locale, "extensions-permission-confirm"))))
-                        })
-                })
-                .when(!events.is_empty(), |element| {
-                    element
-                        .child(div().text_color(colors.foreground).text_size(crate::theme::scaled_text_size(11.)).child(SharedString::from(events_title.clone())))
-                        .children(events)
-                })
-                .when(!settings.is_empty(), |element| {
-                    element
-                        .child(div().text_color(colors.foreground).text_size(crate::theme::scaled_text_size(11.)).child(SharedString::from(settings_title.clone())))
-                        .children(settings)
-                })
-                .when(!history.is_empty(), |element| {
-                    element
-                        .child(div().text_color(colors.foreground).text_size(crate::theme::scaled_text_size(11.)).child(SharedString::from(history_title.clone())))
-                        .children(history)
-                })
-                .when_some(status, |element, status| element.child(div().text_color(colors.blue).text_size(crate::theme::scaled_text_size(11.)).child(SharedString::from(status))))
-                .into_any_element()
-            })
+            .map(|row| detail::detail_card(self, &this, row, cx))
             .collect::<Vec<_>>();
         let extension_list = self
             .rows
@@ -873,25 +444,11 @@ impl Render for ExtensionsPanel {
             .map(|row| {
                 let id = row.definition.package.manifest.id.clone();
                 let name = row.definition.package.manifest.name.clone();
-                let capabilities = [
-                    row.definition
-                        .package
-                        .manifest
-                        .manual_handler
-                        .as_ref()
-                        .map(|_| manual_capability.as_str()),
-                    (!row
-                        .definition
-                        .package
-                        .manifest
-                        .event_triggers()
-                        .is_empty())
-                    .then_some(events_capability.as_str()),
-                ]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(" · ");
+                let capabilities = capabilities_summary(
+                    row,
+                    &manual_capability,
+                    &events_capability,
+                );
                 let selected = selected_id.as_deref() == Some(id.as_str());
                 let panel = this.clone();
                 v_flex()
@@ -1066,66 +623,25 @@ impl Render for ExtensionsPanel {
     }
 }
 
-fn setting_display(value: &SettingValue) -> String {
-    match value {
-        SettingValue::String(value)
-        | SettingValue::Time(value)
-        | SettingValue::Select(value) => value.clone(),
-        SettingValue::Integer(value) => value.to_string(),
-        SettingValue::Boolean(value) => value.to_string(),
-    }
-}
-
-fn trigger_display(locale: Locale, trigger: &ExtensionRunTrigger) -> String {
-    match trigger {
-        ExtensionRunTrigger::Manual => {
-            i18n::text(locale, "extensions-history-trigger-manual")
-        }
-        ExtensionRunTrigger::Schedule {
-            trigger_id,
-            event_type,
-        }
-        | ExtensionRunTrigger::Repository {
-            trigger_id,
-            event_type,
-        } => i18n::text_args(
-            locale,
-            "extensions-history-trigger-event",
-            &[("event_type", event_type), ("trigger_id", trigger_id)],
-        ),
-    }
-}
-
-fn next_event_hint(
-    locale: Locale,
-    trigger: &EventTrigger,
-    settings: &ExtensionSettings,
-) -> Option<String> {
-    match trigger.event_type.as_str() {
-        "schedule.daily" => trigger
-            .time_setting
-            .as_deref()
-            .and_then(|key| settings.values.get(key))
-            .and_then(|value| match value {
-                SettingValue::Time(time) => Some(i18n::text_args(
-                    locale,
-                    "extensions-daily-at",
-                    &[("time", time.as_str())],
-                )),
-                _ => None,
-            }),
-        "schedule.interval" => trigger
-            .interval_setting
-            .as_deref()
-            .and_then(|key| settings.values.get(key))
-            .and_then(|value| match value {
-                SettingValue::Integer(minutes) => Some(i18n::text_args(
-                    locale,
-                    "extensions-every-minutes",
-                    &[("minutes", &minutes.to_string())],
-                )),
-                _ => None,
-            }),
-        _ => Some(i18n::text(locale, "extensions-on-event")),
-    }
+/// Builds the "Manual · Events" capability summary shared by the extension
+/// list rows and the detail card header.
+fn capabilities_summary(
+    row: &ExtensionRow,
+    manual_label: &str,
+    events_label: &str,
+) -> String {
+    [
+        row.definition
+            .package
+            .manifest
+            .manual_handler
+            .as_ref()
+            .map(|_| manual_label),
+        (!row.definition.package.manifest.event_triggers().is_empty())
+            .then_some(events_label),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ")
 }
