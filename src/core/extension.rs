@@ -845,7 +845,14 @@ fn fingerprint_directory(root: &Path) -> Result<String, ExtensionError> {
             ))
         })?);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    let digest = hasher.finalize();
+    let mut fingerprint = String::with_capacity(digest.len() * 2);
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in digest {
+        fingerprint.push(HEX[(byte >> 4) as usize] as char);
+        fingerprint.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    Ok(fingerprint)
 }
 
 fn collect_files(

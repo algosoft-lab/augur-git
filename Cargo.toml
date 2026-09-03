@@ -3,11 +3,11 @@ name = "augur-git"
 version = "0.1.0"
 authors = ["Lionel Fung", "Li Haozhe"]
 edition = "2024"
-description = "Git GUI client (Git 图形客户端) built with GPUI"
+description = "Git GUI client built with GPUI"
 
 [dependencies]
 similar = { version = "3", features = ["inline"] }
-log = "0.4"
+log = "0.4.34"
 env_logger = "0.11"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
@@ -18,8 +18,8 @@ dirs = "6"
 alacritty_terminal = "0.26"
 mlua = { version = "0.12.1", features = ["lua54", "vendored", "serde", "send"] }
 semver = "1"
-sha2 = "0.10"
-toml = "0.9"
+sha2 = "0.11.0"
+toml = "1.1.5"
 
 [dependencies.gpui]
 git = "https://github.com/zed-industries/zed"
