@@ -5,4 +5,5 @@
 /test_ssh_key
 /test_ssh_key.pub
 *.log
+.zcode/
 .DS_Store
