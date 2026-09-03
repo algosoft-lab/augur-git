@@ -797,20 +797,42 @@ impl Render for ExtensionsPanel {
                         .w_full()
                         .items_center()
                         .gap_2()
-                        .child(div().flex_1().font_weight(FontWeight::BOLD).text_color(colors.foreground).child(SharedString::from(row.definition.package.manifest.name.clone())))
-                        .child(div().text_color(colors.muted_foreground).text_size(crate::theme::scaled_text_size(10.)).child(SharedString::from(capabilities)))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .font_weight(FontWeight::BOLD)
+                                .text_color(colors.foreground)
+                                .child(SharedString::from(
+                                    row.definition.package.manifest.name.clone(),
+                                )),
+                        )
+                        .child(
+                            div()
+                                .text_color(colors.muted_foreground)
+                                .text_size(crate::theme::scaled_text_size(10.))
+                                .child(SharedString::from(capabilities)),
+                        ),
+                )
+                .child(
+                    h_flex()
+                        .w_full()
+                        .flex_wrap()
+                        .items_center()
+                        .gap_2()
                         .child(Button::new(SharedString::from(format!("extension-trust-{id}"))).label(trust_label).ghost().small().on_click(move |_event, _window, cx| {
                             panel_for_trust.update(cx, |panel, cx| panel.handle_trust_click(id_for_trust.clone(), cx));
                         }))
                         .child(Button::new(SharedString::from(format!("extension-run-{id}"))).label(run_once_label.clone()).primary().small().on_click(move |_event, _window, cx| {
                             panel_for_run.update(cx, |_panel, cx| cx.emit(ExtensionsPanelEvent::RunNow(id_for_run.clone())));
                         }))
-                .child(Button::new(SharedString::from(format!("extension-cancel-{id}"))).label(cancel_label.clone()).ghost().small().on_click(move |_event, _window, cx| {
-                    panel_for_cancel.update(cx, |_panel, cx| cx.emit(ExtensionsPanelEvent::Cancel(id_for_cancel.clone())));
-                }))
-                .when(has_settings, |element| element.child(Button::new(SharedString::from(format!("extension-save-{id}"))).label(save_settings_label.clone()).ghost().small().on_click(move |_event, _window, cx| {
-                    panel_for_save.update(cx, |_panel, cx| cx.emit(ExtensionsPanelEvent::SaveSettings(id_for_save.clone())));
-                })))
+                        .child(Button::new(SharedString::from(format!("extension-cancel-{id}"))).label(cancel_label.clone()).ghost().small().on_click(move |_event, _window, cx| {
+                            panel_for_cancel.update(cx, |_panel, cx| cx.emit(ExtensionsPanelEvent::Cancel(id_for_cancel.clone())));
+                        }))
+                        .when(has_settings, |element| element.child(Button::new(SharedString::from(format!("extension-save-{id}"))).label(save_settings_label.clone()).ghost().small().on_click(move |_event, _window, cx| {
+                            panel_for_save.update(cx, |_panel, cx| cx.emit(ExtensionsPanelEvent::SaveSettings(id_for_save.clone())));
+                        })))
                         .when(can_uninstall, |element| element.child(Button::new(SharedString::from(format!("extension-uninstall-{id}"))).label(uninstall_label.clone()).ghost().small().on_click(move |_event, _window, cx| {
                             panel_for_uninstall.update(cx, |_panel, cx| cx.emit(ExtensionsPanelEvent::Uninstall(id_for_uninstall.clone())));
                         }))),
@@ -915,6 +937,8 @@ impl Render for ExtensionsPanel {
             .child(
                 div()
                     .flex_1()
+                    .min_w_0()
+                    .truncate()
                     .font_weight(FontWeight::BOLD)
                     .text_color(colors.foreground)
                     .text_size(crate::theme::scaled_text_size(18.))
