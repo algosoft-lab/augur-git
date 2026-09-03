@@ -9,7 +9,7 @@ use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::agent::AgentLaunchSpec;
+use crate::agent::{AgentLaunchSpec, resolve_executable};
 
 use super::api::{HostResponse, MAX_AGENT_TRANSCRIPT_BYTES};
 use super::host::HostEvent;
@@ -56,7 +56,14 @@ pub(super) fn run_agent_process(
     cancelled: &AtomicBool,
     event_tx: &Sender<HostEvent>,
 ) -> Result<AgentResult, String> {
-    let mut command = std::process::Command::new(&spec.executable);
+    let executable =
+        resolve_executable(&spec.executable).map_err(|error| {
+            log::warn!(
+                "[agent_operation] extension Agent for {extension_id} did not start: {error}"
+            );
+            format!("failed to start Agent: {error}")
+        })?;
+    let mut command = std::process::Command::new(executable);
     command
         .args(&spec.args)
         .stdin(Stdio::null())
@@ -70,9 +77,12 @@ pub(super) fn run_agent_process(
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000);
     }
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("failed to start Agent: {error}"))?;
+    let mut child = command.spawn().map_err(|error| {
+        log::warn!(
+            "[agent_operation] extension Agent for {extension_id} failed to spawn: {error}"
+        );
+        format!("failed to start Agent: {error}")
+    })?;
     let started = Instant::now();
     let last_activity = Arc::new(AtomicU64::new(0));
     let stdout_activity = last_activity.clone();
@@ -224,5 +234,34 @@ fn summarize_agent_output(
             .unwrap_or_else(|| "Agent terminated unexpectedly".into())
     } else {
         output.chars().take(2000).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_agent_executable_reports_resolution_guidance() {
+        let (event_tx, _event_rx) = std::sync::mpsc::channel();
+        let spec = AgentLaunchSpec {
+            executable: std::path::PathBuf::from(
+                "augur-missing-extension-agent-0e9f",
+            ),
+            args: Vec::new(),
+        };
+        let cancelled = std::sync::atomic::AtomicBool::new(false);
+        let error = run_agent_process(
+            "test-extension",
+            spec,
+            None,
+            Duration::from_secs(1),
+            &cancelled,
+            &event_tx,
+        )
+        .expect_err("a missing executable must not start");
+        assert!(error.contains("failed to start Agent"));
+        assert!(error.contains("was not found"));
+        assert!(error.contains("Settings"));
     }
 }
