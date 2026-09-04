@@ -7,9 +7,13 @@
 > Review the change. Decide what becomes history.
 
 Augur Git is an open-source, local-first, review-first desktop Git client for
-developers working with coding agents. It turns local repository changes into
-clear, navigable diffs so that a human can understand, select, and approve what
-will become part of the project's history.
+developers working with coding agents. It combines a focused working-tree
+review surface, explicit local Git operations, visible Agent sessions, and
+optional Lua workflow automation.
+
+It turns local repository changes into clear, navigable diffs so that a human
+can understand, select, and approve what will become part of the project's
+history.
 
 It is designed to sit beside a terminal, an editor such as Neovim, and a coding
 agent. It does not try to replace any of them. The terminal runs the project,
@@ -86,52 +90,119 @@ Coding agent or editor
 - **Build in the open** — the application, its design decisions, and its
   development process are available for users to inspect and improve.
 
-## Current capabilities
+## Features
 
-- **Working-tree review** — inspect staged, unstaged, and untracked files with
-  per-file diffs. Stage or unstage individual files or groups of files; discard
-  always requires confirmation, and untracked files are permanently deleted
-  only when explicitly selected.
-- **Native diff experience** — review one file or all changed files with inline
-  or side-by-side layouts, syntax-aware rendering, and character-level change
-  highlighting.
-- **Commit history** — browse a lane-based commit graph with hashes, messages,
-  authors, relative dates, changed-file lists, and commit diffs.
-- **Revision comparison** — compare branches, tags, commits, or manually entered
-  revisions in a dedicated comparison window.
-- **Visible Agent connectivity tests** — test any valid configured CLI from
-  Settings in a separate interactive terminal and a fresh empty temporary
-  directory. The fixed diagnostic challenge does not touch the current
-  repository or persist its prompt and transcript.
-- **Commit by AI** — choose the current Agent profile from Settings and launch
-  a fixed, visible commit operation from the Commit menu. The Agent reviews and
-  stages all non-ignored working-tree changes, creates one Conventional Commit,
-  and never pushes or changes file contents.
-- **Merge by AI and conflict recovery** — start a fixed merge operation from a
-  local branch context menu, or hand an ordinary merge conflict to the current
-  Agent. Clean-worktree preflight, immutable target IDs, visible PTY output, and
-  Git-state verification keep the result explicit; failed merges can be
-  aborted or left open for manual resolution.
-- **Rebase by AI and pull-rebase recovery** — rebase onto a selected local
-  branch through the current Agent, or hand conflicts from ordinary Rebase and
-  Pull (Rebase) operations to that Agent. Clean-worktree checks, immutable
-  upstream IDs, visible PTY output, and Git-state verification keep the
-  history rewrite explicit; failed rebases can be aborted or left open for
-  manual resolution.
-- **Repository operations** — browse branches, remotes, tags, and stashes, and
-  run explicit fetch, pull, push, checkout, branch, and commit operations.
-- **Multiple repositories** — keep several repositories open as tabs and return
-  to recently opened repositories.
-- **Cross-platform interface** — use Catppuccin Mocha by default or switch to
-  another Catppuccin variant or GitHub Dark on Windows, macOS, or Linux, with
-  English and Simplified Chinese localization.
+### Review working-tree changes
+
+- **Working-tree review** — inspect staged, unstaged, untracked, and conflicted
+  files with per-file or all-files diffs. Stage and unstage individual files or
+  groups; discard tracked changes only after confirmation, and delete untracked
+  files only through an explicit action.
+- **Native diff workspace** — switch between inline and side-by-side layouts
+  with syntax-aware rendering, character-level highlights, binary-file
+  handling, and diff-specific font settings. Side-by-side rendering adapts to
+  narrow windows.
+- **Commit workflow** — compose a commit while reviewing the staged diff,
+  create a normal commit, amend the latest commit, or use the fixed Commit by
+  AI action. The preferred commit action can be saved and shared across
+  repository tabs.
+
+### Explore history and repository state
+
+- **Paged commit graph** — browse a lane-based history with hashes, messages,
+  authors, relative dates, refs, changed-file lists, and commit diffs. History
+  can cover all local branches, remote-tracking branches, tags, and `HEAD`, or
+  be limited to the current branch and its tracked upstream.
+- **Commit search and context** — search by subject or full message with loose,
+  case-insensitive matching; inspect full messages and metadata in hover
+  details; copy hashes or complete commit messages; and check out a selected
+  commit from its context menu.
+- **Refs and repository operations** — browse local branches, remote branches
+  grouped by remote, tags, and stashes. Explicit actions include checkout,
+  branch creation and rename/delete, tag deletion, stash pop/drop, merge,
+  merge with `--no-ff`, fetch with pruning, pull with merge or rebase, push,
+  force push with confirmation, and refresh. Ahead/behind status is shown for
+  tracked branches.
+
+### Compare and exchange revisions
+
+- **Revision comparison** — compare local or remote-tracking branches, tags,
+  commits from history, or manually entered 7–64 character revisions in a
+  dedicated, resizable window. Comparison reads both endpoints directly and
+  does not check out or fetch them.
+- **Comparison tools** — select one file or all files, switch diff layout,
+  swap endpoints, copy the diff, and save the complete revision diff as a
+  patch. Exported patches preserve binary changes and renames where Git can
+  represent them.
+- **Apply Patch** — choose a patch file from the Branch menu and apply it to
+  the current worktree with Git. Applied changes remain visible as unstaged
+  changes for review.
+
+See [`docs/branch-comparison.md`](docs/branch-comparison.md) for the detailed
+comparison workflow.
+
+### Work with coding Agents
+
+- **Configurable profiles** — use built-in Codex, Claude Code, and OpenCode
+  profiles, or define a custom CLI with an explicit executable path, arguments,
+  and prompt mode. Executables can be selected from disk or discovered from
+  common installation locations and `PATH`.
+- **Launch-time model options** — optionally override the model for a session;
+  Codex and Claude Code expose reasoning effort, while OpenCode can expose a
+  model-specific Variant when the installed CLI supports it. Empty values
+  inherit the CLI's environment and configuration.
+- **Visible connectivity tests** — test a configured CLI in an interactive
+  terminal using a fixed diagnostic challenge in a fresh empty temporary
+  directory. Tests never touch the current repository and do not persist
+  prompts, transcripts, or session IDs.
+- **Commit by AI** — the Agent reviews all staged, unstaged, and untracked
+  non-ignored changes, stages them, reviews the staged diff, and creates one
+  concise Conventional Commit. It cannot edit file contents, reset or
+  checkout, amend, merge, rebase, or push.
+- **Merge and rebase assistance** — start merge or rebase operations from
+  branch actions, or hand conflicts from ordinary Merge, Rebase, and Pull
+  (Rebase) operations to the current Agent. Clean-worktree preflight, visible
+  terminal output, explicit conflict recovery, and Git-state verification keep
+  these operations reviewable; failures can be aborted or left open for manual
+  resolution.
+
+The Agent terminal is intentionally dedicated to visible connectivity tests and
+fixed Git operations rather than a general-purpose shell. See
+[`docs/agent-terminal.md`](docs/agent-terminal.md) for profile configuration,
+executable lookup, lifecycle rules, and troubleshooting.
+
+### Automate repeatable workflows with Lua
+
+The standalone Extensions window manages trusted Lua 5.4 packages, settings,
+manual runs, scheduling, cancellation, and run history. The bundled
+`sync-open-tabs` extension is an example workflow that can pull with rebase,
+recover conflicts through the configured Agent, commit dirty worktrees, and
+push without force-pushing. Additional local packages are discovered from the
+application data directory; there is no online marketplace in the current
+version. See [`docs/extensions.md`](docs/extensions.md) for the package format,
+events, permissions, and host API.
+
+### Customize the workspace
+
+- **Repositories and layout** — open multiple repositories as tabs, use the
+  start page's folder picker or folder drop, return to up to eight recent
+  repositories, and refresh automatically on focus or tab switches. Sidebar,
+  file-list, right-panel, and window geometry are resizable and persisted.
+- **Appearance and language** — choose GitHub Dark or any Catppuccin theme,
+  select UI and monospace fonts, adjust UI and diff font sizes, choose inline
+  or side-by-side diff as the default, and switch between English and
+  Simplified Chinese.
+- **Keyboard shortcuts** — customize registered commands in
+  `keybindings.json`, with live validation and reset support. The default quit
+  shortcut is Cmd-Q on macOS and Alt-F4 on Windows and Linux. See
+  [`docs/shortcuts.md`](docs/shortcuts.md).
 
 The system `git` executable is the only runtime dependency for repository
 operations; Augur Git does not embed or emulate a separate Git implementation.
-Agent connectivity tests are optional and require the corresponding CLI to be
-installed by the user. Each test runs in a fresh empty temporary directory and
-does not touch an open repository. On macOS and Linux, the directory is placed
-under the per-user application data directory so Agent CLIs that restrict
+Agent features are optional and require the corresponding CLI to be installed
+by the user. Each connectivity test runs in a fresh empty temporary directory
+and does not touch an open repository. On macOS and Linux, the directory is
+placed under the per-user application data directory so Agent CLIs that restrict
 system temporary locations can access it; Windows keeps using the system
 temporary directory.
 
@@ -149,16 +220,6 @@ Augur Git does not inject generic permission or mode flags.
 The Agent terminal is intentionally dedicated to visible connectivity tests and
 fixed Git operations rather than a general-purpose shell. Test state, operation
 state, and terminal transcripts are not persisted across application restarts.
-See
-[`docs/agent-terminal.md`](docs/agent-terminal.md) for profile configuration,
-executable lookup, lifecycle rules, and troubleshooting.
-
-Lua extensions can automate repository workflows while keeping Git and Agent
-operations in the Rust host. The Extensions page is available from the
-application menu; packages, trust state, scheduling, and the bundled
-`sync-open-tabs` example are documented in
-[`docs/extensions.md`](docs/extensions.md).
-
 ## Supported platforms
 
 | Platform | Status |
@@ -176,6 +237,12 @@ Building requires a recent stable Rust toolchain (edition 2024).
 3. Build and run:
 
    ```bash
+   cargo run
+   ```
+
+   Use the release profile when preferred:
+
+   ```bash
    cargo run --release
    ```
 
@@ -185,12 +252,13 @@ Building requires a recent stable Rust toolchain (edition 2024).
   `augur-git/config.json` under the platform's standard user config directory
   (for example `~/.config/augur-git/config.json` on Linux). Window geometry
   and global panel layout are stored alongside it in `augur-git/ui-state.json`.
-- Debug builds append application logs to `debug.log` in the working directory;
-  release builds append logs to `augur-git/logs/augur-git.log` under the
-  platform's standard local data directory (for example
-  `~/Library/Application Support/augur-git/logs/augur-git.log` on macOS).
-  Release builds never create `debug.log`. `RUST_LOG` can optionally override
-  the log level.
+- Debug builds write file-only diagnostic logs in the working directory,
+  including `debug.log` and per-domain files for application, Git, Agent,
+  extension, terminal, and system events. Release builds write the
+  corresponding files under the platform's standard local data directory and
+  never create `debug.log`. `RUST_LOG` can optionally override the log level.
+  See [`docs/logging.md`](docs/logging.md) for the complete file list and
+  rotation behavior.
 
 ### Packaging
 
