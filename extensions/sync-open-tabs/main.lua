@@ -7,20 +7,12 @@ local function new_file_logger(ctx)
   end
 
   local disabled = false
-  return function(message)
+  local function raw_log(content)
     if disabled then
       return
     end
     local ok, result = pcall(function()
-      local now = augur.time.now()
-      local line = string.format(
-        '[%s] run=%d trigger=%s %s\n',
-        now.local_rfc3339 or 'unknown',
-        ctx.run_id,
-        ctx.trigger or 'unknown',
-        message
-      )
-      return augur.log_file(path, line)
+      return augur.log_file(path, content)
     end)
     if not ok then
       disabled = true
@@ -35,6 +27,28 @@ local function new_file_logger(ctx)
         summary = type(result) == 'table' and result.summary or nil,
       })
     end
+  end
+
+  local started = augur.time.now().local_rfc3339 or 'unknown'
+  if #started < 25 then
+    started = started .. string.rep(' ', 25 - #started)
+  end
+  local border = '|' .. string.rep('=', 42) .. '|'
+  raw_log(table.concat({
+    border,
+    '| run started at ' .. started .. ' |',
+    border,
+  }, '\n') .. '\n')
+
+  return function(message)
+    local now = augur.time.now()
+    raw_log(string.format(
+      '[%s] run=%d trigger=%s %s\n',
+      now.local_rfc3339 or 'unknown',
+      ctx.run_id,
+      ctx.trigger or 'unknown',
+      message
+    ))
   end
 end
 

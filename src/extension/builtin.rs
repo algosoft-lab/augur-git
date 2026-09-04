@@ -42,4 +42,15 @@ mod tests {
             SettingValue::String(String::new())
         );
     }
+
+    #[test]
+    fn bundled_sync_extension_source_compiles() {
+        // Compile only; executing the chunk would resolve `require('augur')`,
+        // which no test VM provides.
+        let lua = mlua::Lua::new();
+        lua.load(super::SYNC_SOURCE)
+            .set_name("sync-open-tabs/main.lua")
+            .into_function()
+            .expect("bundled extension source must compile");
+    }
 }
