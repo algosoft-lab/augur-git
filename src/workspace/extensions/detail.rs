@@ -11,8 +11,7 @@ use gpui_component::{
 };
 
 use crate::core::extension::{
-    EventTrigger, ExtensionRunTrigger, ExtensionSettings, ExtensionSource,
-    RepositoryRunResult, SettingValue,
+    EventTrigger, ExtensionSettings, ExtensionSource, SettingValue,
 };
 use crate::core::i18n::{self, Locale};
 
@@ -22,7 +21,7 @@ use super::{
 };
 
 /// Renders the detail card of the selected extension: title, action buttons,
-/// metadata, trust warnings, event subscriptions, settings, and run history.
+/// metadata, trust warnings, event subscriptions, and settings.
 pub(super) fn detail_card(
     panel: &ExtensionsPanel,
     entity: &Entity<ExtensionsPanel>,
@@ -41,7 +40,6 @@ pub(super) fn detail_card(
     let events_title = i18n::text(locale, "extensions-event-subscriptions");
     let next_run_label = i18n::text(locale, "extensions-next-run");
     let settings_title = i18n::text(locale, "extensions-settings");
-    let history_title = i18n::text(locale, "extensions-recent-runs");
     let manual_capability = i18n::text(locale, "extensions-manual");
     let events_capability = i18n::text(locale, "extensions-events");
     let source_label = i18n::text(locale, "extensions-source");
@@ -96,55 +94,6 @@ pub(super) fn detail_card(
     let status = panel.statuses.get(&id).cloned();
     let capabilities =
         capabilities_summary(row, &manual_capability, &events_capability);
-    let history = row
-        .history
-        .iter()
-        .rev()
-        .take(3)
-        .map(|record| {
-            let trigger = trigger_display(locale, &record.trigger);
-            let repository_summary = record
-                .repositories
-                .iter()
-                .map(|repository| {
-                    let result = match &repository.result {
-                        RepositoryRunResult::Success { summary } => {
-                            i18n::text_args(
-                                locale,
-                                "extensions-history-ok",
-                                &[("summary", summary)],
-                            )
-                        }
-                        RepositoryRunResult::Failed { code, summary } => {
-                            i18n::text_args(
-                                locale,
-                                "extensions-history-failed",
-                                &[("code", code), ("summary", summary)],
-                            )
-                        }
-                    };
-                    format!("{} — {result}", repository.display_name)
-                })
-                .collect::<Vec<_>>()
-                .join("; ");
-            div()
-                .text_color(colors.muted_foreground)
-                .text_size(crate::theme::scaled_text_size(10.))
-                .child(SharedString::from(format!(
-                    "{} · {}",
-                    i18n::text_args(
-                        locale,
-                        "extensions-history-run",
-                        &[
-                            ("run_id", &record.run_id.to_string()),
-                            ("trigger", &trigger),
-                            ("summary", &record.summary),
-                        ],
-                    ),
-                    repository_summary
-                )))
-        })
-        .collect::<Vec<_>>();
     let can_uninstall = !row.definition.package.bundled;
     let has_settings = !row.definition.package.manifest.settings.is_empty();
     let settings = row
@@ -423,16 +372,6 @@ pub(super) fn detail_card(
                 )
                 .children(settings)
         })
-        .when(!history.is_empty(), |element| {
-            element
-                .child(
-                    div()
-                        .text_color(colors.foreground)
-                        .text_size(crate::theme::scaled_text_size(11.))
-                        .child(SharedString::from(history_title.clone())),
-                )
-                .children(history)
-        })
         .when_some(status, |element, status| {
             element.child(
                 div()
@@ -442,26 +381,6 @@ pub(super) fn detail_card(
             )
         })
         .into_any_element()
-}
-
-fn trigger_display(locale: Locale, trigger: &ExtensionRunTrigger) -> String {
-    match trigger {
-        ExtensionRunTrigger::Manual => {
-            i18n::text(locale, "extensions-history-trigger-manual")
-        }
-        ExtensionRunTrigger::Schedule {
-            trigger_id,
-            event_type,
-        }
-        | ExtensionRunTrigger::Repository {
-            trigger_id,
-            event_type,
-        } => i18n::text_args(
-            locale,
-            "extensions-history-trigger-event",
-            &[("event_type", event_type), ("trigger_id", trigger_id)],
-        ),
-    }
 }
 
 fn next_event_hint(

@@ -23,7 +23,7 @@ pub use api::{
 };
 pub use builtin::bundled_definitions;
 #[allow(unused_imports)]
-pub use history::{append_run_history, load_run_history};
+pub use history::append_run_history;
 pub use host::{HostBridge, HostEvent};
 pub use manager::{
     ExtensionDefinition, ExtensionEvent, ExtensionManager, ExtensionRunRequest,

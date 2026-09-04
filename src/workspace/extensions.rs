@@ -19,10 +19,10 @@ use gpui_component::{
 
 use crate::core::config::AppConfig;
 use crate::core::extension::{
-    ExtensionRunRecord, ExtensionSettings, SettingDefinition, SettingValue,
+    ExtensionSettings, SettingDefinition, SettingValue,
 };
 use crate::core::i18n::{self, Locale};
-use crate::extension::{ExtensionDefinition, load_run_history};
+use crate::extension::ExtensionDefinition;
 
 use settings::ExtensionSelectOption;
 
@@ -51,7 +51,6 @@ pub enum ExtensionsPanelEvent {
 struct ExtensionRow {
     definition: ExtensionDefinition,
     settings: ExtensionSettings,
-    history: Vec<ExtensionRunRecord>,
 }
 
 pub struct ExtensionsPanel {
@@ -163,7 +162,6 @@ impl ExtensionsPanel {
             rows.push(ExtensionRow {
                 definition,
                 settings,
-                history: load_run_history(&id).unwrap_or_default(),
             });
         }
         (rows, inputs, selects)
@@ -344,29 +342,6 @@ impl ExtensionsPanel {
                     .insert(trigger_id.to_string());
             } else {
                 row.settings.subscribed_triggers.remove(trigger_id);
-            }
-            cx.notify();
-        }
-    }
-
-    pub fn append_history(
-        &mut self,
-        extension_id: &str,
-        record: ExtensionRunRecord,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(row) = self
-            .rows
-            .iter_mut()
-            .find(|row| row.definition.package.manifest.id == extension_id)
-        {
-            row.history.push(record);
-            if row.history.len()
-                > crate::core::extension::MAX_EXTENSION_RUN_HISTORY
-            {
-                let keep_from = row.history.len()
-                    - crate::core::extension::MAX_EXTENSION_RUN_HISTORY;
-                row.history.drain(..keep_from);
             }
             cx.notify();
         }

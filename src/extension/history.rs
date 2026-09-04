@@ -18,7 +18,7 @@ fn history_path(extension_id: &str) -> Result<PathBuf, ExtensionError> {
     Ok(data_root.join(format!("{extension_id}-history.json")))
 }
 
-pub fn load_run_history(
+fn load_run_history(
     extension_id: &str,
 ) -> Result<Vec<ExtensionRunRecord>, ExtensionError> {
     let path = history_path(extension_id)?;

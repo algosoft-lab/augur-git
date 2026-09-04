@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 use chrono::Local;
 use gpui::*;
 
-use crate::core::extension::{self, ExtensionSettings, SettingValue};
+use crate::core::extension::{
+    self, ExtensionRunTrigger, ExtensionSettings, SettingValue,
+};
 use crate::core::i18n;
 use crate::extension::{
     ExtensionEvent, ExtensionEventPayload, ExtensionRunRequest,
@@ -1074,6 +1076,13 @@ impl Workspace {
                 record,
                 error,
             } => {
+                log::info!(
+                    "[extensions] run finished id={extension_id}, run_id={}, trigger={}, repositories={}, summary={}",
+                    record.run_id,
+                    run_trigger_label(&record.trigger),
+                    record.repositories.len(),
+                    record.summary
+                );
                 if let Err(write_error) =
                     crate::extension::append_run_history(&extension_id, &record)
                 {
@@ -1081,9 +1090,6 @@ impl Workspace {
                         "[extensions] failed to save run history: {write_error}"
                     );
                 }
-                self.extensions_panel.update(cx, |panel, cx| {
-                    panel.append_history(&extension_id, record, cx)
-                });
                 let status = error
                     .map(|error| {
                         i18n::text_args(
@@ -1189,9 +1195,25 @@ fn host_log_level(level: &str) -> log::Level {
     }
 }
 
+/// Stable locale-independent trigger label for run-finished log entries.
+fn run_trigger_label(trigger: &ExtensionRunTrigger) -> String {
+    match trigger {
+        ExtensionRunTrigger::Manual => "manual".to_string(),
+        ExtensionRunTrigger::Schedule {
+            trigger_id,
+            event_type,
+        }
+        | ExtensionRunTrigger::Repository {
+            trigger_id,
+            event_type,
+        } => format!("{event_type}/{trigger_id}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::host_log_level;
+    use super::{host_log_level, run_trigger_label};
+    use crate::core::extension::ExtensionRunTrigger;
 
     #[test]
     fn host_log_level_maps_extension_levels() {
@@ -1203,5 +1225,24 @@ mod tests {
         assert_eq!(host_log_level("trace"), log::Level::Debug);
         assert_eq!(host_log_level("unknown"), log::Level::Info);
         assert_eq!(host_log_level(""), log::Level::Info);
+    }
+
+    #[test]
+    fn run_trigger_label_formats_all_trigger_kinds() {
+        assert_eq!(run_trigger_label(&ExtensionRunTrigger::Manual), "manual");
+        assert_eq!(
+            run_trigger_label(&ExtensionRunTrigger::Schedule {
+                trigger_id: "nightly".to_string(),
+                event_type: "schedule.daily".to_string(),
+            }),
+            "schedule.daily/nightly"
+        );
+        assert_eq!(
+            run_trigger_label(&ExtensionRunTrigger::Repository {
+                trigger_id: "on-open".to_string(),
+                event_type: "repository.opened".to_string(),
+            }),
+            "repository.opened/on-open"
+        );
     }
 }
