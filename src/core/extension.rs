@@ -8,7 +8,6 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{DateTime, Datelike, Local, NaiveTime, TimeZone};
 use semver::Version;
@@ -564,26 +563,6 @@ pub fn installed_extension_path(id: &str) -> Result<PathBuf, ExtensionError> {
     Ok(extensions_root()?.join(id))
 }
 
-/// Check whether a local package with `id` already occupies its destination.
-pub fn local_package_exists(id: &str) -> Result<bool, ExtensionError> {
-    let destination = installed_extension_path(id)?;
-    match fs::symlink_metadata(&destination) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            Err(ExtensionError::SymlinkNotAllowed(destination))
-        }
-        Ok(metadata) if !metadata.is_dir() => {
-            Err(ExtensionError::InvalidManifest(
-                "installed extension path is not a directory".into(),
-            ))
-        }
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(ExtensionError::Io(format!(
-            "failed to inspect installed extension package: {error}"
-        ))),
-    }
-}
-
 /// Discover every valid local package. Invalid directories are returned as
 /// individual errors so one broken package does not hide the others.
 pub fn discover_local_packages()
@@ -658,83 +637,6 @@ pub fn load_local_package(
     })
 }
 
-/// Install a local directory package. Existing packages are moved aside
-/// before the staging directory is promoted, allowing a failed replacement to
-/// restore the previous package on platforms that cannot replace directories
-/// with one rename.
-pub fn install_local_package(
-    source: &Path,
-) -> Result<ExtensionPackage, ExtensionError> {
-    let package = load_local_package(source)?;
-    let root = extensions_root()?;
-    fs::create_dir_all(&root).map_err(|error| {
-        ExtensionError::Io(format!(
-            "failed to create extension directory: {error}"
-        ))
-    })?;
-    let destination = root.join(&package.manifest.id);
-    let staging = root.join(format!(
-        ".{}.staging-{}",
-        package.manifest.id,
-        next_package_counter()
-    ));
-    if let Err(error) = copy_package_tree(source, &staging) {
-        let _ = fs::remove_dir_all(&staging);
-        return Err(error);
-    }
-
-    let backup = root.join(format!(
-        ".{}.backup-{}",
-        package.manifest.id,
-        next_package_counter()
-    ));
-    let had_existing = match fs::symlink_metadata(&destination) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            let _ = fs::remove_dir_all(&staging);
-            return Err(ExtensionError::SymlinkNotAllowed(destination));
-        }
-        Ok(metadata) if !metadata.is_dir() => {
-            let _ = fs::remove_dir_all(&staging);
-            return Err(ExtensionError::InvalidManifest(
-                "installed extension path is not a directory".into(),
-            ));
-        }
-        Ok(_) => true,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-        Err(error) => {
-            let _ = fs::remove_dir_all(&staging);
-            return Err(ExtensionError::Io(format!(
-                "failed to inspect installed extension package: {error}"
-            )));
-        }
-    };
-    if had_existing {
-        fs::rename(&destination, &backup).map_err(|error| {
-            let _ = fs::remove_dir_all(&staging);
-            ExtensionError::Io(format!(
-                "failed to stage the previous extension package: {error}"
-            ))
-        })?;
-    }
-    if let Err(error) = fs::rename(&staging, &destination) {
-        let _ = fs::remove_dir_all(&staging);
-        if had_existing {
-            let _ = fs::rename(&backup, &destination);
-        }
-        return Err(ExtensionError::Io(format!(
-            "failed to install extension package: {error}"
-        )));
-    }
-    if had_existing {
-        fs::remove_dir_all(&backup).map_err(|error| {
-            ExtensionError::Io(format!(
-                "extension installed but old package cleanup failed: {error}"
-            ))
-        })?;
-    }
-    load_local_package(&destination)
-}
-
 /// Remove an installed local package. Bundled packages are not represented by
 /// a directory and therefore cannot be removed through this API.
 pub fn uninstall_local_package(id: &str) -> Result<(), ExtensionError> {
@@ -763,71 +665,6 @@ pub fn uninstall_local_package(id: &str) -> Result<(), ExtensionError> {
             "failed to uninstall extension package: {error}"
         ))
     })
-}
-
-fn next_package_counter() -> u64 {
-    static COUNTER: AtomicU64 = AtomicU64::new(1);
-    COUNTER.fetch_add(1, Ordering::Relaxed)
-}
-
-fn copy_package_tree(
-    source: &Path,
-    destination: &Path,
-) -> Result<(), ExtensionError> {
-    let mut total_bytes = 0u64;
-    let mut stack = vec![(source.to_path_buf(), destination.to_path_buf())];
-    while let Some((from, to)) = stack.pop() {
-        let metadata = fs::symlink_metadata(&from).map_err(|error| {
-            ExtensionError::Io(format!(
-                "failed to inspect package entry: {error}"
-            ))
-        })?;
-        if metadata.file_type().is_symlink() {
-            return Err(ExtensionError::SymlinkNotAllowed(from));
-        }
-        if metadata.is_dir() {
-            fs::create_dir_all(&to).map_err(|error| {
-                ExtensionError::Io(format!(
-                    "failed to create package directory: {error}"
-                ))
-            })?;
-            let entries = fs::read_dir(&from).map_err(|error| {
-                ExtensionError::Io(format!(
-                    "failed to read package directory: {error}"
-                ))
-            })?;
-            for entry in entries {
-                let entry = entry.map_err(|error| {
-                    ExtensionError::Io(format!(
-                        "failed to enumerate package entry: {error}"
-                    ))
-                })?;
-                let name = entry.file_name();
-                if name == "." || name == ".." {
-                    continue;
-                }
-                stack.push((entry.path(), to.join(name)));
-            }
-        } else if metadata.is_file() {
-            total_bytes = total_bytes.saturating_add(metadata.len());
-            if total_bytes > MAX_EXTENSION_PACKAGE_BYTES {
-                return Err(ExtensionError::PackageTooLarge);
-            }
-            if let Some(parent) = to.parent() {
-                fs::create_dir_all(parent).map_err(|error| {
-                    ExtensionError::Io(format!(
-                        "failed to create package parent: {error}"
-                    ))
-                })?;
-            }
-            fs::copy(&from, &to).map_err(|error| {
-                ExtensionError::Io(format!(
-                    "failed to copy extension package entry: {error}"
-                ))
-            })?;
-        }
-    }
-    Ok(())
 }
 
 fn fingerprint_directory(root: &Path) -> Result<String, ExtensionError> {

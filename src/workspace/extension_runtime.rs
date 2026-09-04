@@ -109,27 +109,12 @@ impl Workspace {
                             );
                         }
                     }
-                    if let Some((extension_id, _)) =
-                        &self.pending_extension_install
-                    {
-                        panel.set_pending_install(extension_id.clone(), cx);
-                    }
                 });
             }
             Err(error) => log::error!(
                 "[extension_runtime] failed to open Extensions window: {error}"
             ),
         }
-    }
-
-    pub(super) fn close_extensions(&mut self, cx: &mut Context<Self>) {
-        self.extension_drafts.clear();
-        if let Some(handle) = self.extensions_window.take() {
-            let _ = handle.update(cx, |_extensions, window, _| {
-                window.remove_window();
-            });
-        }
-        cx.notify();
     }
 
     pub(super) fn sync_extension_repositories(
@@ -649,20 +634,6 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         match event {
-            ExtensionsPanelEvent::Close => self.close_extensions(cx),
-            ExtensionsPanelEvent::Reload => self.reload_extensions(window, cx),
-            ExtensionsPanelEvent::InstallDirectory => {
-                self.install_extension_directory(window, cx);
-            }
-            ExtensionsPanelEvent::ConfirmInstall(extension_id) => {
-                self.confirm_extension_install(extension_id, window, cx);
-            }
-            ExtensionsPanelEvent::CancelInstall => {
-                self.pending_extension_install = None;
-                self.extensions_panel.update(cx, |panel, cx| {
-                    panel.clear_pending_install(cx);
-                });
-            }
             ExtensionsPanelEvent::Uninstall(extension_id) => {
                 if self.extension_definitions.iter().any(|definition| {
                     definition.package.manifest.id == *extension_id
@@ -1011,185 +982,6 @@ impl Workspace {
                 }
             }
         }
-    }
-
-    fn install_extension_directory(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some(SharedString::from(i18n::text(
-                self.locale,
-                "extensions-install-prompt",
-            ))),
-        });
-        let locale = self.locale;
-        let entity = cx.entity();
-        cx.spawn_in(window, async move |_, cx| {
-            let path = match receiver.await {
-                Ok(Ok(Some(paths))) => paths.first().cloned(),
-                _ => None,
-            };
-            let Some(path) = path else { return };
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    let package = extension::load_local_package(&path)?;
-                    let exists =
-                        extension::local_package_exists(&package.manifest.id)?;
-                    Ok::<_, extension::ExtensionError>((
-                        path,
-                        package.manifest.id,
-                        exists,
-                    ))
-                })
-                .await;
-            let _ = cx.update(|window, app| {
-                entity.update(app, |workspace, cx| match result {
-                    Ok((path, id, exists)) => {
-                        if workspace.extension_definitions.iter().any(
-                            |definition| {
-                                definition.package.bundled
-                                    && definition.package.manifest.id == id
-                            },
-                        ) {
-                            workspace.extensions_panel.update(
-                                cx,
-                                |panel, cx| {
-                                    panel.set_status(
-                                        "sync-open-tabs",
-                                        i18n::text(
-                                            locale,
-                                            "extensions-status-bundled-replace",
-                                        ),
-                                        cx,
-                                    )
-                                },
-                            );
-                            return;
-                        }
-                        if exists {
-                            workspace.pending_extension_install =
-                                Some((id.clone(), path));
-                            workspace.extensions_panel.update(
-                                cx,
-                                |panel, cx| {
-                                    panel.set_pending_install(id, cx);
-                                    panel.set_status(
-                                    "sync-open-tabs",
-                                    i18n::text(
-                                        locale,
-                                        "extensions-status-confirm-replacement",
-                                    ),
-                                    cx,
-                                );
-                                },
-                            );
-                        } else {
-                            workspace.install_extension_package(
-                                path, id, window, cx,
-                            );
-                        }
-                    }
-                    Err(error) => {
-                        workspace.extensions_panel.update(cx, |panel, cx| {
-                            panel.set_status(
-                                "sync-open-tabs",
-                                error.to_string(),
-                                cx,
-                            )
-                        });
-                    }
-                })
-            });
-        })
-        .detach();
-    }
-
-    fn confirm_extension_install(
-        &mut self,
-        extension_id: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some((pending_id, path)) = self.pending_extension_install.take()
-        else {
-            return;
-        };
-        if pending_id != extension_id {
-            self.pending_extension_install = Some((pending_id, path));
-            return;
-        }
-        self.extensions_panel.update(cx, |panel, cx| {
-            panel.clear_pending_install(cx);
-            panel.set_status(
-                extension_id,
-                i18n::text(self.locale, "extensions-status-replacing"),
-                cx,
-            );
-        });
-        self.install_extension_package(
-            path,
-            extension_id.to_string(),
-            window,
-            cx,
-        );
-    }
-
-    fn install_extension_package(
-        &mut self,
-        path: std::path::PathBuf,
-        extension_id: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let locale = self.locale;
-        let entity = cx.entity();
-        cx.spawn_in(window, async move |_, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { extension::install_local_package(&path) })
-                .await;
-            let _ = cx.update(|window, app| {
-                entity.update(app, |workspace, cx| match result {
-                    Ok(package) => {
-                        let id = package.manifest.id.clone();
-                        workspace.reload_extensions(window, cx);
-                        workspace.extensions_panel.update(cx, |panel, cx| {
-                            panel.set_status(
-                                &id,
-                                if id == extension_id {
-                                    i18n::text(
-                                        locale,
-                                        "extensions-status-installed",
-                                    )
-                                } else {
-                                    i18n::text(
-                                        locale,
-                                        "extensions-status-installed-different-id",
-                                    )
-                                },
-                                cx,
-                            )
-                        });
-                    }
-                    Err(error) => {
-                        workspace.extensions_panel.update(cx, |panel, cx| {
-                            panel.set_status(
-                                &extension_id,
-                                error.to_string(),
-                                cx,
-                            )
-                        });
-                    }
-                })
-            });
-        })
-        .detach();
     }
 
     fn reload_extensions(

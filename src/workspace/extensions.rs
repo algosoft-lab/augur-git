@@ -28,11 +28,6 @@ use settings::ExtensionSelectOption;
 
 #[derive(Clone, Debug)]
 pub enum ExtensionsPanelEvent {
-    Close,
-    InstallDirectory,
-    ConfirmInstall(String),
-    CancelInstall,
-    Reload,
     Uninstall(String),
     RunNow(String),
     Cancel(String),
@@ -71,7 +66,6 @@ pub struct ExtensionsPanel {
     statuses: BTreeMap<String, String>,
     setting_errors: BTreeMap<(String, String), String>,
     trust_confirmations: std::collections::BTreeSet<String>,
-    pending_install: Option<String>,
 }
 
 impl EventEmitter<ExtensionsPanelEvent> for ExtensionsPanel {}
@@ -98,7 +92,6 @@ impl ExtensionsPanel {
             statuses: BTreeMap::new(),
             setting_errors: BTreeMap::new(),
             trust_confirmations: Default::default(),
-            pending_install: None,
         }
     }
 
@@ -211,11 +204,6 @@ impl ExtensionsPanel {
                 .iter()
                 .any(|row| row.definition.package.manifest.id == *id)
         });
-        self.pending_install = self.pending_install.clone().filter(|id| {
-            self.rows
-                .iter()
-                .any(|row| row.definition.package.manifest.id == *id)
-        });
         cx.notify();
     }
 
@@ -273,21 +261,6 @@ impl ExtensionsPanel {
         self.statuses
             .insert(extension_id.to_string(), status.into());
         cx.notify();
-    }
-
-    pub fn set_pending_install(
-        &mut self,
-        extension_id: impl Into<String>,
-        cx: &mut Context<Self>,
-    ) {
-        self.pending_install = Some(extension_id.into());
-        cx.notify();
-    }
-
-    pub fn clear_pending_install(&mut self, cx: &mut Context<Self>) {
-        if self.pending_install.take().is_some() {
-            cx.notify();
-        }
     }
 
     pub fn set_setting_error(
@@ -410,25 +383,13 @@ impl Render for ExtensionsPanel {
         let this = cx.entity();
         let locale = self.locale;
         let title = i18n::text(locale, "extensions-title");
-        let install_label = i18n::text(locale, "extensions-install");
-        let confirm_update_label =
-            i18n::text(locale, "extensions-confirm-update");
-        let cancel_update_label =
-            i18n::text(locale, "extensions-cancel-update");
-        let update_pending_label =
-            i18n::text(locale, "extensions-update-pending");
-        let reload_label = i18n::text(locale, "extensions-reload");
-        let close_label = i18n::text(locale, "extensions-close");
         let manual_capability = i18n::text(locale, "extensions-manual");
         let events_capability = i18n::text(locale, "extensions-events");
-        let permission_warning =
-            i18n::text(locale, "extensions-permission-warning");
         let selected_id = self.selected_extension.clone().or_else(|| {
             self.rows
                 .first()
                 .map(|row| row.definition.package.manifest.id.clone())
         });
-        let pending_install = self.pending_install.clone();
         let details = self
             .rows
             .iter()
@@ -487,99 +448,6 @@ impl Render for ExtensionsPanel {
             })
             .collect::<Vec<_>>();
 
-        let header = h_flex()
-            .w_full()
-            .items_center()
-            .gap_2()
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(colors.foreground)
-                    .text_size(crate::theme::scaled_text_size(18.))
-                    .child(SharedString::from(title)),
-            )
-            .child(
-                Button::new("extensions-install")
-                    .label(install_label)
-                    .ghost()
-                    .on_click({
-                        let this = this.clone();
-                        move |_event, _window, cx| {
-                            this.update(cx, |_panel, cx| {
-                                cx.emit(ExtensionsPanelEvent::InstallDirectory)
-                            });
-                        }
-                    }),
-            )
-            .child(
-                Button::new("extensions-reload")
-                    .label(reload_label)
-                    .ghost()
-                    .on_click({
-                        let this = this.clone();
-                        move |_event, _window, cx| {
-                            this.update(cx, |_panel, cx| {
-                                cx.emit(ExtensionsPanelEvent::Reload)
-                            });
-                        }
-                    }),
-            )
-            .child(
-                Button::new("extensions-close")
-                    .label(close_label)
-                    .ghost()
-                    .on_click(move |_event, _window, cx| {
-                        this.update(cx, |_panel, cx| {
-                            cx.emit(ExtensionsPanelEvent::Close)
-                        });
-                    }),
-            );
-        let pending_controls = pending_install.map(|extension_id| {
-            let confirm_panel = cx.entity();
-            let cancel_panel = confirm_panel.clone();
-            h_flex()
-                .w_full()
-                .items_center()
-                .gap_2()
-                .child(
-                    div()
-                        .flex_1()
-                        .text_color(colors.warning)
-                        .text_size(crate::theme::scaled_text_size(11.))
-                        .child(SharedString::from(
-                            update_pending_label.clone(),
-                        )),
-                )
-                .child(
-                    Button::new("extensions-confirm-update")
-                        .label(confirm_update_label.clone())
-                        .primary()
-                        .small()
-                        .on_click(move |_event, _window, cx| {
-                            confirm_panel.update(cx, |_panel, cx| {
-                                cx.emit(ExtensionsPanelEvent::ConfirmInstall(
-                                    extension_id.clone(),
-                                ));
-                            });
-                        }),
-                )
-                .child(
-                    Button::new("extensions-cancel-update")
-                        .label(cancel_update_label.clone())
-                        .ghost()
-                        .small()
-                        .on_click(move |_event, _window, cx| {
-                            cancel_panel.update(cx, |_panel, cx| {
-                                cx.emit(ExtensionsPanelEvent::CancelInstall);
-                            });
-                        }),
-                )
-                .into_any_element()
-        });
-
         v_flex()
             .id("extensions-panel")
             .size_full()
@@ -588,15 +456,14 @@ impl Render for ExtensionsPanel {
             .p_4()
             .overflow_y_scrollbar()
             .bg(colors.background)
-            .child(header)
-            .when_some(pending_controls, |element, controls| {
-                element.child(controls)
-            })
             .child(
                 div()
-                    .text_color(colors.warning)
-                    .text_size(crate::theme::scaled_text_size(12.))
-                    .child(SharedString::from(permission_warning)),
+                    .min_w_0()
+                    .truncate()
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(colors.foreground)
+                    .text_size(crate::theme::scaled_text_size(18.))
+                    .child(SharedString::from(title)),
             )
             .child(
                 h_flex()
