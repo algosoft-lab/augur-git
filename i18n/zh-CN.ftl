@@ -84,6 +84,8 @@ status-scanning-at = 扫描中 @ { $repo }
 # ===== 命令结果 / 消息 =====
 command-success = { $label } 成功
 command-failed = { $label } 失败：{ $error }
+patch-apply-success = Patch 已应用到工作区
+patch-apply-failed = 无法应用 Patch：{ $error }
 branch-selected = 已选择分支 { $name }
 context-checkout = 切换
 context-copy-branch = 复制分支名称
@@ -245,6 +247,8 @@ menu-stash-drop = 删除贮藏…
 menu-merge = 合并…
 menu-merge-no-ff = 合并（--no-ff）…
 menu-rebase = 变基…
+menu-apply-patch = 应用 Patch…
+menu-apply-patch-prompt = 选择要应用的 Patch 文件
 branch-new-title = 新建分支
 branch-rename-title = 重命名分支
 branch-name-label = 分支名称

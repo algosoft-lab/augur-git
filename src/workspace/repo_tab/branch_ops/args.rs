@@ -92,6 +92,15 @@ pub(super) fn stash_drop_args(stash_ref: &str) -> Vec<String> {
     vec!["stash".into(), "drop".into(), stash_ref.into()]
 }
 
+/// Command label and arguments for applying a patch file to the current
+/// branch's working tree. Plain `git apply` is atomic — it applies every hunk
+/// or leaves the tree untouched — and leaves the results unstaged. The path
+/// rides as one structured argument so it can never become command syntax.
+/// Pure so it can be unit tested.
+pub(super) fn apply_patch_args(path: &str) -> (&'static str, Vec<String>) {
+    ("apply", vec!["apply".into(), path.into()])
+}
+
 /// Command label and arguments for renaming a remote branch. Git has no
 /// native remote rename, so a single push creates the new branch and
 /// deletes the old ref. The source of the create refspec is the local
@@ -137,9 +146,9 @@ pub(super) fn delete_remote_args(
 #[cfg(test)]
 mod tests {
     use super::{
-        NameError, delete_args, delete_remote_args, merge_args, rename_args,
-        rename_remote_args, stash_drop_args, stash_pop_args,
-        validate_branch_name,
+        NameError, apply_patch_args, delete_args, delete_remote_args,
+        merge_args, rename_args, rename_remote_args, stash_drop_args,
+        stash_pop_args, validate_branch_name,
     };
 
     fn existing(names: &[&str]) -> Vec<String> {
@@ -250,6 +259,14 @@ mod tests {
             stash_drop_args("stash@{2}"),
             vec!["stash", "drop", "stash@{2}"]
         );
+    }
+
+    #[test]
+    fn apply_patch_args_pass_the_patch_path_as_one_argument() {
+        let (label, args) =
+            apply_patch_args(r"C:\patches\main-to-feature.patch");
+        assert_eq!(label, "apply");
+        assert_eq!(args, vec!["apply", r"C:\patches\main-to-feature.patch"]);
     }
 
     #[test]

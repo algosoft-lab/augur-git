@@ -41,6 +41,7 @@ pub enum ToolbarEvent {
     BranchRename,
     Stash,
     StashPop,
+    ApplyPatch,
     Merge { no_ff: bool },
     Rebase,
     Fetch,
@@ -214,6 +215,7 @@ impl Toolbar {
                 let merge_item = this.clone();
                 let merge_ff_item = this.clone();
                 let rebase_item = this.clone();
+                let apply_item = this.clone();
 
                 menu.item(
                     PopupMenuItem::new(i18n::text(locale, "menu-branch-new"))
@@ -287,6 +289,17 @@ impl Toolbar {
                         .on_click(move |_e, _w, cx| {
                             rebase_item.update(cx, |_t, cx| {
                                 cx.emit(ToolbarEvent::Rebase)
+                            });
+                        }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new(i18n::text(locale, "menu-apply-patch"))
+                        .icon(lucide("upload"))
+                        .disabled(ctx.has_conflicts)
+                        .on_click(move |_e, _w, cx| {
+                            apply_item.update(cx, |_t, cx| {
+                                cx.emit(ToolbarEvent::ApplyPatch)
                             });
                         }),
                 )

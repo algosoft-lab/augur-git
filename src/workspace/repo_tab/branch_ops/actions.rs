@@ -1,12 +1,13 @@
-use gpui::Context;
+use gpui::{Context, PathPromptOptions, SharedString, Window};
 use std::path::PathBuf;
 
 use super::super::RepoTab;
-use super::args::{merge_args, stash_pop_args};
+use super::args::{apply_patch_args, merge_args, stash_pop_args};
 use crate::core::git::agent_operation::{
     has_other_git_operation_except_rebase, probe_agent_rebase,
     probe_merge_state, probe_rebase_state, resolve_agent_merge_target,
 };
+use crate::core::i18n;
 use crate::git::toolbar::BranchMenuContext;
 
 impl RepoTab {
@@ -46,6 +47,78 @@ impl RepoTab {
         let args = stash_pop_args(stash_ref.as_deref());
         self.git_view.update(cx, |view, _| {
             view.run("stash pop", args);
+        });
+        self.set_operation_busy(true, cx);
+    }
+
+    /// Open the native file picker, then apply the chosen patch file to the
+    /// current branch's working tree on the worker (guarded by busy and
+    /// conflict state).
+    pub(in crate::workspace::repo_tab) fn start_patch_apply(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_busy() || self.has_unresolved_conflicts {
+            return;
+        }
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(SharedString::from(i18n::text(
+                self.locale,
+                "menu-apply-patch-prompt",
+            ))),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let path = match receiver.await {
+                Ok(Ok(Some(paths))) => paths.into_iter().next(),
+                Ok(Ok(None)) => None,
+                Ok(Err(error)) => {
+                    log::warn!("[branch_ops] patch picker failed: {error}");
+                    None
+                }
+                Err(error) => {
+                    log::warn!(
+                        "[branch_ops] patch picker channel closed: {error}"
+                    );
+                    return;
+                }
+            };
+            let Some(path) = path else {
+                log::info!("[branch_ops] patch picker cancelled");
+                return;
+            };
+            match cx.update(|_window, cx| {
+                this.update(cx, |tab, cx| tab.begin_patch_apply(path, cx))
+            }) {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) | Err(error) => {
+                    log::warn!(
+                        "[branch_ops] repo tab unavailable after patch picker: {error}"
+                    );
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Apply a previously picked patch file to the current branch's working
+    /// tree. Guards are re-checked because repository state can change while
+    /// the file picker is open.
+    fn begin_patch_apply(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if self.is_busy() || self.has_unresolved_conflicts {
+            return;
+        }
+        let file_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        log::info!("[branch_ops] patch apply requested: file={file_name}");
+        let (label, args) = apply_patch_args(&path.display().to_string());
+        self.git_view.update(cx, |view, _| {
+            view.run(label, args);
         });
         self.set_operation_busy(true, cx);
     }

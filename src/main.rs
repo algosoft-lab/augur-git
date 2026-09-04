@@ -58,6 +58,9 @@ fn local_asset(path: &str) -> Option<&'static [u8]> {
         "icons/trash-2.svg" => {
             Some(include_bytes!("../assets/icons/trash-2.svg").as_slice())
         }
+        "icons/upload.svg" => {
+            Some(include_bytes!("../assets/icons/upload.svg").as_slice())
+        }
         _ => None,
     }
 }
@@ -88,6 +91,7 @@ impl AssetSource for AppAssets {
                 SharedString::from("icons/pencil.svg"),
                 SharedString::from("icons/refresh-cw.svg"),
                 SharedString::from("icons/trash-2.svg"),
+                SharedString::from("icons/upload.svg"),
             ]);
         }
         Ok(paths)

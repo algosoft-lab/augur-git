@@ -18,6 +18,7 @@ pub(crate) fn progress_verb(subcommand: &str) -> &'static str {
         "checkout" => "Checking out",
         "switch" => "Switching",
         "stash" => "Stashing",
+        "apply" => "Applying patch",
         "cherry-pick" => "Cherry-picking",
         "revert" => "Reverting",
         "reset" => "Resetting",
@@ -48,6 +49,7 @@ mod tests {
         assert_eq!(progress_verb("checkout"), "Checking out");
         assert_eq!(progress_verb("switch"), "Switching");
         assert_eq!(progress_verb("stash"), "Stashing");
+        assert_eq!(progress_verb("apply"), "Applying patch");
         assert_eq!(progress_verb("cherry-pick"), "Cherry-picking");
         assert_eq!(progress_verb("revert"), "Reverting");
         assert_eq!(progress_verb("reset"), "Resetting");

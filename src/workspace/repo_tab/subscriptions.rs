@@ -55,7 +55,7 @@ fn wire_toolbar(
     window: &mut Window,
     cx: &mut Context<RepoTab>,
 ) {
-    cx.subscribe_in(toolbar, window, |tab, _event, event, _window, cx| {
+    cx.subscribe_in(toolbar, window, |tab, _event, event, window, cx| {
         match event {
             ToolbarEvent::Fetch => {
                 if tab.is_busy() {
@@ -125,6 +125,9 @@ fn wire_toolbar(
             }
             ToolbarEvent::StashPop => {
                 tab.start_stash_pop(None, cx);
+            }
+            ToolbarEvent::ApplyPatch => {
+                tab.start_patch_apply(window, cx);
             }
             ToolbarEvent::Merge { no_ff } => {
                 tab.open_branch_dialog(
@@ -582,6 +585,7 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                         label.as_str(),
                         "commit"
                             | "checkout"
+                            | "apply"
                             | "fetch --all --prune"
                             | "pull"
                             | "pull --rebase"
@@ -602,7 +606,17 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                             | "merge --no-ff"
                             | "rebase"
                     );
-                    tab.status_message = Some(if *success {
+                    tab.status_message = Some(if label == "apply" {
+                        if *success {
+                            i18n::text(tab.locale, "patch-apply-success")
+                        } else {
+                            i18n::text_args(
+                                tab.locale,
+                                "patch-apply-failed",
+                                &[("error", first_line(message))],
+                            )
+                        }
+                    } else if *success {
                         i18n::text_args(
                             tab.locale,
                             "command-success",

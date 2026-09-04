@@ -85,6 +85,8 @@ status-scanning-at = Scanning @ { $repo }
 # ===== Command results / messages =====
 command-success = { $label } succeeded
 command-failed = { $label } failed: { $error }
+patch-apply-success = Patch applied to the working tree
+patch-apply-failed = Unable to apply patch: { $error }
 branch-selected = Selected branch { $name }
 context-checkout = Checkout
 context-copy-branch = Copy branch name
@@ -246,6 +248,8 @@ menu-stash-drop = Stash Drop…
 menu-merge = Merge…
 menu-merge-no-ff = Merge (--no-ff)…
 menu-rebase = Rebase…
+menu-apply-patch = Apply Patch…
+menu-apply-patch-prompt = Choose a patch file to apply
 branch-new-title = Create New Branch
 branch-rename-title = Rename Branch
 branch-name-label = Branch name
