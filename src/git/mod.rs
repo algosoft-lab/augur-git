@@ -18,6 +18,7 @@ mod revision_picker_logic;
 pub mod sidebar;
 pub mod toolbar;
 
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -106,6 +107,14 @@ pub enum GitUiEvent {
     },
     /// All files for a branch comparison have been attempted.
     BranchCompareFinished { request_id: u64 },
+    /// A comparison patch was written to `destination` with `bytes` bytes.
+    BranchComparePatchExported {
+        request_id: u64,
+        destination: PathBuf,
+        bytes: u64,
+    },
+    /// A comparison patch export failed without stopping the worker.
+    BranchComparePatchError { request_id: u64, detail: String },
     /// Completed staged/working-tree mutation.
     WorkingTreeOperationFinished {
         request_id: u64,
@@ -403,6 +412,29 @@ impl GitView {
         }
     }
 
+    /// Write the full diff between two revisions to a patch file.
+    pub fn branch_compare_patch(
+        &self,
+        request_id: u64,
+        base: CompareRevision,
+        target: CompareRevision,
+        destination: PathBuf,
+    ) {
+        log::info!(
+            "[git_compare] patch export requested: request_id={}, base={}, target={}, file={}",
+            request_id,
+            base.name,
+            target.name,
+            destination
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("<unnamed>")
+        );
+        if let Some(handle) = &self.handle {
+            handle.branch_compare_patch(request_id, base, target, destination);
+        }
+    }
+
     /// Apply a staged/working-tree mutation.
     pub fn working_tree_operation(
         &self,
@@ -640,6 +672,32 @@ impl GitView {
                         request_id
                     );
                     cx.emit(GitUiEvent::BranchCompareFinished { request_id });
+                }
+                GitEvent::BranchComparePatchExported {
+                    request_id,
+                    destination,
+                    bytes,
+                } => {
+                    log::info!(
+                        "[git_view] comparison patch exported: request_id={}, bytes={}",
+                        request_id,
+                        bytes
+                    );
+                    cx.emit(GitUiEvent::BranchComparePatchExported {
+                        request_id,
+                        destination,
+                        bytes,
+                    });
+                }
+                GitEvent::BranchComparePatchError { request_id, detail } => {
+                    log::warn!(
+                        "[git_view] comparison patch export failed: request_id={}",
+                        request_id
+                    );
+                    cx.emit(GitUiEvent::BranchComparePatchError {
+                        request_id,
+                        detail,
+                    });
                 }
                 GitEvent::WorkingTreeOperationFinished {
                     request_id,

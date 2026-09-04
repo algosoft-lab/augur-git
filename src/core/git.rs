@@ -8,7 +8,7 @@
 //!
 //! 输出解析全部为纯函数（可单测），解析规则见各函数注释。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
@@ -36,6 +36,7 @@ mod commit_log;
 mod progress;
 mod working_tree;
 
+pub(crate) use branch_compare::suggested_patch_filename;
 pub use commit_log::LogScope;
 pub(crate) use progress::progress_verb;
 
@@ -242,6 +243,14 @@ pub enum GitEvent {
     },
     /// All files for a branch comparison have been attempted.
     BranchCompareFinished { request_id: u64 },
+    /// A comparison patch was written to `destination` with `bytes` bytes.
+    BranchComparePatchExported {
+        request_id: u64,
+        destination: PathBuf,
+        bytes: u64,
+    },
+    /// A comparison patch export failed without stopping the worker.
+    BranchComparePatchError { request_id: u64, detail: String },
     /// A staged/working-tree mutation completed without stopping the worker.
     WorkingTreeOperationFinished {
         request_id: u64,
@@ -444,6 +453,13 @@ pub enum GitCommand {
         base: CompareRevision,
         target: CompareRevision,
     },
+    /// Write the full diff between two revisions to a patch file.
+    BranchComparePatch {
+        request_id: u64,
+        base: CompareRevision,
+        target: CompareRevision,
+        destination: PathBuf,
+    },
     /// Apply a staged/working-tree mutation to a captured file snapshot.
     WorkingTreeOperation {
         request_id: u64,
@@ -550,6 +566,24 @@ impl GitHandle {
             request_id,
             base,
             target,
+        });
+    }
+
+    /// Write the full diff between two revisions to a patch file. Runs
+    /// independently of the comparison generation so an export started from a
+    /// stale view still completes.
+    pub fn branch_compare_patch(
+        &self,
+        request_id: u64,
+        base: CompareRevision,
+        target: CompareRevision,
+        destination: PathBuf,
+    ) {
+        let _ = self.cmd_tx.send(GitCommand::BranchComparePatch {
+            request_id,
+            base,
+            target,
+            destination,
         });
     }
 
@@ -686,6 +720,21 @@ fn worker_loop(
                         compare_generation.clone(),
                     );
                 }
+            }
+            Ok(GitCommand::BranchComparePatch {
+                request_id,
+                base,
+                target,
+                destination,
+            }) => {
+                branch_compare::spawn_patch_export(
+                    repo_path.clone(),
+                    request_id,
+                    base,
+                    target,
+                    destination,
+                    event_tx.clone(),
+                );
             }
             Ok(GitCommand::WorkingTreeOperation {
                 request_id,

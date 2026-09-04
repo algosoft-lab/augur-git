@@ -231,6 +231,10 @@ branch-compare-no-changes = 所选版本没有文件变化
 branch-compare-select-hint = 选择两个版本后开始比较
 branch-compare-select-file = 选择文件查看 diff
 branch-compare-error = 无法加载版本比较
+branch-compare-export-patch = 保存 Patch
+branch-compare-export-saving = 正在保存 Patch
+branch-compare-export-success = Patch 已保存到 { $path }
+branch-compare-export-error = 无法保存 Patch：{ $detail }
 
 # ===== 分支操作（工具栏 Branch 菜单） =====
 menu-branch-new = 新建分支…

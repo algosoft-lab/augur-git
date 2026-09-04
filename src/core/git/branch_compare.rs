@@ -1,6 +1,8 @@
 //! Read-only comparison of two local or remote-tracking revisions.
 
 use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, mpsc::Sender};
@@ -91,6 +93,166 @@ pub(super) fn spawn_comparison(
             &generation,
         );
     });
+}
+
+/// Start a patch-file export on a dedicated read-only worker.
+pub(super) fn spawn_patch_export(
+    repo_path: String,
+    request_id: u64,
+    base: CompareRevision,
+    target: CompareRevision,
+    destination: PathBuf,
+    event_tx: Sender<GitEvent>,
+) {
+    thread::spawn(move || {
+        run_patch_export(
+            &repo_path,
+            request_id,
+            &base,
+            &target,
+            &destination,
+            &event_tx,
+        );
+    });
+}
+
+/// Build the canonical full patch command for a patch-file export. `--binary`
+/// keeps binary changes applicable by `git apply`.
+pub(super) fn patch_export_args(
+    repo_path: &str,
+    old_oid: &str,
+    new_oid: &str,
+) -> Vec<String> {
+    vec![
+        "--no-pager".to_string(),
+        "-C".to_string(),
+        repo_path.to_string(),
+        "diff".to_string(),
+        "--binary".to_string(),
+        "--no-color".to_string(),
+        "--no-ext-diff".to_string(),
+        "--find-renames".to_string(),
+        old_oid.to_string(),
+        new_oid.to_string(),
+    ]
+}
+
+/// Build a filesystem-safe default patch file name for two revisions.
+pub(crate) fn suggested_patch_filename(
+    base: &CompareRevision,
+    target: &CompareRevision,
+) -> String {
+    let sanitize = |value: &str| {
+        let cleaned: String = value
+            .chars()
+            .map(|character| {
+                if character.is_ascii_alphanumeric()
+                    || matches!(character, '.' | '_' | '-')
+                {
+                    character
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        cleaned.trim_matches('-').to_string()
+    };
+    let base = sanitize(&base.name);
+    let target = sanitize(&target.name);
+    if base.is_empty() || target.is_empty() {
+        return "comparison.patch".to_string();
+    }
+    format!("{base}-to-{target}.patch")
+}
+
+fn run_patch_export(
+    repo_path: &str,
+    request_id: u64,
+    base: &CompareRevision,
+    target: &CompareRevision,
+    destination: &Path,
+    event_tx: &Sender<GitEvent>,
+) {
+    let old_oid = match resolve_revision(repo_path, base) {
+        Ok(oid) => oid,
+        Err(detail) => {
+            send_patch_error(event_tx, request_id, detail);
+            return;
+        }
+    };
+    let new_oid = match resolve_revision(repo_path, target) {
+        Ok(oid) => oid,
+        Err(detail) => {
+            send_patch_error(event_tx, request_id, detail);
+            return;
+        }
+    };
+    let output = git_command()
+        .args(patch_export_args(repo_path, &old_oid, &new_oid))
+        .output();
+    let patch = match output {
+        Ok(output) if output.status.success() => output.stdout,
+        Ok(output) => {
+            send_patch_error(
+                event_tx,
+                request_id,
+                output_detail(&output, "git diff"),
+            );
+            return;
+        }
+        Err(error) => {
+            send_patch_error(event_tx, request_id, error.to_string());
+            return;
+        }
+    };
+    log::debug!(
+        "[git_compare] patch generated: request_id={}, bytes={}, file={}",
+        request_id,
+        patch.len(),
+        destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("<unnamed>")
+    );
+    if let Err(error) = write_atomic(destination, &patch) {
+        send_patch_error(event_tx, request_id, error.to_string());
+        return;
+    }
+    let _ = event_tx.send(GitEvent::BranchComparePatchExported {
+        request_id,
+        destination: destination.to_path_buf(),
+        bytes: patch.len() as u64,
+    });
+}
+
+/// Write bytes through a temporary file and rename so an interrupted write
+/// never leaves a truncated destination. Windows cannot replace an existing
+/// file with rename, so remove the previous file before retrying.
+fn write_atomic(destination: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let filename = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("patch");
+    let temp_path = destination.with_file_name(format!(
+        ".{filename}.tmp-{}-{counter}",
+        std::process::id(),
+    ));
+    if let Err(error) = fs::write(&temp_path, bytes) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(error);
+    }
+    match fs::rename(&temp_path, destination) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            if destination.exists() && fs::remove_file(destination).is_ok() {
+                return fs::rename(&temp_path, destination);
+            }
+            let _ = fs::remove_file(&temp_path);
+            Err(error)
+        }
+    }
 }
 
 /// Build the metadata command comparing two resolved commit snapshots.
@@ -413,6 +575,19 @@ fn send_finished(event_tx: &Sender<GitEvent>, request_id: u64) {
     let _ = event_tx.send(GitEvent::BranchCompareFinished { request_id });
 }
 
+fn send_patch_error(
+    event_tx: &Sender<GitEvent>,
+    request_id: u64,
+    detail: String,
+) {
+    log::warn!(
+        "[git_compare] patch export failed: request_id={}, detail={detail}",
+        request_id
+    );
+    let _ =
+        event_tx.send(GitEvent::BranchComparePatchError { request_id, detail });
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -488,6 +663,125 @@ mod tests {
         assert!(
             parse_object_id(&format!("{}\nextra", "a".repeat(40))).is_none()
         );
+    }
+
+    #[test]
+    fn patch_export_args_keep_canonical_full_diff_form() {
+        let args = patch_export_args("repo", "old", "new");
+        assert_eq!(args.last(), Some(&"new".to_string()));
+        assert!(args.iter().any(|arg| arg == "--binary"));
+        assert!(args.iter().any(|arg| arg == "--no-color"));
+        assert!(args.iter().any(|arg| arg == "--no-ext-diff"));
+        assert!(args.iter().any(|arg| arg == "--find-renames"));
+    }
+
+    #[test]
+    fn suggested_patch_filename_sanitizes_revision_names() {
+        let remote = CompareRevision {
+            name: "origin/feature-x".to_string(),
+            full_name: "refs/remotes/origin/feature-x".to_string(),
+            kind: CompareRevisionKind::Remote,
+        };
+        assert_eq!(
+            suggested_patch_filename(&local_ref("main"), &remote),
+            "main-to-origin-feature-x.patch"
+        );
+        assert_eq!(
+            suggested_patch_filename(&local_ref("a b"), &local_ref("c:d")),
+            "a-b-to-c-d.patch"
+        );
+        assert_eq!(
+            suggested_patch_filename(&local_ref(""), &local_ref("x")),
+            "comparison.patch"
+        );
+    }
+
+    #[test]
+    fn patch_export_round_trips_through_git_apply() {
+        let repo = TestRepo::new();
+        repo.write("file.txt", "base\n");
+        repo.git(["add", "--all"]);
+        repo.git(["commit", "-qm", "base"]);
+        repo.git(["branch", "feature"]);
+        repo.write("file.txt", "changed\n");
+        repo.git(["add", "--all"]);
+        repo.git(["commit", "-qm", "changed"]);
+        // Binary content exercises the `--binary` patch encoding.
+        fs::write(repo.path.join("blob.bin"), [0u8, 159, 146, 150, 10])
+            .expect("write binary test file");
+        repo.git(["add", "--all"]);
+        repo.git(["commit", "-qm", "binary"]);
+
+        let destination = repo.path.join("exported.patch");
+        let events = run_patch_export_events(
+            &repo.path,
+            51,
+            &local_ref("main"),
+            &local_ref("feature"),
+            &destination,
+        );
+        let mut exported = None;
+        for event in &events {
+            match event {
+                GitEvent::BranchComparePatchExported {
+                    request_id,
+                    destination: path,
+                    bytes,
+                } => {
+                    assert_eq!(*request_id, 51);
+                    assert_eq!(path, &destination);
+                    exported = Some(*bytes);
+                }
+                GitEvent::BranchComparePatchError { detail, .. } => {
+                    panic!("unexpected patch export error: {detail}");
+                }
+                _ => {}
+            }
+        }
+        let bytes = exported.expect("patch export event");
+        let written = fs::read(&destination).expect("patch file exists");
+        assert_eq!(written.len() as u64, bytes);
+        assert!(!written.is_empty());
+        let text = String::from_utf8_lossy(&written);
+        assert!(text.contains("diff --git"));
+        assert!(text.contains("GIT binary patch"));
+
+        // Applying the base→target patch onto the base checkout must succeed.
+        repo.git(["checkout", "-q", "main"]);
+        repo.git(["apply", "--check", "exported.patch"]);
+    }
+
+    #[test]
+    fn patch_export_reports_missing_reference() {
+        let repo = TestRepo::new();
+        repo.write("file.txt", "content\n");
+        repo.git(["add", "--all"]);
+        repo.git(["commit", "-qm", "base"]);
+        let destination = repo.path.join("never.patch");
+        let missing = CompareRevision {
+            name: "missing".to_string(),
+            full_name: "refs/heads/missing".to_string(),
+            kind: CompareRevisionKind::Local,
+        };
+        let events = run_patch_export_events(
+            &repo.path,
+            52,
+            &local_ref("main"),
+            &missing,
+            &destination,
+        );
+        let mut error = false;
+        for event in events {
+            if let GitEvent::BranchComparePatchError { request_id, detail } =
+                event
+            {
+                assert_eq!(request_id, 52);
+                assert!(!detail.is_empty());
+                error = true;
+            }
+        }
+        assert!(error);
+        assert!(!destination.exists());
     }
 
     #[test]
@@ -759,6 +1053,25 @@ mod tests {
             &generation,
         );
         drop(tx);
+        rx.into_iter().collect()
+    }
+
+    fn run_patch_export_events(
+        path: &Path,
+        request_id: u64,
+        base: &CompareRevision,
+        target: &CompareRevision,
+        destination: &Path,
+    ) -> Vec<GitEvent> {
+        let (tx, rx) = mpsc::channel();
+        spawn_patch_export(
+            path.to_string_lossy().into_owned(),
+            request_id,
+            base.clone(),
+            target.clone(),
+            destination.to_path_buf(),
+            tx,
+        );
         rx.into_iter().collect()
     }
 

@@ -232,6 +232,10 @@ branch-compare-no-changes = The selected revisions have no file changes
 branch-compare-select-hint = Choose two revisions and compare them
 branch-compare-select-file = Select a file to view its diff
 branch-compare-error = Unable to load revision comparison
+branch-compare-export-patch = Save patch
+branch-compare-export-saving = Saving patch
+branch-compare-export-success = Patch saved to { $path }
+branch-compare-export-error = Unable to save patch: { $detail }
 
 # ===== Branch operations (toolbar Branch menu) =====
 menu-branch-new = New Branch…

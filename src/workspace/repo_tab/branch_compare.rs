@@ -18,8 +18,11 @@ pub(super) fn new_view(
     cx: &mut Context<RepoTab>,
     locale: Locale,
     diff_layout: crate::git::diff_view::DiffLayoutMode,
+    repo_path: String,
 ) -> Entity<BranchCompareView> {
-    cx.new(|cx| BranchCompareView::new(window, cx, locale, diff_layout))
+    cx.new(|cx| {
+        BranchCompareView::new(window, cx, locale, diff_layout, repo_path)
+    })
 }
 
 pub(super) fn subscribe(
@@ -43,6 +46,21 @@ pub(super) fn subscribe(
                         *request_id,
                         base.clone(),
                         target.clone(),
+                    );
+                });
+            }
+            BranchCompareEvent::ExportPatch {
+                request_id,
+                base,
+                target,
+                destination,
+            } => {
+                tab.git_view.update(cx, |view, _| {
+                    view.branch_compare_patch(
+                        *request_id,
+                        base.clone(),
+                        target.clone(),
+                        destination.clone(),
                     );
                 });
             }
@@ -108,6 +126,27 @@ pub(super) fn handle_git_event(
         GitUiEvent::BranchCompareFinished { request_id } => {
             tab.compare.update(cx, |view, cx| {
                 view.finish(*request_id, cx);
+            });
+            true
+        }
+        GitUiEvent::BranchComparePatchExported {
+            request_id,
+            destination,
+            bytes,
+        } => {
+            tab.compare.update(cx, |view, cx| {
+                view.set_export_result(
+                    *request_id,
+                    destination.clone(),
+                    *bytes,
+                    cx,
+                );
+            });
+            true
+        }
+        GitUiEvent::BranchComparePatchError { request_id, detail } => {
+            tab.compare.update(cx, |view, cx| {
+                view.set_export_error(*request_id, detail.clone(), cx);
             });
             true
         }

@@ -219,7 +219,13 @@ impl RepoTab {
         let bottom = cx.new(|_cx| {
             BottomPanel::new(locale, diff_layout, layout.file_list_ratio)
         });
-        let compare = branch_compare::new_view(window, cx, locale, diff_layout);
+        let compare = branch_compare::new_view(
+            window,
+            cx,
+            locale,
+            diff_layout,
+            repo_path.clone(),
+        );
         branch_compare::subscribe(&compare, window, cx);
 
         subscriptions::wire(

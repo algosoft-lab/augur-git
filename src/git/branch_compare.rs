@@ -1,7 +1,9 @@
 //! Dedicated revision comparison view.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::*;
@@ -12,7 +14,9 @@ use gpui_component::{
 };
 
 use crate::core::diff::{DiffDocument, FileChange};
-use crate::core::git::{CompareRevision, CompareRevisionKind, RefsInfo};
+use crate::core::git::{
+    CompareRevision, CompareRevisionKind, RefsInfo, suggested_patch_filename,
+};
 use crate::core::graph::LogRow;
 use crate::core::i18n::{self, Locale};
 
@@ -39,6 +43,12 @@ pub enum BranchCompareEvent {
         base: CompareRevision,
         target: CompareRevision,
     },
+    ExportPatch {
+        request_id: u64,
+        base: CompareRevision,
+        target: CompareRevision,
+        destination: PathBuf,
+    },
 }
 
 struct CompareDocument {
@@ -46,8 +56,24 @@ struct CompareDocument {
     cache: Arc<DiffViewCache>,
 }
 
+/// Tick interval for the animated saving indicator. Mirrors the status-bar
+/// busy-verb rhythm.
+const EXPORT_PROGRESS_INTERVAL_MS: u64 = 350;
+
+/// Latest patch-export progress shown in the header status line.
+#[derive(Clone)]
+enum ExportState {
+    /// Export in flight; `dots` animates like the status-bar busy verb.
+    Saving { dots: usize },
+    /// Localized success message including the destination path.
+    Done(String),
+    /// Localized failure message including the error detail.
+    Failed(String),
+}
+
 /// Full-screen read-only revision comparison state and renderer.
 pub struct BranchCompareView {
+    repo_path: String,
     locale: Locale,
     diff_layout: DiffLayoutMode,
     refs: Vec<CompareRevision>,
@@ -58,6 +84,11 @@ pub struct BranchCompareView {
     base_picker: Entity<RevisionPicker>,
     target_picker: Entity<RevisionPicker>,
     request_id: u64,
+    export_request_id: u64,
+    /// Latest patch-export progress shown in the header.
+    export_state: Option<ExportState>,
+    /// Whether the saving-dots animation loop is currently running.
+    export_animating: bool,
     loading: bool,
     finished: bool,
     files: Vec<FileChange>,
@@ -76,6 +107,7 @@ impl BranchCompareView {
         cx: &mut Context<Self>,
         locale: Locale,
         diff_layout: DiffLayoutMode,
+        repo_path: String,
     ) -> Self {
         let base_picker =
             cx.new(|cx| RevisionPicker::new("base", window, cx, locale));
@@ -98,6 +130,7 @@ impl BranchCompareView {
         .detach();
 
         Self {
+            repo_path,
             locale,
             diff_layout,
             refs: Vec::new(),
@@ -108,6 +141,9 @@ impl BranchCompareView {
             base_picker,
             target_picker,
             request_id: 0,
+            export_request_id: 0,
+            export_state: None,
+            export_animating: false,
             loading: false,
             finished: false,
             files: Vec::new(),
@@ -339,6 +375,7 @@ impl BranchCompareView {
         self.documents.clear();
         self.file_errors.clear();
         self.request_error = None;
+        self.export_state = None;
         self.show_all = true;
         self.selected = None;
         cx.emit(BranchCompareEvent::Compare {
@@ -357,6 +394,7 @@ impl BranchCompareView {
         self.invalidate_request_id();
         self.loading = false;
         self.request_error = None;
+        self.export_state = None;
         self.files.clear();
         self.documents.clear();
         self.file_errors.clear();
@@ -406,6 +444,173 @@ impl BranchCompareView {
         if !text.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
+    }
+
+    /// Whether the current selections can export a patch right now.
+    fn can_export(&self, cx: &App) -> bool {
+        self.can_compare(cx) && !(self.finished && self.files.is_empty())
+    }
+
+    /// Prompt for a destination and start a full patch export.
+    fn export_patch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.can_export(cx) {
+            return;
+        }
+        let (Some(base), Some(target)) = (
+            self.base_picker.read(cx).candidate().revision(),
+            self.target_picker.read(cx).candidate().revision(),
+        ) else {
+            return;
+        };
+        let suggested = suggested_patch_filename(&base, &target);
+        let directory = PathBuf::from(&self.repo_path);
+        log::info!(
+            "[git_compare] opening patch save dialog: base={}, target={}, suggested_file={suggested}",
+            base.name,
+            target.name
+        );
+        let receiver = cx.prompt_for_new_path(&directory, Some(&suggested));
+        cx.spawn_in(window, async move |this, cx| {
+            let destination = match receiver.await {
+                Ok(Ok(Some(path))) => Some(path),
+                Ok(Ok(None)) => None,
+                Ok(Err(error)) => {
+                    log::warn!(
+                        "[git_compare] patch save dialog failed: {error}"
+                    );
+                    None
+                }
+                Err(error) => {
+                    log::warn!(
+                        "[git_compare] patch save dialog channel closed: {error}"
+                    );
+                    return;
+                }
+            };
+            let Some(destination) = destination else {
+                log::info!("[git_compare] patch save dialog cancelled");
+                return;
+            };
+            match cx.update(|_window, cx| {
+                this.update(cx, |view, cx| {
+                    view.begin_patch_export(destination, cx)
+                })
+            }) {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) | Err(error) => {
+                    log::warn!(
+                        "[git_compare] compare view unavailable after save dialog: {error}"
+                    );
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Start a patch export against the currently selected revisions.
+    fn begin_patch_export(
+        &mut self,
+        destination: PathBuf,
+        cx: &mut Context<Self>,
+    ) {
+        let (Some(base), Some(target)) = (
+            self.base_picker.read(cx).candidate().revision(),
+            self.target_picker.read(cx).candidate().revision(),
+        ) else {
+            return;
+        };
+        self.export_request_id = self.export_request_id.wrapping_add(1).max(1);
+        self.export_state = Some(ExportState::Saving { dots: 1 });
+        self.start_export_animation(cx);
+        cx.emit(BranchCompareEvent::ExportPatch {
+            request_id: self.export_request_id,
+            base,
+            target,
+            destination,
+        });
+        cx.notify();
+    }
+
+    pub fn set_export_result(
+        &mut self,
+        request_id: u64,
+        destination: PathBuf,
+        bytes: u64,
+        cx: &mut Context<Self>,
+    ) {
+        if request_id != self.export_request_id {
+            log::warn!(
+                "[git_compare] UI dropped stale patch export: event_request_id={}, current_request_id={}",
+                request_id,
+                self.export_request_id
+            );
+            return;
+        }
+        let path = destination.to_string_lossy().into_owned();
+        let message = i18n::text_args(
+            self.locale,
+            "branch-compare-export-success",
+            &[("path", path.as_str())],
+        );
+        self.export_state = Some(ExportState::Done(message));
+        log::info!(
+            "[git_compare] UI accepted patch export: request_id={}, bytes={bytes}",
+            request_id
+        );
+        cx.notify();
+    }
+
+    pub fn set_export_error(
+        &mut self,
+        request_id: u64,
+        detail: String,
+        cx: &mut Context<Self>,
+    ) {
+        if request_id != self.export_request_id {
+            return;
+        }
+        let message = i18n::text_args(
+            self.locale,
+            "branch-compare-export-error",
+            &[("detail", detail.as_str())],
+        );
+        self.export_state = Some(ExportState::Failed(message));
+        cx.notify();
+    }
+
+    /// Animate the header saving dots until the export leaves the in-flight
+    /// state, mirroring the status-bar busy-verb loop.
+    fn start_export_animation(&mut self, cx: &mut Context<Self>) {
+        if self.export_animating {
+            return;
+        }
+        self.export_animating = true;
+        log::debug!("[git_compare] patch export progress started");
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(EXPORT_PROGRESS_INTERVAL_MS))
+                    .await;
+                let stop = this
+                    .update(cx, |view, cx| {
+                        let Some(ExportState::Saving { dots }) =
+                            &mut view.export_state
+                        else {
+                            view.export_animating = false;
+                            cx.notify();
+                            return true;
+                        };
+                        *dots = *dots % 3 + 1;
+                        cx.notify();
+                        false
+                    })
+                    .unwrap_or(true);
+                if stop {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     fn sync_selectors(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -484,6 +689,9 @@ impl BranchCompareView {
         } else {
             i18n::text(self.locale, "branch-compare-run")
         };
+        let export_label =
+            i18n::text(self.locale, "branch-compare-export-patch");
+        let export_enabled = self.can_export(cx);
         let (total_added, total_deleted) =
             self.files.iter().fold((0, 0), |(added, deleted), file| {
                 (
@@ -596,6 +804,29 @@ impl BranchCompareView {
                                     ))
                                     .child(shared(run_label)),
                             ),
+                    ))
+                    .child(compare_field_action(
+                        Button::new("branch-compare-export")
+                            .ghost()
+                            .compact()
+                            .flex_shrink_0()
+                            .disabled(!export_enabled)
+                            .on_click({
+                                let this = this.clone();
+                                move |_event, window, cx| {
+                                    this.update(cx, |view, cx| {
+                                        view.export_patch(window, cx)
+                                    });
+                                }
+                            })
+                            .icon(lucide("download"))
+                            .child(
+                                div()
+                                    .text_size(crate::theme::scaled_text_size(
+                                        12.,
+                                    ))
+                                    .child(shared(export_label)),
+                            ),
                     )),
             )
             .when_some(self.request_error.clone(), |header, error| {
@@ -605,6 +836,30 @@ impl BranchCompareView {
                         .text_size(crate::theme::scaled_text_size(11.))
                         .text_color(colors.red)
                         .child(shared(error)),
+                )
+            })
+            .when_some(self.export_state.clone(), |header, state| {
+                let (message, color) = match state {
+                    ExportState::Saving { dots } => (
+                        format!(
+                            "{}{}",
+                            i18n::text(
+                                self.locale,
+                                "branch-compare-export-saving"
+                            ),
+                            ".".repeat(dots)
+                        ),
+                        colors.warning,
+                    ),
+                    ExportState::Done(message) => (message, colors.green),
+                    ExportState::Failed(message) => (message, colors.red),
+                };
+                header.child(
+                    div()
+                        .w_full()
+                        .text_size(crate::theme::scaled_text_size(11.))
+                        .text_color(color)
+                        .child(shared(message)),
                 )
             })
             .into_any_element()
