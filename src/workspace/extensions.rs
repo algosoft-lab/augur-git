@@ -456,6 +456,10 @@ impl Render for ExtensionsPanel {
             .p_4()
             .overflow_y_scrollbar()
             .bg(colors.background)
+            // Input value text inherits the ambient window text color
+            // (gpui-component's editor element uses window.text_style()),
+            // so the panel must establish a themed default for it.
+            .text_color(colors.foreground)
             .child(
                 div()
                     .min_w_0()
