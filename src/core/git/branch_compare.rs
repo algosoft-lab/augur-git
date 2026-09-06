@@ -13,7 +13,7 @@ use crate::core::diff::{
 };
 
 use super::{
-    CompareRevision, CompareRevisionKind, GitEvent, MAX_BLOB_SIZE, git_command,
+    CompareRevision, CompareRevisionKind, GitEvent, GitRepo, MAX_BLOB_SIZE,
     read_blob_spec,
 };
 
@@ -76,7 +76,7 @@ pub(super) fn parse_comparison_refs(text: &str) -> Vec<CompareRevision> {
 
 /// Start a comparison on a dedicated read-only worker.
 pub(super) fn spawn_comparison(
-    repo_path: String,
+    repo: GitRepo,
     request_id: u64,
     base: CompareRevision,
     target: CompareRevision,
@@ -85,7 +85,7 @@ pub(super) fn spawn_comparison(
 ) {
     thread::spawn(move || {
         run_comparison(
-            &repo_path,
+            &repo,
             request_id,
             &base,
             &target,
@@ -97,7 +97,7 @@ pub(super) fn spawn_comparison(
 
 /// Start a patch-file export on a dedicated read-only worker.
 pub(super) fn spawn_patch_export(
-    repo_path: String,
+    repo: GitRepo,
     request_id: u64,
     base: CompareRevision,
     target: CompareRevision,
@@ -106,7 +106,7 @@ pub(super) fn spawn_patch_export(
 ) {
     thread::spawn(move || {
         run_patch_export(
-            &repo_path,
+            &repo,
             request_id,
             &base,
             &target,
@@ -166,29 +166,30 @@ pub(crate) fn suggested_patch_filename(
 }
 
 fn run_patch_export(
-    repo_path: &str,
+    repo: &GitRepo,
     request_id: u64,
     base: &CompareRevision,
     target: &CompareRevision,
     destination: &Path,
     event_tx: &Sender<GitEvent>,
 ) {
-    let old_oid = match resolve_revision(repo_path, base) {
+    let old_oid = match resolve_revision(repo, base) {
         Ok(oid) => oid,
         Err(detail) => {
             send_patch_error(event_tx, request_id, detail);
             return;
         }
     };
-    let new_oid = match resolve_revision(repo_path, target) {
+    let new_oid = match resolve_revision(repo, target) {
         Ok(oid) => oid,
         Err(detail) => {
             send_patch_error(event_tx, request_id, detail);
             return;
         }
     };
-    let output = git_command()
-        .args(patch_export_args(repo_path, &old_oid, &new_oid))
+    let output = repo
+        .command()
+        .args(patch_export_args(repo.path(), &old_oid, &new_oid))
         .output();
     let patch = match output {
         Ok(output) if output.status.success() => output.stdout,
@@ -336,7 +337,7 @@ pub(super) fn file_diff_args(
 }
 
 fn run_comparison(
-    repo_path: &str,
+    repo: &GitRepo,
     request_id: u64,
     base: &CompareRevision,
     target: &CompareRevision,
@@ -346,7 +347,7 @@ fn run_comparison(
     if !is_current(generation, request_id) {
         return;
     }
-    let base_oid = match resolve_revision(repo_path, base) {
+    let base_oid = match resolve_revision(repo, base) {
         Ok(oid) => oid,
         Err(detail) => {
             send_error(event_tx, request_id, None, detail);
@@ -354,7 +355,7 @@ fn run_comparison(
             return;
         }
     };
-    let target_oid = match resolve_revision(repo_path, target) {
+    let target_oid = match resolve_revision(repo, target) {
         Ok(oid) => oid,
         Err(detail) => {
             send_error(event_tx, request_id, None, detail);
@@ -367,11 +368,13 @@ fn run_comparison(
     if !is_current(generation, request_id) {
         return;
     }
-    let raw = git_command()
-        .args(raw_diff_args(repo_path, &old_oid, &target_oid))
+    let raw = repo
+        .command()
+        .args(raw_diff_args(repo.path(), &old_oid, &target_oid))
         .output();
-    let stats = git_command()
-        .args(numstat_args(repo_path, &old_oid, &target_oid))
+    let stats = repo
+        .command()
+        .args(numstat_args(repo.path(), &old_oid, &target_oid))
         .output();
     let files = match (raw, stats) {
         (Ok(raw), Ok(stats))
@@ -422,8 +425,9 @@ fn run_comparison(
         if !is_current(generation, request_id) {
             return;
         }
-        let output = git_command()
-            .args(file_diff_args(repo_path, &old_oid, &target_oid, &file))
+        let output = repo
+            .command()
+            .args(file_diff_args(repo.path(), &old_oid, &target_oid, &file))
             .output();
         match output {
             Ok(output) if output.status.success() => {
@@ -435,10 +439,10 @@ fn run_comparison(
                     (
                         file.old_blob
                             .as_deref()
-                            .and_then(|oid| read_blob_limited(repo_path, oid)),
+                            .and_then(|oid| read_blob_limited(repo, oid)),
                         file.new_blob
                             .as_deref()
-                            .and_then(|oid| read_blob_limited(repo_path, oid)),
+                            .and_then(|oid| read_blob_limited(repo, oid)),
                     )
                 };
                 log::debug!(
@@ -475,7 +479,7 @@ fn run_comparison(
 }
 
 fn resolve_revision(
-    repo_path: &str,
+    repo: &GitRepo,
     revision: &CompareRevision,
 ) -> Result<String, String> {
     match revision.kind {
@@ -495,11 +499,12 @@ fn resolve_revision(
         }
     }
     let spec = format!("{}^{{commit}}", revision.full_name);
-    let output = git_command()
+    let output = repo
+        .command()
         .args([
             "--no-pager",
             "-C",
-            repo_path,
+            repo.path(),
             "rev-parse",
             "--verify",
             "--end-of-options",
@@ -536,8 +541,8 @@ fn parse_object_id(text: &str) -> Option<String> {
     .then(|| value.to_string())
 }
 
-fn read_blob_limited(repo_path: &str, oid: &str) -> Option<String> {
-    let output = read_blob_spec(repo_path, oid)?;
+fn read_blob_limited(repo: &GitRepo, oid: &str) -> Option<String> {
+    let output = read_blob_spec(repo, oid)?;
     (output.len() <= MAX_BLOB_SIZE).then_some(output)
 }
 
@@ -593,12 +598,18 @@ mod tests {
     use std::collections::HashSet;
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::process::Command;
     use std::sync::atomic::AtomicU64;
     use std::sync::mpsc;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
     use crate::core::diff::FileChangeStatus;
+
+    /// Plain git for test fixtures; worker commands go through `GitRepo`.
+    fn git_command() -> Command {
+        Command::new("git")
+    }
 
     #[test]
     fn comparison_ref_parser_filters_symbolic_head_and_sorts_refs() {
@@ -982,7 +993,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let generation = AtomicU64::new(0);
         run_comparison(
-            &repo.path.to_string_lossy(),
+            &GitRepo::local(repo.path.to_string_lossy().into_owned()),
             21,
             &base,
             &target,
@@ -1045,7 +1056,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let generation = AtomicU64::new(request_id);
         run_comparison(
-            &path.to_string_lossy(),
+            &GitRepo::local(path.to_string_lossy().into_owned()),
             request_id,
             base,
             target,
@@ -1065,7 +1076,7 @@ mod tests {
     ) -> Vec<GitEvent> {
         let (tx, rx) = mpsc::channel();
         spawn_patch_export(
-            path.to_string_lossy().into_owned(),
+            GitRepo::local(path.to_string_lossy().into_owned()),
             request_id,
             base.clone(),
             target.clone(),

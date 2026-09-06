@@ -7,10 +7,11 @@ use crate::git::shared;
 
 use super::Workspace;
 
-/// Render the welcome page shown when no repository is open.
+/// Render the welcome page shown when no repository is open. The `window`
+/// handle is only consumed behind `cfg(windows)` (WSL open dialog).
 pub(super) fn render_welcome(
     workspace: &Workspace,
-    _window: &mut Window,
+    #[cfg_attr(not(windows), allow(unused_variables))] window: &mut Window,
     cx: &mut Context<Workspace>,
 ) -> impl IntoElement {
     let colors = cx.theme().colors.clone();
@@ -32,16 +33,38 @@ pub(super) fn render_welcome(
             });
         });
 
+    // WSL repositories are only openable on Windows.
+    #[cfg(windows)]
+    let open_wsl_btn = {
+        let btn_wsl = cx.entity();
+        div()
+            .id("welcome-open-wsl")
+            .px_4()
+            .py_1()
+            .rounded_md()
+            .border_1()
+            .border_color(colors.border)
+            .text_size(crate::theme::scaled_text_size(12.))
+            .text_color(colors.foreground)
+            .hover(|el| el.bg(colors.list_hover))
+            .child(shared(i18n::text(workspace.locale, "welcome-open-wsl")))
+            .on_click(move |_event, window, cx| {
+                btn_wsl.update(cx, |ws, cx| {
+                    ws.pick_wsl_repository(window, cx);
+                });
+            })
+    };
+
     let recents = workspace
         .config
         .recent_repos
         .iter()
-        .map(|path| {
+        .map(|repo| {
             let this = cx.entity();
-            let path = path.clone();
-            let path_for_click = path.clone();
+            let repo = repo.clone();
+            let label = repo.location.label(&repo.path);
             h_flex()
-                .id(SharedString::from(format!("welcome-recent-{path}")))
+                .id(SharedString::from(format!("welcome-recent-{label}")))
                 .w(px(380.))
                 .px_2()
                 .py_1()
@@ -62,12 +85,13 @@ pub(super) fn render_welcome(
                         .truncate()
                         .text_size(crate::theme::scaled_text_size(12.))
                         .text_color(colors.muted_foreground)
-                        .child(SharedString::from(path.clone())),
+                        .child(SharedString::from(label)),
                 )
                 .on_click(move |_event, window, cx| {
                     this.update(cx, |ws, cx| {
                         ws.open_repo_path(
-                            path_for_click.clone(),
+                            repo.path.clone(),
+                            repo.location.clone(),
                             false,
                             window,
                             cx,
@@ -125,8 +149,16 @@ pub(super) fn render_welcome(
                 .text_color(colors.muted_foreground)
                 .child(shared(i18n::text(workspace.locale, "app-tagline"))),
         )
-        // Single action: pick a repository folder and open it.
-        .child(open_btn)
+        // Action row: pick a local folder, and on Windows open a WSL
+        // repository through its distro.
+        .child(h_flex().items_center().gap_2().child(open_btn).when(
+            cfg!(windows),
+            |row| {
+                #[cfg(windows)]
+                let row = row.child(open_wsl_btn);
+                row
+            },
+        ))
         .child(
             div()
                 .text_size(crate::theme::scaled_text_size(11.))

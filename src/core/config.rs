@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::AgentSettings;
 use crate::core::extension::ExtensionSettings;
+use crate::core::git::{GitError, GitRepo, RepoLocation};
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub enum LanguagePreference {
@@ -66,9 +67,103 @@ impl ThemePreference {
     }
 }
 
+/// Stable config representation of where a repository lives.
+///
+/// The enum is deliberately not platform-gated: a config written on Windows
+/// must parse on every platform. Opening a WSL repository on a platform
+/// without WSL support surfaces an explicit error instead.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum LocationConfig {
+    #[default]
+    Local,
+    #[serde(rename = "wsl")]
+    Wsl { distro: String },
+}
+
+impl LocationConfig {
+    pub fn wsl(distro: impl Into<String>) -> Self {
+        Self::Wsl {
+            distro: distro.into(),
+        }
+    }
+
+    pub fn from_location(location: &RepoLocation) -> Self {
+        match location {
+            RepoLocation::Local => Self::Local,
+            RepoLocation::Wsl { distro } => Self::wsl(distro.clone()),
+        }
+    }
+
+    /// Display text for recents and lists: the path itself for local
+    /// repositories, the distro-prefixed form for WSL ones.
+    pub fn label(&self, path: &str) -> String {
+        match self {
+            Self::Local => path.to_string(),
+            Self::Wsl { distro } => format!("{distro} · {path}"),
+        }
+    }
+
+    /// Resolve this persisted location into an executable repository handle.
+    /// WSL locations are only executable on Windows; other platforms receive
+    /// an explicit error instead of a silently degraded repository.
+    pub fn to_repo(
+        &self,
+        path: impl Into<String>,
+    ) -> Result<GitRepo, GitError> {
+        match self {
+            Self::Local => Ok(GitRepo::local(path)),
+            Self::Wsl { distro } => {
+                #[cfg(windows)]
+                {
+                    Ok(GitRepo::new(
+                        RepoLocation::Wsl {
+                            distro: distro.clone(),
+                        },
+                        path,
+                    ))
+                }
+                #[cfg(not(windows))]
+                {
+                    Err(GitError::new("err-wsl-unsupported", distro.clone()))
+                }
+            }
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct OpenTabConfig {
     pub path: String,
+    #[serde(default)]
+    pub location: LocationConfig,
+}
+
+impl OpenTabConfig {
+    pub fn local(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            location: LocationConfig::Local,
+        }
+    }
+}
+
+/// One recently opened repository. Older configs stored plain path strings;
+/// `RawRecentRepo` accepts both spellings.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct RecentRepo {
+    pub path: String,
+    #[serde(default)]
+    pub location: LocationConfig,
+}
+
+impl RecentRepo {
+    pub fn local(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            location: LocationConfig::Local,
+        }
+    }
 }
 
 /// Layout used to render commit diffs.
@@ -365,7 +460,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub typography: TypographySettings,
     #[serde(default)]
-    pub recent_repos: Vec<String>,
+    pub recent_repos: Vec<RecentRepo>,
     /// External Agent CLI profiles and executable overrides.
     #[serde(default)]
     pub agent: AgentSettings,
@@ -375,20 +470,30 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    pub fn push_recent(&mut self, path: &str) {
-        self.recent_repos.retain(|p| p != path);
-        self.recent_repos.insert(0, path.to_string());
+    pub fn push_recent(&mut self, path: &str, location: &LocationConfig) {
+        self.recent_repos
+            .retain(|repo| repo.path != path || repo.location != *location);
+        self.recent_repos.insert(
+            0,
+            RecentRepo {
+                path: path.to_string(),
+                location: location.clone(),
+            },
+        );
         self.recent_repos.truncate(8);
     }
 
     fn normalize(&mut self) {
         let mut seen = Vec::new();
         self.open_tabs.retain(|tab| {
-            if tab.path.is_empty() || seen.iter().any(|path| path == &tab.path)
-            {
+            let duplicate = seen.iter().any(|(path, location)| {
+                path == &tab.path && location == &tab.location
+            });
+            let empty = tab.path.is_empty();
+            if duplicate || empty {
                 false
             } else {
-                seen.push(tab.path.clone());
+                seen.push((tab.path.clone(), tab.location.clone()));
                 true
             }
         });
@@ -420,13 +525,31 @@ struct RawAppConfig {
     #[serde(default)]
     typography: TypographySettings,
     #[serde(default)]
-    recent_repos: Vec<String>,
+    recent_repos: Vec<RawRecentRepo>,
     #[serde(default)]
     agent: AgentSettings,
     #[serde(default)]
     extensions: BTreeMap<String, ExtensionSettings>,
     #[serde(default)]
     repo: LegacyRepoConfig,
+}
+
+/// Accept both the legacy plain-string recent entries and the current
+/// `{ path, location }` objects when reading a configuration file.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RawRecentRepo {
+    Plain(String),
+    Located(RecentRepo),
+}
+
+impl RawRecentRepo {
+    fn into_recent(self) -> RecentRepo {
+        match self {
+            Self::Plain(path) => RecentRepo::local(path),
+            Self::Located(repo) => repo,
+        }
+    }
 }
 
 #[derive(Deserialize, Default)]
@@ -444,15 +567,17 @@ impl From<RawAppConfig> for AppConfig {
             active_tab_path: raw.active_tab_path,
             view: raw.view,
             typography: raw.typography,
-            recent_repos: raw.recent_repos,
+            recent_repos: raw
+                .recent_repos
+                .into_iter()
+                .map(RawRecentRepo::into_recent)
+                .collect(),
             agent: raw.agent,
             extensions: raw.extensions,
         };
 
         if config.open_tabs.is_empty() && !raw.repo.path.is_empty() {
-            config.open_tabs.push(OpenTabConfig {
-                path: raw.repo.path.clone(),
-            });
+            config.open_tabs.push(OpenTabConfig::local(&raw.repo.path));
         }
         if config.active_tab_path.is_none() && !raw.repo.path.is_empty() {
             config.active_tab_path = Some(raw.repo.path);
@@ -722,10 +847,10 @@ mod tests {
     #[test]
     fn config_roundtrip() {
         let mut config = AppConfig::default();
-        config.open_tabs.push(OpenTabConfig {
-            path: r"D:\dev\gitee\augur-git".into(),
-        });
-        config.active_tab_path = Some(r"D:\dev\gitee\augur-git".into());
+        config
+            .open_tabs
+            .push(OpenTabConfig::local(r"D:\dev\augur-git"));
+        config.active_tab_path = Some(r"D:\dev\augur-git".into());
         config.view.show_untracked = false;
         config.typography.ui_font_family = Some("Inter".into());
         config.typography.mono_font_family = Some("JetBrains Mono".into());
@@ -738,6 +863,78 @@ mod tests {
         assert_eq!(back.active_tab_path, config.active_tab_path);
         assert!(!back.view.show_untracked);
         assert_eq!(back.typography, config.typography);
+    }
+
+    #[test]
+    fn location_config_round_trips_through_tab_configs() {
+        let json = r#"{
+            "open_tabs":[
+                {"path": "C:\\dev\\repo"},
+                {"path": "/home/u/repo", "location": {"kind": "wsl", "distro": "Ubuntu-22.04"}}
+            ]
+        }"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(config.open_tabs[0].location, LocationConfig::Local);
+        assert_eq!(
+            config.open_tabs[1].location,
+            LocationConfig::wsl("Ubuntu-22.04")
+        );
+        // Tabs at the same path but different locations are distinct.
+        assert_eq!(config.open_tabs.len(), 2);
+
+        let serialized = serde_json::to_string(&config).unwrap();
+        assert!(serialized.contains(r#""kind":"wsl""#));
+        let back = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(&serialized).unwrap(),
+        );
+        assert_eq!(back.open_tabs, config.open_tabs);
+    }
+
+    #[test]
+    fn legacy_recent_repos_migrate_to_local_entries() {
+        let json = r#"{"recent_repos":["C:\\repo-a","/home/u/repo-b"]}"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(
+            config.recent_repos,
+            vec![
+                RecentRepo::local(r"C:\repo-a"),
+                RecentRepo::local("/home/u/repo-b"),
+            ]
+        );
+    }
+
+    #[test]
+    fn recent_repos_round_trip_with_location() {
+        let json = r#"{
+            "recent_repos":[
+                {"path": "/home/u/repo", "location": {"kind": "wsl", "distro": "Ubuntu"}},
+                "C:\\repo-b"
+            ]
+        }"#;
+        let config = AppConfig::from(
+            serde_json::from_str::<RawAppConfig>(json).unwrap(),
+        );
+        assert_eq!(
+            config.recent_repos[0],
+            RecentRepo {
+                path: "/home/u/repo".into(),
+                location: LocationConfig::wsl("Ubuntu"),
+            }
+        );
+        assert_eq!(config.recent_repos[1], RecentRepo::local(r"C:\repo-b"));
+    }
+
+    #[test]
+    fn location_labels_prefix_wsl_paths() {
+        assert_eq!(LocationConfig::Local.label(r"C:\dev\repo"), r"C:\dev\repo");
+        assert_eq!(
+            LocationConfig::wsl("Ubuntu").label("/home/u/repo"),
+            "Ubuntu · /home/u/repo"
+        );
     }
 
     #[test]
@@ -755,18 +952,35 @@ mod tests {
     fn recent_repos_dedup_and_truncate() {
         let mut config = AppConfig::default();
         for i in 0..10 {
-            config.push_recent(&format!("repo{i}"));
+            config.push_recent(&format!("repo{i}"), &LocationConfig::Local);
         }
         assert_eq!(config.recent_repos.len(), 8);
-        config.push_recent("repo3");
+        config.push_recent("repo3", &LocationConfig::Local);
         assert_eq!(
-            config.recent_repos.first().map(String::as_str),
+            config.recent_repos.first().map(|repo| repo.path.as_str()),
             Some("repo3")
         );
         assert_eq!(
-            config.recent_repos.iter().filter(|p| *p == "repo3").count(),
+            config
+                .recent_repos
+                .iter()
+                .filter(|repo| repo.path == "repo3")
+                .count(),
             1
         );
+        // The same path at a different location is a distinct repository;
+        // the list stays capped at 8 entries.
+        config.push_recent("repo3", &LocationConfig::wsl("Ubuntu"));
+        assert_eq!(config.recent_repos.len(), 8);
+        assert_eq!(
+            config.recent_repos[0],
+            RecentRepo {
+                path: "repo3".into(),
+                location: LocationConfig::wsl("Ubuntu"),
+            }
+        );
+        assert!(config.recent_repos.iter().any(|repo| repo.path == "repo3"
+            && repo.location == LocationConfig::Local));
     }
 
     #[test]

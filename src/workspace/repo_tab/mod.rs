@@ -2,9 +2,12 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::v_flex;
 
-use crate::core::config::{GraphHistoryPreference, LayoutSettings};
+use crate::core::config::{
+    GraphHistoryPreference, LayoutSettings, LocationConfig,
+};
 use crate::core::git::{
-    CheckoutTarget, LogScope, WorkingTreeAction, WorkingTreeScope,
+    CheckoutTarget, GitError, GitRepo, LogScope, WorkingTreeAction,
+    WorkingTreeScope,
 };
 use crate::core::i18n::{self, Locale};
 use crate::git::changes_panel::ChangesPanel;
@@ -30,6 +33,7 @@ pub enum RepoTabEvent {
     Opened {
         id: TabId,
         path: String,
+        location: LocationConfig,
     },
     SummaryChanged(TabSummary),
     RequestSettings,
@@ -123,12 +127,23 @@ pub struct RightPanelResize;
 #[derive(Clone, Debug)]
 pub struct DiffViewerResize;
 
+/// What happens when this tab opens: either a ready repository handle or a
+/// pre-resolved failure (for example a WSL repository requested on a
+/// platform without WSL support).
+#[derive(Clone, Debug)]
+enum OpenTarget {
+    Repo(GitRepo),
+    Failed(GitError),
+}
+
 pub(super) const MIN_COMMIT_HEIGHT: f32 = 120.0;
 pub(super) const DIFF_RESIZE_HANDLE_HEIGHT: f32 = 3.0;
 
 pub struct RepoTab {
     id: TabId,
     repo_path: String,
+    /// How the repository is opened (handle or pre-resolved failure).
+    open_target: OpenTarget,
     opened: bool,
     branch: String,
     head: Option<String>,
@@ -200,6 +215,7 @@ impl RepoTab {
     pub fn new(
         id: TabId,
         repo_path: String,
+        location: LocationConfig,
         locale: Locale,
         diff_layout: DiffLayoutMode,
         graph_history: GraphHistoryPreference,
@@ -209,6 +225,10 @@ impl RepoTab {
         cx: &mut Context<Self>,
     ) -> Self {
         layout.normalize();
+        let open_target = match location.to_repo(repo_path.clone()) {
+            Ok(repo) => OpenTarget::Repo(repo),
+            Err(error) => OpenTarget::Failed(error),
+        };
         let git_view = cx.new(|cx| GitView::new(locale, cx));
         let sidebar = cx.new(|cx| Sidebar::new(window, cx, locale));
         let graph = cx.new(|cx| GraphView::new(id, locale, window, cx));
@@ -236,6 +256,7 @@ impl RepoTab {
         Self {
             id,
             repo_path,
+            open_target,
             opened: false,
             branch: String::new(),
             head: None,
@@ -824,9 +845,16 @@ impl RepoTab {
         self.opened = true;
         self.status = GitStatus::Scanning;
         self.emit_summary(cx);
-        let path = self.repo_path.clone();
-        self.git_view
-            .update(cx, |view, cx| view.open_repo(&path, cx));
+        match self.open_target.clone() {
+            OpenTarget::Repo(repo) => {
+                self.git_view
+                    .update(cx, |view, cx| view.open_repo(repo, cx));
+            }
+            OpenTarget::Failed(error) => {
+                self.git_view
+                    .update(cx, |view, cx| view.open_failed(error, cx));
+            }
+        }
     }
 
     /// Make this repository the active UI tab and start consuming its events.

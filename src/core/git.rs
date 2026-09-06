@@ -1,21 +1,25 @@
-//! M1：Git 命令层（镜像 augur-com 的 core/serial.rs 双通道线程模式）
+//! M1: Git command layer (worker thread + event channel, mirroring the
+//! augur-com core/serial.rs dual-channel thread pattern)
 //!
-//! 架构：
-//! - 专用工作线程跑阻塞式 `git` 子进程，事件经 `std::sync::mpsc` 推给 UI（20ms 轮询 try_recv）
-//! - UI → 后台指令：`std::sync::mpsc`（send 无阻塞，即发即返）
-//! - 读写全走后台线程，UI 线程零阻塞
-//! - 当前调用系统 git 可执行文件（PATH 查找）；后续里程碑可换 git2/libgit2 做对象级访问
+//! Architecture:
+//! - A dedicated worker thread runs blocking `git` child processes; events
+//!   are pushed to the UI over `std::sync::mpsc` (20ms try_recv polling)
+//! - UI → background instructions use `std::sync::mpsc` (send never blocks)
+//! - All reads and writes run on background threads; the UI thread never
+//!   blocks on Git
+//! - Repositories are addressed through [`GitRepo`], which knows how to spawn
+//!   the location's own git executable (local `git`, or the distro's git via
+//!   `wsl.exe` for WSL repositories)
 //!
-//! 输出解析全部为纯函数（可单测），解析规则见各函数注释。
+//! Output parsers are pure functions (unit-testable); see their comments for
+//! the accepted formats.
 
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::Duration;
-
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 
 use crate::core::commit_diff::{
     CommitDiffContext, merge_numstat_args, merge_patch_args, merge_raw_args,
@@ -33,11 +37,15 @@ pub mod agent_operation;
 pub mod automation;
 mod branch_compare;
 mod commit_log;
+pub mod location;
 mod progress;
 mod working_tree;
 
 pub(crate) use branch_compare::suggested_patch_filename;
 pub use commit_log::LogScope;
+pub use location::{
+    GitRepo, RepoLocation, parse_unc_path, validate_linux_path,
+};
 pub(crate) use progress::progress_verb;
 
 /// The kind of revision exposed by the comparison selector.
@@ -81,20 +89,9 @@ impl CompareRevision {
     }
 }
 
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-fn git_command() -> Command {
-    let mut command = Command::new("git");
-
-    #[cfg(windows)]
-    command.creation_flags(CREATE_NO_WINDOW);
-
-    command
-}
-
-/// 错误载荷：key 为 core/i18n 的文案键，detail 为原始错误串
-/// （本层不做本地化，展示侧有 locale 时经 text_args 拼接，镜像 augur-pdf）
+/// Error payload: `key` is a core/i18n message key and `detail` carries the
+/// raw error text. This layer does not localize; the presentation side joins
+/// the translated text with the detail when a locale is known.
 #[derive(Clone, Debug)]
 pub struct GitError {
     pub key: &'static str,
@@ -102,7 +99,7 @@ pub struct GitError {
 }
 
 impl GitError {
-    fn new(key: &'static str, detail: impl Into<String>) -> Self {
+    pub(crate) fn new(key: &'static str, detail: impl Into<String>) -> Self {
         Self {
             key,
             detail: detail.into(),
@@ -261,6 +258,9 @@ pub enum GitEvent {
     },
     /// Status parsing or execution failed, but the worker can continue.
     StatusError(GitError),
+    /// The worker could not open the repository (WSL probe failed); it exits
+    /// after sending this event.
+    OpenFailed(GitError),
     /// 通用命令开始执行（fetch/pull/push/commit/show…）
     ///
     /// The worker executes commands serially, so at most one command is
@@ -614,21 +614,28 @@ impl GitHandle {
     }
 }
 
-/// 打开仓库并启动工作线程
+/// Open a repository and start its worker thread.
 ///
-/// 注意：路径校验在 UI 线程同步执行（毫秒级，可接受），失败即时返回错误；
-/// 之后所有 git 命令都在后台线程跑，UI 线程只经通道通信。
+/// Local paths are validated synchronously on the calling thread (millisecond
+/// cost) so failures return immediately; every later Git command runs on the
+/// background worker, which talks to the UI only through the event channel.
+/// WSL repositories have no meaningful local check, so their validation is
+/// deferred to the worker's first probe and reported through
+/// [`GitEvent::OpenFailed`].
 pub fn spawn_open(
-    repo_path: String,
+    repo: GitRepo,
     event_tx: Sender<GitEvent>,
 ) -> Result<GitHandle, GitError> {
-    let path = Path::new(&repo_path);
-    if !path.is_dir() {
-        return Err(GitError::new("err-path-not-exist", repo_path));
-    }
-    // TODO: 子模块/worktree 的 .git 可能是文件而非目录，后续里程碑补判
-    if !path.join(".git").exists() {
-        return Err(GitError::new("err-not-a-repo", repo_path));
+    if matches!(repo.location(), RepoLocation::Local) {
+        let path = Path::new(repo.path());
+        if !path.is_dir() {
+            return Err(GitError::new("err-path-not-exist", repo.path()));
+        }
+        // TODO: submodules and linked worktrees may store `.git` as a file
+        // instead of a directory; revisit in a later milestone.
+        if !path.join(".git").exists() {
+            return Err(GitError::new("err-not-a-repo", repo.path()));
+        }
     }
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<GitCommand>();
@@ -636,7 +643,7 @@ pub fn spawn_open(
         std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     thread::spawn({
         let compare_generation = compare_generation.clone();
-        move || worker_loop(repo_path, cmd_rx, event_tx, compare_generation)
+        move || worker_loop(repo, cmd_rx, event_tx, compare_generation)
     });
 
     Ok(GitHandle {
@@ -645,41 +652,107 @@ pub fn spawn_open(
     })
 }
 
-/// 工作线程：命令处理（git 子进程阻塞执行）
+/// Validate a WSL repository before the first refresh. The probe runs the
+/// distro's own git; its stderr is classified into a user-actionable error
+/// key. Also used by the WSL open dialog for inline validation.
+pub fn probe_wsl_repository(repo: &GitRepo) -> Result<(), GitError> {
+    log::debug!(
+        "[git_command] probing wsl repository: distro={:?}",
+        repo.location().distro().unwrap_or_default()
+    );
+    let output = repo
+        .command()
+        .args(["-C", repo.path(), "rev-parse", "--is-inside-work-tree"])
+        .output();
+    match output {
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let key = location::classify_open_failure(&stderr);
+            Err(GitError::new(key, stderr.trim()))
+        }
+        Err(error) => {
+            // wsl.exe itself could not be spawned: WSL is unavailable.
+            Err(GitError::new("err-wsl-unsupported", error.to_string()))
+        }
+    }
+}
+
+/// List installed WSL distribution names (`wsl -l -q`). Returns an empty
+/// list on platforms without WSL or when the query fails. The function
+/// compiles everywhere (the dialog UI is cross-compiled for testability),
+/// but its only caller is the Windows-only open entry point.
+pub fn list_wsl_distros() -> Vec<String> {
+    #[cfg(windows)]
+    match location::wsl_host_command(&["-l", "-q"]).output() {
+        Ok(output) if output.status.success() => {
+            location::parse_wsl_distro_list(&location::decode_wsl_output(
+                &output.stdout,
+            ))
+        }
+        Ok(output) => {
+            log::warn!(
+                "[git_command] wsl -l -q failed: status={:?}, stderr={}",
+                output.status.code(),
+                truncated(&String::from_utf8_lossy(&output.stderr))
+            );
+            Vec::new()
+        }
+        Err(error) => {
+            log::warn!("[git_command] wsl -l -q spawn failed: {error}");
+            Vec::new()
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
+}
+
+/// Worker thread: command processing (blocking git child processes).
 fn worker_loop(
-    repo_path: String,
+    repo: GitRepo,
     cmd_rx: Receiver<GitCommand>,
     event_tx: Sender<GitEvent>,
     compare_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
 ) {
-    // 打开即刷新一次
+    // WSL repositories are validated here because the synchronous open path
+    // cannot inspect a remote filesystem; the worker exits on failure.
+    if repo.is_wsl() {
+        if let Err(error) = probe_wsl_repository(&repo) {
+            log::warn!(
+                "[git_command] wsl repository open failed: key={}, path={}",
+                error.key,
+                repo.path()
+            );
+            let _ = event_tx.send(GitEvent::OpenFailed(error));
+            return;
+        }
+    }
+
+    // Refresh once immediately after opening.
     let mut log_state = commit_log::LogState::default();
-    refresh_all(&repo_path, &event_tx, &mut log_state);
+    refresh_all(&repo, &event_tx, &mut log_state);
 
     loop {
         match cmd_rx.recv_timeout(Duration::from_millis(20)) {
             Ok(GitCommand::Refresh) => {
-                refresh_all(&repo_path, &event_tx, &mut log_state)
+                refresh_all(&repo, &event_tx, &mut log_state)
             }
             Ok(GitCommand::LogQuery { scope }) => {
-                commit_log::set_scope(
-                    &repo_path,
-                    &mut log_state,
-                    scope,
-                    &event_tx,
-                );
+                commit_log::set_scope(&repo, &mut log_state, scope, &event_tx);
             }
             Ok(GitCommand::MoreLogPage) => {
-                commit_log::request_more(&repo_path, &mut log_state, &event_tx);
+                commit_log::request_more(&repo, &mut log_state, &event_tx);
             }
             Ok(GitCommand::Run { label, args }) => {
-                run_git(&repo_path, &label, &args, &event_tx);
+                run_git(&repo, &label, &args, &event_tx);
             }
             Ok(GitCommand::CommitNumstat { oid }) => {
-                run_numstat(&repo_path, &oid, &event_tx);
+                run_numstat(&repo, &oid, &event_tx);
             }
             Ok(GitCommand::CommitMessage { oid }) => {
-                run_commit_message(&repo_path, &oid, &event_tx);
+                run_commit_message(&repo, &oid, &event_tx);
             }
             Ok(GitCommand::CommitFileDiff {
                 oid,
@@ -687,7 +760,7 @@ fn worker_loop(
                 file,
             }) => {
                 run_file_diff(
-                    &repo_path,
+                    &repo,
                     &oid,
                     merge_parent.as_deref(),
                     &file,
@@ -700,7 +773,7 @@ fn worker_loop(
                 file,
             }) => {
                 working_tree::run_file_diff(
-                    &repo_path, request_id, kind, &file, &event_tx,
+                    &repo, request_id, kind, &file, &event_tx,
                 );
             }
             Ok(GitCommand::BranchCompare {
@@ -712,7 +785,7 @@ fn worker_loop(
                     == request_id
                 {
                     branch_compare::spawn_comparison(
-                        repo_path.clone(),
+                        repo.clone(),
                         request_id,
                         base,
                         target,
@@ -728,7 +801,7 @@ fn worker_loop(
                 destination,
             }) => {
                 branch_compare::spawn_patch_export(
-                    repo_path.clone(),
+                    repo.clone(),
                     request_id,
                     base,
                     target,
@@ -743,14 +816,14 @@ fn worker_loop(
             }) => {
                 let scope_kind = scope.kind();
                 let result =
-                    working_tree::apply_operation(&repo_path, action, &scope);
+                    working_tree::apply_operation(&repo, action, &scope);
                 let (success, detail) = match result {
                     Ok(()) => (true, String::new()),
                     Err(detail) => (false, detail),
                 };
                 // A mutation can partially complete, so always publish a
                 // fresh status before reporting the operation result.
-                refresh_status(&repo_path, &event_tx);
+                refresh_status(&repo, &event_tx);
                 log::info!(
                     "[git_worktree] operation finished: action={}, scope={scope_kind:?}, files={}, success={success}",
                     action.description(),
@@ -772,26 +845,27 @@ fn worker_loop(
     }
 }
 
-/// 仓库快照刷新：status + branch 合并为一个 Status 事件，log 独立事件
+/// Repository snapshot refresh: status + branches merge into one Status
+/// event; the log and refs snapshots travel as separate events.
 fn refresh_all(
-    repo_path: &str,
+    repo: &GitRepo,
     event_tx: &Sender<GitEvent>,
     log_state: &mut commit_log::LogState,
 ) {
-    refresh_status(repo_path, event_tx);
-    commit_log::run_page(repo_path, log_state, true, event_tx);
-    run_refs(repo_path, event_tx);
+    refresh_status(repo, event_tx);
+    commit_log::run_page(repo, log_state, true, event_tx);
+    run_refs(repo, event_tx);
 }
 
 /// Refresh only the status snapshot after a local index/worktree operation.
-fn refresh_status(repo_path: &str, event_tx: &Sender<GitEvent>) {
-    let status = run_status(repo_path);
-    let branches = run_branches(repo_path);
+fn refresh_status(repo: &GitRepo, event_tx: &Sender<GitEvent>) {
+    let status = run_status(repo);
+    let branches = run_branches(repo);
     match status {
         Ok((branch, upstream, files, ahead, behind)) => {
             let _ = event_tx.send(GitEvent::Status {
                 branch,
-                head: read_head(repo_path),
+                head: read_head(repo),
                 upstream,
                 files,
                 branches,
@@ -806,9 +880,10 @@ fn refresh_status(repo_path: &str, event_tx: &Sender<GitEvent>) {
     }
 }
 
-fn read_head(repo_path: &str) -> Option<String> {
-    let output = git_command()
-        .args(["-C", repo_path, "rev-parse", "HEAD"])
+fn read_head(repo: &GitRepo) -> Option<String> {
+    let output = repo
+        .command()
+        .args(["-C", repo.path(), "rev-parse", "HEAD"])
         .output()
         .ok()?;
     if !output.status.success() {
@@ -825,7 +900,7 @@ fn read_head(repo_path: &str) -> Option<String> {
 /// arguments, exit status, and git output so `debug.log` keeps an actionable
 /// trail even under the default filter.
 fn run_git(
-    repo_path: &str,
+    repo: &GitRepo,
     label: &str,
     args: &[String],
     event_tx: &Sender<GitEvent>,
@@ -835,7 +910,12 @@ fn run_git(
         label: label.to_string(),
         subcommand: args.first().cloned().unwrap_or_default(),
     });
-    let output = git_command().arg("-C").arg(repo_path).args(args).output();
+    let output = repo
+        .command()
+        .arg("-C")
+        .arg(repo.path())
+        .args(args)
+        .output();
     match output {
         Ok(output) if output.status.success() => {
             log::debug!(
@@ -935,8 +1015,8 @@ fn commit_message_args(oid: String) -> Vec<String> {
 }
 
 /// Query structured file metadata for a commit.
-fn run_numstat(repo_path: &str, oid: &str, event_tx: &Sender<GitEvent>) {
-    let merge_parent = match resolve_merge_parent(repo_path, oid) {
+fn run_numstat(repo: &GitRepo, oid: &str, event_tx: &Sender<GitEvent>) {
+    let merge_parent = match resolve_merge_parent(repo, oid) {
         Ok(parent) => parent,
         Err(detail) => {
             let _ = event_tx
@@ -946,22 +1026,22 @@ fn run_numstat(repo_path: &str, oid: &str, event_tx: &Sender<GitEvent>) {
     };
     let (raw, stats) = if let Some(parent) = merge_parent.as_deref() {
         (
-            git_command()
-                .args(merge_raw_args(repo_path, parent, oid))
+            repo.command()
+                .args(merge_raw_args(repo.path(), parent, oid))
                 .output(),
-            git_command()
-                .args(merge_numstat_args(repo_path, parent, oid))
+            repo.command()
+                .args(merge_numstat_args(repo.path(), parent, oid))
                 .output(),
         )
     } else {
         (
-            git_command()
+            repo.command()
                 .args([
                     "--no-pager",
                     "-c",
                     "core.quotePath=false",
                     "-C",
-                    repo_path,
+                    repo.path(),
                     "diff-tree",
                     "--root",
                     "--no-commit-id",
@@ -974,13 +1054,13 @@ fn run_numstat(repo_path: &str, oid: &str, event_tx: &Sender<GitEvent>) {
                     oid,
                 ])
                 .output(),
-            git_command()
+            repo.command()
                 .args([
                     "--no-pager",
                     "-c",
                     "core.quotePath=false",
                     "-C",
-                    repo_path,
+                    repo.path(),
                     "show",
                     "--numstat",
                     "--format=",
@@ -1035,11 +1115,12 @@ fn run_numstat(repo_path: &str, oid: &str, event_tx: &Sender<GitEvent>) {
 }
 
 fn resolve_merge_parent(
-    repo_path: &str,
+    repo: &GitRepo,
     oid: &str,
 ) -> Result<Option<String>, String> {
-    let output = git_command()
-        .args(parent_query_args(repo_path, oid))
+    let output = repo
+        .command()
+        .args(parent_query_args(repo.path(), oid))
         .output()
         .map_err(|error| error.to_string())?;
     if !output.status.success() {
@@ -1050,13 +1131,14 @@ fn resolve_merge_parent(
     Ok(context.merge_parent)
 }
 
-/// 查询选中提交的完整提交信息（详情面板正文 + co-author）
-fn run_commit_message(repo_path: &str, oid: &str, event_tx: &Sender<GitEvent>) {
-    let output = git_command()
+/// Load the full commit message of the selected commit (panel body + co-authors).
+fn run_commit_message(repo: &GitRepo, oid: &str, event_tx: &Sender<GitEvent>) {
+    let output = repo
+        .command()
         .args([
             "--no-pager",
             "-C",
-            repo_path,
+            repo.path(),
             "show",
             "-s",
             "--no-color",
@@ -1095,10 +1177,11 @@ fn run_commit_message(repo_path: &str, oid: &str, event_tx: &Sender<GitEvent>) {
     }
 }
 
-/// 解析 `git show -s --format=%B` 的原始提交信息
+/// Parse the raw commit message produced by `git show -s --format=%B`.
 ///
-/// 首行为 subject，其余为 body；`Co-authored-by:` trailer 行（大小写不敏感）
-/// 从 body 剥离并收集进 `co_authors`，其余行原样保留。
+/// The first line is the subject, the rest is the body. `Co-authored-by:`
+/// trailer lines (case-insensitive) are stripped from the body and collected
+/// into `co_authors`; all other lines are preserved as-is.
 pub fn parse_commit_message(text: &str) -> CommitMessage {
     let text = text.trim_matches(['\n', '\r']);
     let mut lines = text.split('\n');
@@ -1143,14 +1226,14 @@ const MAX_BLOB_SIZE: usize = 10 * 1024 * 1024;
 
 /// Query a single file patch and, when possible, its complete old/new blobs.
 fn run_file_diff(
-    repo_path: &str,
+    repo: &GitRepo,
     oid: &str,
     merge_parent: Option<&str>,
     file: &FileChange,
     event_tx: &Sender<GitEvent>,
 ) {
     let args = if let Some(parent) = merge_parent {
-        merge_patch_args(repo_path, parent, oid, file)
+        merge_patch_args(repo.path(), parent, oid, file)
     } else {
         let path = if matches!(file.status, FileChangeStatus::Deleted) {
             file.old_path.as_deref().unwrap_or(&file.new_path)
@@ -1160,7 +1243,7 @@ fn run_file_diff(
         let mut args = vec![
             "--no-pager".to_string(),
             "-C".to_string(),
-            repo_path.to_string(),
+            repo.path().to_string(),
             "show".to_string(),
             "--format=".to_string(),
             "--no-color".to_string(),
@@ -1177,7 +1260,7 @@ fn run_file_diff(
         args.push(path.to_string());
         args
     };
-    let output = git_command().args(&args).output();
+    let output = repo.command().args(&args).output();
     match output {
         Ok(output) if output.status.success() => {
             let patch = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -1185,8 +1268,8 @@ fn run_file_diff(
                 (None, None)
             } else {
                 (
-                    read_blob(repo_path, file.old_blob.as_deref()),
-                    read_blob(repo_path, file.new_blob.as_deref()),
+                    read_blob(repo, file.old_blob.as_deref()),
+                    read_blob(repo, file.new_blob.as_deref()),
                 )
             };
             log::debug!(
@@ -1217,13 +1300,14 @@ fn run_file_diff(
     }
 }
 
-fn read_blob(repo_path: &str, oid: Option<&str>) -> Option<String> {
-    read_blob_spec(repo_path, oid?)
+fn read_blob(repo: &GitRepo, oid: Option<&str>) -> Option<String> {
+    read_blob_spec(repo, oid?)
 }
 
-fn read_blob_spec(repo_path: &str, spec: &str) -> Option<String> {
-    let output = git_command()
-        .args(["--no-pager", "-C", repo_path, "cat-file", "blob", spec])
+pub(crate) fn read_blob_spec(repo: &GitRepo, spec: &str) -> Option<String> {
+    let output = repo
+        .command()
+        .args(["--no-pager", "-C", repo.path(), "cat-file", "blob", spec])
         .output()
         .ok()?;
     if !output.status.success() || output.stdout.len() > MAX_BLOB_SIZE {
@@ -1234,12 +1318,13 @@ fn read_blob_spec(repo_path: &str, spec: &str) -> Option<String> {
 
 /// Execute git status and return (branch, upstream, files, ahead, behind).
 fn run_status(
-    repo_path: &str,
+    repo: &GitRepo,
 ) -> Result<(String, Option<String>, Vec<FileStatus>, usize, usize), GitError> {
-    let output = git_command()
+    let output = repo
+        .command()
         .args([
             "-C",
-            repo_path,
+            repo.path(),
             "status",
             "--porcelain=v1",
             "-z",
@@ -1388,12 +1473,13 @@ fn parse_count(text: &str, marker: &str) -> usize {
         .unwrap_or(0)
 }
 
-/// 执行 git branch，返回本地分支列表
-fn run_branches(repo_path: &str) -> Vec<BranchInfo> {
-    let Ok(output) = git_command()
+/// Execute git branch and return the local branch list.
+fn run_branches(repo: &GitRepo) -> Vec<BranchInfo> {
+    let Ok(output) = repo
+        .command()
         .args([
             "-C",
-            repo_path,
+            repo.path(),
             "branch",
             "--format=%(HEAD)%09%(refname:short)",
         ])
@@ -1418,11 +1504,12 @@ fn run_branches(repo_path: &str) -> Vec<BranchInfo> {
     branches
 }
 
-/// 收集侧栏引用清单（四个只读快命令，任一失败按空处理不影响其余分区）
-fn run_refs(repo_path: &str, event_tx: &Sender<GitEvent>) {
+/// Collect the sidebar ref snapshot (four read-only quick commands; any
+/// failure is treated as an empty section without affecting the others).
+fn run_refs(repo: &GitRepo, event_tx: &Sender<GitEvent>) {
     let out = |args: &[&str]| -> String {
-        let mut cmd = git_command();
-        cmd.arg("-C").arg(repo_path);
+        let mut cmd = repo.command();
+        cmd.arg("-C").arg(repo.path());
         for arg in args {
             cmd.arg(arg);
         }
@@ -1433,8 +1520,9 @@ fn run_refs(repo_path: &str, event_tx: &Sender<GitEvent>) {
             _ => String::new(),
         }
     };
-    let comparison_revisions = git_command()
-        .args(branch_compare::comparison_ref_args(repo_path))
+    let comparison_revisions = repo
+        .command()
+        .args(branch_compare::comparison_ref_args(repo.path()))
         .output()
         .ok()
         .filter(|output| output.status.success())
@@ -1559,7 +1647,7 @@ mod tests {
         fs::create_dir_all(&source).expect("test directory");
 
         let git = |args: &[&str]| {
-            let output = git_command()
+            let output = Command::new("git")
                 .args(args)
                 .output()
                 .expect("git must be available");

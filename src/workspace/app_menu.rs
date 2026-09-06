@@ -9,6 +9,7 @@ use gpui_component::{
 };
 use std::rc::Rc;
 
+use crate::core::config::RecentRepo;
 use crate::core::i18n;
 use crate::dropdown::DropdownMenuExt;
 
@@ -16,6 +17,7 @@ gpui::actions!(
     augur_git,
     [
         OpenRepository,
+        OpenWslRepository,
         NewTab,
         OpenSettings,
         OpenExtensions,
@@ -26,18 +28,21 @@ gpui::actions!(
 
 #[derive(Clone, Debug)]
 pub(crate) enum AppMenuEvent {
-    OpenRecent(String),
+    OpenRecent(RecentRepo),
 }
 
 pub(crate) struct AppMenu {
     locale: i18n::Locale,
-    recent_repos: Vec<String>,
+    recent_repos: Vec<RecentRepo>,
 }
 
 impl EventEmitter<AppMenuEvent> for AppMenu {}
 
 impl AppMenu {
-    pub(crate) fn new(locale: i18n::Locale, recent_repos: Vec<String>) -> Self {
+    pub(crate) fn new(
+        locale: i18n::Locale,
+        recent_repos: Vec<RecentRepo>,
+    ) -> Self {
         Self {
             locale,
             recent_repos,
@@ -48,7 +53,7 @@ impl AppMenu {
         self.locale = locale;
     }
 
-    pub(crate) fn set_recent_repos(&mut self, recent_repos: Vec<String>) {
+    pub(crate) fn set_recent_repos(&mut self, recent_repos: Vec<RecentRepo>) {
         self.recent_repos = recent_repos;
     }
 }
@@ -82,17 +87,20 @@ impl Render for AppMenu {
                             ));
                         }
 
-                        recent_repos.iter().fold(menu, |menu, path| {
-                            let path_for_event = path.clone();
+                        recent_repos.iter().fold(menu, |menu, repo| {
+                            let repo_for_event = repo.clone();
                             let app_menu = app_menu.clone();
                             menu.item(
-                                PopupMenuItem::new(path.clone()).on_click(
+                                PopupMenuItem::new(
+                                    repo.location.label(&repo.path),
+                                )
+                                .on_click(
                                     move |_event, _window, cx| {
                                         let _ =
                                             app_menu.update(cx, |_menu, cx| {
                                                 cx.emit(
                                                     AppMenuEvent::OpenRecent(
-                                                        path_for_event.clone(),
+                                                        repo_for_event.clone(),
                                                     ),
                                                 );
                                             });
@@ -104,11 +112,16 @@ impl Render for AppMenu {
 
                 let file_menu =
                     PopupMenu::build(window, cx, move |menu, _, _| {
-                        menu.menu(
+                        let menu = menu.menu(
                             i18n::text(locale, "menu-open-repository"),
                             Box::new(OpenRepository),
-                        )
-                        .menu(
+                        );
+                        #[cfg(windows)]
+                        let menu = menu.menu(
+                            i18n::text(locale, "menu-open-wsl-repository"),
+                            Box::new(OpenWslRepository),
+                        );
+                        menu.menu(
                             i18n::text(locale, "menu-new-tab"),
                             Box::new(NewTab),
                         )
@@ -176,6 +189,14 @@ pub(crate) fn install_native_menu(locale: i18n::Locale, cx: &mut App) {
         ),
         MenuItem::action(i18n::text(locale, "menu-new-tab"), NewTab),
     ];
+    #[cfg(windows)]
+    file_items.insert(
+        1,
+        MenuItem::action(
+            i18n::text(locale, "menu-open-wsl-repository"),
+            OpenWslRepository,
+        ),
+    );
     #[cfg(not(target_os = "macos"))]
     file_items.extend([
         MenuItem::separator(),

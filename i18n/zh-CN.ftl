@@ -4,6 +4,7 @@
 # ===== 应用 / Welcome =====
 app-tagline = 桌面 Git 客户端
 welcome-open = 打开
+welcome-open-wsl = 打开 WSL 仓库…
 welcome-drop-hint = 或拖入仓库文件夹打开
 tab-new = 新建标签页
 recent-repos = 最近仓库
@@ -13,6 +14,7 @@ repo-folder-prompt = 选择 Git 仓库文件夹
 menu-open = 打开应用菜单
 menu-file = 文件
 menu-open-repository = 打开仓库…
+menu-open-wsl-repository = 打开 WSL 仓库…
 menu-new-tab = 新建标签页
 menu-recent-repositories = 最近仓库
 menu-no-recent-repositories = 没有最近仓库
@@ -493,10 +495,28 @@ theme-catppuccin-frappe = Frappé
 theme-catppuccin-macchiato = Macchiato
 theme-catppuccin-mocha = Mocha
 
+# ===== WSL 打开对话框（仅 Windows） =====
+wsl-open-title = 打开 WSL 仓库
+wsl-distro-label = 发行版
+wsl-path-label = 发行版内的仓库路径
+wsl-path-hint = 以 / 开头的绝对路径，例如 /home/user/repo。粘贴 \\wsl$ 路径可自动填充两项。
+wsl-refresh-distros = 刷新发行版列表
+wsl-loading-distros = 正在加载…
+wsl-no-distros = 未找到 WSL 发行版
+wsl-open-confirm = 打开仓库
+wsl-checking = 正在检查仓库…
+wsl-check-ok = 已找到 Git 仓库
+wsl-path-empty = 请输入仓库路径
+wsl-path-not-absolute = 请输入以 / 开头的 Linux 绝对路径
+wsl-path-control-characters = 路径包含无法使用的字符
+
 # ===== 错误（core 产生 key，展示侧拼接本地化） =====
 err-path-not-exist = 路径不存在: { $detail }
 err-not-a-repo = 不是 Git 仓库: { $detail }
 err-git-run = git 执行失败: { $detail }
+err-wsl-unsupported = 需要 Windows 才能打开 WSL 仓库: { $detail }
+err-wsl-distro-not-found = 找不到 WSL 发行版: { $detail }
+err-wsl-git-missing = WSL 发行版内没有可用的 git: { $detail }
 err-git-status = 读取 Git 状态失败: { $detail }
 err-git-status-path = Git 返回了无法安全处理的路径: { $detail }
 err-git-log = git log 失败: { $detail }

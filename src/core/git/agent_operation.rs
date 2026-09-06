@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
-use super::git_command;
+use super::GitRepo;
 
 /// A read-only snapshot of the Git state relevant to an Agent commit.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -291,15 +291,19 @@ fn is_ancestor(repo_path: &Path, target_oid: &str) -> Result<bool, String> {
     }
 }
 
-/// Build a Git command whose working directory is safe for all maintained
-/// platforms. Windows canonicalization can return an extended-length
-/// `\\?\\C:\\...` path; command-line shells used by Agent sessions reject
-/// that spelling even though the normal Git worker accepts it. Keeping the
-/// normalization at this lower boundary makes every Agent probe use the same
-/// repository as the visible terminal.
+/// Build a Git command addressed with the `-C` argument like every other Git
+/// invocation in the worker. Setting the process working directory instead
+/// would tie the child to the host platform's filesystem view and cannot
+/// reach repositories inside other locations. Windows canonicalization can
+/// return an extended-length `\\?\\C:\\...` path; command-line shells used by
+/// Agent sessions reject that spelling even though the normal Git worker
+/// accepts it. Keeping the normalization at this lower boundary makes every
+/// Agent probe use the same repository path as the visible terminal.
 fn git_command_in_repo(repo_path: &Path) -> Command {
-    let mut command = git_command();
-    command.current_dir(normalize_repository_path(repo_path));
+    let normalized = normalize_repository_path(repo_path);
+    let mut command =
+        GitRepo::local(normalized.to_string_lossy().into_owned()).command();
+    command.arg("-C").arg(&normalized);
     command
 }
 

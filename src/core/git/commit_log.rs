@@ -10,7 +10,7 @@ use std::sync::mpsc::Sender;
 
 use crate::core::graph::LogRow;
 
-use super::{GitError, GitEvent, git_command};
+use super::{GitError, GitEvent, GitRepo};
 
 /// Commits fetched per graph page.
 pub(super) const LOG_PAGE_SIZE: usize = 500;
@@ -90,14 +90,14 @@ pub(super) fn log_args(
 
 /// Resolve the upstream rev once per scope change so a stale tracked branch
 /// degrades to a HEAD-only query instead of failing the whole page.
-fn resolve_scope_upstream(repo_path: &str, scope: &LogScope) -> LogScope {
+fn resolve_scope_upstream(repo: &GitRepo, scope: &LogScope) -> LogScope {
     let LogScope::CurrentBranch {
         upstream: Some(upstream),
     } = scope
     else {
         return scope.clone();
     };
-    if is_rev_resolvable(repo_path, &format!("{upstream}^{{commit}}")) {
+    if is_rev_resolvable(repo, &format!("{upstream}^{{commit}}")) {
         return scope.clone();
     }
     log::warn!(
@@ -106,9 +106,9 @@ fn resolve_scope_upstream(repo_path: &str, scope: &LogScope) -> LogScope {
     LogScope::CurrentBranch { upstream: None }
 }
 
-fn is_rev_resolvable(repo_path: &str, rev: &str) -> bool {
-    git_command()
-        .args(["-C", repo_path, "rev-parse", "--verify", "--quiet", rev])
+fn is_rev_resolvable(repo: &GitRepo, rev: &str) -> bool {
+    repo.command()
+        .args(["-C", repo.path(), "rev-parse", "--verify", "--quiet", rev])
         .output()
         .is_ok_and(|output| output.status.success())
 }
@@ -124,7 +124,7 @@ fn is_unborn_head_output(stderr: &[u8]) -> bool {
 
 /// Fetch one page and emit a replace or append event.
 pub(super) fn run_page(
-    repo_path: &str,
+    repo: &GitRepo,
     state: &mut LogState,
     replace: bool,
     event_tx: &Sender<GitEvent>,
@@ -132,8 +132,9 @@ pub(super) fn run_page(
     if replace {
         state.skip = 0;
     }
-    let output = git_command()
-        .args(log_args(repo_path, &state.scope, state.skip))
+    let output = repo
+        .command()
+        .args(log_args(repo.path(), &state.scope, state.skip))
         .output();
     match output {
         Ok(output) if output.status.success() => {
@@ -180,25 +181,25 @@ pub(super) fn run_page(
 
 /// Install a new scope and reload the first page.
 pub(super) fn set_scope(
-    repo_path: &str,
+    repo: &GitRepo,
     state: &mut LogState,
     scope: LogScope,
     event_tx: &Sender<GitEvent>,
 ) {
-    state.scope = resolve_scope_upstream(repo_path, &scope);
-    run_page(repo_path, state, true, event_tx);
+    state.scope = resolve_scope_upstream(repo, &scope);
+    run_page(repo, state, true, event_tx);
 }
 
 /// Fetch the next page if the current query reported more commits.
 pub(super) fn request_more(
-    repo_path: &str,
+    repo: &GitRepo,
     state: &mut LogState,
     event_tx: &Sender<GitEvent>,
 ) {
     if !state.has_more {
         return;
     }
-    run_page(repo_path, state, false, event_tx);
+    run_page(repo, state, false, event_tx);
 }
 
 /// Parse structured `git log --pretty=format:...` output.
@@ -292,7 +293,10 @@ mod tests {
         let scope = LogScope::CurrentBranch {
             upstream: Some("origin/definitely-missing-ref".to_string()),
         };
-        let resolved = resolve_scope_upstream("/nonexistent-repo", &scope);
+        let resolved = resolve_scope_upstream(
+            &GitRepo::local("/nonexistent-repo"),
+            &scope,
+        );
         assert_eq!(resolved, LogScope::CurrentBranch { upstream: None });
     }
 

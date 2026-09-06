@@ -9,8 +9,8 @@ use std::sync::mpsc::Sender;
 use crate::core::diff::is_binary_patch;
 
 use super::{
-    FileStatus, GitEvent, MAX_BLOB_SIZE, WorkingTreeAction,
-    WorkingTreeDiffKind, WorkingTreeScope, git_command, read_blob_spec,
+    FileStatus, GitEvent, GitRepo, MAX_BLOB_SIZE, RepoLocation,
+    WorkingTreeAction, WorkingTreeDiffKind, WorkingTreeScope, read_blob_spec,
 };
 
 /// Build the regular working-tree diff command for one status entry.
@@ -59,7 +59,7 @@ pub(super) fn untracked_diff_args(repo_path: &str, path: &str) -> Vec<String> {
 
 /// Query a staged or unstaged working-tree file without blocking the UI.
 pub(super) fn run_file_diff(
-    repo_path: &str,
+    repo: &GitRepo,
     request_id: u64,
     kind: WorkingTreeDiffKind,
     file: &FileStatus,
@@ -68,11 +68,11 @@ pub(super) fn run_file_diff(
     let untracked =
         matches!(kind, WorkingTreeDiffKind::Unstaged) && file.is_untracked();
     let args = if untracked {
-        untracked_diff_args(repo_path, &file.path)
+        untracked_diff_args(repo.path(), &file.path)
     } else {
-        working_tree_diff_args(repo_path, kind, file)
+        working_tree_diff_args(repo.path(), kind, file)
     };
-    let output = git_command().args(&args).output();
+    let output = repo.command().args(&args).output();
     match output {
         Ok(output)
             if output.status.success()
@@ -86,12 +86,12 @@ pub(super) fn run_file_diff(
                     let old_source = if file.index == 'A' {
                         None
                     } else {
-                        read_blob_spec(repo_path, &format!("HEAD:{old_path}"))
+                        read_blob_spec(repo, &format!("HEAD:{old_path}"))
                     };
                     let new_source = if file.index == 'D' {
                         None
                     } else {
-                        read_blob_spec(repo_path, &format!(":{}", file.path))
+                        read_blob_spec(repo, &format!(":{}", file.path))
                     };
                     (old_source, new_source)
                 }
@@ -104,12 +104,12 @@ pub(super) fn run_file_diff(
                     let old_source = if untracked || file.worktree == 'A' {
                         None
                     } else {
-                        read_blob_spec(repo_path, &format!(":{old_path}"))
+                        read_blob_spec(repo, &format!(":{old_path}"))
                     };
                     let new_source = if file.worktree == 'D' {
                         None
                     } else {
-                        read_worktree_source(repo_path, &file.path)
+                        read_worktree_source(repo, &file.path)
                     };
                     (old_source, new_source)
                 }
@@ -171,7 +171,11 @@ fn diff_error_detail(output: &std::process::Output) -> String {
     }
 }
 
-fn read_worktree_source(repo_path: &str, path: &str) -> Option<String> {
+/// Read the current content of a working-tree file for the diff side panel.
+/// The path comes from a status snapshot and is validated as repo-relative
+/// before any access. Reading is best-effort: unreadable, oversized, or
+/// non-UTF-8 content degrades to `None`, exactly as before.
+fn read_worktree_source(repo: &GitRepo, path: &str) -> Option<String> {
     let relative_path = Path::new(path);
     if relative_path.is_absolute()
         || relative_path
@@ -180,18 +184,45 @@ fn read_worktree_source(repo_path: &str, path: &str) -> Option<String> {
     {
         return None;
     }
-    let bytes = fs::read(Path::new(repo_path).join(relative_path)).ok()?;
+    let bytes = match repo.location() {
+        RepoLocation::Local => {
+            fs::read(Path::new(repo.path()).join(relative_path)).ok()?
+        }
+        RepoLocation::Wsl { .. } => read_remote_worktree_bytes(repo, path)?,
+    };
     if bytes.len() > MAX_BLOB_SIZE {
         return None;
     }
     String::from_utf8(bytes).ok()
 }
 
+/// Read one untracked working-tree file from a non-local repository through
+/// the location itself (`cat -- <path>` inside the distro). Paths containing
+/// control characters are skipped: the preview is best-effort and such paths
+/// would be awkward to present anyway.
+fn read_remote_worktree_bytes(repo: &GitRepo, path: &str) -> Option<Vec<u8>> {
+    if path.bytes().any(|byte| byte < 0x20 || byte == 0x7F) {
+        log::debug!(
+            "[git_diff] skipping untracked preview: path contains control characters"
+        );
+        return None;
+    }
+    let output = repo
+        .command_in_location("cat")
+        .args(["--", path])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(output.stdout)
+}
+
 /// Execute one staged/working-tree operation against the captured status
 /// snapshot. The caller is responsible for emitting the completion event and
 /// refreshing the repository status afterwards.
 pub(super) fn apply_operation(
-    repo_path: &str,
+    repo: &GitRepo,
     action: WorkingTreeAction,
     scope: &WorkingTreeScope,
 ) -> Result<(), String> {
@@ -214,23 +245,24 @@ pub(super) fn apply_operation(
     }
 
     log::info!(
-        "[git_worktree] applying action={}, scope={:?}, files={}",
+        "[git_worktree] applying action={}, scope={:?}, files={}, repo={}",
         action.description(),
         scope.kind(),
-        files.len()
+        files.len(),
+        repo.label()
     );
 
     match action {
-        WorkingTreeAction::Stage => stage(repo_path, &files),
-        WorkingTreeAction::Unstage => unstage(repo_path, &files),
-        WorkingTreeAction::Discard => discard(repo_path, &files),
+        WorkingTreeAction::Stage => stage(repo, &files),
+        WorkingTreeAction::Unstage => unstage(repo, &files),
+        WorkingTreeAction::Discard => discard(repo, &files),
     }
 }
 
-fn stage(repo_path: &str, files: &[&FileStatus]) -> Result<(), String> {
+fn stage(repo: &GitRepo, files: &[&FileStatus]) -> Result<(), String> {
     let paths = operation_paths(files, true);
     run_pathspec_command(
-        repo_path,
+        repo,
         &[
             "add",
             "--all",
@@ -241,11 +273,11 @@ fn stage(repo_path: &str, files: &[&FileStatus]) -> Result<(), String> {
     )
 }
 
-fn unstage(repo_path: &str, files: &[&FileStatus]) -> Result<(), String> {
+fn unstage(repo: &GitRepo, files: &[&FileStatus]) -> Result<(), String> {
     let paths = operation_paths(files, true);
-    if has_head(repo_path)? {
+    if has_head(repo)? {
         run_pathspec_command(
-            repo_path,
+            repo,
             &[
                 "reset",
                 "-q",
@@ -257,7 +289,7 @@ fn unstage(repo_path: &str, files: &[&FileStatus]) -> Result<(), String> {
         )
     } else {
         run_pathspec_command(
-            repo_path,
+            repo,
             &[
                 "rm",
                 "--cached",
@@ -273,7 +305,7 @@ fn unstage(repo_path: &str, files: &[&FileStatus]) -> Result<(), String> {
     }
 }
 
-fn discard(repo_path: &str, files: &[&FileStatus]) -> Result<(), String> {
+fn discard(repo: &GitRepo, files: &[&FileStatus]) -> Result<(), String> {
     let mut restore_paths = Vec::new();
     let mut clean_paths = Vec::new();
 
@@ -299,7 +331,7 @@ fn discard(repo_path: &str, files: &[&FileStatus]) -> Result<(), String> {
 
     if !restore_paths.is_empty() {
         run_pathspec_command(
-            repo_path,
+            repo,
             &[
                 "checkout",
                 "--quiet",
@@ -311,7 +343,7 @@ fn discard(repo_path: &str, files: &[&FileStatus]) -> Result<(), String> {
     }
 
     for chunk in clean_paths.chunks(MAX_CLEAN_PATHS_PER_COMMAND) {
-        run_clean_command(repo_path, chunk)?;
+        run_clean_command(repo, chunk)?;
     }
 
     Ok(())
@@ -319,30 +351,25 @@ fn discard(repo_path: &str, files: &[&FileStatus]) -> Result<(), String> {
 
 const MAX_CLEAN_PATHS_PER_COMMAND: usize = 128;
 
-fn run_clean_command(repo_path: &str, paths: &[String]) -> Result<(), String> {
+/// Verify that captured untracked paths are still plain files before running
+/// the destructive `git clean`. Local repositories stat the path directly; WSL
+/// repositories ask Git whether the path has become a directory. Any probe
+/// failure refuses the operation: a destructive action must not proceed on a
+/// failed safety check.
+fn run_clean_command(repo: &GitRepo, paths: &[String]) -> Result<(), String> {
     for path in paths {
-        let full_path = Path::new(repo_path).join(path);
-        match fs::symlink_metadata(&full_path) {
-            Ok(metadata) if metadata.file_type().is_dir() => {
-                return Err(format!(
-                    "refusing to remove a directory at a captured file path: {path}"
-                ));
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(format!(
-                    "failed to inspect captured path before git clean: {error}"
-                ));
-            }
+        if clean_path_is_directory(repo, path)? {
+            return Err(format!(
+                "refusing to remove a directory at a captured file path: {path}"
+            ));
         }
     }
 
-    let mut command = git_command();
+    let mut command = repo.command();
     command
         .arg("--literal-pathspecs")
         .arg("-C")
-        .arg(repo_path)
+        .arg(repo.path())
         .arg("clean")
         .arg("-f")
         .arg("-d")
@@ -361,8 +388,66 @@ fn run_clean_command(repo_path: &str, paths: &[String]) -> Result<(), String> {
     }
 }
 
+/// Whether a captured path now denotes a directory. A missing path is not a
+/// directory; the subsequent clean reports the mismatch like it does locally.
+fn clean_path_is_directory(repo: &GitRepo, path: &str) -> Result<bool, String> {
+    match repo.location() {
+        RepoLocation::Local => {
+            let full_path = Path::new(repo.path()).join(path);
+            match fs::symlink_metadata(&full_path) {
+                Ok(metadata) => Ok(metadata.file_type().is_dir()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    Ok(false)
+                }
+                Err(error) => Err(format!(
+                    "failed to inspect captured path before git clean: {error}"
+                )),
+            }
+        }
+        RepoLocation::Wsl { .. } => {
+            let output = repo
+                .command()
+                .arg("--literal-pathspecs")
+                .args([
+                    "-C",
+                    repo.path(),
+                    "ls-files",
+                    "--others",
+                    "--directory",
+                    "-z",
+                    "--",
+                    path,
+                ])
+                .output()
+                .map_err(|error| {
+                    format!(
+                        "failed to probe captured path before git clean: {error}"
+                    )
+                })?;
+            if !output.status.success() {
+                return Err(format!(
+                    "failed to probe captured path before git clean: {}",
+                    command_error("git ls-files", &output)
+                ));
+            }
+            Ok(clean_probe_is_directory(&output.stdout, path))
+        }
+    }
+}
+
+/// Decide from `git ls-files --others --directory -z` output (anchored to one
+/// pathspec) whether the captured path denotes a directory. Git reports a
+/// collapsed directory with a trailing slash; a plain record is the file
+/// itself; no record means the path is gone.
+fn clean_probe_is_directory(records: &[u8], path: &str) -> bool {
+    let directory_record = format!("{path}/").into_bytes();
+    records
+        .split(|byte| *byte == 0)
+        .any(|record| record == directory_record.as_slice())
+}
+
 fn run_pathspec_command(
-    repo_path: &str,
+    repo: &GitRepo,
     args: &[&str],
     paths: &[String],
 ) -> Result<(), String> {
@@ -370,11 +455,11 @@ fn run_pathspec_command(
         return Ok(());
     }
 
-    let mut command = git_command();
+    let mut command = repo.command();
     command
         .arg("--literal-pathspecs")
         .arg("-C")
-        .arg(repo_path)
+        .arg(repo.path())
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -467,10 +552,11 @@ fn validate_status_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn has_head(repo_path: &str) -> Result<bool, String> {
-    let output = git_command()
+fn has_head(repo: &GitRepo) -> Result<bool, String> {
+    let output = repo
+        .command()
         .arg("-C")
-        .arg(repo_path)
+        .arg(repo.path())
         .args(["rev-parse", "--verify", "--quiet", "HEAD"])
         .output()
         .map_err(|error| {
@@ -491,12 +577,19 @@ fn has_head(repo_path: &str) -> Result<bool, String> {
 mod tests {
     use std::fs;
     use std::path::PathBuf;
+    use std::process::Command;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::{
-        apply_operation, deduplicate, git_command, validate_status_path,
+        GitRepo, apply_operation, clean_probe_is_directory, deduplicate,
+        validate_status_path,
     };
     use crate::core::git::{FileStatus, WorkingTreeAction, WorkingTreeScope};
+
+    /// Plain git for test fixtures; worker commands go through `GitRepo`.
+    fn git_command() -> Command {
+        Command::new("git")
+    }
 
     #[test]
     fn deduplicate_preserves_path_order() {
@@ -513,6 +606,38 @@ mod tests {
         assert!(validate_status_path("").is_err());
         assert!(validate_status_path("folder/../outside").is_err());
         assert!(validate_status_path("folder/file.rs").is_ok());
+    }
+
+    #[test]
+    fn clean_probe_treats_only_the_directory_record_as_a_directory() {
+        let records = b"captured/\0other-untracked.txt\0";
+        assert!(clean_probe_is_directory(records, "captured"));
+        assert!(!clean_probe_is_directory(records, "other-untracked.txt"));
+        assert!(!clean_probe_is_directory(records, "missing.txt"));
+        assert!(!clean_probe_is_directory(b"", "captured"));
+        // A plain record is the file itself, not a directory.
+        assert!(!clean_probe_is_directory(b"captured\0", "captured"));
+    }
+
+    #[test]
+    fn local_clean_check_refuses_directories_at_captured_paths() {
+        let repo = TempRepo::new();
+        let handle = repo.handle();
+        fs::create_dir(repo.path.join("became-a-directory"))
+            .expect("test directory");
+        assert!(
+            super::clean_path_is_directory(&handle, "became-a-directory")
+                .expect("probe should succeed")
+        );
+        fs::write(repo.path.join("still-a-file"), "x\n").expect("test file");
+        assert!(
+            !super::clean_path_is_directory(&handle, "still-a-file")
+                .expect("probe should succeed")
+        );
+        assert!(
+            !super::clean_path_is_directory(&handle, "gone.txt")
+                .expect("missing paths are simply not directories")
+        );
     }
 
     struct TempRepo {
@@ -537,6 +662,10 @@ mod tests {
                     return repo;
                 }
             }
+        }
+
+        fn handle(&self) -> GitRepo {
+            GitRepo::local(self.path.to_string_lossy().into_owned())
         }
 
         fn git<I, S>(&self, args: I)
@@ -609,7 +738,7 @@ mod tests {
         repo.commit_base();
         repo.write("tracked.txt", "staged\n");
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Stage,
             &WorkingTreeScope::File(status(' ', 'M', "tracked.txt")),
         )
@@ -618,7 +747,7 @@ mod tests {
         assert!(repo.git_status(["diff", "--quiet"]));
 
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Unstage,
             &WorkingTreeScope::File(status('M', ' ', "tracked.txt")),
         )
@@ -636,7 +765,7 @@ mod tests {
         repo.write("tracked.txt", "staged plus worktree\n");
 
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Discard,
             &WorkingTreeScope::File(status('M', 'M', "tracked.txt")),
         )
@@ -657,7 +786,7 @@ mod tests {
         repo.commit_base();
         repo.write("new file.txt", "new\n");
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Stage,
             &WorkingTreeScope::File(status('?', '?', "new file.txt")),
         )
@@ -665,7 +794,7 @@ mod tests {
         assert!(!repo.git_status(["diff", "--cached", "--quiet"]));
 
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Unstage,
             &WorkingTreeScope::File(status('A', ' ', "new file.txt")),
         )
@@ -673,7 +802,7 @@ mod tests {
         assert!(repo.path.join("new file.txt").exists());
 
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Discard,
             &WorkingTreeScope::File(status('?', '?', "new file.txt")),
         )
@@ -689,7 +818,7 @@ mod tests {
         repo.write(literal_path, "literal\n");
 
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Stage,
             &WorkingTreeScope::File(status('?', '?', literal_path)),
         )
@@ -697,7 +826,7 @@ mod tests {
         assert!(!repo.git_status(["diff", "--cached", "--quiet"]));
 
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Unstage,
             &WorkingTreeScope::File(status('A', ' ', literal_path)),
         )
@@ -705,7 +834,7 @@ mod tests {
         assert!(repo.path.join(literal_path).exists());
 
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Discard,
             &WorkingTreeScope::File(status('?', '?', literal_path)),
         )
@@ -722,7 +851,7 @@ mod tests {
         repo.write(newline_path, "newline\n");
 
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Stage,
             &WorkingTreeScope::File(status('?', '?', newline_path)),
         )
@@ -730,14 +859,14 @@ mod tests {
         assert!(!repo.git_status(["diff", "--cached", "--quiet"]));
 
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Unstage,
             &WorkingTreeScope::File(status('A', ' ', newline_path)),
         )
         .expect("newline paths should be unstageable");
 
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Discard,
             &WorkingTreeScope::File(status('?', '?', newline_path)),
         )
@@ -756,7 +885,7 @@ mod tests {
         .expect("test rename should succeed");
 
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Discard,
             &WorkingTreeScope::File(FileStatus {
                 index: ' ',
@@ -785,7 +914,7 @@ mod tests {
         repo.write("ignored.txt", "keep\n");
 
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Discard,
             &WorkingTreeScope::File(status('?', '?', "ignored.txt")),
         )
@@ -802,7 +931,7 @@ mod tests {
         repo.write("created-after-confirmation.txt", "keep\n");
 
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Discard,
             &WorkingTreeScope::All(vec![
                 status(' ', 'M', "tracked.txt"),
@@ -821,7 +950,7 @@ mod tests {
         repo.write("initial.txt", "initial\n");
         repo.git(["add", "initial.txt"]);
         apply_operation(
-            repo.path.to_str().expect("temporary path must be UTF-8"),
+            &repo.handle(),
             WorkingTreeAction::Unstage,
             &WorkingTreeScope::File(status('A', ' ', "initial.txt")),
         )

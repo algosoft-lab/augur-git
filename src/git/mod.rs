@@ -27,8 +27,9 @@ use gpui::{Context, EventEmitter, SharedString, Task};
 use crate::core::diff::FileChange;
 use crate::core::git::{
     self, BranchInfo, CheckoutTarget, CommitMessage, CompareRevision,
-    FileStatus, GitError, GitEvent, LogScope, RefsInfo, WorkingTreeAction,
-    WorkingTreeDiffKind, WorkingTreeScope, WorkingTreeScopeKind,
+    FileStatus, GitError, GitEvent, GitRepo, LogScope, RefsInfo,
+    WorkingTreeAction, WorkingTreeDiffKind, WorkingTreeScope,
+    WorkingTreeScopeKind,
 };
 use crate::core::graph::LogRow;
 use crate::core::i18n::{self, Locale};
@@ -136,7 +137,7 @@ pub enum GitUiEvent {
         message: String,
     },
     /// 打开仓库成功（MRU 记录）
-    RepoOpened(String),
+    RepoOpened(GitRepo),
     /// 错误（状态栏显示）
     Error(String),
     /// Non-fatal status refresh error; the Git worker remains available.
@@ -161,8 +162,8 @@ pub struct GitView {
     /// Foreground event delivery is enabled only for the active repository tab.
     poll_task: Option<Task<()>>,
     status: GitStatus,
-    /// 仓库绝对路径（显示/后续命令用）
-    repo_path: String,
+    /// The repository bound to this view once opened (display and labels).
+    repo: Option<GitRepo>,
     /// 界面语言（错误文案本地化用；Workspace 切换语言时同步）
     locale: Locale,
 }
@@ -176,9 +177,17 @@ impl GitView {
             rx: None,
             poll_task: None,
             status: GitStatus::None,
-            repo_path: String::new(),
+            repo: None,
             locale,
         }
+    }
+
+    /// Directory name of the bound repository, for status labels.
+    fn repo_dir_name(&self) -> &str {
+        self.repo
+            .as_ref()
+            .map(|repo| dir_name(repo.path()))
+            .unwrap_or_default()
     }
 
     /// Enable or disable foreground delivery of worker events for this tab.
@@ -194,7 +203,7 @@ impl GitView {
             if self.poll_task.is_none() {
                 log::debug!(
                     "[workspace_tabs] GitView event polling started: {}",
-                    dir_name(&self.repo_path)
+                    self.repo_dir_name()
                 );
                 self.poll_task = Some(cx.spawn(async move |this, cx| {
                     loop {
@@ -213,7 +222,7 @@ impl GitView {
         } else if self.poll_task.take().is_some() {
             log::debug!(
                 "[workspace_tabs] GitView event polling stopped: {}",
-                dir_name(&self.repo_path)
+                self.repo_dir_name()
             );
         }
     }
@@ -223,41 +232,46 @@ impl GitView {
         self.locale = locale;
     }
 
-    /// 打开仓库（workspace 触发；路径校验同步执行，毫秒级）
-    pub fn open_repo(&mut self, repo_path: &str, cx: &mut Context<Self>) {
+    /// 打开仓库（workspace 触发；本地路径校验同步执行，毫秒级；WSL 校验
+    /// 在工作线程首次探测，失败经 OpenFailed 事件上报）
+    pub fn open_repo(&mut self, repo: GitRepo, cx: &mut Context<Self>) {
         if self.handle.is_some() {
             return;
         }
         self.set_status(GitStatus::Scanning, cx);
 
         let (tx, rx) = mpsc::channel::<GitEvent>();
-        match git::spawn_open(repo_path.to_string(), tx) {
+        match git::spawn_open(repo.clone(), tx) {
             Ok(handle) => {
-                log::info!("[git_view] repository opened");
-                self.repo_path = repo_path.to_string();
+                log::info!("[git_view] repository opened: {}", repo.label());
+                self.repo = Some(repo.clone());
                 self.handle = Some(handle);
                 self.rx = Some(rx);
                 self.set_status(
                     GitStatus::Ready(i18n::text_args(
                         self.locale,
                         "status-scanning-at",
-                        &[("repo", dir_name(repo_path))],
+                        &[("repo", dir_name(repo.path()))],
                     )),
                     cx,
                 );
-                cx.emit(GitUiEvent::RepoOpened(repo_path.to_string()));
+                cx.emit(GitUiEvent::RepoOpened(repo));
             }
-            Err(err) => {
-                log::error!("[git_view] repository open failed: {}", err.key);
-                self.handle = None;
-                self.rx = None;
-                self.repo_path.clear();
-                self.set_status(
-                    GitStatus::Error(localized_error(self.locale, &err)),
-                    cx,
-                );
-            }
+            Err(err) => self.open_failed(err, cx),
         }
+    }
+
+    /// Report an open failure that never reached a worker — for example a
+    /// WSL repository opened on a platform without WSL support.
+    pub fn open_failed(&mut self, err: GitError, cx: &mut Context<Self>) {
+        log::error!("[git_view] repository open failed: {}", err.key);
+        self.handle = None;
+        self.rx = None;
+        self.repo = None;
+        self.set_status(
+            GitStatus::Error(localized_error(self.locale, &err)),
+            cx,
+        );
     }
 
     /// 关闭仓库（工作线程收到 Close 后退出）
@@ -265,7 +279,7 @@ impl GitView {
         if self.poll_task.take().is_some() {
             log::info!(
                 "[workspace_tabs] GitView event polling stopped: {}",
-                dir_name(&self.repo_path)
+                self.repo_dir_name()
             );
         }
         if let Some(handle) = &self.handle {
@@ -491,7 +505,7 @@ impl GitView {
                         files.len(),
                         branches.len()
                     );
-                    let repo = dir_name(&self.repo_path);
+                    let repo = dir_name(self.repo_dir_name());
                     self.set_status(
                         GitStatus::Ready(format!("{branch} @ {repo}")),
                         cx,
@@ -728,6 +742,19 @@ impl GitView {
                         self.locale,
                         &error,
                     )));
+                }
+                GitEvent::OpenFailed(error) => {
+                    log::warn!(
+                        "[git_view] repository could not be opened: {}",
+                        error.key
+                    );
+                    let message = localized_error(self.locale, &error);
+                    cx.emit(GitUiEvent::Error(message.clone()));
+                    self.handle = None;
+                    self.rx = None;
+                    self.repo = None;
+                    keep_polling = false;
+                    self.set_status(GitStatus::Error(message), cx);
                 }
                 GitEvent::CommandStarted { label, subcommand } => {
                     log::debug!("[git_view] command {label} started");

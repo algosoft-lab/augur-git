@@ -5,6 +5,7 @@
 # ===== App / Welcome =====
 app-tagline = Desktop Git client
 welcome-open = Open
+welcome-open-wsl = Open WSL Repository…
 welcome-drop-hint = or drop a repository folder here
 tab-new = New Tab
 recent-repos = Recent repositories
@@ -14,6 +15,7 @@ repo-folder-prompt = Choose a Git repository folder
 menu-open = Open application menu
 menu-file = File
 menu-open-repository = Open Repository…
+menu-open-wsl-repository = Open WSL Repository…
 menu-new-tab = New Tab
 menu-recent-repositories = Recent Repositories
 menu-no-recent-repositories = No Recent Repositories
@@ -494,10 +496,28 @@ theme-catppuccin-frappe = Frappé
 theme-catppuccin-macchiato = Macchiato
 theme-catppuccin-mocha = Mocha
 
+# ===== WSL open dialog (Windows only) =====
+wsl-open-title = Open WSL Repository
+wsl-distro-label = Distribution
+wsl-path-label = Repository path inside the distribution
+wsl-path-hint = Absolute path starting with /, for example /home/user/repo. Pasting a \\wsl$ path fills both fields.
+wsl-refresh-distros = Refresh distribution list
+wsl-loading-distros = Loading…
+wsl-no-distros = No WSL distributions found
+wsl-open-confirm = Open Repository
+wsl-checking = Checking repository…
+wsl-check-ok = Git repository found
+wsl-path-empty = Enter a repository path
+wsl-path-not-absolute = Enter an absolute Linux path starting with /
+wsl-path-control-characters = Path contains characters that cannot be used
+
 # ===== Errors (keys produced by core, localized at display side) =====
 err-path-not-exist = Path not found: { $detail }
 err-not-a-repo = Not a Git repository: { $detail }
 err-git-run = Failed to run git: { $detail }
+err-wsl-unsupported = WSL repositories require Windows: { $detail }
+err-wsl-distro-not-found = WSL distribution not found: { $detail }
+err-wsl-git-missing = Git is not available inside the WSL distribution: { $detail }
 err-git-status = Failed to read Git status: { $detail }
 err-git-status-path = Git reported a path that cannot be handled safely: { $detail }
 err-git-log = git log failed: { $detail }

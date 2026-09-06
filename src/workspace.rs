@@ -25,6 +25,7 @@ mod tabs;
 mod welcome;
 mod window_lifecycle;
 mod window_state;
+mod wsl_open_dialog;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
@@ -35,12 +36,12 @@ use std::time::Instant;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, InteractiveElementExt, Root, TitleBar, h_flex,
+    ActiveTheme, InteractiveElementExt, Root, TitleBar, WindowExt, h_flex,
     theme::{Theme, ThemeMode},
     v_flex,
 };
 
-use crate::core::config::{self, AppConfig, UiState};
+use crate::core::config::{self, AppConfig, LocationConfig, UiState};
 use crate::core::i18n::{self, Locale};
 use crate::extension::{
     AgentSessionRequest, ExtensionDefinition, ExtensionEvent, ExtensionHost,
@@ -52,8 +53,8 @@ use self::agent_lifecycle::PendingWorkspaceClose;
 use self::app_menu::{AppMenu, AppMenuEvent};
 use self::extensions::ExtensionsPanel;
 use self::persistence::{
-    installed_font_families, normalize_typography, normalized_path, repo_key,
-    welcome_tab_key,
+    installed_font_families, location_repo_key, normalize_repo_path,
+    normalize_typography, repo_key, welcome_tab_key,
 };
 use self::repo_tab::{RepoTab, RepoTabEvent};
 use self::settings::{SettingsPanel, SettingsPanelEvent};
@@ -210,6 +211,8 @@ struct TabEntry {
     id: TabId,
     key: String,
     path: Option<String>,
+    /// Where the repository lives (local directory or WSL distribution).
+    location: LocationConfig,
     content: TabContent,
     summary: TabSummary,
     persisted: bool,
@@ -325,9 +328,15 @@ impl Workspace {
             &app_menu_for_events,
             window,
             |workspace, _menu, event, window, cx| match event {
-                AppMenuEvent::OpenRecent(path) => {
+                AppMenuEvent::OpenRecent(repo) => {
                     log::info!("[app_menu] opening recent repository");
-                    workspace.open_repo_path(path.clone(), false, window, cx);
+                    workspace.open_repo_path(
+                        repo.path.clone(),
+                        repo.location.clone(),
+                        false,
+                        window,
+                        cx,
+                    );
                 }
             },
         )
@@ -542,21 +551,22 @@ impl Workspace {
     }
 
     fn restore_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let paths = self
-            .config
-            .open_tabs
-            .iter()
-            .map(|tab| tab.path.clone())
-            .collect::<Vec<_>>();
-        for path in paths {
-            self.add_repo_tab(path, true, false, window, cx);
+        let tabs = self.config.open_tabs.clone();
+        for tab in tabs {
+            self.add_repo_tab(tab.path, tab.location, true, false, window, cx);
         }
     }
 
     fn restore_active_tab(&mut self) {
-        let desired_key = self.config.active_tab_path.as_deref().map(repo_key);
-        self.active_tab = desired_key
-            .and_then(|key| self.tabs.iter().find(|tab| tab.key == key))
+        let stored = self.config.active_tab_path.as_deref();
+        self.active_tab = stored
+            .and_then(|stored| {
+                // New configs store the tab key; legacy files store a plain
+                // path, so match either spelling.
+                self.tabs.iter().find(|tab| {
+                    tab.key == stored || tab.key == repo_key(stored)
+                })
+            })
             .map(|tab| tab.id)
             .or_else(|| self.tabs.first().map(|tab| tab.id));
     }
@@ -564,13 +574,14 @@ impl Workspace {
     fn add_repo_tab(
         &mut self,
         requested_path: String,
+        location: LocationConfig,
         restored: bool,
         activate: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let path = normalized_path(&requested_path);
-        let key = repo_key(&path);
+        let path = normalize_repo_path(&requested_path, &location);
+        let key = location_repo_key(&location, &path);
         if let Some(id) = self
             .tabs
             .iter()
@@ -591,6 +602,7 @@ impl Workspace {
             RepoTab::new(
                 id,
                 path_for_tab,
+                location.clone(),
                 locale,
                 self.config.view.diff_layout.into(),
                 self.config.view.graph_history,
@@ -605,6 +617,7 @@ impl Workspace {
             id,
             key,
             path: Some(path),
+            location,
             content: TabContent::Repo(tab.clone()),
             summary,
             persisted: restored,
@@ -627,6 +640,7 @@ impl Workspace {
             id,
             key: welcome_tab_key(id),
             path: None,
+            location: LocationConfig::Local,
             content: TabContent::Welcome,
             summary: TabSummary {
                 id,
@@ -646,11 +660,12 @@ impl Workspace {
         &mut self,
         id: TabId,
         requested_path: String,
+        location: LocationConfig,
         restored: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let path = normalized_path(&requested_path);
+        let path = normalize_repo_path(&requested_path, &location);
         let Some(entry) = self.tabs.iter_mut().find(|tab| tab.id == id) else {
             return;
         };
@@ -659,6 +674,7 @@ impl Workspace {
             RepoTab::new(
                 id,
                 path.clone(),
+                location.clone(),
                 locale,
                 self.config.view.diff_layout.into(),
                 self.config.view.graph_history,
@@ -669,8 +685,9 @@ impl Workspace {
             )
         });
         let summary = tab.read(cx).summary();
-        entry.key = repo_key(&path);
+        entry.key = location_repo_key(&location, &path);
         entry.path = Some(path);
+        entry.location = location;
         entry.content = TabContent::Repo(tab.clone());
         entry.summary = summary;
         entry.persisted = restored;
@@ -717,14 +734,15 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         match event {
-            RepoTabEvent::Opened { id, path } => {
+            RepoTabEvent::Opened { id, path, location } => {
                 if let Some(entry) =
                     self.tabs.iter_mut().find(|tab| tab.id == *id)
                 {
                     entry.persisted = true;
+                    entry.location = location.clone();
                 }
                 if !self.restoring {
-                    self.config.push_recent(path);
+                    self.config.push_recent(path, location);
                     self.persist_config();
                 }
                 self.refresh_app_menu(cx);
@@ -1063,14 +1081,80 @@ impl Workspace {
         self.open_about(cx);
     }
 
+    fn handle_open_wsl_repository(
+        &mut self,
+        _: &app_menu::OpenWslRepository,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        log::info!("[app_menu] open wsl repository action");
+        self.pick_wsl_repository(window, cx);
+    }
+
+    /// Show the WSL open dialog. The entry points (menu items, welcome
+    /// button) only exist on Windows; the body compiles everywhere so the
+    /// dialog wiring is type-checked by every target.
+    fn pick_wsl_repository(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !cfg!(windows) {
+            log::debug!("[workspace_wsl] wsl repositories require Windows");
+            return;
+        }
+        if window.has_active_dialog(cx) {
+            log::debug!("[workspace_wsl] skip open: another dialog is active");
+            return;
+        }
+        let dialog = cx.new(|cx| {
+            wsl_open_dialog::WslOpenDialog::new(self.locale, window, cx)
+        });
+        cx.subscribe_in(
+            &dialog,
+            window,
+            |workspace,
+             _dialog,
+             event: &wsl_open_dialog::WslOpenDialogEvent,
+             window,
+             cx| {
+                match event {
+                    wsl_open_dialog::WslOpenDialogEvent::Open {
+                        distro,
+                        path,
+                    } => {
+                        window.close_dialog(cx);
+                        workspace.open_repo_path(
+                            path.clone(),
+                            LocationConfig::wsl(distro.clone()),
+                            false,
+                            window,
+                            cx,
+                        );
+                    }
+                }
+            },
+        )
+        .detach();
+        let view = dialog;
+        let title = i18n::text(self.locale, "wsl-open-title");
+        window.open_dialog(cx, move |dialog, _window, _cx| {
+            dialog
+                .title(title.clone())
+                .width(px(520.))
+                .child(view.clone())
+        });
+    }
+
     fn open_repo_path(
         &mut self,
         requested_path: String,
+        location: LocationConfig,
         restored: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let key = repo_key(&requested_path);
+        let key = location_repo_key(&location, &requested_path);
         if let Some(existing) = self
             .tabs
             .iter()
@@ -1089,13 +1173,14 @@ impl Workspace {
             self.open_repo_in_tab(
                 welcome,
                 requested_path,
+                location,
                 restored,
                 window,
                 cx,
             );
             return;
         }
-        self.add_repo_tab(requested_path, restored, true, window, cx);
+        self.add_repo_tab(requested_path, location, restored, true, window, cx);
     }
 
     /// Open the first dropped folder as a repository tab. A drop that contains
@@ -1116,7 +1201,7 @@ impl Workspace {
         };
         let path = path.to_string_lossy().into_owned();
         log::info!("[workspace_drop] opening dropped folder");
-        self.open_repo_path(path, false, window, cx);
+        self.open_repo_path(path, LocationConfig::Local, false, window, cx);
     }
 
     fn pick_repo_folder(
@@ -1148,7 +1233,13 @@ impl Workspace {
             log::info!("[workspace_tabs] repository folder selected");
             match cx.update(|window, app| {
                 this.update(app, |workspace, cx| {
-                    workspace.open_repo_path(path, false, window, cx);
+                    workspace.open_repo_path(
+                        path,
+                        LocationConfig::Local,
+                        false,
+                        window,
+                        cx,
+                    );
                 })
             }) {
                 Ok(Ok(())) => {
@@ -1198,6 +1289,7 @@ impl Render for Workspace {
             .relative()
             .bg(colors.background)
             .on_action(cx.listener(Self::handle_open_repository))
+            .on_action(cx.listener(Self::handle_open_wsl_repository))
             .on_action(cx.listener(Self::handle_new_tab))
             .on_action(cx.listener(Self::handle_open_settings))
             .on_action(cx.listener(Self::handle_open_extensions))

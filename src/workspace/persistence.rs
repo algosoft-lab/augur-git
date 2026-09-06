@@ -3,7 +3,7 @@ use std::path::Path;
 use gpui::{App, AppContext, Context, Task};
 
 use crate::core::config::{
-    self, AppConfig, OpenTabConfig, normalized_diff_font_size,
+    self, AppConfig, LocationConfig, OpenTabConfig, normalized_diff_font_size,
     normalized_ui_font_size,
 };
 
@@ -22,14 +22,19 @@ impl Workspace {
             .iter()
             .filter(|tab| tab.persisted)
             .filter_map(|tab| {
-                tab.path.clone().map(|path| OpenTabConfig { path })
+                tab.path.clone().map(|path| OpenTabConfig {
+                    path,
+                    location: tab.location.clone(),
+                })
             })
             .collect();
         self.config.active_tab_path = self
             .active_tab
             .and_then(|active| self.tabs.iter().find(|tab| tab.id == active))
             .filter(|tab| tab.persisted)
-            .and_then(|tab| tab.path.clone());
+            // Store the unambiguous tab key; `restore_active_tab` still
+            // accepts legacy plain-path values.
+            .map(|tab| tab.key.clone());
     }
 
     pub(super) fn persist_on_quit(
@@ -84,11 +89,40 @@ pub(super) fn normalized_path(path: &str) -> String {
         .into_owned()
 }
 
+/// Canonical display/storage form for a requested repository path. Local
+/// paths are canonicalized; WSL paths live inside a distro filesystem, so
+/// they are only trimmed.
+pub(super) fn normalize_repo_path(
+    path: &str,
+    location: &LocationConfig,
+) -> String {
+    match location {
+        LocationConfig::Local => normalized_path(path),
+        LocationConfig::Wsl { .. } => path.trim().to_string(),
+    }
+}
+
 pub(super) fn repo_key(path: &str) -> String {
+    #[allow(unused_mut)] // lowercased only behind `cfg(windows)`
     let mut key = normalized_path(path);
     #[cfg(windows)]
     key.make_ascii_lowercase();
     key
+}
+
+/// Unique key for a repository tab, covering both local paths and
+/// location-qualified WSL repositories (`wsl|<distro>|<path>`; the distro is
+/// case-insensitive, the Linux path is not).
+pub(super) fn location_repo_key(
+    location: &LocationConfig,
+    path: &str,
+) -> String {
+    match location {
+        LocationConfig::Local => repo_key(path),
+        LocationConfig::Wsl { distro } => {
+            format!("wsl|{}|{}", distro.to_lowercase(), path)
+        }
+    }
 }
 
 /// Unique key for a start-page tab. Repository keys are canonical paths, so

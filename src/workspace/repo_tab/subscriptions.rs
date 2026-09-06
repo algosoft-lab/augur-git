@@ -636,10 +636,13 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                     cx.notify();
                 }
             }
-            GitUiEvent::RepoOpened(path) => {
+            GitUiEvent::RepoOpened(repo) => {
                 cx.emit(RepoTabEvent::Opened {
                     id: tab.id,
-                    path: path.clone(),
+                    path: repo.path().to_string(),
+                    location: crate::core::config::LocationConfig::from_location(
+                        repo.location(),
+                    ),
                 });
                 tab.emit_summary(cx);
             }

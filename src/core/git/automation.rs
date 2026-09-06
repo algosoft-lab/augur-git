@@ -5,14 +5,14 @@
 //! arguments are always passed to `Command` as separate arguments.
 
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use super::{FileStatus, GitError, git_command, run_status};
+use super::{FileStatus, GitError, GitRepo, run_status};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
@@ -75,7 +75,8 @@ pub struct RepositoryState {
 pub fn capture(path: &Path) -> Result<RepositoryState, String> {
     let path_text = path.to_string_lossy().into_owned();
     let (branch, upstream, files, ahead, behind) =
-        run_status(&path_text).map_err(git_error_detail)?;
+        run_status(&GitRepo::local(path_text.clone()))
+            .map_err(git_error_detail)?;
     let head = read_line(path, &["rev-parse", "HEAD"]);
     let remotes = read_lines(path, &["remote"]);
     let operation = detect_operation(path);
@@ -251,7 +252,12 @@ fn detect_operation(path: &Path) -> Option<String> {
 }
 
 fn read_line(path: &Path, args: &[&str]) -> Option<String> {
-    let output = git_command().arg("-C").arg(path).args(args).output().ok()?;
+    let output = local_git(path)
+        .arg("-C")
+        .arg(path)
+        .args(args)
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -260,7 +266,7 @@ fn read_line(path: &Path, args: &[&str]) -> Option<String> {
 }
 
 fn read_lines(path: &Path, args: &[&str]) -> Vec<String> {
-    let output = git_command().arg("-C").arg(path).args(args).output();
+    let output = local_git(path).arg("-C").arg(path).args(args).output();
     let Ok(output) = output else {
         return Vec::new();
     };
@@ -282,7 +288,7 @@ fn run_command(
     cancelled: &AtomicBool,
 ) -> CommandResult {
     let request_id = next_request_id();
-    let mut command = git_command();
+    let mut command = local_git(path);
     command
         .arg("-C")
         .arg(path)
@@ -388,6 +394,14 @@ fn validate_argument(kind: &str, value: &str) -> Result<(), String> {
 
 fn git_error_detail(error: GitError) -> String {
     error.detail
+}
+
+/// Build the git command for an extension-driven, local-repository
+/// invocation. Extension hosts address plain directories; going through
+/// `GitRepo::local` keeps the platform process flags consistent with the
+/// rest of the Git layer.
+fn local_git(path: &Path) -> Command {
+    GitRepo::local(path.to_string_lossy().into_owned()).command()
 }
 
 #[cfg(test)]
