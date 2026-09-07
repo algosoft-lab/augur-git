@@ -184,14 +184,11 @@ where
             .on_action(
                 window.listener_for(&state, PopoverState::on_action_cancel),
             )
-            .child(menu)
-            .on_mouse_down_out({
-                let state = state.clone();
-                move |_, window, cx| {
-                    state.update(cx, |state, cx| state.dismiss(window, cx));
-                    cx.notify(parent_view_id);
-                }
-            });
+            // PopupMenu owns outside-click handling for the complete menu
+            // hierarchy. Its parent-aware dismiss logic keeps a deferred
+            // submenu alive until a menu item receives MouseUp and can fire
+            // its click/action handler.
+            .child(menu);
         #[cfg(test)]
         let content = content.debug_selector(|| "dropdown-menu-content".into());
 
@@ -210,6 +207,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
     use super::*;
     use gpui::{Context, Render, Styled as _};
     use gpui_component::{button::Button, menu::PopupMenuItem, v_flex};
@@ -224,7 +224,9 @@ mod tests {
         assert_eq!(dropdown_anchor_point(bounds), point(px(100.), px(72.)),);
     }
 
-    struct DropdownHarness;
+    struct DropdownHarness {
+        clicked: Rc<Cell<bool>>,
+    }
 
     impl Render for DropdownHarness {
         fn render(
@@ -232,12 +234,23 @@ mod tests {
             _: &mut Window,
             _: &mut Context<Self>,
         ) -> impl IntoElement {
+            let clicked = self.clicked.clone();
             v_flex().size_full().child(div().h(px(100.))).child(
                 Button::new("dropdown-test-trigger")
                     .label("Open")
                     .debug_selector(|| "dropdown-test-button".into())
-                    .dropdown_menu_below(|menu, _, _| {
-                        menu.item(PopupMenuItem::label("Item"))
+                    .dropdown_menu_below(move |menu, window, cx| {
+                        let clicked_for_submenu = clicked.clone();
+                        let submenu =
+                            PopupMenu::build(window, cx, move |menu, _, _| {
+                                let clicked = clicked_for_submenu.clone();
+                                menu.item(
+                                    PopupMenuItem::new("Install").on_click(
+                                        move |_, _, _| clicked.set(true),
+                                    ),
+                                )
+                            });
+                        menu.item(PopupMenuItem::submenu("File", submenu))
                     }),
             )
         }
@@ -246,7 +259,9 @@ mod tests {
     #[gpui::test]
     fn dropdown_menu_renders_below_trigger(cx: &mut gpui::TestAppContext) {
         cx.update(gpui_component::init);
-        let (_, cx) = cx.add_window_view(|_, _| DropdownHarness);
+        let (_, cx) = cx.add_window_view(|_, _| DropdownHarness {
+            clicked: Rc::new(Cell::new(false)),
+        });
         cx.update(|window, cx| window.draw(cx).clear(cx));
 
         let button = cx
@@ -268,5 +283,44 @@ mod tests {
             "menu bounds: {menu:?}; button bounds: {button:?}"
         );
         assert_eq!(menu.origin.y, button.bottom());
+    }
+
+    #[gpui::test]
+    fn dropdown_submenu_click_reaches_the_item_handler(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(gpui_component::init);
+        let clicked = Rc::new(Cell::new(false));
+        let clicked_for_view = clicked.clone();
+        let (_, cx) = cx.add_window_view(move |_, _| DropdownHarness {
+            clicked: clicked_for_view.clone(),
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let button = cx
+            .debug_bounds("dropdown-test-button")
+            .expect("dropdown button should be rendered");
+        cx.simulate_click(button.center(), Default::default());
+        for _ in 0..3 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+
+        let menu = cx
+            .debug_bounds("dropdown-menu-content")
+            .expect("dropdown menu should be rendered");
+        cx.simulate_mouse_move(menu.center(), None, Default::default());
+        for _ in 0..3 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+
+        // PopupMenu anchors a submenu to the right edge of its parent row.
+        let submenu_item =
+            point(menu.right() + px(32.), menu.origin.y + px(13.));
+        cx.simulate_click(submenu_item, Default::default());
+        for _ in 0..3 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+
+        assert!(clicked.get(), "submenu item handler should be called");
     }
 }
