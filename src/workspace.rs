@@ -12,6 +12,7 @@ mod agent_merge;
 mod agent_profiles;
 mod agent_rebase;
 mod app_menu;
+mod app_menu_router;
 mod cli_install;
 mod extension_runtime;
 mod extensions;
@@ -139,6 +140,7 @@ pub fn run(app: Application, pending: remote_open::PendingOpen) {
                 workspace.open_extensions(cx)
             });
         });
+        app_menu_router::install(cx);
         // Bind user-customizable shortcuts before menus so native menu
         // key equivalents (for example the macOS Cmd-Q item) are picked up.
         keymap::install(cx);
@@ -162,12 +164,12 @@ pub fn run(app: Application, pending: remote_open::PendingOpen) {
 }
 
 #[derive(Clone)]
-struct ActiveWorkspace {
-    workspace: WeakEntity<Workspace>,
+pub(super) struct ActiveWorkspace {
+    pub(super) workspace: WeakEntity<Workspace>,
     /// Handle of the window hosting the workspace, so code without window
     /// context (for example forwarded CLI open requests) can reach it. The
     /// handle is attached right after the window is created.
-    window: Option<WindowHandle<Root>>,
+    pub(super) window: Option<WindowHandle<Root>>,
 }
 
 impl Global for ActiveWorkspace {}
@@ -1303,11 +1305,6 @@ impl Render for Workspace {
             .size_full()
             .relative()
             .bg(colors.background)
-            .on_action(cx.listener(Self::handle_open_repository))
-            .on_action(cx.listener(Self::handle_open_wsl_repository))
-            .on_action(cx.listener(Self::handle_new_tab))
-            .on_action(cx.listener(Self::handle_install_cli))
-            .on_action(cx.listener(Self::handle_remove_cli))
             .on_action(cx.listener(Self::handle_open_settings))
             .on_action(cx.listener(Self::handle_open_extensions))
             .on_action(cx.listener(Self::handle_open_about))
