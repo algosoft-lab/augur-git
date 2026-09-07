@@ -162,6 +162,15 @@ def build_app(version: str, output_dir: Path, release: bool, explicit_icon: Path
     binary_destination.chmod(0o755)
     print(f"  [OK] {binary_source.stat().st_size / 1024 / 1024:.1f} MB")
 
+    alias_source = binary_source.parent / "augurgit"
+    if alias_source.exists():
+        alias_destination = macos_directory / "augurgit"
+        shutil.copy2(alias_source, alias_destination)
+        alias_destination.chmod(0o755)
+        print(f"  [OK] {alias_destination} (CLI alias)")
+    else:
+        print(f"  [WARN] CLI alias executable not found: {alias_source}")
+
     print("[2/4] Generating application icon...")
     icon_created = False
     with tempfile.TemporaryDirectory(prefix="augur-git-icon-") as temporary_directory:

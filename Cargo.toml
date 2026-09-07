@@ -5,6 +5,21 @@ authors = ["Lionel Fung", "Li Haozhe"]
 edition = "2024"
 description = "Git GUI client built with GPUI"
 
+[lib]
+name = "augur_git"
+path = "src/lib.rs"
+
+# Two command names share one library: the `augur-git` binary is the
+# application entry, while `augurgit` is the CLI-facing alias whose bare
+# invocation opens the current directory (see `core::cli`).
+[[bin]]
+name = "augur-git"
+path = "src/main.rs"
+
+[[bin]]
+name = "augurgit"
+path = "src/bin/augurgit.rs"
+
 [dependencies]
 similar = { version = "3", features = ["inline"] }
 log = "0.4.34"

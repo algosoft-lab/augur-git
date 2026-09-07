@@ -12,6 +12,7 @@ mod agent_merge;
 mod agent_profiles;
 mod agent_rebase;
 mod app_menu;
+mod cli_install;
 mod extension_runtime;
 mod extensions;
 mod extensions_window;
@@ -19,6 +20,7 @@ mod focus_refresh;
 mod keymap;
 mod persistence;
 mod preferences;
+pub(crate) mod remote_open;
 mod repo_tab;
 mod settings;
 mod tabs;
@@ -64,7 +66,7 @@ use self::tabs::{
 };
 use crate::theme;
 
-pub fn run(app: Application) {
+pub fn run(app: Application, pending: remote_open::PendingOpen) {
     app.on_reopen(|cx| {
         if !cx.windows().is_empty() {
             log::info!(
@@ -151,12 +153,21 @@ pub fn run(app: Application) {
             );
             std::process::exit(1);
         }
+        if !pending.is_empty() {
+            // Command-line open requests and the single-instance forward
+            // listener; both target the window just created above.
+            remote_open::attach(cx, pending);
+        }
     });
 }
 
 #[derive(Clone)]
 struct ActiveWorkspace {
     workspace: WeakEntity<Workspace>,
+    /// Handle of the window hosting the workspace, so code without window
+    /// context (for example forwarded CLI open requests) can reach it. The
+    /// handle is attached right after the window is created.
+    window: Option<WindowHandle<Root>>,
 }
 
 impl Global for ActiveWorkspace {}
@@ -191,9 +202,13 @@ fn open_main_window(
         });
         cx.set_global(ActiveWorkspace {
             workspace: workspace.downgrade(),
+            window: None,
         });
         cx.new(|cx| Root::new(workspace, window, cx))
     })?;
+    // The handle is only available once the window exists; attach it so
+    // window-less callers (forwarded CLI requests) can reach the workspace.
+    cx.global_mut::<ActiveWorkspace>().window = Some(window);
     cx.activate(true);
     log::info!("[app_lifecycle] main window created");
     Ok(window)
@@ -1291,6 +1306,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::handle_open_repository))
             .on_action(cx.listener(Self::handle_open_wsl_repository))
             .on_action(cx.listener(Self::handle_new_tab))
+            .on_action(cx.listener(Self::handle_install_cli))
+            .on_action(cx.listener(Self::handle_remove_cli))
             .on_action(cx.listener(Self::handle_open_settings))
             .on_action(cx.listener(Self::handle_open_extensions))
             .on_action(cx.listener(Self::handle_open_about))

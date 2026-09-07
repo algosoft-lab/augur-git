@@ -2,6 +2,7 @@
 //! persistence, build metadata, and localized copy.
 
 pub mod build_info;
+pub mod cli;
 pub mod commit_diff;
 pub mod commit_search;
 pub mod config;
@@ -10,6 +11,8 @@ pub mod extension;
 pub mod git;
 pub mod graph;
 pub mod i18n;
+pub mod ipc;
 pub mod keymap;
 pub mod paths;
 pub mod refs;
+pub mod shell_install;

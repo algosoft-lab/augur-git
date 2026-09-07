@@ -19,6 +19,8 @@ gpui::actions!(
         OpenRepository,
         OpenWslRepository,
         NewTab,
+        InstallCli,
+        RemoveCli,
         OpenSettings,
         OpenExtensions,
         OpenAbout,
@@ -126,6 +128,15 @@ impl Render for AppMenu {
                             Box::new(NewTab),
                         )
                         .separator()
+                        .menu(
+                            i18n::text(locale, "menu-install-cli"),
+                            Box::new(InstallCli),
+                        )
+                        .menu(
+                            i18n::text(locale, "menu-remove-cli"),
+                            Box::new(RemoveCli),
+                        )
+                        .separator()
                         .item(PopupMenuItem::submenu(
                             i18n::text(locale, "menu-recent-repositories"),
                             recent_menu.clone(),
@@ -188,6 +199,9 @@ pub(crate) fn install_native_menu(locale: i18n::Locale, cx: &mut App) {
             OpenRepository,
         ),
         MenuItem::action(i18n::text(locale, "menu-new-tab"), NewTab),
+        MenuItem::separator(),
+        MenuItem::action(i18n::text(locale, "menu-install-cli"), InstallCli),
+        MenuItem::action(i18n::text(locale, "menu-remove-cli"), RemoveCli),
     ];
     #[cfg(windows)]
     file_items.insert(

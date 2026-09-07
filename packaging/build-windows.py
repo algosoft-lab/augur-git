@@ -109,6 +109,13 @@ def generate_iss(package_dir: Path, version: str, output_dir: Path) -> Path:
         "",
         "[Files]",
         f'Source: "{executable_path}"; DestDir: "{{app}}"; Flags: ignoreversion',
+        *(
+            [
+                f'Source: "{inno_path(package_dir / "augurgit.exe")}"; DestDir: "{{app}}"; Flags: ignoreversion',
+            ]
+            if (package_dir / "augurgit.exe").exists()
+            else []
+        ),
         "",
         "[Icons]",
         f'Name: "{{group}}\\{APP_NAME}"; Filename: "{{app}}\\{BINARY_NAME}.exe"',
@@ -165,6 +172,12 @@ def build_installer(version: str, output_dir: Path, release: bool, skip_build: b
         ensure_dir(package_dir / "assets")
         shutil.copy2(executable_source, package_dir / executable_name)
         shutil.copy2(icon_source, package_dir / "assets" / ICON_NAME)
+        alias_source = profile_dir / "augurgit.exe"
+        if alias_source.exists():
+            shutil.copy2(alias_source, package_dir / "augurgit.exe")
+            print(f"  [OK] {alias_source} (CLI alias)")
+        else:
+            print(f"  [WARN] CLI alias executable not found: {alias_source}")
 
         print("[3/4] Generating Inno Setup project...")
         iss_path = generate_iss(package_dir, version, output_dir)

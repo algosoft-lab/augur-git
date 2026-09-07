@@ -118,6 +118,15 @@ def build_appimage(
         binary_destination.chmod(0o755)
         print(f"  [OK] {binary_source.stat().st_size / 1024 / 1024:.1f} MB")
 
+        alias_source = binary_source.parent / "augurgit"
+        if alias_source.exists():
+            alias_destination = binary_directory / "augurgit"
+            shutil.copy2(alias_source, alias_destination)
+            alias_destination.chmod(0o755)
+            print(f"  [OK] {alias_destination} (CLI alias)")
+        else:
+            print(f"  [WARN] CLI alias executable not found: {alias_source}")
+
         print("[2/5] Installing application icon...")
         icon_source = ASSETS_DIR / "augur-git-logo.svg"
         if icon_source.exists():
