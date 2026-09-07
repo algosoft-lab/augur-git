@@ -3,7 +3,7 @@
 default: dev
 
 dev:
-	cargo run
+	cargo run --bin augur-git
 
 run:
 	cargo run --release
