@@ -5,8 +5,8 @@ default: dev
 dev:
 	cargo run --bin augur-git
 
-run:
-	cargo run --release
+build:
+	cargo build --release --bins
 
 format:
 	cargo fmt && stylua .
