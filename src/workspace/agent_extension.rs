@@ -25,6 +25,7 @@ use crate::agent::{
     AgentOperation, AgentOperationChallenge, AgentPromptChallenge,
     ResolvedAgentProfile,
 };
+use crate::core::git::GitRepo;
 use crate::core::git::agent_operation::{
     probe_agent_merge, probe_agent_rebase,
 };
@@ -302,7 +303,11 @@ fn start_merge_session(
     cx.spawn(async move |_, cx| {
         let baseline = cx
             .background_executor()
-            .spawn(async move { probe_agent_merge(&probe_path, &target) })
+            .spawn(async move {
+                let repo =
+                    GitRepo::local(probe_path.to_string_lossy().into_owned());
+                probe_agent_merge(&repo, &target)
+            })
             .await;
         let _ = entity.update(cx, |workspace, cx| {
             let baseline = match baseline {
@@ -394,7 +399,9 @@ fn start_rebase_session(
         let baseline = cx
             .background_executor()
             .spawn(async move {
-                probe_agent_rebase(&probe_path, upstream.as_deref())
+                let repo =
+                    GitRepo::local(probe_path.to_string_lossy().into_owned());
+                probe_agent_rebase(&repo, upstream.as_deref())
             })
             .await;
         let _ = entity.update(cx, |workspace, cx| {

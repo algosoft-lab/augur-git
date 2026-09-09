@@ -358,6 +358,13 @@ impl RepoTab {
             || self.agent_rebase_session_id.is_some()
     }
 
+    pub(super) fn operation_repo(&self) -> Result<GitRepo, String> {
+        match &self.open_target {
+            OpenTarget::Repo(repo) => Ok(repo.clone()),
+            OpenTarget::Failed(error) => Err(error.detail.clone()),
+        }
+    }
+
     /// Re-check the merge marker after a conflict-bearing status snapshot.
     /// Git status exposes unmerged paths, but it does not expose a merge that
     /// has been fully resolved in the index and is still waiting for its
@@ -374,15 +381,22 @@ impl RepoTab {
         self.merge_state_probe_request_id =
             self.merge_state_probe_request_id.wrapping_add(1).max(1);
         let request_id = self.merge_state_probe_request_id;
-        let repo_path = std::path::PathBuf::from(self.repo_path.clone());
+        let repo = match self.operation_repo() {
+            Ok(repo) => repo,
+            Err(_) => {
+                self.merge_state_probe_pending = false;
+                log::debug!(
+                    "[branch_ops] merge state probe unavailable before start"
+                );
+                return;
+            }
+        };
         let entity = cx.entity();
         cx.spawn(async move |_, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    crate::core::git::agent_operation::probe_merge_state(
-                        &repo_path,
-                    )
+                    crate::core::git::agent_operation::probe_merge_state(&repo)
                 })
                 .await;
             let _ = entity.update(cx, |tab, cx| {

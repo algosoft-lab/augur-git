@@ -1,9 +1,9 @@
 //! Read-only Git probes used to coordinate external Agent operations.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use super::GitRepo;
+use super::{GitRepo, RepoLocation};
 
 /// A read-only snapshot of the Git state relevant to an Agent commit.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -59,10 +59,8 @@ const NON_MERGE_OPERATION_MARKERS: &[&str] =
     &["CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "sequencer"];
 
 /// Read the repository state without mutating the worktree or index.
-pub fn probe_agent_commit(
-    repo_path: &Path,
-) -> Result<AgentCommitProbe, String> {
-    let output = git_command_in_repo(repo_path)
+pub fn probe_agent_commit(repo: &GitRepo) -> Result<AgentCommitProbe, String> {
+    let output = git_command_in_repo(repo)
         .args([
             "status",
             "--porcelain=v2",
@@ -82,20 +80,20 @@ pub fn probe_agent_commit(
 
 /// Read the repository state required before or after an Agent merge.
 pub fn probe_agent_merge(
-    repo_path: &Path,
+    repo: &GitRepo,
     target_oid: &str,
 ) -> Result<AgentMergeProbe, String> {
-    let commit = probe_agent_commit(repo_path)?;
-    let merge_head = read_merge_head(repo_path)?;
+    let commit = probe_agent_commit(repo)?;
+    let merge_head = read_merge_head(repo)?;
     let target_is_ancestor_of_head =
         match (target_oid.is_empty(), commit.head.as_deref()) {
             (true, _) | (false, None) => false,
-            (false, Some(_)) => is_ancestor(repo_path, target_oid)?,
+            (false, Some(_)) => is_ancestor(repo, target_oid)?,
         };
     Ok(AgentMergeProbe {
         head: commit.head,
         merge_head,
-        rebase_in_progress: rebase_state_exists(repo_path)?,
+        rebase_in_progress: rebase_state_exists(repo)?,
         has_changes: commit.has_changes,
         has_conflicts: commit.has_conflicts,
         target_is_ancestor_of_head,
@@ -106,16 +104,16 @@ pub fn probe_agent_merge(
 /// `target_oid` is present for a branch rebase and omitted for pull --rebase,
 /// whose fetched upstream can change while Git is running.
 pub fn probe_agent_rebase(
-    repo_path: &Path,
+    repo: &GitRepo,
     target_oid: Option<&str>,
 ) -> Result<AgentRebaseProbe, String> {
-    let commit = probe_agent_commit(repo_path)?;
-    let rebase_head = read_rebase_head(repo_path)?;
-    let rebase_in_progress = rebase_state_exists(repo_path)?;
+    let commit = probe_agent_commit(repo)?;
+    let rebase_head = read_rebase_head(repo)?;
+    let rebase_in_progress = rebase_state_exists(repo)?;
     let target_is_ancestor_of_head = match (target_oid, commit.head.as_deref())
     {
         (Some(target), Some(_)) if !target.is_empty() => {
-            is_ancestor(repo_path, target)?
+            is_ancestor(repo, target)?
         }
         _ => false,
     };
@@ -131,10 +129,8 @@ pub fn probe_agent_rebase(
 
 /// Read rebase state without requiring a target commit. This is used after an
 /// ordinary rebase or pull --rebase fails, before showing recovery actions.
-pub fn probe_rebase_state(
-    repo_path: &Path,
-) -> Result<AgentRebaseProbe, String> {
-    probe_agent_rebase(repo_path, None)
+pub fn probe_rebase_state(repo: &GitRepo) -> Result<AgentRebaseProbe, String> {
+    probe_agent_rebase(repo, None)
 }
 
 /// Return whether another Git operation is in progress, excluding a rebase.
@@ -142,7 +138,7 @@ pub fn probe_rebase_state(
 /// refusing to operate when merge, cherry-pick, revert, bisect, or sequencer
 /// state is present.
 pub fn has_other_git_operation_except_rebase(
-    repo_path: &Path,
+    repo: &GitRepo,
 ) -> Result<bool, String> {
     for marker in [
         "MERGE_HEAD",
@@ -151,8 +147,7 @@ pub fn has_other_git_operation_except_rebase(
         "BISECT_LOG",
         "sequencer",
     ] {
-        let path = git_path(repo_path, marker)?;
-        if path.exists() {
+        if git_path_exists(repo, marker)? {
             return Ok(true);
         }
     }
@@ -166,14 +161,13 @@ pub fn has_other_git_operation_except_rebase(
 /// separate from [`AgentMergeProbe`]: callers that are already handling an
 /// existing merge can still inspect `MERGE_HEAD` without treating it as an
 /// unrelated operation.
-pub fn has_other_git_operation(repo_path: &Path) -> Result<bool, String> {
+pub fn has_other_git_operation(repo: &GitRepo) -> Result<bool, String> {
     for marker in NON_MERGE_OPERATION_MARKERS
         .iter()
         .copied()
         .chain(["rebase-merge", "rebase-apply"])
     {
-        let path = git_path(repo_path, marker)?;
-        if path.exists() {
+        if git_path_exists(repo, marker)? {
             return Ok(true);
         }
     }
@@ -182,12 +176,12 @@ pub fn has_other_git_operation(repo_path: &Path) -> Result<bool, String> {
 
 /// Read merge state without checking ancestry. This is used after an ordinary
 /// merge command fails, before the user chooses how to recover.
-pub fn probe_merge_state(repo_path: &Path) -> Result<AgentMergeProbe, String> {
-    let commit = probe_agent_commit(repo_path)?;
+pub fn probe_merge_state(repo: &GitRepo) -> Result<AgentMergeProbe, String> {
+    let commit = probe_agent_commit(repo)?;
     Ok(AgentMergeProbe {
         head: commit.head,
-        merge_head: read_merge_head(repo_path)?,
-        rebase_in_progress: rebase_state_exists(repo_path)?,
+        merge_head: read_merge_head(repo)?,
+        rebase_in_progress: rebase_state_exists(repo)?,
         has_changes: commit.has_changes,
         has_conflicts: commit.has_conflicts,
         target_is_ancestor_of_head: false,
@@ -197,11 +191,11 @@ pub fn probe_merge_state(repo_path: &Path) -> Result<AgentMergeProbe, String> {
 /// Resolve a local branch to an immutable commit object id before putting it
 /// in an Agent prompt. The branch name is passed as one structured argument.
 pub fn resolve_agent_merge_target(
-    repo_path: &Path,
+    repo: &GitRepo,
     branch: &str,
 ) -> Result<String, String> {
     let reference = format!("refs/heads/{branch}^{{commit}}");
-    let output = git_command_in_repo(repo_path)
+    let output = git_command_in_repo(repo)
         .args(["rev-parse", "--verify"])
         .arg(reference)
         .output()
@@ -217,8 +211,8 @@ pub fn resolve_agent_merge_target(
     }
 }
 
-fn read_merge_head(repo_path: &Path) -> Result<Option<String>, String> {
-    let output = git_command_in_repo(repo_path)
+fn read_merge_head(repo: &GitRepo) -> Result<Option<String>, String> {
+    let output = git_command_in_repo(repo)
         .args(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"])
         .output()
         .map_err(|error| format!("failed to inspect merge state: {error}"))?;
@@ -229,8 +223,8 @@ fn read_merge_head(repo_path: &Path) -> Result<Option<String>, String> {
     Ok((!value.is_empty()).then_some(value))
 }
 
-fn read_rebase_head(repo_path: &Path) -> Result<Option<String>, String> {
-    let output = git_command_in_repo(repo_path)
+fn read_rebase_head(repo: &GitRepo) -> Result<Option<String>, String> {
+    let output = git_command_in_repo(repo)
         .args(["rev-parse", "--verify", "--quiet", "REBASE_HEAD"])
         .output()
         .map_err(|error| format!("failed to inspect rebase state: {error}"))?;
@@ -241,20 +235,17 @@ fn read_rebase_head(repo_path: &Path) -> Result<Option<String>, String> {
     Ok((!value.is_empty()).then_some(value))
 }
 
-fn rebase_state_exists(repo_path: &Path) -> Result<bool, String> {
+fn rebase_state_exists(repo: &GitRepo) -> Result<bool, String> {
     for marker in ["rebase-merge", "rebase-apply"] {
-        if git_path(repo_path, marker)?.exists() {
+        if git_path_exists(repo, marker)? {
             return Ok(true);
         }
     }
     Ok(false)
 }
 
-fn git_path(
-    repo_path: &Path,
-    marker: &str,
-) -> Result<std::path::PathBuf, String> {
-    let output = git_command_in_repo(repo_path)
+fn git_path(repo: &GitRepo, marker: &str) -> Result<String, String> {
+    let output = git_command_in_repo(repo)
         .args(["rev-parse", "--git-path"])
         .arg(marker)
         .output()
@@ -268,17 +259,42 @@ fn git_path(
     if value.is_empty() {
         return Err(format!("Git returned an empty path for {marker}"));
     }
-    let path = std::path::PathBuf::from(value);
-    let repo_path = normalize_repository_path(repo_path);
-    Ok(if path.is_absolute() {
-        path
-    } else {
-        repo_path.join(path)
-    })
+    Ok(value)
 }
 
-fn is_ancestor(repo_path: &Path, target_oid: &str) -> Result<bool, String> {
-    let output = git_command_in_repo(repo_path)
+fn git_path_exists(repo: &GitRepo, marker: &str) -> Result<bool, String> {
+    let path = git_path(repo, marker)?;
+    match repo.location() {
+        RepoLocation::Local => {
+            let path = PathBuf::from(path);
+            let repo_path = normalize_repository_path(Path::new(repo.path()));
+            let path = if path.is_absolute() {
+                path
+            } else {
+                repo_path.join(path)
+            };
+            Ok(path.exists())
+        }
+        RepoLocation::Wsl { .. } => {
+            let output = repo
+                .command_in_location("test")
+                .arg("-e")
+                .arg(path)
+                .output()
+                .map_err(|error| {
+                    format!("failed to inspect Git operation state: {error}")
+                })?;
+            match output.status.code() {
+                Some(0) => Ok(true),
+                Some(1) => Ok(false),
+                _ => Err(command_error(&output, "test -e")),
+            }
+        }
+    }
+}
+
+fn is_ancestor(repo: &GitRepo, target_oid: &str) -> Result<bool, String> {
+    let output = git_command_in_repo(repo)
         .args(["merge-base", "--is-ancestor"])
         .arg(target_oid)
         .arg("HEAD")
@@ -291,19 +307,21 @@ fn is_ancestor(repo_path: &Path, target_oid: &str) -> Result<bool, String> {
     }
 }
 
-/// Build a Git command addressed with the `-C` argument like every other Git
-/// invocation in the worker. Setting the process working directory instead
-/// would tie the child to the host platform's filesystem view and cannot
-/// reach repositories inside other locations. Windows canonicalization can
-/// return an extended-length `\\?\\C:\\...` path; command-line shells used by
-/// Agent sessions reject that spelling even though the normal Git worker
-/// accepts it. Keeping the normalization at this lower boundary makes every
-/// Agent probe use the same repository path as the visible terminal.
-fn git_command_in_repo(repo_path: &Path) -> Command {
-    let normalized = normalize_repository_path(repo_path);
-    let mut command =
-        GitRepo::local(normalized.to_string_lossy().into_owned()).command();
-    command.arg("-C").arg(&normalized);
+/// Build a location-aware Git command addressed with the `-C` argument.
+/// Setting the process working directory instead would tie the child to the
+/// host platform's filesystem view and cannot reach repositories inside other
+/// locations. Windows canonicalization can return an extended-length
+/// `\\?\\C:\\...` path; preserve the existing normalization for local
+/// repositories while leaving WSL paths in their Linux form.
+fn git_command_in_repo(repo: &GitRepo) -> Command {
+    let path = match repo.location() {
+        RepoLocation::Local => {
+            normalize_repository_path(Path::new(repo.path()))
+        }
+        RepoLocation::Wsl { .. } => PathBuf::from(repo.path()),
+    };
+    let mut command = repo.command();
+    command.arg("-C").arg(path);
     command
 }
 
@@ -367,9 +385,14 @@ pub fn parse_agent_commit_status(output: &[u8]) -> AgentCommitProbe {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use super::{
-        AgentCommitProbe, NON_MERGE_OPERATION_MARKERS,
-        parse_agent_commit_status,
+        AgentCommitProbe, GitRepo, NON_MERGE_OPERATION_MARKERS, RepoLocation,
+        has_other_git_operation_except_rebase, parse_agent_commit_status,
+        probe_agent_rebase, resolve_agent_merge_target,
     };
 
     #[test]
@@ -441,5 +464,122 @@ mod tests {
         let output = format!("# branch.oid {oid}\0# branch.head main\0");
         let probe = parse_agent_commit_status(output.as_bytes());
         assert_eq!(probe.head.as_deref(), Some(oid));
+    }
+
+    #[test]
+    fn probes_local_repository_and_resolves_branch_target() {
+        let repository = TestRepo::new();
+        let repo = repository.handle();
+        repository.git(["commit", "--allow-empty", "-m", "initial"]);
+        repository.git(["branch", "topic"]);
+
+        let target = resolve_agent_merge_target(&repo, "topic")
+            .expect("resolve local branch target");
+        let probe = probe_agent_rebase(&repo, Some(&target))
+            .expect("probe local rebase state");
+
+        assert!(probe.head.is_some());
+        assert!(!probe.has_changes);
+        assert!(!probe.rebase_in_progress);
+        assert!(probe.target_is_ancestor_of_head);
+        assert!(
+            !has_other_git_operation_except_rebase(&repo)
+                .expect("probe local operation markers")
+        );
+    }
+
+    #[test]
+    fn local_operation_marker_is_detected_without_host_path_assumptions() {
+        let repository = TestRepo::new();
+        let repo = repository.handle();
+        repository.git(["commit", "--allow-empty", "-m", "initial"]);
+        fs::write(repository.path.join(".git/CHERRY_PICK_HEAD"), "deadbeef\n")
+            .expect("write operation marker");
+
+        assert!(
+            has_other_git_operation_except_rebase(&repo)
+                .expect("probe local operation marker")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn wsl_probe_command_uses_the_distro_git() {
+        let repo = GitRepo::new(
+            RepoLocation::Wsl {
+                distro: "Ubuntu".to_string(),
+            },
+            "/home/u/repo",
+        );
+        let command = super::git_command_in_repo(&repo);
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(command.get_program(), "wsl.exe");
+        assert_eq!(
+            args,
+            vec![
+                "-d",
+                "Ubuntu",
+                "--cd",
+                "/home/u/repo",
+                "--exec",
+                "git",
+                "-C",
+                "/home/u/repo",
+            ]
+        );
+    }
+
+    struct TestRepo {
+        path: PathBuf,
+    }
+
+    impl TestRepo {
+        fn new() -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or_default();
+            let path = std::env::temp_dir().join(format!(
+                "augur-git-agent-operation-{}-{nonce}",
+                std::process::id()
+            ));
+            fs::create_dir(&path).expect("create temporary repository");
+            let repository = Self { path };
+            repository.git(["init", "-q"]);
+            repository.git(["config", "user.email", "test@example.com"]);
+            repository.git(["config", "user.name", "augur-git test"]);
+            repository
+        }
+
+        fn handle(&self) -> GitRepo {
+            GitRepo::local(self.path.to_string_lossy().into_owned())
+        }
+
+        fn git<const N: usize>(&self, args: [&str; N]) -> String {
+            let output =
+                GitRepo::local(self.path.to_string_lossy().into_owned())
+                    .command()
+                    .arg("-C")
+                    .arg(&self.path)
+                    .args(args)
+                    .output()
+                    .expect("run git test command");
+            assert!(
+                output.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        }
+    }
+
+    impl Drop for TestRepo {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
     }
 }

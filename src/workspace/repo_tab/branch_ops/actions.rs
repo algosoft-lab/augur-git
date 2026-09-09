@@ -288,12 +288,24 @@ impl RepoTab {
             self.merge_probe_request_id.wrapping_add(1).max(1);
         let request_id = self.merge_probe_request_id;
         let source = pending.source;
-        let repo_path = PathBuf::from(self.repo_path.clone());
+        let repo = match self.operation_repo() {
+            Ok(repo) => repo,
+            Err(error) => {
+                self.set_operation_busy(false, cx);
+                self.confirmation =
+                    Some(super::super::PendingConfirmation::MergeError {
+                        label,
+                        detail: format!("{detail}\n\n{error}"),
+                    });
+                cx.notify();
+                return;
+            }
+        };
         let entity = cx.entity();
         cx.spawn(async move |_, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { probe_merge_state(&repo_path) })
+                .spawn(async move { probe_merge_state(&repo) })
                 .await;
             let _ = entity.update(cx, |tab, cx| {
                 tab.finish_merge_probe(
@@ -437,7 +449,29 @@ impl RepoTab {
                 pull,
             });
         self.set_operation_busy(true, cx);
-        let repo_path = PathBuf::from(self.repo_path.clone());
+        let repo = match self.operation_repo() {
+            Ok(repo) => repo,
+            Err(error) => {
+                self.pending_rebase_command = None;
+                self.set_operation_busy(false, cx);
+                self.status_message = Some(crate::core::i18n::text_args(
+                    self.locale,
+                    "rebase-preflight-failed",
+                    &[("error", &first_line(&error).to_string())],
+                ));
+                self.status_message_ok = Some(false);
+                log::warn!(
+                    "[pull_rebase] preflight failed before command execution"
+                );
+                cx.notify();
+                return;
+            }
+        };
+        log::debug!(
+            "[pull_rebase] preflight started: pull={}, location={}",
+            pull,
+            if repo.is_wsl() { "wsl" } else { "local" }
+        );
         let entity = cx.entity();
         cx.spawn(async move |_, cx| {
             let result = cx
@@ -445,16 +479,12 @@ impl RepoTab {
                 .spawn(async move {
                     let upstream_oid = source
                         .as_deref()
-                        .map(|branch| {
-                            resolve_agent_merge_target(&repo_path, branch)
-                        })
+                        .map(|branch| resolve_agent_merge_target(&repo, branch))
                         .transpose()?;
-                    let probe = probe_agent_rebase(
-                        &repo_path,
-                        upstream_oid.as_deref(),
-                    )?;
+                    let probe =
+                        probe_agent_rebase(&repo, upstream_oid.as_deref())?;
                     let has_other_operation =
-                        has_other_git_operation_except_rebase(&repo_path)?;
+                        has_other_git_operation_except_rebase(&repo)?;
                     Ok::<_, String>((probe, upstream_oid, has_other_operation))
                 })
                 .await;
@@ -489,6 +519,9 @@ impl RepoTab {
             Ok(value) => value,
             Err(error) => {
                 self.set_operation_busy(false, cx);
+                log::warn!(
+                    "[pull_rebase] preflight failed before command execution"
+                );
                 self.status_message = Some(crate::core::i18n::text_args(
                     self.locale,
                     "rebase-preflight-failed",
@@ -499,6 +532,14 @@ impl RepoTab {
                 return;
             }
         };
+        log::debug!(
+            "[pull_rebase] preflight passed: pull={}, changes={}, rebase_in_progress={}, conflicts={}, other_operation={}",
+            pending.pull,
+            probe.has_changes,
+            probe.rebase_in_progress,
+            probe.has_conflicts,
+            has_other_operation
+        );
         if has_other_operation
             || probe.rebase_in_progress
             || probe.has_conflicts
@@ -609,12 +650,24 @@ impl RepoTab {
         self.rebase_probe_request_id =
             self.rebase_probe_request_id.wrapping_add(1).max(1);
         let request_id = self.rebase_probe_request_id;
-        let repo_path = PathBuf::from(self.repo_path.clone());
+        let repo = match self.operation_repo() {
+            Ok(repo) => repo,
+            Err(error) => {
+                self.set_operation_busy(false, cx);
+                self.confirmation =
+                    Some(super::super::PendingConfirmation::RebaseError {
+                        label,
+                        detail: format!("{detail}\n\n{error}"),
+                    });
+                cx.notify();
+                return;
+            }
+        };
         let entity = cx.entity();
         cx.spawn(async move |_, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { probe_rebase_state(&repo_path) })
+                .spawn(async move { probe_rebase_state(&repo) })
                 .await;
             let _ = entity.update(cx, |tab, cx| {
                 tab.finish_rebase_probe(
@@ -646,6 +699,12 @@ impl RepoTab {
                 let conflict = probe.rebase_in_progress
                     || probe.rebase_head.is_some()
                     || probe.has_conflicts;
+                log::debug!(
+                    "[pull_rebase] post-command state: in_progress={}, rebase_head={}, conflicts={}",
+                    probe.rebase_in_progress,
+                    probe.rebase_head.is_some(),
+                    probe.has_conflicts
+                );
                 self.has_unresolved_conflicts = conflict;
                 self.sidebar.update(cx, |sidebar, cx| {
                     sidebar.set_conflicts(conflict, cx);

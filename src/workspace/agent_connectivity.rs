@@ -4,7 +4,7 @@
 //! PTY windows. The user can see and use provider login, approval, and
 //! follow-up prompts while Augur Git coordinates only process lifecycle.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -20,6 +20,7 @@ use crate::agent::{
     AgentConnectivityChallenge, AgentLaunchSpec, AgentOperation,
     AgentOperationChallenge, AgentTestDirectory, ResolvedAgentProfile,
 };
+use crate::core::git::GitRepo;
 use crate::core::git::agent_operation::{
     AgentCommitProbe, AgentMergeProbe, AgentRebaseProbe,
     has_other_git_operation, has_other_git_operation_except_rebase,
@@ -42,6 +43,10 @@ use super::agent_rebase::{
     AgentRebaseMode, AgentRebaseOutcome, classify_rebase_probe,
 };
 use super::tabs::TabId;
+
+fn local_git_repo(path: &Path) -> GitRepo {
+    GitRepo::local(path.to_string_lossy().into_owned())
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum AgentSessionKind {
@@ -430,7 +435,10 @@ impl AgentSessionWindow {
                 session._monitor_task = Some(cx.spawn(async move |_, cx| {
                     let result = cx
                         .background_executor()
-                        .spawn(async move { probe_agent_commit(&repo_path) })
+                        .spawn(async move {
+                            let repo = local_git_repo(&repo_path);
+                            probe_agent_commit(&repo)
+                        })
                         .await;
                     let _ = entity.update(cx, |window, cx| {
                         window.start_commit_after_probe(result, cx);
@@ -578,7 +586,10 @@ impl AgentSessionWindow {
                     let path = repo_path.clone();
                     Some(
                         cx.background_executor()
-                            .spawn(async move { probe_agent_commit(&path) })
+                            .spawn(async move {
+                                let repo = local_git_repo(&path);
+                                probe_agent_commit(&repo)
+                            })
                             .await,
                     )
                 } else {
@@ -592,12 +603,13 @@ impl AgentSessionWindow {
                     let target =
                         merge_target_for_monitor.clone().unwrap_or_default();
                     Some(
-                            cx.background_executor()
-                                .spawn(async move {
-                                    probe_agent_merge(&path, &target)
-                                })
-                                .await,
-                        )
+                        cx.background_executor()
+                            .spawn(async move {
+                                let repo = local_git_repo(&path);
+                                probe_agent_merge(&repo, &target)
+                            })
+                            .await,
+                    )
                 } else {
                     None
                 };
@@ -611,7 +623,8 @@ impl AgentSessionWindow {
                     Some(
                         cx.background_executor()
                             .spawn(async move {
-                                probe_agent_rebase(&path, target.as_deref())
+                                let repo = local_git_repo(&path);
+                                probe_agent_rebase(&repo, target.as_deref())
                             })
                             .await,
                     )
@@ -2763,10 +2776,11 @@ fn prepare_rebase(
     repo_path: &std::path::Path,
     source: &str,
 ) -> Result<PreparedRebase, String> {
-    let upstream_oid = resolve_agent_merge_target(repo_path, source)?;
-    let probe = probe_agent_rebase(repo_path, Some(&upstream_oid))?;
-    if has_other_git_operation(repo_path)?
-        || has_other_git_operation_except_rebase(repo_path)?
+    let repo = local_git_repo(repo_path);
+    let upstream_oid = resolve_agent_merge_target(&repo, source)?;
+    let probe = probe_agent_rebase(&repo, Some(&upstream_oid))?;
+    if has_other_git_operation(&repo)?
+        || has_other_git_operation_except_rebase(&repo)?
     {
         return Err(
             "another Git operation is already in progress; finish or abort it first"
@@ -2799,8 +2813,9 @@ fn prepare_rebase_resolution(
     upstream_oid: Option<&str>,
     baseline_head: Option<&str>,
 ) -> Result<PreparedRebase, String> {
-    let probe = probe_agent_rebase(repo_path, upstream_oid)?;
-    if has_other_git_operation_except_rebase(repo_path)? {
+    let repo = local_git_repo(repo_path);
+    let probe = probe_agent_rebase(&repo, upstream_oid)?;
+    if has_other_git_operation_except_rebase(&repo)? {
         return Err(
             "another Git operation is already in progress; finish or abort it first"
                 .to_string(),
@@ -2835,9 +2850,10 @@ fn prepare_merge(
     repo_path: &std::path::Path,
     source: &str,
 ) -> Result<PreparedMerge, String> {
-    let target_oid = resolve_agent_merge_target(repo_path, source)?;
-    let probe = probe_agent_merge(repo_path, &target_oid)?;
-    let has_other_operation = has_other_git_operation(repo_path)?;
+    let repo = local_git_repo(repo_path);
+    let target_oid = resolve_agent_merge_target(&repo, source)?;
+    let probe = probe_agent_merge(&repo, &target_oid)?;
+    let has_other_operation = has_other_git_operation(&repo)?;
     log::debug!(
         "[agent_terminal] merge preflight probe: head_present={}, merge_head_present={}, changes={}, conflicts={}, other_operation={}",
         probe.head.is_some(),
@@ -2888,8 +2904,9 @@ fn prepare_merge_resolution(
     merge_head: &str,
     baseline_head: Option<&str>,
 ) -> Result<PreparedMerge, String> {
-    let probe = probe_agent_merge(repo_path, merge_head)?;
-    let has_other_operation = has_other_git_operation(repo_path)?;
+    let repo = local_git_repo(repo_path);
+    let probe = probe_agent_merge(&repo, merge_head)?;
+    let has_other_operation = has_other_git_operation(&repo)?;
     log::debug!(
         "[agent_terminal] merge resolution preflight probe: head_present={}, merge_head_present={}, changes={}, conflicts={}, other_operation={}",
         probe.head.is_some(),
