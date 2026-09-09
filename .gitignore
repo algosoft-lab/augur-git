@@ -4,6 +4,7 @@
 *.pfx
 /test_ssh_key
 /test_ssh_key.pub
+/debug-logs/
 *.log
 .zcode/
 .DS_Store

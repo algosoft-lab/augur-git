@@ -305,19 +305,21 @@ and the window closes when the marker appears or the session ends.
    login prompt there; a process that starts but exits before the reversed
    challenge token is shown as an incomplete test.
 4. For lifecycle diagnostics, use the log for the build you are running. A
-   debug build writes to `debug.log` in the working directory:
+   debug build writes diagnostic logs under `debug-logs/`; Agent lifecycle
+   records are in `debug-logs/debug-agent.log`:
 
    ```bash
    cargo run
-   rg "\[agent_terminal\]" debug.log > agent-terminal-debug.log
+   rg "\[agent_terminal\]" debug-logs/debug-agent.log > debug-logs/agent-terminal-debug.log
    ```
 
    A packaged release writes to the platform's standard local data directory.
    On macOS, filter the release log with:
 
    ```bash
+   mkdir -p debug-logs
    AUGUR_GIT_LOG="$HOME/Library/Application Support/augur-git/logs/augur-git.log"
-   rg "\[(agent_terminal|workspace|app_lifecycle|panic)\]" "$AUGUR_GIT_LOG" > augur-git-crash-debug.log
+   rg "\[(agent_terminal|workspace|app_lifecycle|panic)\]" "$AUGUR_GIT_LOG" > debug-logs/augur-git-crash-debug.log
    ```
 
 Task text, terminal input/output, credentials, and complete repository paths

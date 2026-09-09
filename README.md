@@ -252,11 +252,12 @@ Building requires a recent stable Rust toolchain (edition 2024).
   `augur-git/config.json` under the platform's standard user config directory
   (for example `~/.config/augur-git/config.json` on Linux). Window geometry
   and global panel layout are stored alongside it in `augur-git/ui-state.json`.
-- Debug builds write file-only diagnostic logs in the working directory,
-  including `debug.log` and per-domain files for application, Git, Agent,
-  extension, terminal, and system events. Release builds write the
-  corresponding files under the platform's standard local data directory and
-  never create `debug.log`. `RUST_LOG` can optionally override the log level.
+- Debug builds write file-only diagnostic logs under `debug-logs/` in the
+  working directory, including `debug-logs/debug.log` and per-domain files for
+  application, Git, Agent, extension, terminal, and system events. Release
+  builds write the corresponding files under the platform's standard local
+  data directory and never create the local `debug-logs/` files. `RUST_LOG`
+  can optionally override the log level.
   See [`docs/logging.md`](docs/logging.md) for the complete file list and
   rotation behavior.
 

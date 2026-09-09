@@ -902,8 +902,8 @@ fn read_head(repo: &GitRepo) -> Option<String> {
 ///
 /// Logs every invocation at the worker boundary: successes at debug level,
 /// failures at warn level with the full
-/// arguments, exit status, and git output so `debug.log` keeps an actionable
-/// trail even under the default filter.
+/// arguments, exit status, and git output so the diagnostic logs keep an
+/// actionable trail even under the default filter.
 fn run_git(
     repo: &GitRepo,
     label: &str,
@@ -971,7 +971,8 @@ fn run_git(
     }
 }
 
-/// Bound logged git output so a chatty command cannot flood debug.log.
+/// Bound logged git output so a chatty command cannot flood the diagnostic
+/// logs.
 fn truncated(text: &str) -> String {
     const LIMIT: usize = 2000;
     let text = text.trim();

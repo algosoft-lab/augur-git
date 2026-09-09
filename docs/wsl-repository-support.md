@@ -251,11 +251,12 @@ Integration (windows-only, `#[ignore]` when no distro is available):
 - Distro names with spaces (e.g. `Ubuntu-22.04 LTS`, custom imports) list
   and open correctly.
 
-Debugging handoff command (per policy §5):
+Debugging handoff command (per the logging and debugging policy):
 
 ```bash
 cargo run
-rg "\[(git_view|git_command|workspace)\]" debug.log > wsl-debug.log
+rg "\[(git_view|git_command|workspace)\]" \
+  debug-logs/debug-app.log debug-logs/debug-git.log > debug-logs/wsl-debug.log
 ```
 
 ## 6. Error surface (i18n keys)

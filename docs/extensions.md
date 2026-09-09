@@ -184,7 +184,8 @@ the latest queue, run, notification, and per-repository history status.
 For focused development logs, run the application and then filter the debug
 log:
 
-```text
+```bash
 cargo run
-rg "\\[(extensions|extension_events|extension_runtime|extension_sync|extension_log|agent_operation|git_command)\\]" debug.log > extension-debug.log
+rg "\\[(extensions|extension_events|extension_runtime|extension_sync|extension_log|agent_operation|git_command)\\]" \
+  debug-logs/debug-extension.log debug-logs/debug-agent.log debug-logs/debug-git.log > debug-logs/extension-debug.log
 ```

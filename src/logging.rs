@@ -245,7 +245,9 @@ const LOG_PREFIX: &str = "augur-git";
 fn log_root() -> Option<PathBuf> {
     #[cfg(debug_assertions)]
     {
-        Some(PathBuf::from("."))
+        let root = PathBuf::from("debug-logs");
+        fs::create_dir_all(&root).ok()?;
+        Some(root)
     }
     #[cfg(not(debug_assertions))]
     {
@@ -468,8 +470,8 @@ mod tests {
     #[test]
     fn previous_paths_preserve_the_log_extension() {
         assert_eq!(
-            previous_path(Path::new("debug.log")),
-            PathBuf::from("debug.previous.log")
+            previous_path(Path::new("debug-logs/debug.log")),
+            PathBuf::from("debug-logs/debug.previous.log")
         );
         assert_eq!(
             previous_path(Path::new("logs/debug-agent.log")),

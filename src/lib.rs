@@ -131,7 +131,7 @@ mod tests {
 
     /// Every icon file shipped in `assets/icons/` must be embedded via
     /// `local_asset`, otherwise the sidebar and toolbar render it blank and
-    /// `debug.log` fills with "could not find asset" errors.
+    /// `debug-logs/debug-system.log` fills with "could not find asset" errors.
     #[test]
     fn local_assets_register_every_icon_on_disk() {
         let entries = std::fs::read_dir("assets/icons")

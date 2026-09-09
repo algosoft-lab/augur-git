@@ -36,7 +36,7 @@ packaging/           # Packaging-specific assets and scripts
 build.rs             # Platform-specific build metadata, including the Windows icon
 ```
 
-## 1. Language
+## Language
 
 - All source-code comments, doc comments, commit messages, and newly created
   or updated documentation MUST be written in English.
@@ -49,7 +49,7 @@ build.rs             # Platform-specific build metadata, including the Windows i
 - Names and prose MUST be clear enough to explain intent. Do not add comments
   that merely restate the code.
 
-## 2. Product scope and repository boundaries
+## Product scope and repository boundaries
 
 - This repository is a desktop client for local Git repositories. Keep Git as
   the supported version-control system unless the product scope is explicitly
@@ -70,7 +70,7 @@ build.rs             # Platform-specific build metadata, including the Windows i
   Do not silently discard statuses, refs, diff data, or parser fields merely
   because they are unfamiliar; handle unsupported cases explicitly.
 
-## 3. Architecture and dependency direction
+## Architecture and dependency direction
 
 Dependencies flow from UI and rendering toward application state and domain
 services, never in the opposite direction.
@@ -96,7 +96,7 @@ services, never in the opposite direction.
 - Keep public APIs small and predictable. Avoid global mutable state, circular
   module dependencies, and convenience modules that become dumping grounds.
 
-## 4. Cross-platform requirements
+## Cross-platform requirements
 
 - New functionality MUST support every maintained platform unless the task
   explicitly narrows its scope.
@@ -124,13 +124,16 @@ services, never in the opposite direction.
   replacement. Do not make a GUI acceptance path depend on one operating
   system.
 
-## 5. Logging and debugging
+## Logging and debugging
 
-- Debug builds MUST write application logs to `debug.log` by default. Running
-  the application MUST NOT require stdout or stderr redirection to capture
-  logs.
-- Release builds MUST NOT create or write `debug.log`. Release logging must be
-  disabled or sent to an explicitly approved non-terminal destination.
+- Debug builds MUST write file-only application logs under `debug-logs/` in the
+  working directory by default. The application MUST create that directory as
+  needed; the summary file is `debug-logs/debug.log` and category files use
+  the `debug-*.log` naming convention. Running the application MUST NOT
+  require stdout or stderr redirection to capture logs.
+- Release builds MUST NOT create or write the local `debug-logs/` files.
+  Release logging must use the platform's standard local application-data log
+  directory or be disabled.
 - Normal application logging MUST NOT write to the terminal. Startup must remain
   resilient if the log file cannot be created.
 - `RUST_LOG` may be used as an optional log-level override, but the application
@@ -141,39 +144,20 @@ services, never in the opposite direction.
   `[git_view]`, `[workspace]`, or `[git_command]` so they can be filtered
   reliably.
 - When handing off a debugging workflow, provide a ready-to-run command that
-  exercises the relevant flow and filters `debug.log` into a focused log file.
+  exercises the relevant flow and filters the appropriate file under
+  `debug-logs/` into a focused log file in the same directory.
   For example:
 
   ```bash
   cargo run
-  rg "\[(git_view|workspace|git_command)\]" debug.log > git-debug.log
+  rg "\[(git_view|workspace|git_command)\]" \
+    debug-logs/debug-app.log debug-logs/debug-git.log > debug-logs/git-debug.log
   ```
 
-- Generated `*.log` files MUST remain untracked and MUST NOT be included in
-  commits or release archives.
+- Generated files under `debug-logs/` MUST remain untracked and MUST NOT be
+  included in commits or release archives.
 
-## 6. Git data safety and parsing
-
-- Validate repository paths before opening them and report repository-specific
-  failures with useful context.
-- Parse Git status, branch, log, ref, numstat, and diff output defensively.
-  Account for empty output, merge commits, renamed paths, non-ASCII names,
-  binary files, detached HEAD, missing upstreams, and unexpected fields.
-- Do not use `panic!`, `unwrap`, or `expect` for malformed user input,
-  repository content, or Git command output. Propagate or present structured
-  errors instead.
-- Do not infer destructive repository actions from filenames, display labels,
-  or ambiguous parser results. Require explicit command arguments and clear
-  user intent.
-- Keep parser and transformation logic pure where possible so it can be tested
-  without a GUI or a live repository.
-- After changing a write operation or output parser, verify the resulting state
-  or round-trip through the relevant reader before reporting success.
-- Do not silently discard unknown Git metadata, refs, file states, or diff
-  sections outside the requested presentation. Mark unsupported cases and
-  preserve data whenever the operation permits.
-
-## 7. Code organization and file size
+## Code organization and file size
 
 - Preserve the existing structure and formatting unless a refactor is part of
   the requested change.
@@ -192,64 +176,3 @@ services, never in the opposite direction.
   `Result`-based error propagation with `thiserror`/`anyhow` when appropriate.
 - Do not add emojis or unnecessary comments to source, documentation, or
   commit messages.
-
-## 8. Required validation
-
-- Before every commit, run `cargo fmt --all`. This is mandatory even when the
-  change appears not to affect formatting.
-- After formatting, run the most relevant automated checks. `cargo test` is the
-  minimum default for Rust behavior changes; use `cargo check --all-targets`
-  when a full test run is not applicable.
-- For Git command, parser, graph, or state changes, add or update focused unit
-  tests and run the relevant fixtures or round-trip checks.
-- Do not report a check as successful unless it was actually run. Clearly state
-  any check that could not be completed and why.
-- GUI behavior that cannot be validated reliably in the agent environment MUST
-  be handed off with concise, platform-neutral manual verification steps.
-- Do not make Windows-only manual verification the canonical acceptance path for
-  cross-platform behavior.
-- Before declaring work complete, check `git diff --check`, inspect the final
-  diff, and confirm generated artifacts are not included.
-
-## 9. Documentation and task tracking
-
-- `README.md` contains the product overview, supported scope, and developer
-  entry points. Keep detailed design decisions in focused English documents
-  under `docs/` when such documentation is needed.
-- Feature plans, migration notes, release notes, historical investigations,
-  and manual test procedures belong in dedicated English documents under
-  `docs/`.
-- Keep `AGENTS.md` free of feature plans, milestone checklists, copied design
-  specifications, and historical implementation notes.
-- Do not recreate removed legacy documents or maintain a stale checklist of
-  completed tasks. When a task is complete, remove its pending entry from the
-  relevant planning document.
-- Documentation MUST describe actual behavior. Clearly label planned behavior,
-  unsupported input, experimental features, and platform-specific limitations.
-
-## 10. Commits
-
-- Every commit MUST use a complete Conventional Commits message:
-  `<type>(optional-scope): imperative summary`.
-- Use the narrowest accurate type, such as `feat`, `fix`, `refactor`, `docs`,
-  `test`, `build`, `ci`, or `chore`. Vague subjects such as `update files` or
-  `misc fixes` are forbidden.
-- Non-trivial commits MUST include a body explaining the motivation, behavior
-  change, and important compatibility or validation details.
-- Breaking changes MUST use `!` in the header or a `BREAKING CHANGE:` footer.
-- Do not commit, amend, push, or create a pull request unless the user
-  explicitly requests it.
-
-## 11. Safety and repository hygiene
-
-- Inspect `git status` before editing. Preserve unrelated user changes and do
-  not rewrite them.
-- Never commit generated logs, credentials, private keys, build artifacts,
-  local profile databases, or user repository outputs.
-- Destructive or irreversible commands require explicit user approval. Confirm
-  exact targets before deleting or overwriting files.
-- Use `rg` for text search, `fd` for file discovery, and `uv run` for Python
-  commands. Prefer `apply_patch` for source and documentation edits.
-- Do not create or switch Git branches unless the user explicitly requests it.
-- Keep changes focused. Do not mix unrelated cleanup, refactoring, and feature
-  work in one commit.
