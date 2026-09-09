@@ -21,7 +21,7 @@ use gpui_component::{
 use crate::core::config::LocationConfig;
 use crate::core::git::{self, GitError};
 use crate::core::i18n::{self, Locale};
-use crate::dropdown::DropdownMenuExt;
+use crate::dropdown::{DIALOG_DROPDOWN_PRIORITY, DropdownMenuExt};
 use crate::git::shared;
 
 /// WSL open dialog → Workspace events.
@@ -46,6 +46,7 @@ pub struct WslOpenDialog {
     locale: Locale,
     distros: Vec<String>,
     distros_loading: bool,
+    distros_revision: u64,
     distro: Option<String>,
     path_input: Entity<InputState>,
     probe_id: ProbeId,
@@ -83,6 +84,7 @@ impl WslOpenDialog {
             locale,
             distros: Vec::new(),
             distros_loading: true,
+            distros_revision: 0,
             distro: None,
             path_input,
             probe_id: 0,
@@ -237,6 +239,7 @@ async fn load_distros(
         .await;
     let _ = dialog.update(cx, |dialog, cx| {
         dialog.distros_loading = false;
+        dialog.distros_revision = dialog.distros_revision.wrapping_add(1);
         let selection_valid = dialog
             .distro
             .as_ref()
@@ -245,6 +248,11 @@ async fn load_distros(
             dialog.distro = distros.first().cloned();
         }
         dialog.distros = distros;
+        log::info!(
+            "[workspace_wsl] distro list loaded: revision={}, count={}",
+            dialog.distros_revision,
+            dialog.distros.len()
+        );
         cx.notify();
     });
 }
@@ -275,25 +283,54 @@ impl Render for WslOpenDialog {
         });
 
         let distros = self.distros.clone();
+        let distro_menu_key = SharedString::from(format!(
+            "wsl-distros:{}",
+            self.distros_revision
+        ));
         let selector = Button::new("wsl-distro-selector")
             .ghost()
             .label(distro_label)
-            .icon(IconName::ChevronDown)
-            .dropdown_menu_below(move |menu, _, _| {
-                let this = this.clone();
-                distros.iter().fold(menu, |menu, name| {
-                    let name = name.clone();
-                    let item_entity = this.clone();
-                    menu.item(PopupMenuItem::new(name.clone()).on_click(
-                        move |_event, window, cx| {
-                            item_entity.update(cx, |dialog, cx| {
-                                dialog.distro = Some(name.clone());
-                                dialog.schedule_probe(window, cx);
-                            });
-                        },
-                    ))
-                })
-            });
+            .icon(IconName::ChevronDown);
+        let selector = if self.distros_loading || distros.is_empty() {
+            selector.disabled(true).into_any_element()
+        } else {
+            let distro_count = distros.len();
+            let distro_revision = self.distros_revision;
+            selector
+                .dropdown_menu_below_with_key(
+                    distro_menu_key,
+                    move |menu, _, _| {
+                        log::debug!(
+                            "[workspace_wsl] building distro menu: revision={}, count={}",
+                            distro_revision,
+                            distro_count
+                        );
+                        let this = this.clone();
+                        distros.iter().enumerate().fold(
+                            menu,
+                            |menu, (index, name)| {
+                                let name = name.clone();
+                                let item_entity = this.clone();
+                                menu.item(PopupMenuItem::new(name.clone()).on_click(
+                                    move |_event, window, cx| {
+                                        log::info!(
+                                            "[workspace_wsl] distro selected: index={}, count={}",
+                                            index,
+                                            distro_count
+                                        );
+                                        item_entity.update(cx, |dialog, cx| {
+                                            dialog.distro = Some(name.clone());
+                                            dialog.schedule_probe(window, cx);
+                                        });
+                                    },
+                                ))
+                            },
+                        )
+                    },
+                )
+                .deferred_priority(DIALOG_DROPDOWN_PRIORITY)
+                .into_any_element()
+        };
 
         let refresh = {
             let this = cx.entity();

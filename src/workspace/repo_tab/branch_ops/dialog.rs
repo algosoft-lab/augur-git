@@ -13,7 +13,7 @@ use gpui_component::{
 use super::super::RepoTab;
 use super::{PendingBranchDialog, args};
 use crate::core::i18n::{self, Locale};
-use crate::dropdown::DropdownMenuExt;
+use crate::dropdown::{DIALOG_DROPDOWN_PRIORITY, DropdownMenuExt};
 use crate::git::shared;
 
 impl RepoTab {
@@ -500,6 +500,7 @@ fn source_selector(
                 )
             })
         })
+        .deferred_priority(DIALOG_DROPDOWN_PRIORITY)
 }
 
 /// No-fast-forward checkbox for the merge dialog.

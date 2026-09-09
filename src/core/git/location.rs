@@ -424,6 +424,17 @@ mod tests {
     }
 
     #[test]
+    fn distro_list_parser_decodes_multiple_utf16_distros() {
+        let output = encode_utf16le("Ubuntu\r\narchlinux\r\n");
+        let decoded = decode_wsl_output(&output);
+
+        assert_eq!(
+            parse_wsl_distro_list(&decoded),
+            vec!["Ubuntu".to_string(), "archlinux".to_string()]
+        );
+    }
+
+    #[test]
     fn unc_paths_split_into_distro_and_linux_path() {
         assert_eq!(
             parse_unc_path(r"\\wsl$\Ubuntu\home\u\repo"),

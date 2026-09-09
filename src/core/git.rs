@@ -686,9 +686,14 @@ pub fn list_wsl_distros() -> Vec<String> {
     #[cfg(windows)]
     match location::wsl_host_command(&["-l", "-q"]).output() {
         Ok(output) if output.status.success() => {
-            location::parse_wsl_distro_list(&location::decode_wsl_output(
-                &output.stdout,
-            ))
+            let distros = location::parse_wsl_distro_list(
+                &location::decode_wsl_output(&output.stdout),
+            );
+            log::info!(
+                "[git_command] wsl -l -q succeeded: count={}",
+                distros.len()
+            );
+            distros
         }
         Ok(output) => {
             log::warn!(
