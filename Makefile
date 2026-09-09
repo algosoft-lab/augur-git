@@ -9,7 +9,7 @@ build:
 	cargo build --release --bins
 
 format:
-	cargo fmt && stylua .
+	cargo fmt && stylua . && mint fmt .
 
 build-win:
 	cargo build --release && uv run ./packaging/build-windows.py
