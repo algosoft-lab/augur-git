@@ -5,6 +5,7 @@ on:
     branches:
       - build
       - publish
+  workflow_dispatch:
 
 concurrency:
   group: packaging-${{ github.ref }}
@@ -18,36 +19,24 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  check-no-ai:
-    name: Check no-AI build (agent feature off)
+  checks:
+    name: Check (${{ matrix.variant }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: full
+            cargo-flags: ""
+          - variant: no-ai
+            cargo-flags: "--no-default-features"
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
 
       - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
-            build-essential \
-            clang \
-            cmake \
-            libasound2-dev \
-            libfontconfig-dev \
-            libgit2-dev \
-            libglib2.0-dev \
-            libsqlite3-dev \
-            libssl-dev \
-            libva-dev \
-            libvulkan-dev \
-            libwayland-dev \
-            libx11-xcb-dev \
-            libxkbcommon-x11-dev \
-            libzstd-dev \
-            lld \
-            llvm \
-            pkg-config
+        uses: ./.github/actions/install-linux-deps
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -59,19 +48,27 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-noai-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ matrix.variant }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-cargo-
 
-      - name: Check no-AI build
-        run: cargo check --no-default-features --all-targets
+      - name: Check build
+        run: cargo check --all-targets ${{ matrix.cargo-flags }}
 
-      - name: Test no-AI build
-        run: cargo test --no-default-features
+      - name: Test build
+        run: cargo test ${{ matrix.cargo-flags }}
 
   windows:
-    name: Windows x86-64 installer
+    name: Windows x86-64 installer (${{ matrix.variant }})
     runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: full
+            cargo-flags: ""
+          - variant: no-ai
+            cargo-flags: "--no-default-features"
 
     steps:
       - name: Check out source
@@ -97,12 +94,12 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ matrix.variant }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-cargo-
 
       - name: Build Windows installer
-        run: uv run packaging/build-windows.py
+        run: uv run packaging/build-windows.py ${{ matrix.cargo-flags }}
 
       - name: Verify Windows installer
         shell: pwsh
@@ -115,13 +112,21 @@ jobs:
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7
         with:
-          name: augur-git-windows-x86-64
+          name: augur-git-windows-x86-64${{ matrix.variant == 'no-ai' && '-no-ai' || '' }}
           path: packaging/out/*.exe
           if-no-files-found: error
 
   macos:
-    name: macOS arm64 app and DMG
+    name: macOS arm64 app and DMG (${{ matrix.variant }})
     runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: full
+            cargo-flags: ""
+          - variant: no-ai
+            cargo-flags: "--no-default-features"
 
     steps:
       - name: Check out source
@@ -150,13 +155,13 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ matrix.variant }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-cargo-
 
       - name: Build macOS app and DMG
         run: |
-          cargo build --release
+          cargo build --release ${{ matrix.cargo-flags }}
           uv run packaging/build-mac-app.py
 
       - name: Verify macOS package
@@ -167,42 +172,30 @@ jobs:
       - name: Upload macOS package
         uses: actions/upload-artifact@v7
         with:
-          name: augur-git-macos-arm64
+          name: augur-git-macos-arm64${{ matrix.variant == 'no-ai' && '-no-ai' || '' }}
           path: packaging/out/
           if-no-files-found: error
 
   linux:
-    name: Linux x86-64 AppImage
+    name: Linux x86-64 AppImage (${{ matrix.variant }})
     runs-on: ubuntu-24.04
     env:
       APPIMAGE_EXTRACT_AND_RUN: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: full
+            cargo-flags: ""
+          - variant: no-ai
+            cargo-flags: "--no-default-features"
 
     steps:
       - name: Check out source
         uses: actions/checkout@v7
 
       - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
-            build-essential \
-            clang \
-            cmake \
-            libasound2-dev \
-            libfontconfig-dev \
-            libgit2-dev \
-            libglib2.0-dev \
-            libsqlite3-dev \
-            libssl-dev \
-            libva-dev \
-            libvulkan-dev \
-            libwayland-dev \
-            libx11-xcb-dev \
-            libxkbcommon-x11-dev \
-            libzstd-dev \
-            lld \
-            llvm \
-            pkg-config
+        uses: ./.github/actions/install-linux-deps
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -224,13 +217,13 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ matrix.variant }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-cargo-
 
       - name: Build AppImage
         run: |
-          cargo build --release
+          cargo build --release ${{ matrix.cargo-flags }}
           uv run packaging/build-appimage.py
 
       - name: Verify AppImage
@@ -239,7 +232,7 @@ jobs:
       - name: Upload AppImage
         uses: actions/upload-artifact@v7
         with:
-          name: augur-git-linux-x86-64-appimage
+          name: augur-git-linux-x86-64-appimage${{ matrix.variant == 'no-ai' && '-no-ai' || '' }}
           path: packaging/out/*.AppImage
           if-no-files-found: error
 
@@ -255,23 +248,41 @@ jobs:
       contents: write
 
     steps:
-      - name: Download Windows artifact
+      - name: Download Windows installer
         uses: actions/download-artifact@v8
         with:
           name: augur-git-windows-x86-64
-          path: staging/windows
+          path: staging/windows-full
 
-      - name: Download macOS artifact
+      - name: Download Windows installer (no-AI)
+        uses: actions/download-artifact@v8
+        with:
+          name: augur-git-windows-x86-64-no-ai
+          path: staging/windows-no-ai
+
+      - name: Download macOS package
         uses: actions/download-artifact@v8
         with:
           name: augur-git-macos-arm64
-          path: staging/macos
+          path: staging/macos-full
 
-      - name: Download Linux artifact
+      - name: Download macOS package (no-AI)
+        uses: actions/download-artifact@v8
+        with:
+          name: augur-git-macos-arm64-no-ai
+          path: staging/macos-no-ai
+
+      - name: Download Linux AppImage
         uses: actions/download-artifact@v8
         with:
           name: augur-git-linux-x86-64-appimage
-          path: staging/linux
+          path: staging/linux-full
+
+      - name: Download Linux AppImage (no-AI)
+        uses: actions/download-artifact@v8
+        with:
+          name: augur-git-linux-x86-64-appimage-no-ai
+          path: staging/linux-no-ai
 
       - name: Prepare release assets
         shell: bash
@@ -279,27 +290,24 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
 
-          windows_installers=(staging/windows/*.exe)
-          macos_disk_images=(staging/macos/*.dmg)
-          linux_appimages=(staging/linux/*.AppImage)
-
-          if (( ${#windows_installers[@]} != 1 )); then
-            echo "Expected exactly one Windows installer."
-            exit 1
-          fi
-          if (( ${#macos_disk_images[@]} != 1 )); then
-            echo "Expected exactly one macOS disk image."
-            exit 1
-          fi
-          if (( ${#linux_appimages[@]} != 1 )); then
-            echo "Expected exactly one Linux AppImage."
-            exit 1
-          fi
+          # Each staging directory holds one variant package per platform; the
+          # variants build the same file names, so they must stay separated
+          # until this rename.
+          for staging in windows-full windows-no-ai macos-full macos-no-ai linux-full linux-no-ai; do
+            count=$(find "staging/${staging}" -type f | wc -l)
+            if (( count != 1 )); then
+              echo "Expected exactly one file in staging/${staging}, got ${count}."
+              exit 1
+            fi
+          done
 
           mkdir -p release-assets
-          cp -- "${windows_installers[0]}" release-assets/augur-git-windows-x86-64.exe
-          cp -- "${macos_disk_images[0]}" release-assets/augur-git-macos-arm64.dmg
-          cp -- "${linux_appimages[0]}" release-assets/augur-git-linux-x86-64.AppImage
+          cp -- staging/windows-full/*.exe release-assets/augur-git-windows-x86-64.exe
+          cp -- staging/windows-no-ai/*.exe release-assets/augur-git-windows-x86-64-no-ai.exe
+          cp -- staging/macos-full/*.dmg release-assets/augur-git-macos-arm64.dmg
+          cp -- staging/macos-no-ai/*.dmg release-assets/augur-git-macos-arm64-no-ai.dmg
+          cp -- staging/linux-full/*.AppImage release-assets/augur-git-linux-x86-64.AppImage
+          cp -- staging/linux-no-ai/*.AppImage release-assets/augur-git-linux-x86-64-no-ai.AppImage
 
       - name: Update nightly tag
         env:
@@ -335,6 +343,7 @@ jobs:
           release_id=""
           release_body="Automated nightly build for commit ${COMMIT_SHA}."
           release_body+=$'\n\n## ⚠️ Note for macOS users\n\nBuilds are unsigned (no Apple Developer ID). After dragging Augur Git into Applications, clear the quarantine flag once:\n\n```\nxattr -cr "/Applications/Augur Git.app"\n```'
+          release_body+=$'\n\nThe `-no-ai` packages are plain Git GUI builds without the coding-agent integration, embedded terminal, and Lua extension runtime.'
           if release_id="$(gh api "${releases_api}/tags/nightly" --jq '.id' 2>/dev/null)"; then
             gh api --method PATCH "${releases_api}/${release_id}" \
               -f name="Augur Git Nightly" \
@@ -362,8 +371,11 @@ jobs:
 
           gh release upload nightly \
             release-assets/augur-git-windows-x86-64.exe \
+            release-assets/augur-git-windows-x86-64-no-ai.exe \
             release-assets/augur-git-macos-arm64.dmg \
+            release-assets/augur-git-macos-arm64-no-ai.dmg \
             release-assets/augur-git-linux-x86-64.AppImage \
+            release-assets/augur-git-linux-x86-64-no-ai.AppImage \
             --repo "${REPOSITORY}" \
             --clobber
 

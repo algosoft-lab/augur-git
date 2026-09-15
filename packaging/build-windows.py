@@ -136,7 +136,13 @@ def generate_iss(package_dir: Path, version: str, output_dir: Path) -> Path:
     return iss_path
 
 
-def build_installer(version: str, output_dir: Path, release: bool, skip_build: bool) -> Path:
+def build_installer(
+    version: str,
+    output_dir: Path,
+    release: bool,
+    skip_build: bool,
+    cargo_extra_args: list[str] | None = None,
+) -> Path:
     profile = "release" if release else "debug"
     profile_dir = TARGET_DIR / profile
 
@@ -150,6 +156,7 @@ def build_installer(version: str, output_dir: Path, release: bool, skip_build: b
         command = ["cargo", "build"]
         if release:
             command.append("--release")
+        command.extend(cargo_extra_args or [])
         run(command, cwd=PROJECT_ROOT)
     else:
         print("[1/4] Skipping build (--skip-build).")
@@ -205,11 +212,23 @@ def main() -> int:
     parser.add_argument("--output", "-o", default="packaging/out", help="Output directory (default: packaging/out)")
     parser.add_argument("--debug", action="store_true", help="Use the debug executable")
     parser.add_argument("--skip-build", action="store_true", help="Package an existing executable")
+    parser.add_argument(
+        "--no-default-features",
+        action="store_true",
+        help="Build without default cargo features (plain Git GUI without the agent integration)",
+    )
     args = parser.parse_args()
 
     version = args.version or read_version()
     output_dir = Path(args.output).resolve()
-    build_installer(version, output_dir, release=not args.debug, skip_build=args.skip_build)
+    cargo_extra_args = ["--no-default-features"] if args.no_default_features else []
+    build_installer(
+        version,
+        output_dir,
+        release=not args.debug,
+        skip_build=args.skip_build,
+        cargo_extra_args=cargo_extra_args,
+    )
     return 0
 
 

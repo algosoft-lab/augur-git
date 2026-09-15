@@ -1,0 +1,29 @@
+name: Install Linux build dependencies
+description: Install the apt packages needed to compile and package the app on Ubuntu runners.
+
+runs:
+  using: composite
+  steps:
+    - name: Install Linux build dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --no-install-recommends -y \
+          build-essential \
+          clang \
+          cmake \
+          libasound2-dev \
+          libfontconfig-dev \
+          libgit2-dev \
+          libglib2.0-dev \
+          libsqlite3-dev \
+          libssl-dev \
+          libva-dev \
+          libvulkan-dev \
+          libwayland-dev \
+          libx11-xcb-dev \
+          libxkbcommon-x11-dev \
+          libzstd-dev \
+          lld \
+          llvm \
+          pkg-config
