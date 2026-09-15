@@ -4,6 +4,8 @@
 //! schedule calculations, package identity, and run summaries can therefore
 //! be tested without starting the application.
 
+#![cfg_attr(not(feature = "agent"), allow(dead_code))]
+
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 use std::fs;

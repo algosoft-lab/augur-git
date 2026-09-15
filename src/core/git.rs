@@ -33,6 +33,7 @@ use crate::core::diff::{merge_numstat, parse_numstat, parse_raw_records};
 use crate::core::graph::LogRow;
 
 pub mod agent_operation;
+#[cfg(feature = "agent")]
 pub mod automation;
 mod branch_compare;
 mod commit_log;

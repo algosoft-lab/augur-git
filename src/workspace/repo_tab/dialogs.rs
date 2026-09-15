@@ -86,6 +86,7 @@ impl RepoTab {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn start_resolve_merge_by_agent(&mut self, cx: &mut Context<Self>) {
         if self.is_busy() {
             return;
@@ -107,6 +108,7 @@ impl RepoTab {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn start_resolve_rebase_by_agent(&mut self, cx: &mut Context<Self>) {
         if self.is_busy() {
             return;
@@ -228,6 +230,7 @@ impl RepoTab {
         };
         let this = cx.entity();
         let abort = this.clone();
+        #[cfg(feature = "agent")]
         let resolve = this.clone();
         let title = h_flex()
             .items_center()
@@ -261,27 +264,25 @@ impl RepoTab {
                     .text_color(colors.red)
                     .child(shared(detail.clone())),
             );
-        let buttons = h_flex()
-            .w_full()
-            .gap_2()
-            .child(
-                Button::new("merge-abort")
-                    .label(i18n::text(locale, "merge-abort"))
-                    .danger()
-                    .flex_1()
-                    .on_click(move |_event, _window, cx| {
-                        abort.update(cx, |tab, cx| tab.start_abort_merge(cx));
-                    }),
-            )
-            .child(
-                Button::new("merge-resolve-agent")
-                    .label(i18n::text(locale, "merge-resolve-by-agent"))
-                    .primary()
-                    .flex_1()
-                    .on_click(move |_event, _window, cx| {
-                        resolve.update(cx, |tab, cx| tab.start_resolve_merge_by_agent(cx));
-                    }),
-            );
+        let buttons = h_flex().w_full().gap_2().child(
+            Button::new("merge-abort")
+                .label(i18n::text(locale, "merge-abort"))
+                .danger()
+                .flex_1()
+                .on_click(move |_event, _window, cx| {
+                    abort.update(cx, |tab, cx| tab.start_abort_merge(cx));
+                }),
+        );
+        #[cfg(feature = "agent")]
+        let buttons = buttons.child(
+            Button::new("merge-resolve-agent")
+                .label(i18n::text(locale, "merge-resolve-by-agent"))
+                .primary()
+                .flex_1()
+                .on_click(move |_event, _window, cx| {
+                    resolve.update(cx, |tab, cx| tab.start_resolve_merge_by_agent(cx));
+                }),
+        );
         self.overlay_card(
             cx,
             "merge-conflict-overlay",
@@ -354,6 +355,7 @@ impl RepoTab {
         };
         let this = cx.entity();
         let abort = this.clone();
+        #[cfg(feature = "agent")]
         let resolve = this.clone();
         let source_label = source.as_deref().unwrap_or("pull --rebase").to_string();
         let title = h_flex()
@@ -392,27 +394,25 @@ impl RepoTab {
                     .text_color(colors.red)
                     .child(shared(detail.clone())),
             );
-        let buttons = h_flex()
-            .w_full()
-            .gap_2()
-            .child(
-                Button::new("rebase-abort")
-                    .label(i18n::text(locale, "rebase-abort"))
-                    .danger()
-                    .flex_1()
-                    .on_click(move |_event, _window, cx| {
-                        abort.update(cx, |tab, cx| tab.start_abort_rebase(cx));
-                    }),
-            )
-            .child(
-                Button::new("rebase-resolve-agent")
-                    .label(i18n::text(locale, "rebase-resolve-by-agent"))
-                    .primary()
-                    .flex_1()
-                    .on_click(move |_event, _window, cx| {
-                        resolve.update(cx, |tab, cx| tab.start_resolve_rebase_by_agent(cx));
-                    }),
-            );
+        let buttons = h_flex().w_full().gap_2().child(
+            Button::new("rebase-abort")
+                .label(i18n::text(locale, "rebase-abort"))
+                .danger()
+                .flex_1()
+                .on_click(move |_event, _window, cx| {
+                    abort.update(cx, |tab, cx| tab.start_abort_rebase(cx));
+                }),
+        );
+        #[cfg(feature = "agent")]
+        let buttons = buttons.child(
+            Button::new("rebase-resolve-agent")
+                .label(i18n::text(locale, "rebase-resolve-by-agent"))
+                .primary()
+                .flex_1()
+                .on_click(move |_event, _window, cx| {
+                    resolve.update(cx, |tab, cx| tab.start_resolve_rebase_by_agent(cx));
+                }),
+        );
         self.overlay_card(
             cx,
             "rebase-conflict-overlay",

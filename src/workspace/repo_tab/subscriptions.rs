@@ -129,6 +129,7 @@ fn wire_toolbar(toolbar: &Entity<Toolbar>, window: &mut Window, cx: &mut Context
                 tab.open_branch_dialog(branch_ops::PendingBranchDialog::Rebase, cx);
             }
             ToolbarEvent::Compare => branch_compare::open(tab, cx),
+            #[cfg(feature = "agent")]
             ToolbarEvent::Extensions => {
                 cx.emit(RepoTabEvent::RequestExtensions);
             }
@@ -211,6 +212,11 @@ fn wire_commit(commit: &Entity<CommitPanel>, cx: &mut Context<RepoTab>) {
                     });
                     tab.set_operation_busy(true, cx);
                 }
+                #[cfg(not(feature = "agent"))]
+                CommitAction::CommitByAgent => {
+                    log::warn!("[commit_panel] agent commit requested without agent feature");
+                }
+                #[cfg(feature = "agent")]
                 CommitAction::CommitByAgent => {
                     log::info!("[commit_panel] submit requested: action=agent");
                     cx.emit(RepoTabEvent::AgentCommitRequested {

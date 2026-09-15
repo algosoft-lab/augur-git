@@ -116,11 +116,14 @@ impl Render for AppMenu {
                 });
 
                 let edit_menu = PopupMenu::build(window, cx, move |menu, _, _| {
-                    menu.menu(i18n::text(locale, "menu-settings"), Box::new(OpenSettings))
-                        .menu(
-                            i18n::text(locale, "menu-extensions"),
-                            Box::new(OpenExtensions),
-                        )
+                    let menu =
+                        menu.menu(i18n::text(locale, "menu-settings"), Box::new(OpenSettings));
+                    #[cfg(feature = "agent")]
+                    let menu = menu.menu(
+                        i18n::text(locale, "menu-extensions"),
+                        Box::new(OpenExtensions),
+                    );
+                    menu
                 });
 
                 let help_menu = PopupMenu::build(window, cx, move |menu, _, _| {
@@ -178,10 +181,17 @@ pub(crate) fn install_native_menu(locale: i18n::Locale, cx: &mut App) {
         MenuItem::action(i18n::text(locale, "menu-quit"), Quit),
     ]);
     menus.push(Menu::new(i18n::text(locale, "menu-file")).items(file_items));
-    menus.push(Menu::new(i18n::text(locale, "menu-edit")).items([
-        MenuItem::action(i18n::text(locale, "menu-settings"), OpenSettings),
-        MenuItem::action(i18n::text(locale, "menu-extensions"), OpenExtensions),
-    ]));
+    #[cfg_attr(not(feature = "agent"), allow(unused_mut))]
+    let mut edit_items = vec![MenuItem::action(
+        i18n::text(locale, "menu-settings"),
+        OpenSettings,
+    )];
+    #[cfg(feature = "agent")]
+    edit_items.push(MenuItem::action(
+        i18n::text(locale, "menu-extensions"),
+        OpenExtensions,
+    ));
+    menus.push(Menu::new(i18n::text(locale, "menu-edit")).items(edit_items));
     menus.push(
         Menu::new(i18n::text(locale, "menu-help")).items([MenuItem::action(
             i18n::text(locale, "menu-about"),

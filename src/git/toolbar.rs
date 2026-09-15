@@ -42,7 +42,9 @@ pub enum ToolbarEvent {
     Stash,
     StashPop,
     ApplyPatch,
-    Merge { no_ff: bool },
+    Merge {
+        no_ff: bool,
+    },
     Rebase,
     Fetch,
     PullMerge,
@@ -50,6 +52,7 @@ pub enum ToolbarEvent {
     Push,
     PushForce,
     Compare,
+    #[cfg(feature = "agent")]
     Extensions,
     Refresh,
     Settings,
@@ -313,7 +316,7 @@ impl Render for Toolbar {
         let enabled = self.has_remote && !self.busy;
         let pull_enabled = enabled && !self.has_conflicts;
 
-        h_flex()
+        let toolbar = h_flex()
             .id("toolbar")
             .w_full()
             .h(px(32.))
@@ -378,16 +381,18 @@ impl Render for Toolbar {
                 !self.busy,
                 ToolbarEvent::Compare,
                 cx,
-            ))
-            .child(self.tool_button(
-                "tb-extensions",
-                Icon::new(IconName::LayoutDashboard),
-                "toolbar-extensions",
-                &colors,
-                true,
-                ToolbarEvent::Extensions,
-                cx,
-            ))
+            ));
+        #[cfg(feature = "agent")]
+        let toolbar = toolbar.child(self.tool_button(
+            "tb-extensions",
+            Icon::new(IconName::LayoutDashboard),
+            "toolbar-extensions",
+            &colors,
+            true,
+            ToolbarEvent::Extensions,
+            cx,
+        ));
+        toolbar
             // Ahead/behind badges.
             .child(self.count_badge(
                 "tb-ahead",

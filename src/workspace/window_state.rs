@@ -18,6 +18,7 @@ pub fn initial_window_options(cx: &mut App, state: &WindowState) -> WindowOption
     )
 }
 
+#[cfg_attr(not(feature = "agent"), allow(dead_code))]
 pub fn initial_extensions_window_options(cx: &mut App, state: &WindowState) -> WindowOptions {
     initial_window_options_with_limits(
         cx,
@@ -79,6 +80,7 @@ pub fn capture_window_state(window: &Window) -> WindowState {
     capture_window_state_with_limits(window, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
 }
 
+#[cfg_attr(not(feature = "agent"), allow(dead_code))]
 pub fn capture_extensions_window_state(window: &Window) -> WindowState {
     capture_window_state_with_limits(
         window,
@@ -180,6 +182,7 @@ pub fn update_ui_state_window(state: &mut UiState, window: &Window) {
     state.window = capture_window_state(window);
 }
 
+#[cfg_attr(not(feature = "agent"), allow(dead_code))]
 pub fn update_ui_state_extensions_window(state: &mut UiState, window: &Window) {
     state.extensions_window = capture_extensions_window_state(window);
 }

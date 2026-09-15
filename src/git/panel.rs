@@ -29,7 +29,16 @@ impl From<CommitActionPreference> for CommitAction {
         match preference {
             CommitActionPreference::Commit => Self::Commit,
             CommitActionPreference::Amend => Self::Amend,
-            CommitActionPreference::Agent => Self::CommitByAgent,
+            CommitActionPreference::Agent => {
+                #[cfg(feature = "agent")]
+                {
+                    Self::CommitByAgent
+                }
+                #[cfg(not(feature = "agent"))]
+                {
+                    Self::Commit
+                }
+            }
         }
     }
 }
@@ -221,6 +230,7 @@ impl Render for CommitPanel {
         let mode_panel = cx.entity();
         let commit_action_label = i18n::text(self.locale, "commit-action-commit");
         let amend_action_label = i18n::text(self.locale, "commit-action-amend");
+        #[cfg(feature = "agent")]
         let agent_action_label = i18n::text(self.locale, "commit-action-ai");
         let commit_mode_menu = Button::new("btn-commit-mode")
             .icon(IconName::ChevronDown)
@@ -232,26 +242,29 @@ impl Render for CommitPanel {
             .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _window, _cx| {
                 let commit_panel = mode_panel.clone();
                 let amend_panel = mode_panel.clone();
+                #[cfg(feature = "agent")]
                 let agent_panel = mode_panel.clone();
-                menu.item(
-                    PopupMenuItem::new(commit_action_label.clone())
-                        .checked(action == CommitAction::Commit)
-                        .on_click(move |_event, _window, cx| {
-                            commit_panel.update(cx, |panel, cx| {
-                                panel.select_action(CommitAction::Commit, cx);
-                            });
-                        }),
-                )
-                .item(
-                    PopupMenuItem::new(amend_action_label.clone())
-                        .checked(action == CommitAction::Amend)
-                        .on_click(move |_event, _window, cx| {
-                            amend_panel.update(cx, |panel, cx| {
-                                panel.select_action(CommitAction::Amend, cx);
-                            });
-                        }),
-                )
-                .item(
+                let menu = menu
+                    .item(
+                        PopupMenuItem::new(commit_action_label.clone())
+                            .checked(action == CommitAction::Commit)
+                            .on_click(move |_event, _window, cx| {
+                                commit_panel.update(cx, |panel, cx| {
+                                    panel.select_action(CommitAction::Commit, cx);
+                                });
+                            }),
+                    )
+                    .item(
+                        PopupMenuItem::new(amend_action_label.clone())
+                            .checked(action == CommitAction::Amend)
+                            .on_click(move |_event, _window, cx| {
+                                amend_panel.update(cx, |panel, cx| {
+                                    panel.select_action(CommitAction::Amend, cx);
+                                });
+                            }),
+                    );
+                #[cfg(feature = "agent")]
+                let menu = menu.item(
                     PopupMenuItem::new(agent_action_label.clone())
                         .checked(action == CommitAction::CommitByAgent)
                         .on_click(move |_event, _window, cx| {
@@ -259,7 +272,8 @@ impl Render for CommitPanel {
                                 panel.select_action(CommitAction::CommitByAgent, cx);
                             });
                         }),
-                )
+                );
+                menu
             });
         v_flex()
             .id("commit-panel")

@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "agent")]
 use crate::agent::AgentSettings;
 use crate::core::extension::ExtensionSettings;
 use crate::core::git::{GitError, GitRepo, RepoLocation};
@@ -453,6 +454,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub recent_repos: Vec<RecentRepo>,
     /// External Agent CLI profiles and executable overrides.
+    #[cfg(feature = "agent")]
     #[serde(default)]
     pub agent: AgentSettings,
     /// User choices for installed and bundled Lua extensions.
@@ -518,6 +520,7 @@ struct RawAppConfig {
     typography: TypographySettings,
     #[serde(default)]
     recent_repos: Vec<RawRecentRepo>,
+    #[cfg(feature = "agent")]
     #[serde(default)]
     agent: AgentSettings,
     #[serde(default)]
@@ -564,6 +567,7 @@ impl From<RawAppConfig> for AppConfig {
                 .into_iter()
                 .map(RawRecentRepo::into_recent)
                 .collect(),
+            #[cfg(feature = "agent")]
             agent: raw.agent,
             extensions: raw.extensions,
         };
@@ -605,8 +609,12 @@ fn config_dir() -> PathBuf {
 /// Defaults for a user with no usable config file: no built-in agent is
 /// pre-added, unlike a legacy file that simply lacks the enablement field.
 fn fresh_install_config() -> AppConfig {
+    #[cfg_attr(not(feature = "agent"), allow(unused_mut))]
     let mut config = AppConfig::default();
-    config.agent.enabled_builtins = Some(Vec::new());
+    #[cfg(feature = "agent")]
+    {
+        config.agent.enabled_builtins = Some(Vec::new());
+    }
     config
 }
 
@@ -819,6 +827,7 @@ fn run_save_worker(receiver: Receiver<ConfigSaveRequest>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "agent")]
     use crate::agent::{AgentLaunchOverrides, BuiltInAgent};
 
     #[test]
@@ -974,6 +983,7 @@ mod tests {
         assert_eq!(config.language, LanguagePreference::SimplifiedChinese);
     }
 
+    #[cfg(feature = "agent")]
     #[test]
     fn missing_agent_settings_migrate_to_built_in_default() {
         let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(r#"{}"#).unwrap());
@@ -992,6 +1002,7 @@ mod tests {
         assert!(config.agent.launch_overrides.is_empty());
     }
 
+    #[cfg(feature = "agent")]
     #[test]
     fn fresh_installs_start_without_any_builtin_agent() {
         let config = fresh_install_config();
@@ -999,6 +1010,7 @@ mod tests {
         assert_eq!(config.agent.default_profile_id(), "");
     }
 
+    #[cfg(feature = "agent")]
     #[test]
     fn explicit_empty_builtins_survive_round_trip() {
         let config = AppConfig::from(
@@ -1012,6 +1024,7 @@ mod tests {
         assert!(reparsed.agent.enabled_builtins == Some(Vec::new()));
     }
 
+    #[cfg(feature = "agent")]
     #[test]
     fn agent_launch_overrides_round_trip() {
         let json = r#"{
@@ -1050,6 +1063,7 @@ mod tests {
         assert!(serialized.contains("\"variant\":\"high\""));
     }
 
+    #[cfg(feature = "agent")]
     #[test]
     fn agent_settings_round_trip_with_custom_profile() {
         let json = r#"{

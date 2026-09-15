@@ -11,6 +11,7 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     h_flex, v_flex,
 };
+#[cfg(feature = "agent")]
 use std::time::Duration;
 
 use crate::core::i18n;
@@ -66,6 +67,7 @@ impl Workspace {
         if !self.tabs.iter().any(|entry| entry.id == id) {
             return;
         }
+        #[cfg(feature = "agent")]
         let agent_active = if let Some(path) = self
             .tabs
             .iter()
@@ -76,10 +78,13 @@ impl Workspace {
         } else {
             false
         };
+        #[cfg(feature = "agent")]
         let extension_active = self
             .extension_manager
             .as_ref()
             .is_some_and(|manager| manager.active_count() > 0);
+        #[cfg(not(feature = "agent"))]
+        let (agent_active, extension_active) = (false, false);
         if agent_active || extension_active {
             log::info!("[workspace] delaying repository tab close for active background operation");
             self.pending_close = Some(PendingWorkspaceClose::Tab(id));
@@ -124,43 +129,55 @@ impl Workspace {
         };
         match pending {
             PendingWorkspaceClose::Application => {
-                super::agent_connectivity::stop_all(self, cx);
-                if let Some(manager) = &self.extension_manager {
-                    let cancelled = manager.cancel_all();
-                    if cancelled > 0 {
-                        log::info!(
-                            "[extension_runtime] cancelled {cancelled} active extension run(s) during application close"
-                        );
+                #[cfg(feature = "agent")]
+                {
+                    super::agent_connectivity::stop_all(self, cx);
+                    if let Some(manager) = &self.extension_manager {
+                        let cancelled = manager.cancel_all();
+                        if cancelled > 0 {
+                            log::info!(
+                                "[extension_runtime] cancelled {cancelled} active extension run(s) during application close"
+                            );
+                        }
                     }
+                    log::info!("[agent_terminal] confirmed application close");
+                    // `TerminalBackend::shutdown` gives each child a short
+                    // grace period before closing its PTY. Keep the app alive
+                    // for that hand-off so the PTY event loop can deliver the
+                    // shutdown message instead of letting the process exit
+                    // immediately.
+                    cx.spawn(async move |_, cx| {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(220))
+                            .await;
+                        cx.update(|cx| cx.quit());
+                    })
+                    .detach();
                 }
-                log::info!("[agent_terminal] confirmed application close");
-                // `TerminalBackend::shutdown` gives each child a short grace
-                // period before closing its PTY. Keep the app alive for that
-                // hand-off so the PTY event loop can deliver the shutdown
-                // message instead of letting the process exit immediately.
-                cx.spawn(async move |_, cx| {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(220))
-                        .await;
-                    cx.update(|cx| cx.quit());
-                })
-                .detach();
+                #[cfg(not(feature = "agent"))]
+                {
+                    let _ = cx;
+                    cx.quit();
+                }
             }
             PendingWorkspaceClose::Tab(id) => {
-                if let Some(path) = self
-                    .tabs
-                    .iter()
-                    .find(|entry| entry.id == id)
-                    .and_then(|entry| entry.path.clone())
+                #[cfg(feature = "agent")]
                 {
-                    super::agent_connectivity::stop_for_repo(self, &path, cx);
-                }
-                if let Some(manager) = &self.extension_manager {
-                    let cancelled = manager.cancel_all();
-                    if cancelled > 0 {
-                        log::info!(
-                            "[extension_runtime] cancelled {cancelled} active extension run(s) during repository tab close"
-                        );
+                    if let Some(path) = self
+                        .tabs
+                        .iter()
+                        .find(|entry| entry.id == id)
+                        .and_then(|entry| entry.path.clone())
+                    {
+                        super::agent_connectivity::stop_for_repo(self, &path, cx);
+                    }
+                    if let Some(manager) = &self.extension_manager {
+                        let cancelled = manager.cancel_all();
+                        if cancelled > 0 {
+                            log::info!(
+                                "[extension_runtime] cancelled {cancelled} active extension run(s) during repository tab close"
+                            );
+                        }
                     }
                 }
                 self.close_tab_now(id, cx);
@@ -173,21 +190,34 @@ impl Workspace {
             return div().into_any_element();
         };
         let colors = cx.theme().colors.clone();
-        let mut test_labels = match pending {
-            PendingWorkspaceClose::Application => {
-                super::agent_connectivity::running_labels(self, cx)
+        let test_labels: Vec<String> = {
+            #[cfg(feature = "agent")]
+            {
+                let mut labels = match pending {
+                    PendingWorkspaceClose::Application => {
+                        super::agent_connectivity::running_labels(self, cx)
+                    }
+                    PendingWorkspaceClose::Tab(id) => self
+                        .tabs
+                        .iter()
+                        .find(|entry| entry.id == id)
+                        .and_then(|entry| entry.path.as_deref())
+                        .map(|path| {
+                            super::agent_connectivity::running_labels_for_repo(self, path, cx)
+                        })
+                        .unwrap_or_default(),
+                };
+                if let Some(manager) = &self.extension_manager {
+                    labels.extend(manager.active_labels());
+                }
+                labels
             }
-            PendingWorkspaceClose::Tab(id) => self
-                .tabs
-                .iter()
-                .find(|entry| entry.id == id)
-                .and_then(|entry| entry.path.as_deref())
-                .map(|path| super::agent_connectivity::running_labels_for_repo(self, path, cx))
-                .unwrap_or_default(),
+            #[cfg(not(feature = "agent"))]
+            {
+                let _ = pending;
+                Vec::new()
+            }
         };
-        if let Some(manager) = &self.extension_manager {
-            test_labels.extend(manager.active_labels());
-        }
         let count = test_labels.len();
         let count_text = count.to_string();
         let title = i18n::text(self.locale, "workspace-close-title");
@@ -293,11 +323,19 @@ impl Workspace {
     }
 
     fn active_operation_count(&self, cx: &mut Context<Self>) -> usize {
-        super::agent_connectivity::running_count(self, cx)
-            + self
-                .extension_manager
-                .as_ref()
-                .map(|manager| manager.active_count())
-                .unwrap_or(0)
+        #[cfg(feature = "agent")]
+        {
+            super::agent_connectivity::running_count(self, cx)
+                + self
+                    .extension_manager
+                    .as_ref()
+                    .map(|manager| manager.active_count())
+                    .unwrap_or(0)
+        }
+        #[cfg(not(feature = "agent"))]
+        {
+            let _ = cx;
+            0
+        }
     }
 }

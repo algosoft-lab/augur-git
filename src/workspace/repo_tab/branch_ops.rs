@@ -76,9 +76,11 @@ pub(super) fn handle_sidebar_event(
         SidebarEvent::MergeIntoCurrent { name, no_ff } => {
             tab.merge_into_current(name.clone(), *no_ff, cx);
         }
+        #[cfg(feature = "agent")]
         SidebarEvent::MergeByAgent(name) => {
             tab.start_agent_merge(name.clone(), cx);
         }
+        #[cfg(feature = "agent")]
         SidebarEvent::RebaseByAgent(name) => {
             tab.start_agent_rebase(name.clone(), cx);
         }

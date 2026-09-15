@@ -6,12 +6,15 @@
 
 #![recursion_limit = "256"]
 
+#[cfg(feature = "agent")]
 mod agent;
 mod core;
 mod dropdown;
+#[cfg(feature = "agent")]
 mod extension;
 mod git;
 mod logging;
+#[cfg(feature = "agent")]
 mod terminal;
 mod theme;
 mod workspace;

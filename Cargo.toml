@@ -20,6 +20,15 @@ path = "src/main.rs"
 name = "augurgit"
 path = "src/bin/augurgit.rs"
 
+# `agent` bundles the coding-agent integration: the embedded PTY terminal
+# (alacritty_terminal), the Lua extension runtime (mlua), agent-driven
+# commit/merge/rebase flows, and their UI. Building with
+# `--no-default-features` yields the plain Git GUI with none of that code
+# compiled or linked in.
+[features]
+default = ["agent"]
+agent = ["dep:alacritty_terminal", "dep:mlua"]
+
 [dependencies]
 similar = { version = "3", features = ["inline"] }
 log = "0.4.34"
@@ -30,8 +39,8 @@ serde_json = "1"
 sys-locale = "0.3"
 chrono = "0.4"
 dirs = "6"
-alacritty_terminal = "0.26"
-mlua = { version = "0.12.1", features = ["lua54", "vendored", "serde", "send"] }
+alacritty_terminal = { version = "0.26", optional = true }
+mlua = { version = "0.12.1", features = ["lua54", "vendored", "serde", "send"], optional = true }
 semver = "1"
 sha2 = "0.11.0"
 toml = "1.1.5"

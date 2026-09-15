@@ -163,6 +163,7 @@ impl RepoTab {
     }
 
     /// Request a visible Agent session for a merge operation from the sidebar.
+    #[cfg(feature = "agent")]
     pub(in crate::workspace::repo_tab) fn start_agent_merge(
         &mut self,
         name: String,
@@ -337,6 +338,7 @@ impl RepoTab {
 
     /// Request a visible Agent session that rebases the current branch onto a
     /// selected local branch.
+    #[cfg(feature = "agent")]
     pub(in crate::workspace::repo_tab) fn start_agent_rebase(
         &mut self,
         name: String,

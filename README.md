@@ -246,6 +246,15 @@ Building requires a recent stable Rust toolchain (edition 2024).
    cargo run --release
    ```
 
+   A plain Git GUI without the coding-agent integration (embedded terminal,
+   Lua extension runtime, and their UI) builds with the `agent` default
+   feature disabled. The `alacritty_terminal` and `mlua` dependencies are not
+   compiled or linked in that configuration:
+
+   ```bash
+   cargo run --no-default-features
+   ```
+
 ### Configuration and logs
 
 - Settings and the recent-repository list are stored in

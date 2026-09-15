@@ -85,6 +85,7 @@ pub struct GraphRow {
     /// Whether this commit is HEAD.
     pub is_head: bool,
     /// Whether this commit has multiple parents.
+    #[cfg_attr(not(feature = "agent"), allow(dead_code))]
     pub is_merge: bool,
 }
 

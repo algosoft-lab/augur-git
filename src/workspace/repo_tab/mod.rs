@@ -15,7 +15,9 @@ use crate::git::sidebar::Sidebar;
 use crate::git::toolbar::Toolbar;
 use crate::git::{GitStatus, GitView};
 
+#[cfg(feature = "agent")]
 use super::agent_commit::AgentCommitOutcome;
+#[cfg(feature = "agent")]
 use super::agent_rebase::AgentRebaseOutcome;
 use super::tabs::{TabId, TabState, TabSummary};
 
@@ -34,30 +36,36 @@ pub enum RepoTabEvent {
     },
     SummaryChanged(TabSummary),
     RequestSettings,
+    #[cfg(feature = "agent")]
     RequestExtensions,
     LayoutChanged(LayoutSettings),
     CommitActionChanged(CommitAction),
+    #[cfg(feature = "agent")]
     AgentCommitRequested {
         id: TabId,
         repo_path: String,
         hint: String,
     },
+    #[cfg(feature = "agent")]
     AgentMergeRequested {
         id: TabId,
         repo_path: String,
         source: String,
     },
+    #[cfg(feature = "agent")]
     AgentMergeResolveRequested {
         id: TabId,
         repo_path: String,
         merge_head: String,
         baseline_head: Option<String>,
     },
+    #[cfg(feature = "agent")]
     AgentRebaseRequested {
         id: TabId,
         repo_path: String,
         source: String,
     },
+    #[cfg(feature = "agent")]
     AgentRebaseResolveRequested {
         id: TabId,
         repo_path: String,
@@ -78,6 +86,7 @@ enum PendingConfirmation {
         tracked_count: usize,
         untracked_count: usize,
     },
+    #[cfg_attr(not(feature = "agent"), allow(dead_code))]
     MergeConflict {
         source: String,
         detail: String,
@@ -88,6 +97,7 @@ enum PendingConfirmation {
         label: String,
         detail: String,
     },
+    #[cfg_attr(not(feature = "agent"), allow(dead_code))]
     RebaseConflict {
         label: String,
         source: Option<String>,
@@ -184,10 +194,13 @@ pub struct RepoTab {
     working_tree_operation_id: u64,
     operation_busy: bool,
     agent_commit_session_id: Option<u64>,
+    #[cfg_attr(not(feature = "agent"), allow(dead_code))]
     agent_commit_observed_head: Option<String>,
     agent_merge_session_id: Option<u64>,
+    #[cfg_attr(not(feature = "agent"), allow(dead_code))]
     agent_merge_observed_head: Option<String>,
     agent_rebase_session_id: Option<u64>,
+    #[cfg_attr(not(feature = "agent"), allow(dead_code))]
     agent_rebase_observed_head: Option<String>,
     /// Whether the latest Git status contains unmerged entries.
     has_unresolved_conflicts: bool,
@@ -329,6 +342,7 @@ impl RepoTab {
     /// Refresh a repository after a background extension mutation. Inactive
     /// tabs retain their Git worker events until activation; this request is
     /// harmless when the tab has not been opened yet.
+    #[cfg(feature = "agent")]
     pub(super) fn refresh_after_extension(&mut self, cx: &mut Context<Self>) {
         if self.opened && !self.is_busy() {
             self.refresh_repository(cx);
@@ -452,6 +466,7 @@ impl RepoTab {
         }
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn begin_agent_commit(&mut self, session_id: u64, cx: &mut Context<Self>) {
         if self.agent_commit_session_id.is_some() {
             return;
@@ -462,6 +477,7 @@ impl RepoTab {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn begin_agent_merge(&mut self, session_id: u64, cx: &mut Context<Self>) {
         if self.agent_merge_session_id.is_some() {
             return;
@@ -472,6 +488,7 @@ impl RepoTab {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn observe_agent_merge(
         &mut self,
         session_id: u64,
@@ -494,6 +511,7 @@ impl RepoTab {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn finish_agent_merge(
         &mut self,
         session_id: u64,
@@ -547,6 +565,7 @@ impl RepoTab {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn agent_merge_preflight_failed(&mut self, summary: String, cx: &mut Context<Self>) {
         self.status_message = Some(i18n::text_args(
             self.locale,
@@ -557,6 +576,7 @@ impl RepoTab {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn begin_agent_rebase(&mut self, session_id: u64, cx: &mut Context<Self>) {
         if self.agent_rebase_session_id.is_some() {
             return;
@@ -567,6 +587,7 @@ impl RepoTab {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn observe_agent_rebase(
         &mut self,
         session_id: u64,
@@ -589,6 +610,7 @@ impl RepoTab {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn finish_agent_rebase(
         &mut self,
         session_id: u64,
@@ -640,6 +662,7 @@ impl RepoTab {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn agent_rebase_preflight_failed(
         &mut self,
         summary: String,
@@ -654,6 +677,7 @@ impl RepoTab {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn observe_agent_commit(
         &mut self,
         session_id: u64,
@@ -676,6 +700,7 @@ impl RepoTab {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn finish_agent_commit(
         &mut self,
         session_id: u64,
@@ -938,6 +963,7 @@ impl RepoTab {
     /// Return the latest UI-known identity used to seed an extension trigger.
     /// The host refreshes the exact Git HEAD on its worker thread before the
     /// run starts, so this method never blocks the UI.
+    #[cfg(feature = "agent")]
     pub(super) fn extension_snapshot(&self) -> crate::extension::RepositorySnapshot {
         crate::extension::RepositorySnapshot {
             tab_id: self.id,
@@ -960,6 +986,7 @@ impl RepoTab {
     }
 }
 
+#[cfg_attr(not(feature = "agent"), allow(dead_code))]
 fn short_oid(oid: &str) -> String {
     oid.get(..7).unwrap_or(oid).to_string()
 }
@@ -992,6 +1019,7 @@ fn repo_title(path: &str) -> String {
     }
 }
 
+#[cfg_attr(not(feature = "agent"), allow(dead_code))]
 fn format_exit_code(code: Option<i32>) -> String {
     code.map(|code| code.to_string())
         .unwrap_or_else(|| "unknown".to_string())

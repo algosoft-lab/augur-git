@@ -1,5 +1,7 @@
 //! Read-only Git probes used to coordinate external Agent operations.
 
+#![cfg_attr(not(feature = "agent"), allow(dead_code))]
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 

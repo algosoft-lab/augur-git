@@ -1,5 +1,6 @@
 use gpui::*;
 
+#[cfg(feature = "agent")]
 use crate::agent::{AgentLaunchOverrides, BuiltInAgent, CustomAgentProfile};
 use crate::core::config::{
     CommitActionPreference, DiffLayoutPreference, GraphHistoryPreference, LanguagePreference,
@@ -11,6 +12,7 @@ use crate::git::panel::CommitAction;
 use crate::theme;
 
 use super::about;
+#[cfg(feature = "agent")]
 use super::agent_connectivity;
 use super::app_menu;
 use super::{TabContent, Workspace};
@@ -68,23 +70,27 @@ impl Workspace {
                 self.about_window = None;
             }
         }
+        #[cfg(feature = "agent")]
         agent_connectivity::set_locale(self, locale, cx);
         self.config.language = preference;
         self.settings_panel.update(cx, |panel, cx| {
             panel.set_locale(self.locale, window, cx);
         });
-        self.extensions_panel.update(cx, |panel, cx| {
-            panel.set_locale(self.locale);
-            cx.notify();
-        });
-        if let Some(extensions_window) = self.extensions_window {
-            if extensions_window
-                .update(cx, |window, _window, cx| {
-                    window.set_locale(locale, cx);
-                })
-                .is_err()
-            {
-                self.extensions_window = None;
+        #[cfg(feature = "agent")]
+        {
+            self.extensions_panel.update(cx, |panel, cx| {
+                panel.set_locale(self.locale);
+                cx.notify();
+            });
+            if let Some(extensions_window) = self.extensions_window {
+                if extensions_window
+                    .update(cx, |window, _window, cx| {
+                        window.set_locale(locale, cx);
+                    })
+                    .is_err()
+                {
+                    self.extensions_window = None;
+                }
             }
         }
         self.config_saver.schedule(&self.config);
@@ -267,6 +273,7 @@ impl Workspace {
         });
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn set_agent_default_profile(&mut self, profile_id: String, cx: &mut Context<Self>) {
         if self.config.agent.profile(&profile_id).is_none() {
             log::warn!("[agent_terminal] ignoring unknown default profile: {profile_id}");
@@ -281,6 +288,7 @@ impl Workspace {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn set_agent_executable_override(
         &mut self,
         agent: BuiltInAgent,
@@ -319,6 +327,7 @@ impl Workspace {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn set_agent_model_override(
         &mut self,
         agent: BuiltInAgent,
@@ -367,6 +376,7 @@ impl Workspace {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn set_agent_reasoning_override(
         &mut self,
         agent: BuiltInAgent,
@@ -415,6 +425,7 @@ impl Workspace {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn set_agent_variant_override(
         &mut self,
         agent: BuiltInAgent,
@@ -463,6 +474,7 @@ impl Workspace {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn save_agent_profile(
         &mut self,
         previous_id: Option<String>,
@@ -499,6 +511,7 @@ impl Workspace {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn add_agent_builtin(
         &mut self,
         agent: BuiltInAgent,
@@ -519,6 +532,7 @@ impl Workspace {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn remove_agent_builtin(
         &mut self,
         agent: BuiltInAgent,
@@ -541,6 +555,7 @@ impl Workspace {
         cx.notify();
     }
 
+    #[cfg(feature = "agent")]
     pub(super) fn remove_agent_profile(
         &mut self,
         profile_id: &str,
@@ -568,6 +583,7 @@ impl Workspace {
     }
 }
 
+#[cfg(feature = "agent")]
 fn normalize_agent_override(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_string())

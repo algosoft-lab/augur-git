@@ -1,4 +1,4 @@
-.PHONY: dev run format
+.PHONY: dev run format build-noai
 
 default: dev
 
@@ -7,6 +7,9 @@ dev:
 
 build:
 	cargo build --release --bins
+
+build-noai:
+	cargo build --release --bins --no-default-features
 
 format:
 	cargo fmt && stylua . && mint fmt .

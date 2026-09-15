@@ -8,6 +8,13 @@ and diffs, runs Git operations on explicit user action, and supports a Lua
 extension runtime and launching external coding-agent CLIs in an embedded
 terminal.
 
+All agent/terminal/Lua-extension code is gated behind the default-on `agent`
+Cargo feature; `cargo build --no-default-features` produces a plain Git GUI
+with none of that code (or the `alacritty_terminal` and `mlua` dependencies)
+compiled in. New code in shared files that references agent-only types, UI,
+or behavior must be gated by `#[cfg(feature = "agent")]`; the CI
+`check-no-ai` job enforces this.
+
 ## Structure (quick lookup)
 
 ```text

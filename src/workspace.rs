@@ -4,18 +4,27 @@
 //! by an independent `RepoTab` entity, including its Git worker and panels.
 
 mod about;
+#[cfg(feature = "agent")]
 mod agent_commit;
+#[cfg(feature = "agent")]
 mod agent_connectivity;
+#[cfg(feature = "agent")]
 mod agent_extension;
 mod agent_lifecycle;
+#[cfg(feature = "agent")]
 mod agent_merge;
+#[cfg(feature = "agent")]
 mod agent_profiles;
+#[cfg(feature = "agent")]
 mod agent_rebase;
 mod app_menu;
 mod app_menu_router;
 mod cli_install;
+#[cfg(feature = "agent")]
 mod extension_runtime;
+#[cfg(feature = "agent")]
 mod extensions;
+#[cfg(feature = "agent")]
 mod extensions_window;
 mod focus_refresh;
 mod keymap;
@@ -30,9 +39,12 @@ mod window_lifecycle;
 mod window_state;
 mod wsl_open_dialog;
 
+#[cfg(feature = "agent")]
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
+#[cfg(feature = "agent")]
 use std::sync::Arc;
+#[cfg(feature = "agent")]
 use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
@@ -46,6 +58,7 @@ use gpui_component::{
 
 use crate::core::config::{self, AppConfig, LocationConfig, UiState};
 use crate::core::i18n::{self, Locale};
+#[cfg(feature = "agent")]
 use crate::extension::{
     AgentSessionRequest, ExtensionDefinition, ExtensionEvent, ExtensionHost, ExtensionManager,
     HostBridge, HostEvent, RepositorySnapshot, discover_definitions,
@@ -53,6 +66,7 @@ use crate::extension::{
 
 use self::agent_lifecycle::PendingWorkspaceClose;
 use self::app_menu::{AppMenu, AppMenuEvent};
+#[cfg(feature = "agent")]
 use self::extensions::ExtensionsPanel;
 use self::persistence::{
     installed_font_families, location_repo_key, normalize_repo_path, normalize_typography,
@@ -122,6 +136,7 @@ pub fn run(app: Application, pending: remote_open::PendingOpen) {
             log::info!("[app_menu] routing global open settings action");
             update_active_workspace(cx, |workspace, cx| workspace.open_settings(cx));
         });
+        #[cfg(feature = "agent")]
         cx.on_action(|_: &app_menu::OpenExtensions, cx| {
             log::info!("[app_menu] routing global open extensions action");
             update_active_workspace(cx, |workspace, cx| workspace.open_extensions(cx));
@@ -222,19 +237,33 @@ pub struct Workspace {
     app_menu: Entity<AppMenu>,
     config: AppConfig,
     settings_panel: Entity<SettingsPanel>,
+    #[cfg(feature = "agent")]
     extensions_panel: Entity<ExtensionsPanel>,
+    #[cfg(feature = "agent")]
     extensions_window: Option<WindowHandle<extensions_window::ExtensionsWindow>>,
+    #[cfg(feature = "agent")]
     extension_host: HostBridge,
+    #[cfg(feature = "agent")]
     extension_manager: Option<ExtensionManager>,
+    #[cfg(feature = "agent")]
     extension_events: Receiver<ExtensionEvent>,
+    #[cfg(feature = "agent")]
     host_events: Receiver<HostEvent>,
+    #[cfg(feature = "agent")]
     agent_session_requests: Receiver<AgentSessionRequest>,
+    #[cfg(feature = "agent")]
     extension_definitions: Vec<ExtensionDefinition>,
+    #[cfg(feature = "agent")]
     extension_observed_repositories: BTreeMap<u64, RepositorySnapshot>,
+    #[cfg(feature = "agent")]
     extension_pending_origins: HashMap<u64, (String, u64, Instant)>,
+    #[cfg(feature = "agent")]
     extension_pending_events: HashMap<(String, String), extension_runtime::PendingEventBatch>,
+    #[cfg(feature = "agent")]
     extension_interval_ticks: HashMap<(String, String), chrono::DateTime<chrono::Local>>,
+    #[cfg(feature = "agent")]
     extension_drafts: BTreeMap<String, BTreeMap<String, crate::core::extension::SettingValue>>,
+    #[cfg(feature = "agent")]
     last_extension_tick: chrono::DateTime<chrono::Local>,
     ui_state: UiState,
     locale: Locale,
@@ -242,7 +271,9 @@ pub struct Workspace {
     show_settings: bool,
     pending_close: Option<PendingWorkspaceClose>,
     about_window: Option<WindowHandle<about::AboutWindow>>,
+    #[cfg(feature = "agent")]
     agent_sessions: Vec<(String, WindowHandle<agent_connectivity::AgentSessionWindow>)>,
+    #[cfg(feature = "agent")]
     agent_preflight_keys: HashSet<String>,
     restoring: bool,
     last_focus_refresh: Option<Instant>,
@@ -250,12 +281,13 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn new(
-        mut config: AppConfig,
+        #[cfg_attr(not(feature = "agent"), allow(unused_mut))] mut config: AppConfig,
         ui_state: UiState,
         font_families: Vec<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        #[cfg(feature = "agent")]
         if let Err(errors) = config.agent.validate() {
             for error in errors {
                 log::warn!("[agent_terminal] invalid configured profile: {error}");
@@ -266,7 +298,9 @@ impl Workspace {
         let tab_bar = cx.new(|_cx| RepoTabBar::new());
         let app_menu = cx.new(|_cx| AppMenu::new(locale, config.recent_repos.clone()));
         let settings_panel = cx.new(|cx| SettingsPanel::new(&config, font_families, window, cx));
+        #[cfg(feature = "agent")]
         let extension_definitions = discover_definitions();
+        #[cfg(feature = "agent")]
         for definition in &extension_definitions {
             let id = definition.package.manifest.id.clone();
             let entry = config.extensions.entry(id).or_insert_with(|| {
@@ -281,9 +315,12 @@ impl Workspace {
             *entry = entry.normalized_for(&definition.package.manifest);
             entry.last_seen_fingerprint = Some(definition.package.fingerprint.clone());
         }
+        #[cfg(feature = "agent")]
         let (extension_host, host_events, agent_session_requests) =
             HostBridge::new(config.agent.clone());
+        #[cfg(feature = "agent")]
         let extension_host_for_manager: Arc<dyn ExtensionHost> = Arc::new(extension_host.clone());
+        #[cfg(feature = "agent")]
         let (extension_manager, extension_events) = match ExtensionManager::new(
             extension_definitions.clone(),
             extension_host_for_manager,
@@ -295,6 +332,7 @@ impl Workspace {
                 (None, events)
             }
         };
+        #[cfg(feature = "agent")]
         let extensions_panel = cx.new(|cx| {
             ExtensionsPanel::new(extension_definitions.clone(), &config, locale, window, cx)
         });
@@ -360,36 +398,45 @@ impl Workspace {
                 SettingsPanelEvent::ShortcutReset(command) => {
                     workspace.reset_shortcut(command.clone(), window, cx);
                 }
+                #[cfg(feature = "agent")]
                 SettingsPanelEvent::AgentDefaultProfileChanged(profile_id) => {
                     workspace.set_agent_default_profile(profile_id.clone(), cx);
                 }
+                #[cfg(feature = "agent")]
                 SettingsPanelEvent::AgentExecutableOverrideChanged { agent, executable } => {
                     workspace.set_agent_executable_override(*agent, executable.clone(), cx);
                 }
+                #[cfg(feature = "agent")]
                 SettingsPanelEvent::AgentModelOverrideChanged { agent, model } => {
                     workspace.set_agent_model_override(*agent, model.clone(), cx);
                 }
+                #[cfg(feature = "agent")]
                 SettingsPanelEvent::AgentReasoningOverrideChanged {
                     agent,
                     reasoning_effort,
                 } => {
                     workspace.set_agent_reasoning_override(*agent, reasoning_effort.clone(), cx);
                 }
+                #[cfg(feature = "agent")]
                 SettingsPanelEvent::AgentVariantOverrideChanged { agent, variant } => {
                     workspace.set_agent_variant_override(*agent, variant.clone(), cx);
                 }
+                #[cfg(feature = "agent")]
                 SettingsPanelEvent::AgentConnectivityTestRequested(profile_id) => {
                     agent_connectivity::open(workspace, profile_id.clone(), cx);
                 }
+                #[cfg(feature = "agent")]
                 SettingsPanelEvent::AgentProfileSaved {
                     previous_id,
                     profile,
                 } => {
                     workspace.save_agent_profile(previous_id.clone(), profile.clone(), window, cx);
                 }
+                #[cfg(feature = "agent")]
                 SettingsPanelEvent::AgentProfileRemoved(profile_id) => {
                     workspace.remove_agent_profile(profile_id, window, cx);
                 }
+                #[cfg(feature = "agent")]
                 SettingsPanelEvent::AgentBuiltinAddRequested(agent) => {
                     log::info!(
                         "[agent_settings] built-in add event received: {}",
@@ -397,6 +444,7 @@ impl Workspace {
                     );
                     workspace.add_agent_builtin(*agent, window, cx);
                 }
+                #[cfg(feature = "agent")]
                 SettingsPanelEvent::AgentBuiltinRemoveRequested(agent) => {
                     workspace.remove_agent_builtin(*agent, window, cx);
                 }
@@ -427,19 +475,33 @@ impl Workspace {
             app_menu,
             config,
             settings_panel,
+            #[cfg(feature = "agent")]
             extensions_panel,
+            #[cfg(feature = "agent")]
             extensions_window: None,
+            #[cfg(feature = "agent")]
             extension_host,
+            #[cfg(feature = "agent")]
             extension_manager,
+            #[cfg(feature = "agent")]
             extension_events,
+            #[cfg(feature = "agent")]
             host_events,
+            #[cfg(feature = "agent")]
             agent_session_requests,
+            #[cfg(feature = "agent")]
             extension_definitions,
+            #[cfg(feature = "agent")]
             extension_observed_repositories: BTreeMap::new(),
+            #[cfg(feature = "agent")]
             extension_pending_origins: HashMap::new(),
+            #[cfg(feature = "agent")]
             extension_pending_events: HashMap::new(),
+            #[cfg(feature = "agent")]
             extension_interval_ticks: HashMap::new(),
+            #[cfg(feature = "agent")]
             extension_drafts: BTreeMap::new(),
+            #[cfg(feature = "agent")]
             last_extension_tick: chrono::Local::now(),
             ui_state,
             locale,
@@ -447,7 +509,9 @@ impl Workspace {
             show_settings: false,
             pending_close: None,
             about_window: None,
+            #[cfg(feature = "agent")]
             agent_sessions: Vec::new(),
+            #[cfg(feature = "agent")]
             agent_preflight_keys: HashSet::new(),
             restoring: true,
             // The startup load starts here (restore_tabs -> open), so the
@@ -468,7 +532,9 @@ impl Workspace {
         }
         workspace.restoring = false;
         workspace.refresh_tab_bar(cx);
+        #[cfg(feature = "agent")]
         workspace.sync_extension_repositories(cx);
+        #[cfg(feature = "agent")]
         workspace.start_extension_polling(cx);
         workspace.persist_config();
         cx.observe_window_bounds(window, |workspace, window, _cx| {
@@ -695,6 +761,7 @@ impl Workspace {
             RepoTabEvent::RequestSettings => {
                 self.open_settings(cx);
             }
+            #[cfg(feature = "agent")]
             RepoTabEvent::RequestExtensions => {
                 self.open_extensions(cx);
             }
@@ -713,6 +780,7 @@ impl Workspace {
             RepoTabEvent::CommitActionChanged(action) => {
                 self.set_commit_action((*action).into(), cx);
             }
+            #[cfg(feature = "agent")]
             RepoTabEvent::AgentCommitRequested {
                 id,
                 repo_path,
@@ -720,6 +788,7 @@ impl Workspace {
             } => {
                 agent_connectivity::open_commit(self, *id, repo_path.clone(), hint.clone(), cx);
             }
+            #[cfg(feature = "agent")]
             RepoTabEvent::AgentMergeRequested {
                 id,
                 repo_path,
@@ -727,6 +796,7 @@ impl Workspace {
             } => {
                 agent_connectivity::open_merge(self, *id, repo_path.clone(), source.clone(), cx);
             }
+            #[cfg(feature = "agent")]
             RepoTabEvent::AgentMergeResolveRequested {
                 id,
                 repo_path,
@@ -742,6 +812,7 @@ impl Workspace {
                     cx,
                 );
             }
+            #[cfg(feature = "agent")]
             RepoTabEvent::AgentRebaseRequested {
                 id,
                 repo_path,
@@ -749,6 +820,7 @@ impl Workspace {
             } => {
                 agent_connectivity::open_rebase(self, *id, repo_path.clone(), source.clone(), cx);
             }
+            #[cfg(feature = "agent")]
             RepoTabEvent::AgentRebaseResolveRequested {
                 id,
                 repo_path,
@@ -960,10 +1032,13 @@ impl Workspace {
         &mut self,
         _: &app_menu::OpenExtensions,
         _window: &mut Window,
-        cx: &mut Context<Self>,
+        #[cfg_attr(not(feature = "agent"), allow(unused_variables))] cx: &mut Context<Self>,
     ) {
-        log::info!("[app_menu] open extensions action");
-        self.open_extensions(cx);
+        #[cfg(feature = "agent")]
+        {
+            log::info!("[app_menu] open extensions action");
+            self.open_extensions(cx);
+        }
     }
 
     fn handle_open_about(

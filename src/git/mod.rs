@@ -124,6 +124,7 @@ pub enum GitUiEvent {
         detail: String,
     },
     /// 通用命令开始执行（fetch/pull/push/commit/show…）
+    #[cfg_attr(not(feature = "agent"), allow(dead_code))]
     CommandStarted {
         label: String,
         /// Git subcommand (`args[0]`), used to derive a progress verb.
@@ -151,6 +152,7 @@ pub enum GitStatus {
     /// 首次扫描中（打开仓库到首个事件之间短暂出现）
     Scanning,
     /// 已就绪（label 为 分支 @ 仓库名）
+    #[cfg_attr(not(feature = "agent"), allow(dead_code))]
     Ready(String),
     Error(String),
 }

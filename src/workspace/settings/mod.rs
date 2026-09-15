@@ -1,10 +1,14 @@
+#[cfg(feature = "agent")]
 mod agents;
+#[cfg(feature = "agent")]
 mod agents_view;
 mod options;
 mod shortcuts;
 
 use gpui::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+#[cfg(feature = "agent")]
+use std::collections::HashSet;
 
 use gpui::*;
 use gpui_component::{
@@ -19,6 +23,7 @@ use gpui_component::{
     v_flex,
 };
 
+#[cfg(feature = "agent")]
 use crate::agent::{AgentCliCapabilities, AgentSettings, BuiltInAgent, CustomAgentProfile};
 use crate::core::config::{
     AppConfig, DiffLayoutPreference, GraphHistoryPreference, LanguagePreference,
@@ -27,6 +32,7 @@ use crate::core::config::{
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
 
+#[cfg(feature = "agent")]
 use super::agent_profiles::AgentProfileEditor;
 
 #[derive(Clone, Debug)]
@@ -46,30 +52,40 @@ pub enum SettingsPanelEvent {
         keys: Vec<String>,
     },
     ShortcutReset(String),
+    #[cfg(feature = "agent")]
     AgentDefaultProfileChanged(String),
+    #[cfg(feature = "agent")]
     AgentExecutableOverrideChanged {
         agent: BuiltInAgent,
         executable: Option<std::path::PathBuf>,
     },
+    #[cfg(feature = "agent")]
     AgentModelOverrideChanged {
         agent: BuiltInAgent,
         model: Option<String>,
     },
+    #[cfg(feature = "agent")]
     AgentReasoningOverrideChanged {
         agent: BuiltInAgent,
         reasoning_effort: Option<String>,
     },
+    #[cfg(feature = "agent")]
     AgentVariantOverrideChanged {
         agent: BuiltInAgent,
         variant: Option<String>,
     },
+    #[cfg(feature = "agent")]
     AgentConnectivityTestRequested(String),
+    #[cfg(feature = "agent")]
     AgentProfileSaved {
         previous_id: Option<String>,
         profile: CustomAgentProfile,
     },
+    #[cfg(feature = "agent")]
     AgentProfileRemoved(String),
+    #[cfg(feature = "agent")]
     AgentBuiltinAddRequested(BuiltInAgent),
+    #[cfg(feature = "agent")]
     AgentBuiltinRemoveRequested(BuiltInAgent),
 }
 
@@ -79,6 +95,7 @@ enum SettingsSection {
     Appearance,
     Layout,
     Shortcuts,
+    #[cfg(feature = "agent")]
     Agents,
 }
 
@@ -121,12 +138,19 @@ pub struct SettingsPanel {
     mono_font: Option<String>,
     ui_font_size: f32,
     diff_font_size: f32,
+    #[cfg(feature = "agent")]
     agent_settings: AgentSettings,
+    #[cfg(feature = "agent")]
     agent_override_errors: HashMap<BuiltInAgent, String>,
+    #[cfg(feature = "agent")]
     agent_probe_results: Vec<(String, Option<Result<String, String>>)>,
+    #[cfg(feature = "agent")]
     agent_probe_capabilities: HashMap<String, AgentCliCapabilities>,
+    #[cfg(feature = "agent")]
     agent_probe_generation: u64,
+    #[cfg(feature = "agent")]
     agent_expanded: HashSet<String>,
+    #[cfg(feature = "agent")]
     agent_add_open: bool,
     font_families: Vec<String>,
     language_state: Entity<SelectState<Vec<SettingsOption<LanguagePreference>>>>,
@@ -138,16 +162,22 @@ pub struct SettingsPanel {
     mono_font_state: Entity<SelectState<SearchableVec<SettingsOption<Option<String>>>>>,
     ui_font_size_state: Entity<SliderState>,
     diff_font_size_state: Entity<SliderState>,
+    #[cfg(feature = "agent")]
     agent_default_profile_state: Entity<SelectState<Vec<SettingsOption<String>>>>,
+    #[cfg(feature = "agent")]
     agent_executable_inputs: Vec<(BuiltInAgent, Entity<InputState>)>,
+    #[cfg(feature = "agent")]
     agent_model_inputs: Vec<(BuiltInAgent, Entity<InputState>)>,
+    #[cfg(feature = "agent")]
     agent_variant_inputs: Vec<(BuiltInAgent, Entity<InputState>)>,
+    #[cfg(feature = "agent")]
     agent_reasoning_states: Vec<(
         BuiltInAgent,
         Entity<SelectState<Vec<SettingsOption<Option<String>>>>>,
     )>,
     shortcut_inputs: Vec<(String, Entity<InputState>)>,
     shortcut_errors: HashMap<String, String>,
+    #[cfg(feature = "agent")]
     agent_profile_editor: Option<Entity<AgentProfileEditor>>,
 }
 
@@ -170,7 +200,9 @@ impl SettingsPanel {
         let mono_font = config.typography.mono_font_family.clone();
         let ui_font_size = config.typography.ui_font_size;
         let diff_font_size = config.typography.diff_font_size;
+        #[cfg(feature = "agent")]
         let agent_settings = config.agent.clone();
+        #[cfg(feature = "agent")]
         let agent_default_profile = agent_settings.default_profile_id();
 
         let language_state = cx.new(|cx| {
@@ -250,6 +282,7 @@ impl SettingsPanel {
                 .step(1.0)
                 .default_value(diff_font_size)
         });
+        #[cfg(feature = "agent")]
         let agent_default_profile_state = cx.new(|cx| {
             let options = agents::agent_profile_options(locale, &agent_settings);
             SelectState::new(
@@ -259,6 +292,7 @@ impl SettingsPanel {
                 cx,
             )
         });
+        #[cfg(feature = "agent")]
         let agent_executable_inputs = BuiltInAgent::ALL
             .iter()
             .copied()
@@ -276,6 +310,7 @@ impl SettingsPanel {
                 (agent, input)
             })
             .collect::<Vec<_>>();
+        #[cfg(feature = "agent")]
         let agent_model_inputs = BuiltInAgent::ALL
             .iter()
             .copied()
@@ -293,6 +328,7 @@ impl SettingsPanel {
                 (agent, input)
             })
             .collect::<Vec<_>>();
+        #[cfg(feature = "agent")]
         let agent_variant_inputs = BuiltInAgent::ALL
             .iter()
             .copied()
@@ -310,6 +346,7 @@ impl SettingsPanel {
                 (agent, input)
             })
             .collect::<Vec<_>>();
+        #[cfg(feature = "agent")]
         let agent_reasoning_states = BuiltInAgent::ALL
             .iter()
             .copied()
@@ -357,12 +394,19 @@ impl SettingsPanel {
             mono_font,
             ui_font_size,
             diff_font_size,
+            #[cfg(feature = "agent")]
             agent_settings,
+            #[cfg(feature = "agent")]
             agent_override_errors: HashMap::new(),
+            #[cfg(feature = "agent")]
             agent_probe_results: Vec::new(),
+            #[cfg(feature = "agent")]
             agent_probe_capabilities: HashMap::new(),
+            #[cfg(feature = "agent")]
             agent_probe_generation: 0,
+            #[cfg(feature = "agent")]
             agent_expanded: HashSet::new(),
+            #[cfg(feature = "agent")]
             agent_add_open: false,
             font_families,
             language_state,
@@ -374,13 +418,19 @@ impl SettingsPanel {
             mono_font_state,
             ui_font_size_state,
             diff_font_size_state,
+            #[cfg(feature = "agent")]
             agent_default_profile_state,
+            #[cfg(feature = "agent")]
             agent_executable_inputs,
+            #[cfg(feature = "agent")]
             agent_model_inputs,
+            #[cfg(feature = "agent")]
             agent_variant_inputs,
+            #[cfg(feature = "agent")]
             agent_reasoning_states,
             shortcut_inputs,
             shortcut_errors: HashMap::new(),
+            #[cfg(feature = "agent")]
             agent_profile_editor: None,
         };
 
@@ -490,6 +540,7 @@ impl SettingsPanel {
         )
         .detach();
 
+        #[cfg(feature = "agent")]
         panel.wire_agent_subscriptions(cx);
         panel.wire_shortcut_subscriptions(cx);
         panel
@@ -497,7 +548,10 @@ impl SettingsPanel {
 
     pub fn set_locale(&mut self, locale: Locale, window: &mut Window, cx: &mut Context<Self>) {
         self.locale = locale;
-        self.agent_profile_editor = None;
+        #[cfg(feature = "agent")]
+        {
+            self.agent_profile_editor = None;
+        }
         let language = self.language;
         let auto_refresh_on_focus = self.auto_refresh_on_focus;
         let theme = self.theme;
@@ -506,7 +560,9 @@ impl SettingsPanel {
         let ui_font = self.ui_font.clone();
         let mono_font = self.mono_font.clone();
         let fonts = self.font_families.clone();
+        #[cfg(feature = "agent")]
         let agent_settings = self.agent_settings.clone();
+        #[cfg(feature = "agent")]
         let agent_default_profile = agent_settings.default_profile_id();
 
         self.language_state.update(cx, |state, cx| {
@@ -544,21 +600,24 @@ impl SettingsPanel {
             state.set_items(SearchableVec::from(options), window, cx);
             state.set_selected_value(&mono_font, window, cx);
         });
-        self.agent_default_profile_state.update(cx, |state, cx| {
-            let options = agents::agent_profile_options(locale, &agent_settings);
-            state.set_items(options.clone(), window, cx);
-            state.set_selected_value(&agent_default_profile, window, cx);
-        });
-        for (agent, state) in &self.agent_reasoning_states {
-            let options = agents::agent_reasoning_options(locale, *agent);
-            let value = agent_settings
-                .launch_overrides
-                .get(agent)
-                .and_then(|overrides| overrides.reasoning_effort.clone());
-            state.update(cx, |state, cx| {
+        #[cfg(feature = "agent")]
+        {
+            self.agent_default_profile_state.update(cx, |state, cx| {
+                let options = agents::agent_profile_options(locale, &agent_settings);
                 state.set_items(options.clone(), window, cx);
-                state.set_selected_value(&value, window, cx);
+                state.set_selected_value(&agent_default_profile, window, cx);
             });
+            for (agent, state) in &self.agent_reasoning_states {
+                let options = agents::agent_reasoning_options(locale, *agent);
+                let value = agent_settings
+                    .launch_overrides
+                    .get(agent)
+                    .and_then(|overrides| overrides.reasoning_effort.clone());
+                state.update(cx, |state, cx| {
+                    state.set_items(options.clone(), window, cx);
+                    state.set_selected_value(&value, window, cx);
+                });
+            }
         }
         cx.notify();
     }
@@ -570,7 +629,10 @@ impl SettingsPanel {
     }
 
     fn close(&mut self, cx: &mut Context<Self>) {
-        self.agent_profile_editor = None;
+        #[cfg(feature = "agent")]
+        {
+            self.agent_profile_editor = None;
+        }
         cx.emit(SettingsPanelEvent::Close);
     }
 
@@ -784,6 +846,7 @@ impl SettingsPanel {
                 )
                 .into_any_element(),
             SettingsSection::Shortcuts => self.render_shortcuts_section(cx),
+            #[cfg(feature = "agent")]
             SettingsSection::Agents => self.render_agents_section(cx),
         }
     }
@@ -809,8 +872,8 @@ impl Render for SettingsPanel {
                 window.prevent_default();
                 cx.stop_propagation();
             })
-            .child(
-                v_flex()
+            .child({
+                let sidebar = v_flex()
                     .w(px(172.))
                     .h_full()
                     .flex_shrink_0()
@@ -850,14 +913,16 @@ impl Render for SettingsPanel {
                         i18n::text(self.locale, "settings-shortcuts"),
                         SettingsSection::Shortcuts,
                         cx,
-                    ))
-                    .child(self.category_button(
-                        "settings-category-agents",
-                        i18n::text(self.locale, "settings-agents"),
-                        SettingsSection::Agents,
-                        cx,
-                    )),
-            )
+                    ));
+                #[cfg(feature = "agent")]
+                let sidebar = sidebar.child(self.category_button(
+                    "settings-category-agents",
+                    i18n::text(self.locale, "settings-agents"),
+                    SettingsSection::Agents,
+                    cx,
+                ));
+                sidebar
+            })
             .child(
                 v_flex()
                     .flex_1()
@@ -899,7 +964,7 @@ impl Render for SettingsPanel {
                     ),
             );
 
-        v_flex()
+        let overlay = v_flex()
             .id("settings-overlay")
             .absolute()
             .top_0()
@@ -913,9 +978,11 @@ impl Render for SettingsPanel {
             .on_mouse_down(MouseButton::Left, move |_event, _window, cx| {
                 this.update(cx, |panel, cx| panel.close(cx));
             })
-            .child(card)
-            .when_some(self.agent_profile_editor.clone(), |element, editor| {
-                element.child(editor)
-            })
+            .child(card);
+        #[cfg(feature = "agent")]
+        let overlay = overlay.when_some(self.agent_profile_editor.clone(), |element, editor| {
+            element.child(editor)
+        });
+        overlay
     }
 }

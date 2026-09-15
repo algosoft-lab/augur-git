@@ -38,6 +38,7 @@ impl Workspace {
     }
 
     pub(super) fn persist_on_quit(&mut self, cx: &mut Context<Self>) -> Task<()> {
+        #[cfg(feature = "agent")]
         if let Some(manager) = &self.extension_manager {
             manager.shutdown();
         }
@@ -59,6 +60,7 @@ impl Workspace {
         })
     }
 
+    #[cfg_attr(not(feature = "agent"), allow(dead_code))]
     pub(super) fn persist_ui_state(&mut self, cx: &mut Context<Self>) {
         let ui_state = self.ui_state.clone();
         cx.background_spawn(async move {

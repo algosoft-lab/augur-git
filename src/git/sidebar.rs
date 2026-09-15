@@ -40,9 +40,11 @@ pub enum SidebarEvent {
     /// Merge a local branch into the current branch.
     MergeIntoCurrent { name: String, no_ff: bool },
     /// Start a visible Agent session that performs the merge.
+    #[cfg(feature = "agent")]
     MergeByAgent(String),
     /// Start a visible Agent session that rebases the current branch onto a
     /// selected local branch.
+    #[cfg(feature = "agent")]
     RebaseByAgent(String),
     /// Rename a remote branch on its remote: one push that creates the new
     /// name and deletes the old one.
@@ -598,16 +600,21 @@ where
                 let sidebar_for_delete = sidebar.clone();
                 let sidebar_for_merge = sidebar.clone();
                 let sidebar_for_merge_no_ff = sidebar.clone();
+                #[cfg(feature = "agent")]
                 let sidebar_for_agent_merge = sidebar.clone();
+                #[cfg(feature = "agent")]
                 let sidebar_for_agent_rebase = sidebar.clone();
                 let rename_value = copy_value.clone();
                 let delete_value = copy_value.clone();
                 let merge_value = copy_value.clone();
                 let merge_no_ff_value = copy_value.clone();
+                #[cfg(feature = "agent")]
                 let agent_merge_value = copy_value.clone();
+                #[cfg(feature = "agent")]
                 let agent_rebase_value = copy_value.clone();
 
-                menu.separator()
+                let menu = menu
+                    .separator()
                     .item(
                         PopupMenuItem::new(i18n::text(locale, "context-rename"))
                             .icon(crate::git::lucide("pencil"))
@@ -654,7 +661,9 @@ where
                                     });
                                 });
                             }),
-                    )
+                    );
+                #[cfg(feature = "agent")]
+                let menu = menu
                     .item(
                         PopupMenuItem::new(i18n::text(locale, "context-merge-by-agent"))
                             .icon(IconName::Bot)
@@ -679,7 +688,8 @@ where
                                     ));
                                 });
                             }),
-                    )
+                    );
+                menu
             }
             RefActions::Tag => {
                 let sidebar_for_delete = sidebar.clone();
