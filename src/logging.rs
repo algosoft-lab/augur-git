@@ -61,10 +61,7 @@ impl LogRouter {
             app: build_logger(log_path(root, Some(LogCategory::App))),
             git: build_logger(log_path(root, Some(LogCategory::Git))),
             agent: build_logger(log_path(root, Some(LogCategory::Agent))),
-            extension: build_logger(log_path(
-                root,
-                Some(LogCategory::Extension),
-            )),
+            extension: build_logger(log_path(root, Some(LogCategory::Extension))),
             terminal: build_logger(log_path(root, Some(LogCategory::Terminal))),
             system: build_logger(log_path(root, Some(LogCategory::System))),
         }
@@ -132,8 +129,7 @@ fn install_panic_hook() {
 
 fn category_for_record(record: &Record<'_>) -> LogCategory {
     let message = record.args().to_string();
-    category_from_message(&message)
-        .unwrap_or_else(|| category_for_target(record.target()))
+    category_from_message(&message).unwrap_or_else(|| category_for_target(record.target()))
 }
 
 fn category_from_message(message: &str) -> Option<LogCategory> {
@@ -145,9 +141,7 @@ fn category_from_message(message: &str) -> Option<LogCategory> {
         || message.starts_with("[graph_perf]")
     {
         Some(LogCategory::Git)
-    } else if message.starts_with("[extension")
-        || message.starts_with("[extensions]")
-    {
+    } else if message.starts_with("[extension") || message.starts_with("[extensions]") {
         Some(LogCategory::Extension)
     } else if message.starts_with("[terminal") {
         Some(LogCategory::Terminal)
@@ -216,9 +210,7 @@ fn is_summary_record(record: &Record<'_>) -> bool {
 }
 
 fn build_logger(path: Option<PathBuf>) -> Logger {
-    let mut builder = Builder::from_env(
-        Env::default().default_filter_or(default_log_filter()),
-    );
+    let mut builder = Builder::from_env(Env::default().default_filter_or(default_log_filter()));
     builder
         .target(Target::Pipe(Box::new(RotatingFileWriter::new(path))))
         .write_style(WriteStyle::Never);
@@ -257,10 +249,7 @@ fn log_root() -> Option<PathBuf> {
     }
 }
 
-fn log_path(
-    root: Option<&Path>,
-    category: Option<LogCategory>,
-) -> Option<PathBuf> {
+fn log_path(root: Option<&Path>, category: Option<LogCategory>) -> Option<PathBuf> {
     let root = root?;
     let file_name = match category {
         Some(category) => format!("{LOG_PREFIX}-{}.log", category.slug()),

@@ -107,10 +107,7 @@ impl LocationConfig {
     /// Resolve this persisted location into an executable repository handle.
     /// WSL locations are only executable on Windows; other platforms receive
     /// an explicit error instead of a silently degraded repository.
-    pub fn to_repo(
-        &self,
-        path: impl Into<String>,
-    ) -> Result<GitRepo, GitError> {
+    pub fn to_repo(&self, path: impl Into<String>) -> Result<GitRepo, GitError> {
         match self {
             Self::Local => Ok(GitRepo::local(path)),
             Self::Wsl { distro } => {
@@ -350,21 +347,17 @@ impl Default for LayoutSettings {
 impl LayoutSettings {
     /// Clamp persisted or runtime values before applying them to a layout.
     pub fn normalize(&mut self) {
-        self.sidebar_width =
-            finite_or(self.sidebar_width, Self::default().sidebar_width)
-                .clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
-        self.right_panel_width = finite_or(
-            self.right_panel_width,
-            Self::default().right_panel_width,
-        )
-        .clamp(MIN_RIGHT_PANEL_WIDTH, MAX_RIGHT_PANEL_WIDTH);
+        self.sidebar_width = finite_or(self.sidebar_width, Self::default().sidebar_width)
+            .clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
+        self.right_panel_width =
+            finite_or(self.right_panel_width, Self::default().right_panel_width)
+                .clamp(MIN_RIGHT_PANEL_WIDTH, MAX_RIGHT_PANEL_WIDTH);
         self.diff_height = self.diff_height.map(|height| {
             finite_or(height, Self::default().diff_height.unwrap_or(0.0))
                 .clamp(MIN_DIFF_HEIGHT, MAX_DIFF_HEIGHT)
         });
-        self.file_list_ratio =
-            finite_or(self.file_list_ratio, DEFAULT_FILE_LIST_RATIO)
-                .clamp(MIN_FILE_LIST_RATIO, MAX_FILE_LIST_RATIO);
+        self.file_list_ratio = finite_or(self.file_list_ratio, DEFAULT_FILE_LIST_RATIO)
+            .clamp(MIN_FILE_LIST_RATIO, MAX_FILE_LIST_RATIO);
     }
 }
 
@@ -432,10 +425,8 @@ impl Default for UiState {
 impl UiState {
     pub fn normalize(&mut self) {
         self.window.normalize();
-        self.extensions_window.normalize_with(
-            MIN_EXTENSIONS_WINDOW_WIDTH,
-            MIN_EXTENSIONS_WINDOW_HEIGHT,
-        );
+        self.extensions_window
+            .normalize_with(MIN_EXTENSIONS_WINDOW_WIDTH, MIN_EXTENSIONS_WINDOW_HEIGHT);
         self.layout.normalize();
     }
 }
@@ -486,9 +477,9 @@ impl AppConfig {
     fn normalize(&mut self) {
         let mut seen = Vec::new();
         self.open_tabs.retain(|tab| {
-            let duplicate = seen.iter().any(|(path, location)| {
-                path == &tab.path && location == &tab.location
-            });
+            let duplicate = seen
+                .iter()
+                .any(|(path, location)| path == &tab.path && location == &tab.location);
             let empty = tab.path.is_empty();
             if duplicate || empty {
                 false
@@ -498,14 +489,15 @@ impl AppConfig {
             }
         });
 
-        if self.active_tab_path.as_ref().is_some_and(|path| {
-            self.open_tabs.iter().all(|tab| &tab.path != path)
-        }) {
+        if self
+            .active_tab_path
+            .as_ref()
+            .is_some_and(|path| self.open_tabs.iter().all(|tab| &tab.path != path))
+        {
             self.active_tab_path = None;
         }
         if self.active_tab_path.is_none() {
-            self.active_tab_path =
-                self.open_tabs.first().map(|tab| tab.path.clone());
+            self.active_tab_path = self.open_tabs.first().map(|tab| tab.path.clone());
         }
     }
 }
@@ -624,9 +616,7 @@ pub fn load() -> AppConfig {
         Ok(text) => serde_json::from_str::<RawAppConfig>(&text)
             .map(AppConfig::from)
             .unwrap_or_else(|e| {
-                log::warn!(
-                    "[config] failed to parse config; using defaults: {e}"
-                );
+                log::warn!("[config] failed to parse config; using defaults: {e}");
                 fresh_install_config()
             }),
         Err(_) => {
@@ -652,9 +642,7 @@ pub fn load_ui_state() -> UiState {
                 state
             })
             .unwrap_or_else(|error| {
-                log::warn!(
-                    "[ui_state] failed to parse UI state; using defaults: {error}"
-                );
+                log::warn!("[ui_state] failed to parse UI state; using defaults: {error}");
                 UiState::default()
             }),
         Err(_) => UiState::default(),
@@ -669,20 +657,15 @@ pub fn save_ui_state(state: &UiState) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(crate) fn write_atomically(
-    path: &std::path::Path,
-    text: &str,
-) -> anyhow::Result<()> {
+pub(crate) fn write_atomically(path: &std::path::Path, text: &str) -> anyhow::Result<()> {
     static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
     let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
     let filename = path
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("config");
-    let temp_path = path.with_file_name(format!(
-        ".{filename}.tmp-{}-{counter}",
-        std::process::id(),
-    ));
+    let temp_path =
+        path.with_file_name(format!(".{filename}.tmp-{}-{counter}", std::process::id(),));
     std::fs::write(&temp_path, text)?;
     match std::fs::rename(&temp_path, path) {
         Ok(()) => Ok(()),
@@ -746,9 +729,7 @@ impl ConfigSaveQueue {
                 .name("augur-config-save-fallback".to_string())
                 .spawn(move || {
                     if let Err(error) = save(&config) {
-                        log::error!(
-                            "[config] failed to save configuration: {error}"
-                        );
+                        log::error!("[config] failed to save configuration: {error}");
                     }
                 });
             return;
@@ -786,9 +767,7 @@ fn run_save_worker(receiver: Receiver<ConfigSaveRequest>) {
     while let Ok(request) = receiver.recv() {
         let (mut latest, mut completed) = match request {
             ConfigSaveRequest::Save(config) => (config, None),
-            ConfigSaveRequest::Flush { config, completed } => {
-                (config, Some(completed))
-            }
+            ConfigSaveRequest::Flush { config, completed } => (config, Some(completed)),
         };
         let mut coalesced = 0;
         let deadline = Instant::now() + CONFIG_SAVE_DEBOUNCE;
@@ -825,9 +804,7 @@ fn run_save_worker(receiver: Receiver<ConfigSaveRequest>) {
         if let Err(error) = save(&latest) {
             log::error!("[config] failed to save configuration: {error}");
         } else {
-            log::debug!(
-                "[config] configuration saved (coalesced_updates={coalesced})"
-            );
+            log::debug!("[config] configuration saved (coalesced_updates={coalesced})");
         }
         if let Some(completed) = completed {
             let _ = completed.send(());
@@ -873,9 +850,7 @@ mod tests {
                 {"path": "/home/u/repo", "location": {"kind": "wsl", "distro": "Ubuntu-22.04"}}
             ]
         }"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(config.open_tabs[0].location, LocationConfig::Local);
         assert_eq!(
             config.open_tabs[1].location,
@@ -886,18 +861,14 @@ mod tests {
 
         let serialized = serde_json::to_string(&config).unwrap();
         assert!(serialized.contains(r#""kind":"wsl""#));
-        let back = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(&serialized).unwrap(),
-        );
+        let back = AppConfig::from(serde_json::from_str::<RawAppConfig>(&serialized).unwrap());
         assert_eq!(back.open_tabs, config.open_tabs);
     }
 
     #[test]
     fn legacy_recent_repos_migrate_to_local_entries() {
         let json = r#"{"recent_repos":["C:\\repo-a","/home/u/repo-b"]}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(
             config.recent_repos,
             vec![
@@ -915,9 +886,7 @@ mod tests {
                 "C:\\repo-b"
             ]
         }"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(
             config.recent_repos[0],
             RecentRepo {
@@ -979,8 +948,12 @@ mod tests {
                 location: LocationConfig::wsl("Ubuntu"),
             }
         );
-        assert!(config.recent_repos.iter().any(|repo| repo.path == "repo3"
-            && repo.location == LocationConfig::Local));
+        assert!(
+            config
+                .recent_repos
+                .iter()
+                .any(|repo| repo.path == "repo3" && repo.location == LocationConfig::Local)
+        );
     }
 
     #[test]
@@ -997,17 +970,13 @@ mod tests {
     #[test]
     fn accepts_language_alias() {
         let json = r#"{"language":"zh"}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(config.language, LanguagePreference::SimplifiedChinese);
     }
 
     #[test]
     fn missing_agent_settings_migrate_to_built_in_default() {
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(r#"{}"#).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(r#"{}"#).unwrap());
         // A legacy file (or one without the enablement field) keeps every
         // built-in agent enabled until the user opts out.
         assert_eq!(
@@ -1033,17 +1002,13 @@ mod tests {
     #[test]
     fn explicit_empty_builtins_survive_round_trip() {
         let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(
-                r#"{"agent":{"enabled_builtins":[]}}"#,
-            )
-            .unwrap(),
+            serde_json::from_str::<RawAppConfig>(r#"{"agent":{"enabled_builtins":[]}}"#).unwrap(),
         );
         assert!(config.agent.enabled_builtins().is_empty());
         assert_eq!(config.agent.default_profile_id(), "");
         assert!(config.agent.profile("codex").is_none());
         let serialized = serde_json::to_string(&config).unwrap();
-        let reparsed =
-            serde_json::from_str::<RawAppConfig>(&serialized).unwrap();
+        let reparsed = serde_json::from_str::<RawAppConfig>(&serialized).unwrap();
         assert!(reparsed.agent.enabled_builtins == Some(Vec::new()));
     }
 
@@ -1063,9 +1028,7 @@ mod tests {
                 }
             }
         }"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(
             config.agent.launch_overrides.get(&BuiltInAgent::Codex),
             Some(&AgentLaunchOverrides {
@@ -1101,9 +1064,7 @@ mod tests {
                 }]
             }
         }"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(config.agent.default_profile_id(), "reviewer");
         let profile = config.agent.profile("reviewer").expect("profile");
         assert_eq!(profile.args, vec!["--interactive"]);
@@ -1116,9 +1077,7 @@ mod tests {
     #[test]
     fn migrates_legacy_single_repository() {
         let json = r#"{"repo":{"path":"D:\\repo-a"}}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(config.open_tabs.len(), 1);
         assert_eq!(config.open_tabs[0].path, r"D:\repo-a");
         assert_eq!(config.active_tab_path.as_deref(), Some(r"D:\repo-a"));
@@ -1130,9 +1089,7 @@ mod tests {
             "open_tabs":[{"path":"repo-a"},{"path":"repo-a"},{"path":"repo-b"}],
             "active_tab_path":"missing"
         }"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(
             config
                 .open_tabs
@@ -1147,9 +1104,7 @@ mod tests {
     #[test]
     fn theme_preference_round_trips() {
         let json = r#"{"theme":"catppuccin-latte"}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(config.theme, ThemePreference::CatppuccinLatte);
         assert_eq!(config.theme.registry_name(), "Catppuccin Latte");
 
@@ -1160,27 +1115,21 @@ mod tests {
     #[test]
     fn missing_theme_field_defaults_to_catppuccin_mocha() {
         let json = r#"{}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(config.theme, ThemePreference::CatppuccinMocha);
     }
 
     #[test]
     fn missing_typography_fields_default_to_system_fonts() {
         let json = r#"{}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(config.typography, TypographySettings::default());
     }
 
     #[test]
     fn legacy_typography_config_defaults_ui_font_size() {
         let json = r#"{"typography":{"ui_font_family":"Inter"}}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(config.typography.ui_font_family.as_deref(), Some("Inter"));
         assert_eq!(config.typography.ui_font_size, DEFAULT_UI_FONT_SIZE);
         assert_eq!(config.typography.diff_font_size, DEFAULT_DIFF_FONT_SIZE);
@@ -1216,10 +1165,9 @@ mod tests {
 
     #[test]
     fn diff_layout_preference_round_trips() {
-        let json = r#"{"view":{"show_untracked":true,"auto_follow":true,"diff_layout":"side-by-side"}}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let json =
+            r#"{"view":{"show_untracked":true,"auto_follow":true,"diff_layout":"side-by-side"}}"#;
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(config.view.diff_layout, DiffLayoutPreference::SideBySide);
 
         let serialized = serde_json::to_string(&AppConfig::default()).unwrap();
@@ -1228,10 +1176,9 @@ mod tests {
 
     #[test]
     fn graph_history_preference_round_trips() {
-        let json = r#"{"view":{"show_untracked":true,"auto_follow":true,"graph_history":"all-branches"}}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let json =
+            r#"{"view":{"show_untracked":true,"auto_follow":true,"graph_history":"all-branches"}}"#;
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(
             config.view.graph_history,
             GraphHistoryPreference::AllBranches
@@ -1244,9 +1191,7 @@ mod tests {
     #[test]
     fn missing_graph_history_defaults_to_all_branches() {
         let json = r#"{"view":{"show_untracked":false,"auto_follow":true}}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(
             config.view.graph_history,
             GraphHistoryPreference::AllBranches
@@ -1256,27 +1201,22 @@ mod tests {
     #[test]
     fn missing_diff_layout_defaults_to_side_by_side() {
         let json = r#"{"view":{"show_untracked":false,"auto_follow":true}}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(config.view.diff_layout, DiffLayoutPreference::SideBySide);
     }
 
     #[test]
     fn missing_auto_refresh_on_focus_defaults_to_enabled() {
         let json = r#"{"view":{"show_untracked":false,"auto_follow":true}}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert!(config.view.auto_refresh_on_focus);
     }
 
     #[test]
     fn auto_refresh_on_focus_round_trips() {
-        let json = r#"{"view":{"show_untracked":true,"auto_follow":true,"auto_refresh_on_focus":false}}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let json =
+            r#"{"view":{"show_untracked":true,"auto_follow":true,"auto_refresh_on_focus":false}}"#;
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert!(!config.view.auto_refresh_on_focus);
 
         let serialized = serde_json::to_string(&AppConfig::default()).unwrap();
@@ -1286,9 +1226,7 @@ mod tests {
     #[test]
     fn commit_action_preference_round_trips() {
         let json = r#"{"view":{"show_untracked":true,"auto_follow":true,"commit_action":"agent"}}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(config.view.commit_action, CommitActionPreference::Agent);
 
         let serialized = serde_json::to_string(&AppConfig::default()).unwrap();
@@ -1298,19 +1236,14 @@ mod tests {
     #[test]
     fn missing_commit_action_defaults_to_commit() {
         let json = r#"{"view":{"show_untracked":false,"auto_follow":true}}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(config.view.commit_action, CommitActionPreference::Commit);
     }
 
     #[test]
     fn theme_survives_legacy_repo_migration() {
-        let json =
-            r#"{"theme":"catppuccin-mocha","repo":{"path":"D:\\repo-a"}}"#;
-        let config = AppConfig::from(
-            serde_json::from_str::<RawAppConfig>(json).unwrap(),
-        );
+        let json = r#"{"theme":"catppuccin-mocha","repo":{"path":"D:\\repo-a"}}"#;
+        let config = AppConfig::from(serde_json::from_str::<RawAppConfig>(json).unwrap());
         assert_eq!(config.theme, ThemePreference::CatppuccinMocha);
         assert_eq!(config.open_tabs.len(), 1);
     }

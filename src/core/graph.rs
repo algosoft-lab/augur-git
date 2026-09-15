@@ -136,10 +136,7 @@ fn is_head_ref(reference: &str) -> bool {
 /// When the remote list is unavailable, any slashed name is treated as a
 /// remote-tracking branch. `origin/HEAD` alias refs are omitted because they
 /// only duplicate their symbolic target.
-pub fn parse_ref_labels(
-    decorations: &str,
-    remote_names: &[String],
-) -> Vec<RefLabel> {
+pub fn parse_ref_labels(decorations: &str, remote_names: &[String]) -> Vec<RefLabel> {
     let mut labels = Vec::new();
     for reference in refs_of(decorations) {
         if reference == "HEAD" {
@@ -169,11 +166,7 @@ pub fn parse_ref_labels(
     labels
 }
 
-fn push_branch_label(
-    labels: &mut Vec<RefLabel>,
-    reference: &str,
-    remote_names: &[String],
-) {
+fn push_branch_label(labels: &mut Vec<RefLabel>, reference: &str, remote_names: &[String]) {
     let name = reference.strip_prefix("remotes/").unwrap_or(reference);
     if name.ends_with("/HEAD") {
         return;
@@ -218,8 +211,7 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
 
     for commit in commits {
         let input_lanes = active_lanes.clone();
-        let current_lane =
-            input_lanes.iter().position(|lane| lane.oid == commit.oid);
+        let current_lane = input_lanes.iter().position(|lane| lane.oid == commit.oid);
         let node_lane = current_lane.unwrap_or(input_lanes.len());
         let node_color = current_lane
             .and_then(|lane| input_lanes.get(lane).map(|lane| lane.color_index))
@@ -233,9 +225,7 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
                 input_lanes
                     .iter()
                     .enumerate()
-                    .filter_map(|(index, lane)| {
-                        (lane.oid == commit.oid).then_some(index)
-                    })
+                    .filter_map(|(index, lane)| (lane.oid == commit.oid).then_some(index))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
@@ -247,8 +237,7 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
         let mut parent_lanes = Vec::with_capacity(commit.parents.len());
 
         if let Some(first_parent) = commit.parents.first() {
-            let first_parent_lane =
-                GraphLane::new(first_parent.clone(), node_color);
+            let first_parent_lane = GraphLane::new(first_parent.clone(), node_color);
             let output_index = current_lane
                 .map(|lane| lane.min(output_lanes.len()))
                 .unwrap_or(output_lanes.len());
@@ -270,8 +259,7 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
         }
 
         let is_head = refs_of(&commit.decorations).any(is_head_ref);
-        let lane_count =
-            input_lanes.len().max(output_lanes.len()).max(node_lane + 1);
+        let lane_count = input_lanes.len().max(output_lanes.len()).max(node_lane + 1);
         let is_merge = commit.parents.len() > 1;
 
         rows.push(GraphRow {
@@ -293,11 +281,7 @@ pub fn compute_graph(commits: &[LogRow]) -> Vec<GraphRow> {
 }
 
 /// Format a commit timestamp relative to `now`.
-pub fn format_relative_time(
-    timestamp: i64,
-    now: i64,
-    locale: crate::core::i18n::Locale,
-) -> String {
+pub fn format_relative_time(timestamp: i64, now: i64, locale: crate::core::i18n::Locale) -> String {
     use crate::core::i18n::{text, text_args};
 
     let minutes = ((now - timestamp).max(0) / 60) as i64;
@@ -604,11 +588,7 @@ mod tests {
             "5min ago"
         );
         assert_eq!(
-            format_relative_time(
-                now - 24 * 3600,
-                now,
-                Locale::SimplifiedChinese
-            ),
+            format_relative_time(now - 24 * 3600, now, Locale::SimplifiedChinese),
             "1 天前"
         );
         assert_eq!(
@@ -627,8 +607,7 @@ mod tests {
         assert_eq!(column_visibility(t2 - 0.1, tree_w), (false, false));
         for width in [t2, t1 - 1.0, t1] {
             let (author, message) = column_visibility(width, tree_w);
-            let (previous_author, previous_message) =
-                column_visibility(width - 1.0, tree_w);
+            let (previous_author, previous_message) = column_visibility(width - 1.0, tree_w);
             assert!(author >= previous_author && message >= previous_message);
         }
     }

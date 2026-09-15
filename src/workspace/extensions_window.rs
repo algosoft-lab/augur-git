@@ -24,46 +24,31 @@ impl ExtensionsWindow {
         cx: &mut Context<Self>,
     ) -> Self {
         let workspace_for_events = workspace.clone();
-        cx.subscribe_in(
-            &panel,
-            window,
-            move |_owner, _panel, event, window, cx| {
-                let _ = workspace_for_events.update(cx, |workspace, cx| {
-                    workspace.handle_extensions_panel_event(event, window, cx);
-                });
-            },
-        )
+        cx.subscribe_in(&panel, window, move |_owner, _panel, event, window, cx| {
+            let _ = workspace_for_events.update(cx, |workspace, cx| {
+                workspace.handle_extensions_panel_event(event, window, cx);
+            });
+        })
         .detach();
         let workspace_for_bounds = workspace;
         cx.observe_window_bounds(window, move |_owner, window, cx| {
             let _ = workspace_for_bounds.update(cx, |workspace, _| {
-                window_state::update_ui_state_extensions_window(
-                    &mut workspace.ui_state,
-                    window,
-                );
+                window_state::update_ui_state_extensions_window(&mut workspace.ui_state, window);
             });
         })
         .detach();
         Self { panel, locale }
     }
 
-    pub(super) fn set_locale(
-        &mut self,
-        locale: Locale,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
         self.locale = locale;
         self.panel.update(cx, |panel, _cx| panel.set_locale(locale));
         cx.notify();
     }
 }
 
-pub(super) fn window_options(
-    cx: &mut Context<Workspace>,
-    state: &WindowState,
-) -> WindowOptions {
-    let mut options =
-        window_state::initial_extensions_window_options(cx, state);
+pub(super) fn window_options(cx: &mut Context<Workspace>, state: &WindowState) -> WindowOptions {
+    let mut options = window_state::initial_extensions_window_options(cx, state);
     options.is_resizable = true;
     options.is_minimizable = true;
     options.kind = WindowKind::Normal;
@@ -72,11 +57,7 @@ pub(super) fn window_options(
 }
 
 impl Render for ExtensionsWindow {
-    fn render(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         window.set_rem_size(cx.theme().font_size);
         let colors = cx.theme().colors.clone();
         let title = i18n::text(self.locale, "extensions-title");

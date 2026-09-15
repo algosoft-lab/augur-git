@@ -29,10 +29,7 @@ pub struct RemoteBranchGroup {
 /// fall back to splitting at the first slash, and names without a slash land
 /// in the catch-all `(other)` group. Symbolic `remote/HEAD` aliases are
 /// skipped because they duplicate the branch they point at.
-pub fn group_remote_branches(
-    remotes: &[String],
-    branches: &[String],
-) -> Vec<RemoteBranchGroup> {
+pub fn group_remote_branches(remotes: &[String], branches: &[String]) -> Vec<RemoteBranchGroup> {
     let mut groups: BTreeMap<&str, Vec<RemoteBranchEntry>> = BTreeMap::new();
     for remote in remotes {
         groups.entry(remote).or_default();
@@ -67,15 +64,11 @@ pub fn group_remote_branches(
 
 /// Find the known remote owning `branch`, returning `(remote, remainder)`.
 /// The longest matching remote wins so `foo/bar` beats a hypothetical `foo`.
-fn matched_remote<'a>(
-    remotes: &'a [String],
-    branch: &'a str,
-) -> Option<(&'a str, &'a str)> {
+fn matched_remote<'a>(remotes: &'a [String], branch: &'a str) -> Option<(&'a str, &'a str)> {
     remotes
         .iter()
         .filter_map(|remote| {
-            let rest =
-                branch.strip_prefix(remote.as_str())?.strip_prefix('/')?;
+            let rest = branch.strip_prefix(remote.as_str())?.strip_prefix('/')?;
             Some((remote.as_str(), rest))
         })
         .max_by_key(|(remote, _)| remote.len())
@@ -113,10 +106,7 @@ mod tests {
 
     #[test]
     fn keeps_full_name_for_actions() {
-        let groups = group_remote_branches(
-            &names(&["origin"]),
-            &names(&["origin/main"]),
-        );
+        let groups = group_remote_branches(&names(&["origin"]), &names(&["origin/main"]));
         let entry = &groups[0].branches[0];
         assert_eq!(entry.full_name, "origin/main");
         assert_eq!(entry.label, "main");
@@ -124,20 +114,14 @@ mod tests {
 
     #[test]
     fn slash_in_remote_name_matches_longest_prefix() {
-        let groups = group_remote_branches(
-            &names(&["foo/bar"]),
-            &names(&["foo/bar/baz"]),
-        );
+        let groups = group_remote_branches(&names(&["foo/bar"]), &names(&["foo/bar/baz"]));
         assert_eq!(groups[0].remote, "foo/bar");
         assert_eq!(labels(&groups[0]), ["baz"]);
     }
 
     #[test]
     fn unknown_prefix_falls_back_to_first_segment() {
-        let groups = group_remote_branches(
-            &names(&["origin"]),
-            &names(&["stale/topic"]),
-        );
+        let groups = group_remote_branches(&names(&["origin"]), &names(&["stale/topic"]));
         let stale = groups
             .iter()
             .find(|g| g.remote == "stale")
@@ -147,8 +131,7 @@ mod tests {
 
     #[test]
     fn branch_without_slash_lands_in_other_group() {
-        let groups =
-            group_remote_branches(&names(&["origin"]), &names(&["odd"]));
+        let groups = group_remote_branches(&names(&["origin"]), &names(&["odd"]));
         let other = groups
             .iter()
             .find(|g| g.remote == OTHER_GROUP)
@@ -158,17 +141,14 @@ mod tests {
 
     #[test]
     fn head_alias_is_skipped() {
-        let groups = group_remote_branches(
-            &names(&["origin"]),
-            &names(&["origin/HEAD", "origin/main"]),
-        );
+        let groups =
+            group_remote_branches(&names(&["origin"]), &names(&["origin/HEAD", "origin/main"]));
         assert_eq!(labels(&groups[0]), ["main"]);
     }
 
     #[test]
     fn empty_remote_still_produces_group() {
-        let groups =
-            group_remote_branches(&names(&["origin", "empty"]), &names(&[]));
+        let groups = group_remote_branches(&names(&["origin", "empty"]), &names(&[]));
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].remote, "empty");
         assert!(groups[0].branches.is_empty());

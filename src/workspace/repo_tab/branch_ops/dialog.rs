@@ -57,8 +57,7 @@ impl RepoTab {
                 !reference.is_empty() && self.stash_count > 0
             }
             PendingBranchDialog::Merge { .. } | PendingBranchDialog::Rebase => {
-                !self.has_unresolved_conflicts
-                    && !self.local_branches.is_empty()
+                !self.has_unresolved_conflicts && !self.local_branches.is_empty()
             }
             PendingBranchDialog::DeleteRef { name, is_tag } => {
                 // The current branch can never be deleted.
@@ -99,15 +98,13 @@ impl RepoTab {
                 PendingBranchDialog::RenameRemote { old, .. } => old.clone(),
                 _ => String::new(),
             };
-            let state =
-                cx.new(|cx| InputState::new(window, cx).default_value(prefill));
+            let state = cx.new(|cx| InputState::new(window, cx).default_value(prefill));
             state.update(cx, |input, cx| input.focus(window, cx));
             tab.dialogs.text_input = Some(state);
         }
 
         let (confirm_enabled, error_text) = match &pending {
-            PendingBranchDialog::NewBranch
-            | PendingBranchDialog::Rename { .. } => {
+            PendingBranchDialog::NewBranch | PendingBranchDialog::Rename { .. } => {
                 let name = input_value(tab, cx);
                 let allow = match &pending {
                     PendingBranchDialog::Rename { old } => Some(old.as_str()),
@@ -141,9 +138,7 @@ impl RepoTab {
                 match args::validate_branch_name(&name, &[], None) {
                     None => (true, None),
                     Some(args::NameError::Empty) => (false, None),
-                    Some(_) => {
-                        (false, Some(i18n::text(locale, "branch-name-invalid")))
-                    }
+                    Some(_) => (false, Some(i18n::text(locale, "branch-name-invalid"))),
                 }
             }
             PendingBranchDialog::Stash => (true, None),
@@ -181,17 +176,15 @@ impl RepoTab {
                 &[("branch", old)],
                 error_text,
             ),
-            PendingBranchDialog::RenameRemote { remote, old } => {
-                named_input_body(
-                    &colors,
-                    tab.dialogs.text_input.as_ref(),
-                    locale,
-                    "branch-name-label",
-                    "rename-remote-branch-hint",
-                    &[("remote", remote), ("branch", old)],
-                    error_text,
-                )
-            }
+            PendingBranchDialog::RenameRemote { remote, old } => named_input_body(
+                &colors,
+                tab.dialogs.text_input.as_ref(),
+                locale,
+                "branch-name-label",
+                "rename-remote-branch-hint",
+                &[("remote", remote), ("branch", old)],
+                error_text,
+            ),
             PendingBranchDialog::Stash => {
                 let count = tab.local_change_count.to_string();
                 named_input_body(
@@ -227,10 +220,7 @@ impl RepoTab {
                             div()
                                 .text_size(crate::theme::scaled_text_size(12.))
                                 .text_color(colors.muted_foreground)
-                                .child(shared(i18n::text(
-                                    locale,
-                                    "merge-source-label",
-                                ))),
+                                .child(shared(i18n::text(locale, "merge-source-label"))),
                         )
                         .child(source_selector(tab, locale, &this)),
                 );
@@ -256,8 +246,7 @@ impl RepoTab {
                         ))),
                 );
                 if !is_tag {
-                    body =
-                        body.child(delete_force_checkbox(locale, &this, tab));
+                    body = body.child(delete_force_checkbox(locale, &this, tab));
                 }
                 body.into_any_element()
             }
@@ -292,47 +281,30 @@ impl RepoTab {
         };
 
         let title_icon = match &pending {
-            PendingBranchDialog::NewBranch => {
-                crate::git::lucide("git-branch-plus")
-            }
-            PendingBranchDialog::Rename { .. }
-            | PendingBranchDialog::RenameRemote { .. } => {
+            PendingBranchDialog::NewBranch => crate::git::lucide("git-branch-plus"),
+            PendingBranchDialog::Rename { .. } | PendingBranchDialog::RenameRemote { .. } => {
                 crate::git::lucide("pencil")
             }
             PendingBranchDialog::Stash => crate::git::lucide("archive"),
-            PendingBranchDialog::Merge { .. } => {
-                crate::git::lucide("git-merge")
-            }
-            PendingBranchDialog::Rebase => {
-                crate::git::lucide("git-commit-horizontal")
-            }
+            PendingBranchDialog::Merge { .. } => crate::git::lucide("git-merge"),
+            PendingBranchDialog::Rebase => crate::git::lucide("git-commit-horizontal"),
             PendingBranchDialog::DeleteRef { .. }
             | PendingBranchDialog::DeleteRemote { .. }
-            | PendingBranchDialog::DropStash { .. } => {
-                crate::git::lucide("trash-2")
-            }
+            | PendingBranchDialog::DropStash { .. } => crate::git::lucide("trash-2"),
         };
         let title_text = match &pending {
-            PendingBranchDialog::NewBranch => {
-                i18n::text(locale, "branch-new-title")
-            }
-            PendingBranchDialog::Rename { .. } => {
-                i18n::text(locale, "branch-rename-title")
-            }
+            PendingBranchDialog::NewBranch => i18n::text(locale, "branch-new-title"),
+            PendingBranchDialog::Rename { .. } => i18n::text(locale, "branch-rename-title"),
             PendingBranchDialog::RenameRemote { .. } => {
                 i18n::text(locale, "rename-remote-branch-title")
             }
             PendingBranchDialog::Stash => i18n::text(locale, "stash-title"),
-            PendingBranchDialog::Merge { .. } => i18n::text_args(
-                locale,
-                "merge-title",
-                &[("branch", &tab.branch)],
-            ),
-            PendingBranchDialog::Rebase => i18n::text_args(
-                locale,
-                "rebase-title",
-                &[("branch", &tab.branch)],
-            ),
+            PendingBranchDialog::Merge { .. } => {
+                i18n::text_args(locale, "merge-title", &[("branch", &tab.branch)])
+            }
+            PendingBranchDialog::Rebase => {
+                i18n::text_args(locale, "rebase-title", &[("branch", &tab.branch)])
+            }
             PendingBranchDialog::DeleteRef { is_tag, .. } => i18n::text(
                 locale,
                 if *is_tag {
@@ -344,9 +316,7 @@ impl RepoTab {
             PendingBranchDialog::DeleteRemote { .. } => {
                 i18n::text(locale, "delete-remote-branch-title")
             }
-            PendingBranchDialog::DropStash { .. } => {
-                i18n::text(locale, "stash-drop-title")
-            }
+            PendingBranchDialog::DropStash { .. } => i18n::text(locale, "stash-drop-title"),
         };
 
         let title_row = h_flex()
@@ -465,11 +435,7 @@ fn named_input_body(
 }
 
 /// Source branch dropdown used by the merge and rebase dialogs.
-fn source_selector(
-    tab: &RepoTab,
-    locale: Locale,
-    this: &Entity<RepoTab>,
-) -> impl IntoElement {
+fn source_selector(tab: &RepoTab, locale: Locale, this: &Entity<RepoTab>) -> impl IntoElement {
     let selected = tab.dialogs.merge_source.clone();
     let label = selected
         .clone()
@@ -504,11 +470,7 @@ fn source_selector(
 }
 
 /// No-fast-forward checkbox for the merge dialog.
-fn merge_no_ff_checkbox(
-    locale: Locale,
-    this: &Entity<RepoTab>,
-    tab: &RepoTab,
-) -> Checkbox {
+fn merge_no_ff_checkbox(locale: Locale, this: &Entity<RepoTab>, tab: &RepoTab) -> Checkbox {
     dialog_checkbox(
         "merge-no-ff",
         i18n::text(locale, "merge-no-ff-label"),
@@ -519,11 +481,7 @@ fn merge_no_ff_checkbox(
 }
 
 /// Force-delete checkbox for the branch delete dialog.
-fn delete_force_checkbox(
-    locale: Locale,
-    this: &Entity<RepoTab>,
-    tab: &RepoTab,
-) -> Checkbox {
+fn delete_force_checkbox(locale: Locale, this: &Entity<RepoTab>, tab: &RepoTab) -> Checkbox {
     dialog_checkbox(
         "delete-force",
         i18n::text(locale, "delete-force-label"),
@@ -542,14 +500,15 @@ fn dialog_checkbox(
     set: impl Fn(&mut RepoTab, bool) + Copy + 'static,
 ) -> Checkbox {
     let entity = this.clone();
-    Checkbox::new(id).label(label).checked(checked).on_click(
-        move |checked: &bool, _window, cx| {
+    Checkbox::new(id)
+        .label(label)
+        .checked(checked)
+        .on_click(move |checked: &bool, _window, cx| {
             entity.update(cx, |tab, cx| {
                 set(tab, *checked);
                 cx.notify();
             });
-        },
-    )
+        })
 }
 
 /// Re-validate at confirm time and close the dialog before dispatching the
@@ -629,11 +588,7 @@ fn confirm_branch_dialog(tab: &mut RepoTab, cx: &mut Context<RepoTab>) {
 
 /// Confirm-time validation for name dialogs. The allow value exempts the old
 /// name when renaming.
-fn validated_name(
-    tab: &RepoTab,
-    cx: &Context<RepoTab>,
-    allow: Option<&str>,
-) -> Option<String> {
+fn validated_name(tab: &RepoTab, cx: &Context<RepoTab>, allow: Option<&str>) -> Option<String> {
     let name = input_value(tab, cx);
     let mut existing = tab.local_branches.clone();
     if !tab.branch.is_empty() {
@@ -643,11 +598,7 @@ fn validated_name(
 }
 
 /// Core confirm-time validation against an explicit branch list.
-fn validated_name_in(
-    name: &str,
-    existing: &[String],
-    allow: Option<&str>,
-) -> Option<String> {
+fn validated_name_in(name: &str, existing: &[String], allow: Option<&str>) -> Option<String> {
     match args::validate_branch_name(name, existing, allow) {
         None => Some(name.to_string()),
         Some(error) => {

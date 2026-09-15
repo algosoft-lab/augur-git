@@ -9,8 +9,8 @@ use std::sync::mpsc::Sender;
 use crate::core::diff::is_binary_patch;
 
 use super::{
-    FileStatus, GitEvent, GitRepo, MAX_BLOB_SIZE, RepoLocation,
-    WorkingTreeAction, WorkingTreeDiffKind, WorkingTreeScope, read_blob_spec,
+    FileStatus, GitEvent, GitRepo, MAX_BLOB_SIZE, RepoLocation, WorkingTreeAction,
+    WorkingTreeDiffKind, WorkingTreeScope, read_blob_spec,
 };
 
 /// Build the regular working-tree diff command for one status entry.
@@ -65,8 +65,7 @@ pub(super) fn run_file_diff(
     file: &FileStatus,
     event_tx: &Sender<GitEvent>,
 ) {
-    let untracked =
-        matches!(kind, WorkingTreeDiffKind::Unstaged) && file.is_untracked();
+    let untracked = matches!(kind, WorkingTreeDiffKind::Unstaged) && file.is_untracked();
     let args = if untracked {
         untracked_diff_args(repo.path(), &file.path)
     } else {
@@ -74,15 +73,11 @@ pub(super) fn run_file_diff(
     };
     let output = repo.command().args(&args).output();
     match output {
-        Ok(output)
-            if output.status.success()
-                || (untracked && output.status.code() == Some(1)) =>
-        {
+        Ok(output) if output.status.success() || (untracked && output.status.code() == Some(1)) => {
             let patch = String::from_utf8_lossy(&output.stdout).into_owned();
             let (old_source, new_source) = match kind {
                 WorkingTreeDiffKind::Staged => {
-                    let old_path =
-                        file.old_path.as_deref().unwrap_or(&file.path);
+                    let old_path = file.old_path.as_deref().unwrap_or(&file.path);
                     let old_source = if file.index == 'A' {
                         None
                     } else {
@@ -185,9 +180,7 @@ fn read_worktree_source(repo: &GitRepo, path: &str) -> Option<String> {
         return None;
     }
     let bytes = match repo.location() {
-        RepoLocation::Local => {
-            fs::read(Path::new(repo.path()).join(relative_path)).ok()?
-        }
+        RepoLocation::Local => fs::read(Path::new(repo.path()).join(relative_path)).ok()?,
         RepoLocation::Wsl { .. } => read_remote_worktree_bytes(repo, path)?,
     };
     if bytes.len() > MAX_BLOB_SIZE {
@@ -202,9 +195,7 @@ fn read_worktree_source(repo: &GitRepo, path: &str) -> Option<String> {
 /// would be awkward to present anyway.
 fn read_remote_worktree_bytes(repo: &GitRepo, path: &str) -> Option<Vec<u8>> {
     if path.bytes().any(|byte| byte < 0x20 || byte == 0x7F) {
-        log::debug!(
-            "[git_diff] skipping untracked preview: path contains control characters"
-        );
+        log::debug!("[git_diff] skipping untracked preview: path contains control characters");
         return None;
     }
     let output = repo
@@ -233,10 +224,7 @@ pub(super) fn apply_operation(
             validate_status_path(old_path)?;
         }
         if file.is_conflicted() {
-            return Err(format!(
-                "cannot {} conflicted file",
-                action.description()
-            ));
+            return Err(format!("cannot {} conflicted file", action.description()));
         }
     }
 
@@ -396,9 +384,7 @@ fn clean_path_is_directory(repo: &GitRepo, path: &str) -> Result<bool, String> {
             let full_path = Path::new(repo.path()).join(path);
             match fs::symlink_metadata(&full_path) {
                 Ok(metadata) => Ok(metadata.file_type().is_dir()),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    Ok(false)
-                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
                 Err(error) => Err(format!(
                     "failed to inspect captured path before git clean: {error}"
                 )),
@@ -420,9 +406,7 @@ fn clean_path_is_directory(repo: &GitRepo, path: &str) -> Result<bool, String> {
                 ])
                 .output()
                 .map_err(|error| {
-                    format!(
-                        "failed to probe captured path before git clean: {error}"
-                    )
+                    format!("failed to probe captured path before git clean: {error}")
                 })?;
             if !output.status.success() {
                 return Err(format!(
@@ -446,11 +430,7 @@ fn clean_probe_is_directory(records: &[u8], path: &str) -> bool {
         .any(|record| record == directory_record.as_slice())
 }
 
-fn run_pathspec_command(
-    repo: &GitRepo,
-    args: &[&str],
-    paths: &[String],
-) -> Result<(), String> {
+fn run_pathspec_command(repo: &GitRepo, args: &[&str], paths: &[String]) -> Result<(), String> {
     if paths.is_empty() {
         return Ok(());
     }
@@ -508,10 +488,7 @@ fn command_error(label: &str, output: &std::process::Output) -> String {
     }
 }
 
-fn operation_paths(
-    files: &[&FileStatus],
-    include_old_paths: bool,
-) -> Vec<String> {
+fn operation_paths(files: &[&FileStatus], include_old_paths: bool) -> Vec<String> {
     let mut paths = Vec::new();
     for file in files {
         if include_old_paths {
@@ -537,9 +514,7 @@ fn deduplicate(paths: Vec<String>) -> Vec<String> {
 fn validate_status_path(path: &str) -> Result<(), String> {
     let relative = Path::new(path);
     if path.is_empty() || relative.is_absolute() {
-        return Err(
-            "Git reported an invalid absolute or empty path".to_string()
-        );
+        return Err("Git reported an invalid absolute or empty path".to_string());
     }
     if relative.components().any(|component| {
         matches!(
@@ -559,9 +534,7 @@ fn has_head(repo: &GitRepo) -> Result<bool, String> {
         .arg(repo.path())
         .args(["rev-parse", "--verify", "--quiet", "HEAD"])
         .output()
-        .map_err(|error| {
-            format!("failed to inspect repository HEAD: {error}")
-        })?;
+        .map_err(|error| format!("failed to inspect repository HEAD: {error}"))?;
     if output.status.success() {
         Ok(true)
     } else if output.stderr.is_empty() {
@@ -581,8 +554,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::{
-        GitRepo, apply_operation, clean_probe_is_directory, deduplicate,
-        validate_status_path,
+        GitRepo, apply_operation, clean_probe_is_directory, deduplicate, validate_status_path,
     };
     use crate::core::git::{FileStatus, WorkingTreeAction, WorkingTreeScope};
 
@@ -623,16 +595,14 @@ mod tests {
     fn local_clean_check_refuses_directories_at_captured_paths() {
         let repo = TempRepo::new();
         let handle = repo.handle();
-        fs::create_dir(repo.path.join("became-a-directory"))
-            .expect("test directory");
+        fs::create_dir(repo.path.join("became-a-directory")).expect("test directory");
         assert!(
             super::clean_path_is_directory(&handle, "became-a-directory")
                 .expect("probe should succeed")
         );
         fs::write(repo.path.join("still-a-file"), "x\n").expect("test file");
         assert!(
-            !super::clean_path_is_directory(&handle, "still-a-file")
-                .expect("probe should succeed")
+            !super::clean_path_is_directory(&handle, "still-a-file").expect("probe should succeed")
         );
         assert!(
             !super::clean_path_is_directory(&handle, "gone.txt")
@@ -704,8 +674,7 @@ mod tests {
         fn write(&self, path: &str, contents: &str) {
             let path = self.path.join(path);
             if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent)
-                    .expect("test directory should be writable");
+                fs::create_dir_all(parent).expect("test directory should be writable");
             }
             fs::write(path, contents).expect("test file should be writable");
         }
@@ -878,11 +847,8 @@ mod tests {
     fn discard_unstaged_rename_restores_old_path_and_removes_new_path() {
         let repo = TempRepo::new();
         repo.commit_base();
-        fs::rename(
-            repo.path.join("tracked.txt"),
-            repo.path.join("renamed.txt"),
-        )
-        .expect("test rename should succeed");
+        fs::rename(repo.path.join("tracked.txt"), repo.path.join("renamed.txt"))
+            .expect("test rename should succeed");
 
         apply_operation(
             &repo.handle(),
@@ -956,9 +922,6 @@ mod tests {
         )
         .expect("unborn repository should support unstage");
         assert!(repo.path.join("initial.txt").exists());
-        assert!(
-            repo.git_status(["ls-files", "--error-unmatch", "initial.txt"])
-                == false
-        );
+        assert!(repo.git_status(["ls-files", "--error-unmatch", "initial.txt"]) == false);
     }
 }

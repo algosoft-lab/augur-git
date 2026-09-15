@@ -13,21 +13,15 @@ pub struct CommitDiffContext {
 }
 
 /// Parse the first line of `git rev-list --parents -n 1 <oid>`.
-pub(crate) fn parse_parent_line(
-    text: &str,
-) -> Result<CommitDiffContext, String> {
+pub(crate) fn parse_parent_line(text: &str) -> Result<CommitDiffContext, String> {
     let line = text
         .lines()
         .next()
         .filter(|line| !line.trim().is_empty())
-        .ok_or_else(|| {
-            "Git returned no commit parent information".to_string()
-        })?;
+        .ok_or_else(|| "Git returned no commit parent information".to_string())?;
     let ids: Vec<&str> = line.split_whitespace().collect();
     if ids.is_empty() || ids.iter().any(|id| !is_object_id(id)) {
-        return Err(
-            "Git returned malformed commit parent information".to_string()
-        );
+        return Err("Git returned malformed commit parent information".to_string());
     }
 
     Ok(CommitDiffContext {
@@ -36,8 +30,7 @@ pub(crate) fn parse_parent_line(
 }
 
 fn is_object_id(value: &str) -> bool {
-    matches!(value.len(), 40 | 64)
-        && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 /// Build the parent query used to determine whether a commit is a merge.
@@ -55,11 +48,7 @@ pub(crate) fn parent_query_args(repo_path: &str, oid: &str) -> Vec<String> {
 }
 
 /// Build the raw file metadata query for a merge's first-parent diff.
-pub(crate) fn merge_raw_args(
-    repo_path: &str,
-    parent: &str,
-    oid: &str,
-) -> Vec<String> {
+pub(crate) fn merge_raw_args(repo_path: &str, parent: &str, oid: &str) -> Vec<String> {
     vec![
         "--no-pager".to_string(),
         "-c".to_string(),
@@ -80,11 +69,7 @@ pub(crate) fn merge_raw_args(
 }
 
 /// Build the numstat query for a merge's first-parent diff.
-pub(crate) fn merge_numstat_args(
-    repo_path: &str,
-    parent: &str,
-    oid: &str,
-) -> Vec<String> {
+pub(crate) fn merge_numstat_args(repo_path: &str, parent: &str, oid: &str) -> Vec<String> {
     vec![
         "--no-pager".to_string(),
         "-c".to_string(),
@@ -154,9 +139,7 @@ mod tests {
             Ok(CommitDiffContext { merge_parent: None })
         );
         assert_eq!(
-            parse_parent_line(&format!(
-                "{COMMIT} {FIRST_PARENT} {SECOND_PARENT}\n"
-            )),
+            parse_parent_line(&format!("{COMMIT} {FIRST_PARENT} {SECOND_PARENT}\n")),
             Ok(CommitDiffContext {
                 merge_parent: Some(FIRST_PARENT.to_string())
             })
@@ -184,9 +167,8 @@ mod tests {
         let numstat = merge_numstat_args("repo", FIRST_PARENT, COMMIT);
         for args in [raw, numstat] {
             assert!(
-                args.windows(2).any(|pair| {
-                    pair[0] == FIRST_PARENT && pair[1] == COMMIT
-                })
+                args.windows(2)
+                    .any(|pair| { pair[0] == FIRST_PARENT && pair[1] == COMMIT })
             );
             assert!(!args.iter().any(|arg| arg == "-m"));
         }

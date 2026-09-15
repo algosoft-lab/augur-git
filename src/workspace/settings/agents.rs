@@ -16,28 +16,21 @@ use gpui_component::{
 use crate::agent::{AgentLaunchOverrides, AgentSettings, BuiltInAgent};
 use crate::core::i18n::{self, Locale};
 
-use super::super::agent_profiles::{
-    AgentProfileEditor, AgentProfileEditorEvent,
-};
-use super::{
-    SettingsOption, SettingsPanel, SettingsPanelEvent, SettingsSection,
-};
+use super::super::agent_profiles::{AgentProfileEditor, AgentProfileEditorEvent};
+use super::{SettingsOption, SettingsPanel, SettingsPanelEvent, SettingsSection};
 
 impl SettingsPanel {
     /// Subscribe the per-agent input and select entities created during
     /// construction. Runs once from `SettingsPanel::new`.
     pub(super) fn wire_agent_subscriptions(&mut self, cx: &mut Context<Self>) {
-        let agent_default_profile_state_for_events =
-            self.agent_default_profile_state.clone();
+        let agent_default_profile_state_for_events = self.agent_default_profile_state.clone();
         cx.subscribe(
             &agent_default_profile_state_for_events,
             |panel, _, event, cx| {
                 let SelectEvent::Confirm(Some(value)) = event else {
                     return;
                 };
-                if panel.agent_settings.default_profile_id.as_deref()
-                    == Some(value.as_str())
-                {
+                if panel.agent_settings.default_profile_id.as_deref() == Some(value.as_str()) {
                     return;
                 }
                 panel.agent_settings.default_profile_id = Some(value.clone());
@@ -56,12 +49,8 @@ impl SettingsPanel {
                     return;
                 }
                 let value = state.read(cx).value().trim().to_string();
-                let executable = (!value.is_empty())
-                    .then(|| std::path::PathBuf::from(value));
-                cx.emit(SettingsPanelEvent::AgentExecutableOverrideChanged {
-                    agent,
-                    executable,
-                });
+                let executable = (!value.is_empty()).then(|| std::path::PathBuf::from(value));
+                cx.emit(SettingsPanelEvent::AgentExecutableOverrideChanged { agent, executable });
             })
             .detach();
         }
@@ -88,10 +77,7 @@ impl SettingsPanel {
                     return;
                 }
                 panel.agent_override_errors.remove(&agent);
-                cx.emit(SettingsPanelEvent::AgentModelOverrideChanged {
-                    agent,
-                    model,
-                });
+                cx.emit(SettingsPanelEvent::AgentModelOverrideChanged { agent, model });
             })
             .detach();
         }
@@ -100,9 +86,7 @@ impl SettingsPanel {
             let agent = *agent;
             let input = input.clone();
             cx.subscribe(&input, move |panel, state, event, cx| {
-                if agent != BuiltInAgent::OpenCode
-                    || !matches!(event, InputEvent::Change)
-                {
+                if agent != BuiltInAgent::OpenCode || !matches!(event, InputEvent::Change) {
                     return;
                 }
                 let value = state.read(cx).value().trim().to_string();
@@ -120,10 +104,7 @@ impl SettingsPanel {
                     return;
                 }
                 panel.agent_override_errors.remove(&agent);
-                cx.emit(SettingsPanelEvent::AgentVariantOverrideChanged {
-                    agent,
-                    variant,
-                });
+                cx.emit(SettingsPanelEvent::AgentVariantOverrideChanged { agent, variant });
             })
             .detach();
         }
@@ -208,8 +189,7 @@ impl SettingsPanel {
     }
 
     fn start_agent_probes(&mut self, cx: &mut Context<Self>) {
-        self.agent_probe_generation =
-            self.agent_probe_generation.wrapping_add(1);
+        self.agent_probe_generation = self.agent_probe_generation.wrapping_add(1);
         let generation = self.agent_probe_generation;
         // Only agents the user has added are probed; a configuration with no
         // agents starts zero subprocesses at startup.
@@ -226,8 +206,7 @@ impl SettingsPanel {
             self.agent_probe_capabilities.clear();
             return;
         }
-        self.agent_probe_results =
-            profiles.iter().map(|(id, _)| (id.clone(), None)).collect();
+        self.agent_probe_results = profiles.iter().map(|(id, _)| (id.clone(), None)).collect();
         self.agent_probe_capabilities.clear();
         let panel = cx.entity();
         cx.spawn(async move |_, cx| {
@@ -293,11 +272,7 @@ impl SettingsPanel {
         .detach();
     }
 
-    pub fn update_agent_settings(
-        &mut self,
-        settings: AgentSettings,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn update_agent_settings(&mut self, settings: AgentSettings, cx: &mut Context<Self>) {
         self.agent_settings = settings;
         self.agent_override_errors.clear();
         self.start_agent_probes(cx);
@@ -316,10 +291,7 @@ impl SettingsPanel {
             .map(|capabilities| capabilities.supports_interactive_variant)
     }
 
-    pub(in crate::workspace) fn agent_variant_capability_ready(
-        &self,
-        profile_id: &str,
-    ) -> bool {
+    pub(in crate::workspace) fn agent_variant_capability_ready(&self, profile_id: &str) -> bool {
         let Some(profile) = self.agent_settings.profile(profile_id) else {
             return false;
         };
@@ -336,11 +308,7 @@ impl SettingsPanel {
         cx.notify();
     }
 
-    pub(super) fn toggle_agent_expanded(
-        &mut self,
-        profile_id: String,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn toggle_agent_expanded(&mut self, profile_id: String, cx: &mut Context<Self>) {
         if !self.agent_expanded.remove(&profile_id) {
             self.agent_expanded.insert(profile_id);
         }
@@ -363,9 +331,7 @@ impl SettingsPanel {
                 .find(|profile| profile.id == id)
                 .cloned()
         });
-        let editor = cx.new(|cx| {
-            AgentProfileEditor::new(profile, self.locale, window, cx)
-        });
+        let editor = cx.new(|cx| AgentProfileEditor::new(profile, self.locale, window, cx));
         cx.subscribe_in(
             &editor,
             window,
@@ -380,11 +346,8 @@ impl SettingsPanel {
                 } => {
                     let mut candidate = panel.agent_settings.clone();
                     if let Some(previous_id) = previous_id {
-                        if candidate.default_profile_id.as_deref()
-                            == Some(previous_id)
-                        {
-                            candidate.default_profile_id =
-                                Some(profile.id.clone());
+                        if candidate.default_profile_id.as_deref() == Some(previous_id) {
+                            candidate.default_profile_id = Some(profile.id.clone());
                         }
                         candidate
                             .custom_profiles
@@ -392,13 +355,12 @@ impl SettingsPanel {
                     }
                     candidate.custom_profiles.push(profile.clone());
                     if let Err(errors) = candidate.validate() {
-                        if let Some(editor) = panel.agent_profile_editor.clone()
-                        {
+                        if let Some(editor) = panel.agent_profile_editor.clone() {
                             editor.update(cx, |editor, cx| {
-                                let error =
-                                    errors.into_iter().next().unwrap_or_else(
-                                        || "invalid Agent profile".to_string(),
-                                    );
+                                let error = errors
+                                    .into_iter()
+                                    .next()
+                                    .unwrap_or_else(|| "invalid Agent profile".to_string());
                                 editor.set_error(
                                     i18n::text_args(
                                         panel.locale,
@@ -425,11 +387,7 @@ impl SettingsPanel {
         cx.notify();
     }
 
-    pub(super) fn remove_agent_profile(
-        &mut self,
-        profile_id: String,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn remove_agent_profile(&mut self, profile_id: String, cx: &mut Context<Self>) {
         if self
             .agent_settings
             .custom_profiles
@@ -478,9 +436,7 @@ impl SettingsPanel {
             };
             let _ = cx.update(|window, app| {
                 let _ = this.update(app, |panel, cx| {
-                    panel.apply_agent_executable_path(
-                        agent, &path, &input, window, cx,
-                    );
+                    panel.apply_agent_executable_path(agent, &path, &input, window, cx);
                 });
             });
         })
@@ -504,8 +460,7 @@ impl SettingsPanel {
             state.set_value(value, window, cx);
         });
         let already_selected =
-            self.agent_settings.executable_overrides.get(&agent)
-                == Some(&path.to_path_buf());
+            self.agent_settings.executable_overrides.get(&agent) == Some(&path.to_path_buf());
         if already_selected {
             cx.notify();
             return;
@@ -532,11 +487,7 @@ pub(super) fn agent_reasoning_options(
     options.extend(agent.supported_reasoning_efforts().iter().map(|effort| {
         SettingsOption::new(
             Some((*effort).to_string()),
-            i18n::text_args(
-                locale,
-                "agent-reasoning-option",
-                &[("effort", effort)],
-            ),
+            i18n::text_args(locale, "agent-reasoning-option", &[("effort", effort)]),
         )
     }));
     options
@@ -551,9 +502,7 @@ pub(super) fn agent_profile_options(
     let mut options = settings
         .enabled_builtins()
         .iter()
-        .map(|agent| {
-            SettingsOption::new(agent.id().to_string(), agent.display_name())
-        })
+        .map(|agent| SettingsOption::new(agent.id().to_string(), agent.display_name()))
         .collect::<Vec<_>>();
     for profile in &settings.custom_profiles {
         if options.iter().any(|option| option.value == profile.id) {

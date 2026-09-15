@@ -26,10 +26,9 @@ use gpui::{Context, EventEmitter, SharedString, Task};
 
 use crate::core::diff::FileChange;
 use crate::core::git::{
-    self, BranchInfo, CheckoutTarget, CommitMessage, CompareRevision,
-    FileStatus, GitError, GitEvent, GitRepo, LogScope, RefsInfo,
-    WorkingTreeAction, WorkingTreeDiffKind, WorkingTreeScope,
-    WorkingTreeScopeKind,
+    self, BranchInfo, CheckoutTarget, CommitMessage, CompareRevision, FileStatus, GitError,
+    GitEvent, GitRepo, LogScope, RefsInfo, WorkingTreeAction, WorkingTreeDiffKind,
+    WorkingTreeScope, WorkingTreeScopeKind,
 };
 use crate::core::graph::LogRow;
 use crate::core::i18n::{self, Locale};
@@ -268,10 +267,7 @@ impl GitView {
         self.handle = None;
         self.rx = None;
         self.repo = None;
-        self.set_status(
-            GitStatus::Error(localized_error(self.locale, &err)),
-            cx,
-        );
+        self.set_status(GitStatus::Error(localized_error(self.locale, &err)), cx);
     }
 
     /// 关闭仓库（工作线程收到 Close 后退出）
@@ -356,31 +352,17 @@ impl GitView {
     }
 
     /// 查询选中提交内单文件 diff（底部面板右栏）
-    pub fn file_diff(
-        &self,
-        oid: String,
-        merge_parent: Option<String>,
-        file: FileChange,
-    ) {
+    pub fn file_diff(&self, oid: String, merge_parent: Option<String>, file: FileChange) {
         if let Some(handle) = &self.handle {
             handle.commit_file_diff(oid, merge_parent, file);
         }
     }
 
     /// Query each changed file in a commit for the aggregate diff view.
-    pub fn file_diffs(
-        &self,
-        oid: String,
-        merge_parent: Option<String>,
-        files: Vec<FileChange>,
-    ) {
+    pub fn file_diffs(&self, oid: String, merge_parent: Option<String>, files: Vec<FileChange>) {
         if let Some(handle) = &self.handle {
             for file in files {
-                handle.commit_file_diff(
-                    oid.clone(),
-                    merge_parent.clone(),
-                    file,
-                );
+                handle.commit_file_diff(oid.clone(), merge_parent.clone(), file);
             }
         }
     }
@@ -402,12 +384,7 @@ impl GitView {
     }
 
     /// Request a read-only comparison of two revisions.
-    pub fn branch_compare(
-        &self,
-        request_id: u64,
-        base: CompareRevision,
-        target: CompareRevision,
-    ) {
+    pub fn branch_compare(&self, request_id: u64, base: CompareRevision, target: CompareRevision) {
         log::info!(
             "[git_compare] requested: request_id={}, base={}, target={}",
             request_id,
@@ -506,10 +483,7 @@ impl GitView {
                         branches.len()
                     );
                     let repo = dir_name(self.repo_dir_name());
-                    self.set_status(
-                        GitStatus::Ready(format!("{branch} @ {repo}")),
-                        cx,
-                    );
+                    self.set_status(GitStatus::Ready(format!("{branch} @ {repo}")), cx);
                     cx.emit(GitUiEvent::StatusChanged {
                         branch,
                         head,
@@ -634,10 +608,7 @@ impl GitView {
                         request_id,
                         files.len()
                     );
-                    cx.emit(GitUiEvent::BranchCompareFiles {
-                        request_id,
-                        files,
-                    });
+                    cx.emit(GitUiEvent::BranchCompareFiles { request_id, files });
                 }
                 GitEvent::BranchCompareFileDiff {
                     request_id,
@@ -708,10 +679,7 @@ impl GitView {
                         "[git_view] comparison patch export failed: request_id={}",
                         request_id
                     );
-                    cx.emit(GitUiEvent::BranchComparePatchError {
-                        request_id,
-                        detail,
-                    });
+                    cx.emit(GitUiEvent::BranchComparePatchError { request_id, detail });
                 }
                 GitEvent::WorkingTreeOperationFinished {
                     request_id,
@@ -734,20 +702,14 @@ impl GitView {
                     });
                 }
                 GitEvent::StatusError(error) => {
-                    log::warn!(
-                        "[git_view] status refresh failed: {}",
-                        error.key
-                    );
+                    log::warn!("[git_view] status refresh failed: {}", error.key);
                     cx.emit(GitUiEvent::StatusError(localized_error(
                         self.locale,
                         &error,
                     )));
                 }
                 GitEvent::OpenFailed(error) => {
-                    log::warn!(
-                        "[git_view] repository could not be opened: {}",
-                        error.key
-                    );
+                    log::warn!("[git_view] repository could not be opened: {}", error.key);
                     let message = localized_error(self.locale, &error);
                     cx.emit(GitUiEvent::Error(message.clone()));
                     self.handle = None;
@@ -766,13 +728,9 @@ impl GitView {
                     message,
                 } => {
                     if label == "checkout" {
-                        log::info!(
-                            "[git_checkout] command completed: success={success}"
-                        );
+                        log::info!("[git_checkout] command completed: success={success}");
                     } else if label == "copy-commit-message" {
-                        log::info!(
-                            "[git_copy_message] command completed: success={success}"
-                        );
+                        log::info!("[git_copy_message] command completed: success={success}");
                     }
                     log::info!(
                         "[git_view] command {label}: {}",
@@ -817,6 +775,5 @@ pub fn shared(s: impl Into<String>) -> SharedString {
 /// 本地 lucide 图标（assets/icons/*.svg，经 main.rs AppAssets 提供；
 /// 内置 IconName 枚举不含这些 git 类图标，只能按路径引用）
 pub fn lucide(name: &'static str) -> gpui_component::Icon {
-    gpui_component::Icon::empty()
-        .path(SharedString::from(format!("icons/{name}.svg")))
+    gpui_component::Icon::empty().path(SharedString::from(format!("icons/{name}.svg")))
 }

@@ -8,13 +8,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, mpsc::Sender};
 use std::thread;
 
-use crate::core::diff::{
-    FileChange, merge_numstat, parse_numstat_z, parse_raw_records,
-};
+use crate::core::diff::{FileChange, merge_numstat, parse_numstat_z, parse_raw_records};
 
 use super::{
-    CompareRevision, CompareRevisionKind, GitEvent, GitRepo, MAX_BLOB_SIZE,
-    read_blob_spec,
+    CompareRevision, CompareRevisionKind, GitEvent, GitRepo, MAX_BLOB_SIZE, read_blob_spec,
 };
 
 /// Build the structured ref query used by the revision comparison selector.
@@ -35,8 +32,7 @@ pub(super) fn parse_comparison_refs(text: &str) -> Vec<CompareRevision> {
     let mut refs = Vec::new();
     let mut seen = HashSet::new();
     for record in text.lines() {
-        let fields: Vec<&str> =
-            record.trim_end_matches('\r').split('\0').collect();
+        let fields: Vec<&str> = record.trim_end_matches('\r').split('\0').collect();
         let Some(full_name) = fields.first().copied() else {
             continue;
         };
@@ -84,14 +80,7 @@ pub(super) fn spawn_comparison(
     generation: Arc<AtomicU64>,
 ) {
     thread::spawn(move || {
-        run_comparison(
-            &repo,
-            request_id,
-            &base,
-            &target,
-            &event_tx,
-            &generation,
-        );
+        run_comparison(&repo, request_id, &base, &target, &event_tx, &generation);
     });
 }
 
@@ -105,24 +94,13 @@ pub(super) fn spawn_patch_export(
     event_tx: Sender<GitEvent>,
 ) {
     thread::spawn(move || {
-        run_patch_export(
-            &repo,
-            request_id,
-            &base,
-            &target,
-            &destination,
-            &event_tx,
-        );
+        run_patch_export(&repo, request_id, &base, &target, &destination, &event_tx);
     });
 }
 
 /// Build the canonical full patch command for a patch-file export. `--binary`
 /// keeps binary changes applicable by `git apply`.
-pub(super) fn patch_export_args(
-    repo_path: &str,
-    old_oid: &str,
-    new_oid: &str,
-) -> Vec<String> {
+pub(super) fn patch_export_args(repo_path: &str, old_oid: &str, new_oid: &str) -> Vec<String> {
     vec![
         "--no-pager".to_string(),
         "-C".to_string(),
@@ -138,17 +116,12 @@ pub(super) fn patch_export_args(
 }
 
 /// Build a filesystem-safe default patch file name for two revisions.
-pub(crate) fn suggested_patch_filename(
-    base: &CompareRevision,
-    target: &CompareRevision,
-) -> String {
+pub(crate) fn suggested_patch_filename(base: &CompareRevision, target: &CompareRevision) -> String {
     let sanitize = |value: &str| {
         let cleaned: String = value
             .chars()
             .map(|character| {
-                if character.is_ascii_alphanumeric()
-                    || matches!(character, '.' | '_' | '-')
-                {
+                if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-') {
                     character
                 } else {
                     '-'
@@ -194,11 +167,7 @@ fn run_patch_export(
     let patch = match output {
         Ok(output) if output.status.success() => output.stdout,
         Ok(output) => {
-            send_patch_error(
-                event_tx,
-                request_id,
-                output_detail(&output, "git diff"),
-            );
+            send_patch_error(event_tx, request_id, output_detail(&output, "git diff"));
             return;
         }
         Err(error) => {
@@ -236,10 +205,8 @@ fn write_atomic(destination: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("patch");
-    let temp_path = destination.with_file_name(format!(
-        ".{filename}.tmp-{}-{counter}",
-        std::process::id(),
-    ));
+    let temp_path =
+        destination.with_file_name(format!(".{filename}.tmp-{}-{counter}", std::process::id(),));
     if let Err(error) = fs::write(&temp_path, bytes) {
         let _ = fs::remove_file(&temp_path);
         return Err(error);
@@ -257,11 +224,7 @@ fn write_atomic(destination: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 /// Build the metadata command comparing two resolved commit snapshots.
-pub(super) fn raw_diff_args(
-    repo_path: &str,
-    old_oid: &str,
-    new_oid: &str,
-) -> Vec<String> {
+pub(super) fn raw_diff_args(repo_path: &str, old_oid: &str, new_oid: &str) -> Vec<String> {
     vec![
         "--no-pager".to_string(),
         "-c".to_string(),
@@ -284,11 +247,7 @@ pub(super) fn raw_diff_args(
 }
 
 /// Build the numstat command comparing two resolved commit snapshots.
-pub(super) fn numstat_args(
-    repo_path: &str,
-    old_oid: &str,
-    new_oid: &str,
-) -> Vec<String> {
+pub(super) fn numstat_args(repo_path: &str, old_oid: &str, new_oid: &str) -> Vec<String> {
     vec![
         "--no-pager".to_string(),
         "-c".to_string(),
@@ -377,9 +336,7 @@ fn run_comparison(
         .args(numstat_args(repo.path(), &old_oid, &target_oid))
         .output();
     let files = match (raw, stats) {
-        (Ok(raw), Ok(stats))
-            if raw.status.success() && stats.status.success() =>
-        {
+        (Ok(raw), Ok(stats)) if raw.status.success() && stats.status.success() => {
             let raw_files = parse_raw_records(&raw.stdout);
             let stat_files = parse_numstat_z(&stats.stdout);
             if raw_files.is_empty() {
@@ -431,8 +388,7 @@ fn run_comparison(
             .output();
         match output {
             Ok(output) if output.status.success() => {
-                let patch =
-                    String::from_utf8_lossy(&output.stdout).into_owned();
+                let patch = String::from_utf8_lossy(&output.stdout).into_owned();
                 let (old_source, new_source) = if file.is_binary() {
                     (None, None)
                 } else {
@@ -478,21 +434,14 @@ fn run_comparison(
     send_finished(event_tx, request_id);
 }
 
-fn resolve_revision(
-    repo: &GitRepo,
-    revision: &CompareRevision,
-) -> Result<String, String> {
+fn resolve_revision(repo: &GitRepo, revision: &CompareRevision) -> Result<String, String> {
     match revision.kind {
         CompareRevisionKind::Commit => {
             if !is_supported_commit_id(&revision.full_name) {
-                return Err(
-                    "Commit ID must be 7-64 hexadecimal characters".to_string()
-                );
+                return Err("Commit ID must be 7-64 hexadecimal characters".to_string());
             }
         }
-        CompareRevisionKind::Local
-        | CompareRevisionKind::Remote
-        | CompareRevisionKind::Tag => {
+        CompareRevisionKind::Local | CompareRevisionKind::Remote | CompareRevisionKind::Tag => {
             if !is_supported_ref(&revision.full_name) {
                 return Err("Unsupported comparison reference".to_string());
             }
@@ -536,9 +485,8 @@ fn is_supported_commit_id(value: &str) -> bool {
 
 fn parse_object_id(text: &str) -> Option<String> {
     let value = text.trim();
-    (matches!(value.len(), 40 | 64)
-        && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
-    .then(|| value.to_string())
+    (matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then(|| value.to_string())
 }
 
 fn read_blob_limited(repo: &GitRepo, oid: &str) -> Option<String> {
@@ -580,17 +528,12 @@ fn send_finished(event_tx: &Sender<GitEvent>, request_id: u64) {
     let _ = event_tx.send(GitEvent::BranchCompareFinished { request_id });
 }
 
-fn send_patch_error(
-    event_tx: &Sender<GitEvent>,
-    request_id: u64,
-    detail: String,
-) {
+fn send_patch_error(event_tx: &Sender<GitEvent>, request_id: u64, detail: String) {
     log::warn!(
         "[git_compare] patch export failed: request_id={}, detail={detail}",
         request_id
     );
-    let _ =
-        event_tx.send(GitEvent::BranchComparePatchError { request_id, detail });
+    let _ = event_tx.send(GitEvent::BranchComparePatchError { request_id, detail });
 }
 
 #[cfg(test)]
@@ -671,9 +614,7 @@ mod tests {
     fn object_id_parser_rejects_malformed_output() {
         assert!(parse_object_id("not-an-object\n").is_none());
         assert!(parse_object_id(&"a".repeat(40)).is_some());
-        assert!(
-            parse_object_id(&format!("{}\nextra", "a".repeat(40))).is_none()
-        );
+        assert!(parse_object_id(&format!("{}\nextra", "a".repeat(40))).is_none());
     }
 
     #[test]
@@ -774,18 +715,11 @@ mod tests {
             full_name: "refs/heads/missing".to_string(),
             kind: CompareRevisionKind::Local,
         };
-        let events = run_patch_export_events(
-            &repo.path,
-            52,
-            &local_ref("main"),
-            &missing,
-            &destination,
-        );
+        let events =
+            run_patch_export_events(&repo.path, 52, &local_ref("main"), &missing, &destination);
         let mut error = false;
         for event in events {
-            if let GitEvent::BranchComparePatchError { request_id, detail } =
-                event
-            {
+            if let GitEvent::BranchComparePatchError { request_id, detail } = event {
                 assert_eq!(request_id, 52);
                 assert!(!detail.is_empty());
                 error = true;
@@ -925,8 +859,7 @@ mod tests {
                 .map(|file| file.new_path.as_str())
                 .collect::<Vec<_>>()
         );
-        let both_commit_events =
-            run_events(&repo.path, 16, &commit_base, &commit_target);
+        let both_commit_events = run_events(&repo.path, 16, &commit_base, &commit_target);
         let (both_commit_files, _) = inspect_events(both_commit_events, 16);
         assert_eq!(
             both_commit_files
@@ -970,10 +903,7 @@ mod tests {
                 .collect::<Vec<_>>()
         );
 
-        assert_eq!(
-            repo.git(["rev-parse", "--abbrev-ref", "HEAD"]),
-            head_before
-        );
+        assert_eq!(repo.git(["rev-parse", "--abbrev-ref", "HEAD"]), head_before);
         assert_eq!(repo.git(["status", "--porcelain=v1"]), status_before);
     }
 
@@ -1015,10 +945,7 @@ mod tests {
             full_name: "refs/heads/missing".to_string(),
             kind: CompareRevisionKind::Local,
         };
-        assert_request_failure(
-            run_events(&repo.path, 31, &local_ref("main"), &missing),
-            31,
-        );
+        assert_request_failure(run_events(&repo.path, 31, &local_ref("main"), &missing), 31);
 
         assert_request_failure(
             run_events(
@@ -1148,8 +1075,7 @@ mod tests {
                     assert_eq!(event_id, request_id);
                     finished = true;
                 }
-                GitEvent::BranchCompareFiles { .. }
-                | GitEvent::BranchCompareFileDiff { .. } => {
+                GitEvent::BranchCompareFiles { .. } | GitEvent::BranchCompareFileDiff { .. } => {
                     panic!("request failure published file data")
                 }
                 _ => {}

@@ -6,9 +6,7 @@
 //! fallback while the styled plan adds ANSI colors and decorations.
 
 use alacritty_terminal::term::cell::Flags as CellFlags;
-use gpui::{
-    FontStyle, FontWeight, Hsla, Rgba, StrikethroughStyle, UnderlineStyle, px,
-};
+use gpui::{FontStyle, FontWeight, Hsla, Rgba, StrikethroughStyle, UnderlineStyle, px};
 use gpui_component::theme::ThemeColor;
 
 use super::model::{TerminalCellSnapshot, TerminalColor, TerminalSnapshot};
@@ -67,9 +65,7 @@ pub(crate) struct StyledRenderPlan {
     pub cursor: Option<(usize, usize)>,
 }
 
-pub(crate) fn build_plain_render_plan(
-    snapshot: &TerminalSnapshot,
-) -> PlainRenderPlan {
+pub(crate) fn build_plain_render_plan(snapshot: &TerminalSnapshot) -> PlainRenderPlan {
     let mut runs = Vec::new();
     let mut line_numbers = Vec::new();
     let mut start = 0;
@@ -99,11 +95,7 @@ pub(crate) fn build_plain_render_plan(
     PlainRenderPlan { runs, cursor }
 }
 
-fn append_line_runs(
-    cells: &[TerminalCellSnapshot],
-    line: usize,
-    runs: &mut Vec<PlainTextRun>,
-) {
+fn append_line_runs(cells: &[TerminalCellSnapshot], line: usize, runs: &mut Vec<PlainTextRun>) {
     let Some(first) = cells.iter().position(is_renderable_cell) else {
         return;
     };
@@ -135,8 +127,7 @@ fn append_line_runs(
 
         let can_append = cell_width == 1
             && current.as_ref().is_some_and(|run| {
-                !run.has_wide_character
-                    && run.column + run.cell_count == cell.column
+                !run.has_wide_character && run.column + run.cell_count == cell.column
             });
         if !can_append {
             if let Some(run) = current.take() {
@@ -170,9 +161,7 @@ fn is_renderable_cell(cell: &TerminalCellSnapshot) -> bool {
         && (cell.character != ' ' || !cell.zero_width.is_empty())
 }
 
-pub(crate) fn build_styled_render_plan(
-    snapshot: &TerminalSnapshot,
-) -> StyledRenderPlan {
+pub(crate) fn build_styled_render_plan(snapshot: &TerminalSnapshot) -> StyledRenderPlan {
     let mut runs = Vec::new();
     let mut backgrounds = Vec::new();
     let mut selections = Vec::new();
@@ -187,11 +176,7 @@ pub(crate) fn build_styled_render_plan(
             end += 1;
         }
         let cells = &snapshot.cells[start..end];
-        append_background_regions(
-            cells,
-            line_numbers.len() - 1,
-            &mut backgrounds,
-        );
+        append_background_regions(cells, line_numbers.len() - 1, &mut backgrounds);
         append_styled_line_runs(cells, line_numbers.len() - 1, &mut runs);
         start = end;
     }
@@ -362,9 +347,7 @@ fn append_styled_line_runs(
     }
 }
 
-fn effective_colors(
-    cell: &TerminalCellSnapshot,
-) -> (TerminalColor, TerminalColor) {
+fn effective_colors(cell: &TerminalCellSnapshot) -> (TerminalColor, TerminalColor) {
     let flags = CellFlags::from_bits_retain(cell.flags);
     let mut foreground = cell.foreground;
     let mut background = cell.background;
@@ -380,8 +363,7 @@ pub(crate) fn terminal_color_to_hsla(
     colors: &ThemeColor,
 ) -> Hsla {
     if let TerminalColor::Named(index) = color
-        && let Some(Some(TerminalColor::Rgb { r, g, b })) =
-            palette.get(index as usize)
+        && let Some(Some(TerminalColor::Rgb { r, g, b })) = palette.get(index as usize)
     {
         return rgb_color(*r, *g, *b);
     }
@@ -432,19 +414,19 @@ pub(crate) fn terminal_text_run(
         len: text_len,
         font,
         color: foreground,
-        underline: flags.intersects(CellFlags::ALL_UNDERLINES).then_some(
-            UnderlineStyle {
+        underline: flags
+            .intersects(CellFlags::ALL_UNDERLINES)
+            .then_some(UnderlineStyle {
                 thickness: px(1.),
                 color: Some(foreground),
                 wavy: flags.contains(CellFlags::UNDERCURL),
-            },
-        ),
-        strikethrough: flags.contains(CellFlags::STRIKEOUT).then_some(
-            StrikethroughStyle {
+            }),
+        strikethrough: flags
+            .contains(CellFlags::STRIKEOUT)
+            .then_some(StrikethroughStyle {
                 thickness: px(1.),
                 color: Some(foreground),
-            },
-        ),
+            }),
         ..gpui::TextRun::default()
     }
 }
@@ -498,12 +480,10 @@ fn cube_component(value: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{
-        PlainTextRun, build_plain_render_plan, build_styled_render_plan,
-        terminal_color_to_hsla,
+        PlainTextRun, build_plain_render_plan, build_styled_render_plan, terminal_color_to_hsla,
     };
     use crate::terminal::model::{
-        TerminalCellSnapshot, TerminalColor, TerminalPointSnapshot,
-        TerminalSnapshot,
+        TerminalCellSnapshot, TerminalColor, TerminalPointSnapshot, TerminalSnapshot,
     };
     use alacritty_terminal::grid::Dimensions;
     use alacritty_terminal::index::{Column, Line, Point};
@@ -631,8 +611,7 @@ mod tests {
         let mut colors = ThemeColor::default();
         colors.foreground = gpui::Hsla::white();
         colors.background = gpui::Hsla::black();
-        let mapped =
-            terminal_color_to_hsla(TerminalColor::Named(268), &[], &colors);
+        let mapped = terminal_color_to_hsla(TerminalColor::Named(268), &[], &colors);
         assert_eq!(mapped, colors.background);
         assert_ne!(mapped, colors.foreground);
     }
@@ -648,10 +627,7 @@ mod tests {
         let mut processor = alacritty_terminal::vte::ansi::Processor::<
             alacritty_terminal::vte::ansi::StdSyncHandler,
         >::new();
-        processor.advance(
-            &mut terminal,
-            b"\x1b[38;2;1;2;3mA\x1b[48;2;4;5;6mB\x1b[7mC",
-        );
+        processor.advance(&mut terminal, b"\x1b[38;2;1;2;3mA\x1b[48;2;4;5;6mB\x1b[7mC");
         let snapshot = TerminalSnapshot::from_renderable(
             terminal.renderable_content(),
             terminal.columns(),

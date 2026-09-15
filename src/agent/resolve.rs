@@ -61,9 +61,7 @@ fn extra_executable_directories() -> Vec<PathBuf> {
     {
         let mut push = |base: Option<std::ffi::OsString>, parts: &[&str]| {
             if let Some(base) = base.map(PathBuf::from) {
-                directories.push(
-                    parts.iter().fold(base, |path, part| path.join(part)),
-                );
+                directories.push(parts.iter().fold(base, |path, part| path.join(part)));
             }
         };
         push(std::env::var_os("APPDATA"), &["npm"]);
@@ -107,10 +105,7 @@ fn search_directories() -> Vec<PathBuf> {
 }
 
 /// Look up a bare executable name in the given directories, in order.
-fn find_in_directories(
-    name: &Path,
-    directories: &[PathBuf],
-) -> Option<PathBuf> {
+fn find_in_directories(name: &Path, directories: &[PathBuf]) -> Option<PathBuf> {
     directories.iter().find_map(|directory| {
         let candidate = directory.join(name);
         #[cfg(windows)]
@@ -123,8 +118,7 @@ fn find_in_directories(
 
 #[cfg(not(windows))]
 fn resolve_unix_executable(path: &Path) -> anyhow::Result<PathBuf> {
-    let has_directory_component =
-        path.is_absolute() || path.components().count() > 1;
+    let has_directory_component = path.is_absolute() || path.components().count() > 1;
     if has_directory_component {
         if path.is_file() {
             return Ok(path.to_path_buf());
@@ -244,10 +238,7 @@ mod tests {
         fs::write(&data_file, "not executable").expect("test file");
 
         assert!(!is_executable_file(&data_file));
-        assert!(
-            find_in_directories(Path::new("augur-fake-agent"), &[bin.clone()])
-                .is_none()
-        );
+        assert!(find_in_directories(Path::new("augur-fake-agent"), &[bin.clone()]).is_none());
 
         fs::set_permissions(&data_file, fs::Permissions::from_mode(0o755))
             .expect("chmod test file");
@@ -279,10 +270,8 @@ mod tests {
 
     #[test]
     fn missing_bare_executable_reports_search_guidance() {
-        let error = resolve_executable(Path::new(
-            "augur-definitely-missing-agent-0e9f",
-        ))
-        .expect_err("a name that does not exist must not resolve");
+        let error = resolve_executable(Path::new("augur-definitely-missing-agent-0e9f"))
+            .expect_err("a name that does not exist must not resolve");
         assert!(error.to_string().contains("not found"));
         assert!(error.to_string().contains("Settings"));
     }

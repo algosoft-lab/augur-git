@@ -8,8 +8,8 @@ use gpui::{App, Hsla, Rems, Rgba, SharedString, rems, rgb};
 use gpui_component::theme::{Theme, ThemeRegistry};
 
 use crate::core::config::{
-    DEFAULT_DIFF_FONT_SIZE, DEFAULT_UI_FONT_SIZE, ThemePreference,
-    TypographySettings, normalized_diff_font_size, normalized_ui_font_size,
+    DEFAULT_DIFF_FONT_SIZE, DEFAULT_UI_FONT_SIZE, ThemePreference, TypographySettings,
+    normalized_diff_font_size, normalized_ui_font_size,
 };
 
 const THEMES_JSON: &str = include_str!("../assets/themes/augur-themes.json");
@@ -17,25 +17,15 @@ const THEMES_JSON: &str = include_str!("../assets/themes/augur-themes.json");
 /// Register the embedded themes and apply `preference`. Call once at startup,
 /// after `gpui_component::init` and after a `Theme::change` call has created
 /// the `Theme` global (the registry observer reads it).
-pub fn init(
-    preference: ThemePreference,
-    typography: &TypographySettings,
-    cx: &mut App,
-) {
-    if let Err(error) =
-        ThemeRegistry::global_mut(cx).load_themes_from_str(THEMES_JSON)
-    {
+pub fn init(preference: ThemePreference, typography: &TypographySettings, cx: &mut App) {
+    if let Err(error) = ThemeRegistry::global_mut(cx).load_themes_from_str(THEMES_JSON) {
         log::warn!("[theme] failed to load embedded themes: {error}");
     }
     apply(preference, typography, cx);
 }
 
 /// Switch to `preference` at runtime and refresh all windows.
-pub fn apply(
-    preference: ThemePreference,
-    typography: &TypographySettings,
-    cx: &mut App,
-) {
+pub fn apply(preference: ThemePreference, typography: &TypographySettings, cx: &mut App) {
     let Some(config) = ThemeRegistry::global(cx)
         .themes()
         .get(preference.registry_name())
@@ -48,10 +38,8 @@ pub fn apply(
         return;
     };
     let mut config = (*config).clone();
-    config.font_family =
-        typography.ui_font_family.clone().map(SharedString::from);
-    config.mono_font_family =
-        typography.mono_font_family.clone().map(SharedString::from);
+    config.font_family = typography.ui_font_family.clone().map(SharedString::from);
+    config.mono_font_family = typography.mono_font_family.clone().map(SharedString::from);
     let mode = config.mode;
     let theme = Theme::global_mut(cx);
     if mode.is_dark() {
@@ -61,10 +49,8 @@ pub fn apply(
     }
     Theme::change(mode, None, cx);
     let theme = Theme::global_mut(cx);
-    theme.font_size =
-        gpui::px(normalized_ui_font_size(typography.ui_font_size));
-    theme.mono_font_size =
-        gpui::px(normalized_diff_font_size(typography.diff_font_size));
+    theme.font_size = gpui::px(normalized_ui_font_size(typography.ui_font_size));
+    theme.mono_font_size = gpui::px(normalized_diff_font_size(typography.diff_font_size));
     cx.refresh_windows();
     log::info!("[theme] applied theme: {}", preference.registry_name());
 }
@@ -77,10 +63,7 @@ pub fn scaled_text_size(size: f32) -> Rems {
 
 /// Express a Diff design-time text size in pixels relative to the configured
 /// monospace base size, independently of the UI root rem size.
-pub fn scaled_diff_text_size(
-    size: f32,
-    diff_font_size: gpui::Pixels,
-) -> gpui::Pixels {
+pub fn scaled_diff_text_size(size: f32, diff_font_size: gpui::Pixels) -> gpui::Pixels {
     gpui::px(size * diff_font_size.as_f32() / DEFAULT_DIFF_FONT_SIZE)
 }
 
@@ -131,20 +114,20 @@ fn lanes(preference: ThemePreference) -> [Hsla; 10] {
             hsla(10.0, 70.0, 75.0, 1.0),
         ],
         ThemePreference::CatppuccinLatte => accent_lanes([
-            0x1E66F5, 0x8839EF, 0x40A02B, 0xFE640B, 0xD20F39, 0x179299,
-            0xDF8E1D, 0x04A5E5, 0xEA76CB, 0xE64553,
+            0x1E66F5, 0x8839EF, 0x40A02B, 0xFE640B, 0xD20F39, 0x179299, 0xDF8E1D, 0x04A5E5,
+            0xEA76CB, 0xE64553,
         ]),
         ThemePreference::CatppuccinFrappe => accent_lanes([
-            0x8CAAEE, 0xCA9EE6, 0xA6D189, 0xEF9F76, 0xE78284, 0x81C8BE,
-            0xE5C890, 0x99D1DB, 0xF4B8E4, 0xEA999C,
+            0x8CAAEE, 0xCA9EE6, 0xA6D189, 0xEF9F76, 0xE78284, 0x81C8BE, 0xE5C890, 0x99D1DB,
+            0xF4B8E4, 0xEA999C,
         ]),
         ThemePreference::CatppuccinMacchiato => accent_lanes([
-            0x8AADF4, 0xC6A0F6, 0xA6DA95, 0xF5A97F, 0xED8796, 0x8BD5CA,
-            0xEED49F, 0x91D7E3, 0xF5BDE6, 0xEE99A0,
+            0x8AADF4, 0xC6A0F6, 0xA6DA95, 0xF5A97F, 0xED8796, 0x8BD5CA, 0xEED49F, 0x91D7E3,
+            0xF5BDE6, 0xEE99A0,
         ]),
         ThemePreference::CatppuccinMocha => accent_lanes([
-            0x89B4FA, 0xCBA6F7, 0xA6E3A1, 0xFAB387, 0xF38BA8, 0x94E2D5,
-            0xF9E2AF, 0x89DCEB, 0xF5C2E7, 0xEBA0AC,
+            0x89B4FA, 0xCBA6F7, 0xA6E3A1, 0xFAB387, 0xF38BA8, 0x94E2D5, 0xF9E2AF, 0x89DCEB,
+            0xF5C2E7, 0xEBA0AC,
         ]),
     }
 }
@@ -198,9 +181,7 @@ mod tests {
             let theme = themes
                 .iter()
                 .find(|t| t["name"] == preference.registry_name())
-                .unwrap_or_else(|| {
-                    panic!("missing theme {}", preference.registry_name())
-                });
+                .unwrap_or_else(|| panic!("missing theme {}", preference.registry_name()));
             let expected_mode = match preference {
                 ThemePreference::CatppuccinLatte => "light",
                 _ => "dark",
@@ -300,14 +281,10 @@ mod tests {
         ] {
             let lanes = lanes(preference);
             assert_eq!(lanes.len(), 10);
-            let keys: Vec<(f32, f32, f32)> =
-                lanes.iter().map(|c| (c.h, c.s, c.l)).collect();
+            let keys: Vec<(f32, f32, f32)> = lanes.iter().map(|c| (c.h, c.s, c.l)).collect();
             for i in 0..keys.len() {
                 for j in (i + 1)..keys.len() {
-                    assert_ne!(
-                        keys[i], keys[j],
-                        "duplicate lane color in {preference:?}"
-                    );
+                    assert_ne!(keys[i], keys[j], "duplicate lane color in {preference:?}");
                 }
             }
         }

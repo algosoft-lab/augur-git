@@ -4,9 +4,7 @@ use std::sync::Arc;
 
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::{
-    ActiveTheme, Icon, IconName, h_flex, theme::ThemeColor, v_flex,
-};
+use gpui_component::{ActiveTheme, Icon, IconName, h_flex, theme::ThemeColor, v_flex};
 
 use crate::core::diff::DiffDocument;
 use crate::core::git::{FileStatus, WorkingTreeDiffKind};
@@ -27,11 +25,7 @@ pub(super) struct WorkingTreeDiffState {
 }
 
 impl WorkingTreeDiffState {
-    fn new(
-        request_id: u64,
-        kind: WorkingTreeDiffKind,
-        file: FileStatus,
-    ) -> Self {
+    fn new(request_id: u64, kind: WorkingTreeDiffKind, file: FileStatus) -> Self {
         Self {
             request_id,
             kind,
@@ -47,12 +41,7 @@ impl WorkingTreeDiffState {
         self.document.as_ref()
     }
 
-    fn matches(
-        &self,
-        request_id: u64,
-        kind: WorkingTreeDiffKind,
-        file: &FileStatus,
-    ) -> bool {
+    fn matches(&self, request_id: u64, kind: WorkingTreeDiffKind, file: &FileStatus) -> bool {
         self.request_id == request_id
             && self.kind == kind
             && self.file.path == file.path
@@ -97,8 +86,7 @@ impl BottomPanel {
         self.show_all_files = false;
         self.all_diff_loading = false;
         self.diff_loading = false;
-        self.working_tree =
-            Some(WorkingTreeDiffState::new(request_id, kind, file));
+        self.working_tree = Some(WorkingTreeDiffState::new(request_id, kind, file));
         cx.notify();
     }
 
@@ -119,12 +107,7 @@ impl BottomPanel {
         if !state.matches(request_id, kind, file) {
             return;
         }
-        let document = DiffDocument::from_patch(
-            file.path.clone(),
-            &patch,
-            old_source,
-            new_source,
-        );
+        let document = DiffDocument::from_patch(file.path.clone(), &patch, old_source, new_source);
         let source_key = format!(
             "working-tree:{request_id}:{}:{}",
             file.path,
@@ -168,11 +151,7 @@ impl BottomPanel {
     }
 
     /// Drop the selected working-tree diff when a status refresh removes it.
-    pub fn sync_working_tree_files(
-        &mut self,
-        files: &[FileStatus],
-        cx: &mut Context<Self>,
-    ) {
+    pub fn sync_working_tree_files(&mut self, files: &[FileStatus], cx: &mut Context<Self>) {
         let Some(state) = self.working_tree.as_ref() else {
             return;
         };
@@ -185,9 +164,7 @@ impl BottomPanel {
             } else {
                 file.is_conflicted() || file.has_worktree_changes()
             };
-            in_group
-                && file.path == selected_path
-                && file.old_path == selected_old_path
+            in_group && file.path == selected_path && file.old_path == selected_old_path
         });
         if !still_present {
             self.working_tree = None;
@@ -238,23 +215,14 @@ impl BottomPanel {
                 .gap_1()
                 .child(
                     div()
-                        .text_size(crate::theme::scaled_diff_text_size(
-                            11.,
-                            diff_font_size,
-                        ))
+                        .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
                         .text_color(colors.red)
-                        .child(shared(i18n::text(
-                            locale,
-                            "diff-working-tree-error",
-                        ))),
+                        .child(shared(i18n::text(locale, "diff-working-tree-error"))),
                 )
                 .child(
                     div()
                         .max_w(px(600.))
-                        .text_size(crate::theme::scaled_diff_text_size(
-                            11.,
-                            diff_font_size,
-                        ))
+                        .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
                         .text_color(colors.muted_foreground)
                         .child(shared(error.to_string())),
                 )
@@ -290,10 +258,7 @@ impl BottomPanel {
                     .size_full()
                     .items_center()
                     .justify_center()
-                    .text_size(crate::theme::scaled_diff_text_size(
-                        11.,
-                        diff_font_size,
-                    ))
+                    .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
                     .text_color(colors.muted_foreground)
                     .child(shared(i18n::text(locale, "bottom-bin")))
                     .into_any_element()
@@ -312,13 +277,7 @@ impl BottomPanel {
                 } else {
                     diff_layout
                 };
-                diff_view::render_document(
-                    cache,
-                    layout,
-                    colors,
-                    &mono_font,
-                    diff_font_size,
-                )
+                diff_view::render_document(cache, layout, colors, &mono_font, diff_font_size)
             } else {
                 diff_empty_state(
                     "bottom-working-diff-empty",
@@ -410,11 +369,7 @@ mod tests {
     #[test]
     fn working_tree_diff_state_rejects_stale_requests() {
         let selected = status('M', 'M', "src/main.rs");
-        let state = WorkingTreeDiffState::new(
-            7,
-            WorkingTreeDiffKind::Unstaged,
-            selected.clone(),
-        );
+        let state = WorkingTreeDiffState::new(7, WorkingTreeDiffKind::Unstaged, selected.clone());
         assert!(state.matches(7, WorkingTreeDiffKind::Unstaged, &selected));
         assert!(!state.matches(8, WorkingTreeDiffKind::Unstaged, &selected));
         assert!(!state.matches(7, WorkingTreeDiffKind::Staged, &selected));

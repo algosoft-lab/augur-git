@@ -7,16 +7,13 @@ use gpui_component::list::{List, ListDelegate, ListEvent, ListState};
 use gpui_component::popover::Popover;
 use gpui_component::searchable_list::SearchableListItemElement;
 use gpui_component::{
-    ActiveTheme, Icon, IconName, IndexPath, Sizable, StyledExt, h_flex,
-    switch::Switch, v_flex,
+    ActiveTheme, Icon, IconName, IndexPath, Sizable, StyledExt, h_flex, switch::Switch, v_flex,
 };
 
 use crate::core::git::{CompareRevision, CompareRevisionKind};
 use crate::core::i18n::{self, Locale};
 
-use super::revision_picker_logic::{
-    grouped_options, has_exact_option, section_for_kind,
-};
+use super::revision_picker_logic::{grouped_options, has_exact_option, section_for_kind};
 use super::shared;
 
 const SECTION_COUNT: usize = 3;
@@ -71,8 +68,7 @@ impl RevisionPickerDelegate {
             .iter()
             .enumerate()
             .find_map(|(section, items)| {
-                (!items.is_empty())
-                    .then_some(IndexPath::default().section(section))
+                (!items.is_empty()).then_some(IndexPath::default().section(section))
             })
     }
 
@@ -82,19 +78,13 @@ impl RevisionPickerDelegate {
             .and_then(|items| items.get(index.row))
     }
 
-    fn next_index(
-        &self,
-        current: Option<IndexPath>,
-        forward: bool,
-    ) -> Option<IndexPath> {
+    fn next_index(&self, current: Option<IndexPath>, forward: bool) -> Option<IndexPath> {
         let indices = self
             .filtered
             .iter()
             .enumerate()
             .flat_map(|(section, items)| {
-                (0..items.len()).map(move |row| {
-                    IndexPath::default().section(section).row(row)
-                })
+                (0..items.len()).map(move |row| IndexPath::default().section(section).row(row))
             })
             .collect::<Vec<_>>();
         if indices.is_empty() {
@@ -103,8 +93,7 @@ impl RevisionPickerDelegate {
         let Some(current) = current else {
             return indices.first().copied();
         };
-        let Some(position) = indices.iter().position(|index| *index == current)
-        else {
+        let Some(position) = indices.iter().position(|index| *index == current) else {
             return indices.first().copied();
         };
         let next = if forward {
@@ -132,15 +121,16 @@ impl RevisionPickerDelegate {
         if let Some(revision) = CompareRevision::from_commit_id(query) {
             let options = self.all_options();
             if !has_exact_option(query, &options) {
-                self.filtered[section_for_kind(CompareRevisionKind::Commit)]
-                    .push(RevisionPickerOption::new(
+                self.filtered[section_for_kind(CompareRevisionKind::Commit)].push(
+                    RevisionPickerOption::new(
                         revision,
                         i18n::text_args(
                             self.locale,
                             "branch-compare-use-commit",
                             &[("sha", query)],
                         ),
-                    ));
+                    ),
+                );
             }
         }
         self.selected_index = self.first_index();
@@ -176,13 +166,12 @@ impl ListDelegate for RevisionPickerDelegate {
     ) -> Option<Self::Item> {
         let option = self.item(ix)?;
         Some(
-            SearchableListItemElement::new(ix.section * 100_000 + ix.row)
-                .child(
-                    div()
-                        .w_full()
-                        .truncate()
-                        .child(shared(option.label.to_string())),
-                ),
+            SearchableListItemElement::new(ix.section * 100_000 + ix.row).child(
+                div()
+                    .w_full()
+                    .truncate()
+                    .child(shared(option.label.to_string())),
+            ),
         )
     }
 
@@ -238,12 +227,7 @@ impl ListDelegate for RevisionPickerDelegate {
     ) {
     }
 
-    fn cancel(
-        &mut self,
-        _window: &mut Window,
-        _cx: &mut Context<ListState<Self>>,
-    ) {
-    }
+    fn cancel(&mut self, _window: &mut Window, _cx: &mut Context<ListState<Self>>) {}
 }
 
 /// A single editable endpoint control with grouped revision suggestions.
@@ -280,14 +264,10 @@ impl RevisionPicker {
         let input_state = cx.new(|cx| {
             InputState::new(window, cx)
                 .submit_on_enter(true)
-                .placeholder(i18n::text(
-                    locale,
-                    "branch-compare-revision-placeholder",
-                ))
+                .placeholder(i18n::text(locale, "branch-compare-revision-placeholder"))
         });
-        let list_state = cx.new(|cx| {
-            ListState::new(RevisionPickerDelegate::new(locale), window, cx)
-        });
+        let list_state =
+            cx.new(|cx| ListState::new(RevisionPickerDelegate::new(locale), window, cx));
 
         let mut picker = Self {
             id: id.into(),
@@ -312,11 +292,7 @@ impl RevisionPicker {
     /// InputState installs focus and activation observers for its construction
     /// window, so moving the same picker entity requires fresh state objects in
     /// addition to fresh `subscribe_in` registrations.
-    pub(crate) fn attach_window(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn attach_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self._subscriptions.clear();
 
         let input_value = self.input.clone();
@@ -337,9 +313,8 @@ impl RevisionPicker {
         input_state.update(cx, |input, cx| {
             input.set_value(input_value, window, cx);
         });
-        let list_state = cx.new(|cx| {
-            ListState::new(RevisionPickerDelegate::new(self.locale), window, cx)
-        });
+        let list_state =
+            cx.new(|cx| ListState::new(RevisionPickerDelegate::new(self.locale), window, cx));
         list_state.update(cx, |list, cx| {
             list.delegate_mut().replace_options(catalog);
             list.set_query(&query, window, cx);
@@ -351,11 +326,7 @@ impl RevisionPicker {
         self.install_subscriptions(window, cx);
     }
 
-    fn install_subscriptions(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn install_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let input_state = self.input_state.clone();
         let list_state = self.list_state.clone();
         let input_for_sub = input_state.clone();
@@ -587,15 +558,8 @@ impl RevisionPicker {
         }
     }
 
-    fn commit_index(
-        &mut self,
-        index: IndexPath,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(option) =
-            self.list_state.read(cx).delegate().item(index).cloned()
-        else {
+    fn commit_index(&mut self, index: IndexPath, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(option) = self.list_state.read(cx).delegate().item(index).cloned() else {
             return;
         };
         self.selected = if option.value.kind == CompareRevisionKind::Commit
@@ -623,12 +587,7 @@ impl RevisionPicker {
         cx.notify();
     }
 
-    fn handle_key(
-        &mut self,
-        event: &KeyDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn handle_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if self.manual_input {
             if event.keystroke.key.eq_ignore_ascii_case("escape") {
                 self.open = false;
@@ -649,12 +608,7 @@ impl RevisionPicker {
                     self.list_state.update(cx, |list, cx| {
                         list.set_selected_index(next, window, cx);
                         if let Some(next) = next {
-                            list.scroll_to_item(
-                                next,
-                                ScrollStrategy::Nearest,
-                                window,
-                                cx,
-                            );
+                            list.scroll_to_item(next, ScrollStrategy::Nearest, window, cx);
                         }
                     });
                 } else {
@@ -673,12 +627,7 @@ impl RevisionPicker {
                     self.list_state.update(cx, |list, cx| {
                         list.set_selected_index(next, window, cx);
                         if let Some(next) = next {
-                            list.scroll_to_item(
-                                next,
-                                ScrollStrategy::Nearest,
-                                window,
-                                cx,
-                            );
+                            list.scroll_to_item(next, ScrollStrategy::Nearest, window, cx);
                         }
                     });
                 } else {
@@ -698,11 +647,7 @@ impl RevisionPicker {
 }
 
 impl Render for RevisionPicker {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity();
         let input_state = self.input_state.clone();
         let list_state = self.list_state.clone();
@@ -713,8 +658,7 @@ impl Render for RevisionPicker {
                 Some(i18n::text(self.locale, "branch-compare-invalid-revision"))
             }
             RevisionPickerInput::Selected(revision)
-                if self.unavailable
-                    && self.selected.as_ref() == Some(&revision) =>
+                if self.unavailable && self.selected.as_ref() == Some(&revision) =>
             {
                 Some(i18n::text(
                     self.locale,
@@ -724,8 +668,7 @@ impl Render for RevisionPicker {
             _ => None,
         };
         let input_focus = input_state.read(cx).focus_handle(cx);
-        let manual_label =
-            i18n::text(self.locale, "branch-compare-manual-input");
+        let manual_label = i18n::text(self.locale, "branch-compare-manual-input");
         let manual_switch = Switch::new(SharedString::from(format!(
             "revision-picker-manual:{}",
             self.id
@@ -811,11 +754,7 @@ impl Render for RevisionPicker {
                                 let this = this.clone();
                                 move |_event, window, cx| {
                                     this.update(cx, |picker, cx| {
-                                        picker.set_manual_input(
-                                            !picker.manual_input,
-                                            window,
-                                            cx,
-                                        );
+                                        picker.set_manual_input(!picker.manual_input, window, cx);
                                     });
                                 }
                             }),

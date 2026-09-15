@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use super::super::RepoTab;
 use super::args::{apply_patch_args, merge_args, stash_pop_args};
 use crate::core::git::agent_operation::{
-    has_other_git_operation_except_rebase, probe_agent_rebase,
-    probe_merge_state, probe_rebase_state, resolve_agent_merge_target,
+    has_other_git_operation_except_rebase, probe_agent_rebase, probe_merge_state,
+    probe_rebase_state, resolve_agent_merge_target,
 };
 use crate::core::i18n;
 use crate::git::toolbar::BranchMenuContext;
@@ -13,14 +13,10 @@ use crate::git::toolbar::BranchMenuContext;
 impl RepoTab {
     /// Sync Branch menu entry availability to the toolbar. Called after the
     /// status and refs snapshots change.
-    pub(in crate::workspace::repo_tab) fn sync_branch_menu_context(
-        &self,
-        cx: &mut Context<Self>,
-    ) {
+    pub(in crate::workspace::repo_tab) fn sync_branch_menu_context(&self, cx: &mut Context<Self>) {
         let ctx = BranchMenuContext {
             can_rename: !self.branch.is_empty(),
-            can_integrate: !self.has_unresolved_conflicts
-                && !self.local_branches.is_empty(),
+            can_integrate: !self.has_unresolved_conflicts && !self.local_branches.is_empty(),
             can_stash: self.local_change_count > 0,
             stash_count: self.stash_count,
             has_conflicts: self.has_unresolved_conflicts,
@@ -37,10 +33,7 @@ impl RepoTab {
         stash_ref: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        if self.is_busy()
-            || self.has_unresolved_conflicts
-            || self.stash_count == 0
-        {
+        if self.is_busy() || self.has_unresolved_conflicts || self.stash_count == 0 {
             return;
         }
         log::info!("[branch_ops] stash pop requested: target={stash_ref:?}");
@@ -80,9 +73,7 @@ impl RepoTab {
                     None
                 }
                 Err(error) => {
-                    log::warn!(
-                        "[branch_ops] patch picker channel closed: {error}"
-                    );
+                    log::warn!("[branch_ops] patch picker channel closed: {error}");
                     return;
                 }
             };
@@ -90,14 +81,12 @@ impl RepoTab {
                 log::info!("[branch_ops] patch picker cancelled");
                 return;
             };
-            match cx.update(|_window, cx| {
-                this.update(cx, |tab, cx| tab.begin_patch_apply(path, cx))
-            }) {
+            match cx
+                .update(|_window, cx| this.update(cx, |tab, cx| tab.begin_patch_apply(path, cx)))
+            {
                 Ok(Ok(())) => {}
                 Ok(Err(error)) | Err(error) => {
-                    log::warn!(
-                        "[branch_ops] repo tab unavailable after patch picker: {error}"
-                    );
+                    log::warn!("[branch_ops] repo tab unavailable after patch picker: {error}");
                 }
             }
         })
@@ -168,9 +157,7 @@ impl RepoTab {
             source: name.clone(),
             no_ff,
         });
-        log::info!(
-            "[branch_ops] command queued: {label}, args={args:?} (source={name})"
-        );
+        log::info!("[branch_ops] command queued: {label}, args={args:?} (source={name})");
         self.git_view.update(cx, |view, _| view.run(label, args));
         self.set_operation_busy(true, cx);
     }
@@ -182,26 +169,18 @@ impl RepoTab {
         cx: &mut Context<RepoTab>,
     ) {
         if self.is_busy() {
-            log::warn!(
-                "[agent_terminal] merge request ignored: repository is busy"
-            );
+            log::warn!("[agent_terminal] merge request ignored: repository is busy");
             return;
         }
         if self.branch.is_empty() {
-            log::warn!(
-                "[agent_terminal] merge request ignored: current branch is unavailable"
-            );
+            log::warn!("[agent_terminal] merge request ignored: current branch is unavailable");
             return;
         }
         if name == self.branch {
-            log::warn!(
-                "[agent_terminal] merge request ignored: source is current branch"
-            );
+            log::warn!("[agent_terminal] merge request ignored: source is current branch");
             return;
         }
-        log::info!(
-            "[agent_terminal] merge request accepted: source branch selected"
-        );
+        log::info!("[agent_terminal] merge request accepted: source branch selected");
         cx.emit(super::super::RepoTabEvent::AgentMergeRequested {
             id: self.id,
             repo_path: self.repo_path.clone(),
@@ -240,10 +219,7 @@ impl RepoTab {
                 self.refresh_repository(cx);
             } else {
                 self.confirmation =
-                    Some(super::super::PendingConfirmation::MergeError {
-                        label,
-                        detail,
-                    });
+                    Some(super::super::PendingConfirmation::MergeError { label, detail });
                 self.status_message_ok = Some(false);
             }
             cx.notify();
@@ -284,19 +260,17 @@ impl RepoTab {
             return;
         }
 
-        self.merge_probe_request_id =
-            self.merge_probe_request_id.wrapping_add(1).max(1);
+        self.merge_probe_request_id = self.merge_probe_request_id.wrapping_add(1).max(1);
         let request_id = self.merge_probe_request_id;
         let source = pending.source;
         let repo = match self.operation_repo() {
             Ok(repo) => repo,
             Err(error) => {
                 self.set_operation_busy(false, cx);
-                self.confirmation =
-                    Some(super::super::PendingConfirmation::MergeError {
-                        label,
-                        detail: format!("{detail}\n\n{error}"),
-                    });
+                self.confirmation = Some(super::super::PendingConfirmation::MergeError {
+                    label,
+                    detail: format!("{detail}\n\n{error}"),
+                });
                 cx.notify();
                 return;
             }
@@ -308,9 +282,7 @@ impl RepoTab {
                 .spawn(async move { probe_merge_state(&repo) })
                 .await;
             let _ = entity.update(cx, |tab, cx| {
-                tab.finish_merge_probe(
-                    request_id, label, source, detail, result, cx,
-                );
+                tab.finish_merge_probe(request_id, label, source, detail, result, cx);
             });
         })
         .detach();
@@ -322,10 +294,7 @@ impl RepoTab {
         label: String,
         source: String,
         detail: String,
-        result: Result<
-            crate::core::git::agent_operation::AgentMergeProbe,
-            String,
-        >,
+        result: Result<crate::core::git::agent_operation::AgentMergeProbe, String>,
         cx: &mut Context<RepoTab>,
     ) {
         if request_id != self.merge_probe_request_id {
@@ -334,8 +303,7 @@ impl RepoTab {
         self.set_operation_busy(false, cx);
         match result {
             Ok(probe) => {
-                let has_conflicts =
-                    probe.has_conflicts || probe.merge_head.is_some();
+                let has_conflicts = probe.has_conflicts || probe.merge_head.is_some();
                 self.has_unresolved_conflicts = has_conflicts;
                 self.sidebar.update(cx, |sidebar, cx| {
                     sidebar.set_conflicts(has_conflicts, cx);
@@ -345,28 +313,22 @@ impl RepoTab {
                 });
                 self.sync_branch_menu_context(cx);
                 if let Some(merge_head) = probe.merge_head {
-                    self.confirmation = Some(
-                        super::super::PendingConfirmation::MergeConflict {
-                            source,
-                            detail,
-                            merge_head,
-                            baseline_head: probe.head,
-                        },
-                    );
+                    self.confirmation = Some(super::super::PendingConfirmation::MergeConflict {
+                        source,
+                        detail,
+                        merge_head,
+                        baseline_head: probe.head,
+                    });
                 } else {
                     self.confirmation =
-                        Some(super::super::PendingConfirmation::MergeError {
-                            label,
-                            detail,
-                        });
+                        Some(super::super::PendingConfirmation::MergeError { label, detail });
                 }
             }
             Err(error) => {
-                self.confirmation =
-                    Some(super::super::PendingConfirmation::MergeError {
-                        label,
-                        detail: format!("{detail}\n\n{error}"),
-                    });
+                self.confirmation = Some(super::super::PendingConfirmation::MergeError {
+                    label,
+                    detail: format!("{detail}\n\n{error}"),
+                });
             }
         }
         self.refresh_repository(cx);
@@ -409,20 +371,12 @@ impl RepoTab {
         {
             return;
         }
-        self.queue_rebase_command(
-            Some(source),
-            "rebase".to_string(),
-            false,
-            cx,
-        );
+        self.queue_rebase_command(Some(source), "rebase".to_string(), false, cx);
     }
 
     /// Start the normal `git pull --rebase` command after capturing its HEAD
     /// baseline. Fetching and remote selection remain Git's responsibility.
-    pub(in crate::workspace::repo_tab) fn start_pull_rebase(
-        &mut self,
-        cx: &mut Context<RepoTab>,
-    ) {
+    pub(in crate::workspace::repo_tab) fn start_pull_rebase(&mut self, cx: &mut Context<RepoTab>) {
         if self.is_busy() || self.has_unresolved_conflicts {
             return;
         }
@@ -437,17 +391,15 @@ impl RepoTab {
         cx: &mut Context<RepoTab>,
     ) {
         self.invalidate_merge_state_probe();
-        self.rebase_probe_request_id =
-            self.rebase_probe_request_id.wrapping_add(1).max(1);
+        self.rebase_probe_request_id = self.rebase_probe_request_id.wrapping_add(1).max(1);
         let request_id = self.rebase_probe_request_id;
-        self.pending_rebase_command =
-            Some(super::super::PendingRebaseCommand {
-                source: source.clone(),
-                upstream_oid: None,
-                baseline_head: None,
-                label: label.clone(),
-                pull,
-            });
+        self.pending_rebase_command = Some(super::super::PendingRebaseCommand {
+            source: source.clone(),
+            upstream_oid: None,
+            baseline_head: None,
+            label: label.clone(),
+            pull,
+        });
         self.set_operation_busy(true, cx);
         let repo = match self.operation_repo() {
             Ok(repo) => repo,
@@ -460,9 +412,7 @@ impl RepoTab {
                     &[("error", &first_line(&error).to_string())],
                 ));
                 self.status_message_ok = Some(false);
-                log::warn!(
-                    "[pull_rebase] preflight failed before command execution"
-                );
+                log::warn!("[pull_rebase] preflight failed before command execution");
                 cx.notify();
                 return;
             }
@@ -481,10 +431,8 @@ impl RepoTab {
                         .as_deref()
                         .map(|branch| resolve_agent_merge_target(&repo, branch))
                         .transpose()?;
-                    let probe =
-                        probe_agent_rebase(&repo, upstream_oid.as_deref())?;
-                    let has_other_operation =
-                        has_other_git_operation_except_rebase(&repo)?;
+                    let probe = probe_agent_rebase(&repo, upstream_oid.as_deref())?;
+                    let has_other_operation = has_other_git_operation_except_rebase(&repo)?;
                     Ok::<_, String>((probe, upstream_oid, has_other_operation))
                 })
                 .await;
@@ -519,9 +467,7 @@ impl RepoTab {
             Ok(value) => value,
             Err(error) => {
                 self.set_operation_busy(false, cx);
-                log::warn!(
-                    "[pull_rebase] preflight failed before command execution"
-                );
+                log::warn!("[pull_rebase] preflight failed before command execution");
                 self.status_message = Some(crate::core::i18n::text_args(
                     self.locale,
                     "rebase-preflight-failed",
@@ -540,10 +486,7 @@ impl RepoTab {
             probe.has_conflicts,
             has_other_operation
         );
-        if has_other_operation
-            || probe.rebase_in_progress
-            || probe.has_conflicts
-        {
+        if has_other_operation || probe.rebase_in_progress || probe.has_conflicts {
             self.set_operation_busy(false, cx);
             self.status_message = Some(crate::core::i18n::text(
                 self.locale,
@@ -613,10 +556,7 @@ impl RepoTab {
                 self.refresh_repository(cx);
             } else {
                 self.confirmation =
-                    Some(super::super::PendingConfirmation::RebaseError {
-                        label,
-                        detail,
-                    });
+                    Some(super::super::PendingConfirmation::RebaseError { label, detail });
                 self.status_message_ok = Some(false);
             }
             cx.notify();
@@ -647,18 +587,16 @@ impl RepoTab {
             return;
         }
 
-        self.rebase_probe_request_id =
-            self.rebase_probe_request_id.wrapping_add(1).max(1);
+        self.rebase_probe_request_id = self.rebase_probe_request_id.wrapping_add(1).max(1);
         let request_id = self.rebase_probe_request_id;
         let repo = match self.operation_repo() {
             Ok(repo) => repo,
             Err(error) => {
                 self.set_operation_busy(false, cx);
-                self.confirmation =
-                    Some(super::super::PendingConfirmation::RebaseError {
-                        label,
-                        detail: format!("{detail}\n\n{error}"),
-                    });
+                self.confirmation = Some(super::super::PendingConfirmation::RebaseError {
+                    label,
+                    detail: format!("{detail}\n\n{error}"),
+                });
                 cx.notify();
                 return;
             }
@@ -670,9 +608,7 @@ impl RepoTab {
                 .spawn(async move { probe_rebase_state(&repo) })
                 .await;
             let _ = entity.update(cx, |tab, cx| {
-                tab.finish_rebase_probe(
-                    request_id, label, pending, detail, result, cx,
-                );
+                tab.finish_rebase_probe(request_id, label, pending, detail, result, cx);
             });
         })
         .detach();
@@ -684,10 +620,7 @@ impl RepoTab {
         label: String,
         pending: super::super::PendingRebaseCommand,
         detail: String,
-        result: Result<
-            crate::core::git::agent_operation::AgentRebaseProbe,
-            String,
-        >,
+        result: Result<crate::core::git::agent_operation::AgentRebaseProbe, String>,
         cx: &mut Context<RepoTab>,
     ) {
         if request_id != self.rebase_probe_request_id {
@@ -696,9 +629,8 @@ impl RepoTab {
         self.set_operation_busy(false, cx);
         match result {
             Ok(probe) => {
-                let conflict = probe.rebase_in_progress
-                    || probe.rebase_head.is_some()
-                    || probe.has_conflicts;
+                let conflict =
+                    probe.rebase_in_progress || probe.rebase_head.is_some() || probe.has_conflicts;
                 log::debug!(
                     "[pull_rebase] post-command state: in_progress={}, rebase_head={}, conflicts={}",
                     probe.rebase_in_progress,
@@ -717,30 +649,24 @@ impl RepoTab {
                     let source = pending.source.clone();
                     let upstream_oid = pending.upstream_oid.clone();
                     let baseline_head = pending.baseline_head.clone();
-                    self.confirmation = Some(
-                        super::super::PendingConfirmation::RebaseConflict {
-                            label,
-                            source,
-                            detail,
-                            rebase_head: probe.rebase_head,
-                            upstream_oid,
-                            baseline_head,
-                        },
-                    );
+                    self.confirmation = Some(super::super::PendingConfirmation::RebaseConflict {
+                        label,
+                        source,
+                        detail,
+                        rebase_head: probe.rebase_head,
+                        upstream_oid,
+                        baseline_head,
+                    });
                 } else {
                     self.confirmation =
-                        Some(super::super::PendingConfirmation::RebaseError {
-                            label,
-                            detail,
-                        });
+                        Some(super::super::PendingConfirmation::RebaseError { label, detail });
                 }
             }
             Err(error) => {
-                self.confirmation =
-                    Some(super::super::PendingConfirmation::RebaseError {
-                        label,
-                        detail: format!("{detail}\n\n{error}"),
-                    });
+                self.confirmation = Some(super::super::PendingConfirmation::RebaseError {
+                    label,
+                    detail: format!("{detail}\n\n{error}"),
+                });
             }
         }
         self.refresh_repository(cx);

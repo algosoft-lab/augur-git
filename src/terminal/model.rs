@@ -149,10 +149,7 @@ fn collect_cells(
     cells
 }
 
-fn snapshot_color(
-    color: AnsiColor,
-    palette: &[Option<TerminalColor>],
-) -> TerminalColor {
+fn snapshot_color(color: AnsiColor, palette: &[Option<TerminalColor>]) -> TerminalColor {
     match color {
         AnsiColor::Named(named) => palette
             .get(named as usize)
@@ -172,14 +169,9 @@ mod tests {
     use alacritty_terminal::term::{Config as TerminalConfig, Term};
     use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
 
-    fn snapshot(
-        output: &[u8],
-        columns: usize,
-        lines: usize,
-    ) -> TerminalSnapshot {
+    fn snapshot(output: &[u8], columns: usize, lines: usize) -> TerminalSnapshot {
         let dimensions = TermSize::new(columns, lines);
-        let mut terminal =
-            Term::new(TerminalConfig::default(), &dimensions, VoidListener);
+        let mut terminal = Term::new(TerminalConfig::default(), &dimensions, VoidListener);
         let mut processor = Processor::<StdSyncHandler>::new();
         processor.advance(&mut terminal, output);
         TerminalSnapshot::from_renderable(
@@ -205,8 +197,7 @@ mod tests {
         assert!(snapshot.cells.iter().any(|cell| {
             cell.line == 0
                 && cell.column == 2
-                && CellFlags::from_bits_retain(cell.flags)
-                    .contains(CellFlags::WIDE_CHAR_SPACER)
+                && CellFlags::from_bits_retain(cell.flags).contains(CellFlags::WIDE_CHAR_SPACER)
         }));
         let combining = snapshot
             .cells
@@ -243,8 +234,7 @@ mod tests {
 
     #[test]
     fn preserves_terminal_palette_overrides_in_the_snapshot() {
-        let snapshot =
-            snapshot(b"\x1b]4;1;rgb:1212/3434/5656\x07\x1b[31mred", 20, 2);
+        let snapshot = snapshot(b"\x1b]4;1;rgb:1212/3434/5656\x07\x1b[31mred", 20, 2);
         let red = snapshot
             .cells
             .iter()

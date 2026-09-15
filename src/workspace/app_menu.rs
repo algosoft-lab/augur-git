@@ -41,10 +41,7 @@ pub(crate) struct AppMenu {
 impl EventEmitter<AppMenuEvent> for AppMenu {}
 
 impl AppMenu {
-    pub(crate) fn new(
-        locale: i18n::Locale,
-        recent_repos: Vec<RecentRepo>,
-    ) -> Self {
+    pub(crate) fn new(locale: i18n::Locale, recent_repos: Vec<RecentRepo>) -> Self {
         Self {
             locale,
             recent_repos,
@@ -61,11 +58,7 @@ impl AppMenu {
 }
 
 impl Render for AppMenu {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let locale = self.locale;
         let recent_repos = Rc::new(self.recent_repos.clone());
         let app_menu = cx.entity();
@@ -78,90 +71,61 @@ impl Render for AppMenu {
             .dropdown_menu_below(move |menu, window, cx| {
                 let recent_repos = recent_repos.clone();
                 let app_menu = app_menu.clone();
-                let recent_menu =
-                    PopupMenu::build(window, cx, move |menu, _, _| {
-                        if recent_repos.is_empty() {
-                            return menu.item(PopupMenuItem::label(
-                                i18n::text(
-                                    locale,
-                                    "menu-no-recent-repositories",
-                                ),
-                            ));
-                        }
+                let recent_menu = PopupMenu::build(window, cx, move |menu, _, _| {
+                    if recent_repos.is_empty() {
+                        return menu.item(PopupMenuItem::label(i18n::text(
+                            locale,
+                            "menu-no-recent-repositories",
+                        )));
+                    }
 
-                        recent_repos.iter().fold(menu, |menu, repo| {
-                            let repo_for_event = repo.clone();
-                            let app_menu = app_menu.clone();
-                            menu.item(
-                                PopupMenuItem::new(
-                                    repo.location.label(&repo.path),
-                                )
-                                .on_click(
-                                    move |_event, _window, cx| {
-                                        let _ =
-                                            app_menu.update(cx, |_menu, cx| {
-                                                cx.emit(
-                                                    AppMenuEvent::OpenRecent(
-                                                        repo_for_event.clone(),
-                                                    ),
-                                                );
-                                            });
-                                    },
-                                ),
-                            )
-                        })
-                    });
-
-                let file_menu =
-                    PopupMenu::build(window, cx, move |menu, _, _| {
-                        let menu = menu.menu(
-                            i18n::text(locale, "menu-open-repository"),
-                            Box::new(OpenRepository),
-                        );
-                        #[cfg(windows)]
-                        let menu = menu.menu(
-                            i18n::text(locale, "menu-open-wsl-repository"),
-                            Box::new(OpenWslRepository),
-                        );
-                        menu.menu(
-                            i18n::text(locale, "menu-new-tab"),
-                            Box::new(NewTab),
+                    recent_repos.iter().fold(menu, |menu, repo| {
+                        let repo_for_event = repo.clone();
+                        let app_menu = app_menu.clone();
+                        menu.item(
+                            PopupMenuItem::new(repo.location.label(&repo.path)).on_click(
+                                move |_event, _window, cx| {
+                                    let _ = app_menu.update(cx, |_menu, cx| {
+                                        cx.emit(AppMenuEvent::OpenRecent(repo_for_event.clone()));
+                                    });
+                                },
+                            ),
                         )
+                    })
+                });
+
+                let file_menu = PopupMenu::build(window, cx, move |menu, _, _| {
+                    let menu = menu.menu(
+                        i18n::text(locale, "menu-open-repository"),
+                        Box::new(OpenRepository),
+                    );
+                    #[cfg(windows)]
+                    let menu = menu.menu(
+                        i18n::text(locale, "menu-open-wsl-repository"),
+                        Box::new(OpenWslRepository),
+                    );
+                    menu.menu(i18n::text(locale, "menu-new-tab"), Box::new(NewTab))
                         .separator()
-                        .menu(
-                            i18n::text(locale, "menu-install-cli"),
-                            Box::new(InstallCli),
-                        )
-                        .menu(
-                            i18n::text(locale, "menu-remove-cli"),
-                            Box::new(RemoveCli),
-                        )
+                        .menu(i18n::text(locale, "menu-install-cli"), Box::new(InstallCli))
+                        .menu(i18n::text(locale, "menu-remove-cli"), Box::new(RemoveCli))
                         .separator()
                         .item(PopupMenuItem::submenu(
                             i18n::text(locale, "menu-recent-repositories"),
                             recent_menu.clone(),
                         ))
-                    });
+                });
 
-                let edit_menu =
-                    PopupMenu::build(window, cx, move |menu, _, _| {
-                        menu.menu(
-                            i18n::text(locale, "menu-settings"),
-                            Box::new(OpenSettings),
-                        )
+                let edit_menu = PopupMenu::build(window, cx, move |menu, _, _| {
+                    menu.menu(i18n::text(locale, "menu-settings"), Box::new(OpenSettings))
                         .menu(
                             i18n::text(locale, "menu-extensions"),
                             Box::new(OpenExtensions),
                         )
-                    });
+                });
 
-                let help_menu =
-                    PopupMenu::build(window, cx, move |menu, _, _| {
-                        menu.menu(
-                            i18n::text(locale, "menu-about"),
-                            Box::new(OpenAbout),
-                        )
-                    });
+                let help_menu = PopupMenu::build(window, cx, move |menu, _, _| {
+                    menu.menu(i18n::text(locale, "menu-about"), Box::new(OpenAbout))
+                });
 
                 menu.item(PopupMenuItem::submenu(
                     i18n::text(locale, "menu-file"),
@@ -194,10 +158,7 @@ pub(crate) fn install_native_menu(locale: i18n::Locale, cx: &mut App) {
     ]));
 
     let mut file_items = vec![
-        MenuItem::action(
-            i18n::text(locale, "menu-open-repository"),
-            OpenRepository,
-        ),
+        MenuItem::action(i18n::text(locale, "menu-open-repository"), OpenRepository),
         MenuItem::action(i18n::text(locale, "menu-new-tab"), NewTab),
         MenuItem::separator(),
         MenuItem::action(i18n::text(locale, "menu-install-cli"), InstallCli),
@@ -221,9 +182,12 @@ pub(crate) fn install_native_menu(locale: i18n::Locale, cx: &mut App) {
         MenuItem::action(i18n::text(locale, "menu-settings"), OpenSettings),
         MenuItem::action(i18n::text(locale, "menu-extensions"), OpenExtensions),
     ]));
-    menus.push(Menu::new(i18n::text(locale, "menu-help")).items([
-        MenuItem::action(i18n::text(locale, "menu-about"), OpenAbout),
-    ]));
+    menus.push(
+        Menu::new(i18n::text(locale, "menu-help")).items([MenuItem::action(
+            i18n::text(locale, "menu-about"),
+            OpenAbout,
+        )]),
+    );
 
     cx.set_menus(menus);
 }

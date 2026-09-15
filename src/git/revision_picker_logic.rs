@@ -12,10 +12,7 @@ pub(crate) struct RevisionPickerOption {
 }
 
 impl RevisionPickerOption {
-    pub(crate) fn new(
-        value: CompareRevision,
-        label: impl Into<String>,
-    ) -> Self {
+    pub(crate) fn new(value: CompareRevision, label: impl Into<String>) -> Self {
         Self {
             value,
             label: label.into(),
@@ -42,9 +39,7 @@ pub(crate) enum RevisionPickerInput {
 impl RevisionPickerInput {
     pub(crate) fn revision(&self) -> Option<CompareRevision> {
         match self {
-            Self::Selected(revision) | Self::ManualSha(revision) => {
-                Some(revision.clone())
-            }
+            Self::Selected(revision) | Self::ManualSha(revision) => Some(revision.clone()),
             Self::Empty | Self::Invalid(_) => None,
         }
     }
@@ -66,8 +61,7 @@ pub(crate) fn classify_input(
     }
 
     if let Some(selected) = selected.filter(|selected| {
-        selected.name.eq_ignore_ascii_case(text)
-            || selected.full_name.eq_ignore_ascii_case(text)
+        selected.name.eq_ignore_ascii_case(text) || selected.full_name.eq_ignore_ascii_case(text)
     }) {
         return RevisionPickerInput::Selected(selected.clone());
     }
@@ -88,10 +82,7 @@ pub(crate) fn classify_input(
 }
 
 /// Return whether a valid SHA already has an exact catalog candidate.
-pub(crate) fn has_exact_option(
-    query: &str,
-    options: &[RevisionPickerOption],
-) -> bool {
+pub(crate) fn has_exact_option(query: &str, options: &[RevisionPickerOption]) -> bool {
     options.iter().any(|option| {
         option.value.name.eq_ignore_ascii_case(query)
             || option.value.full_name.eq_ignore_ascii_case(query)
@@ -125,11 +116,7 @@ pub(crate) fn grouped_options(
 mod tests {
     use super::*;
 
-    fn option(
-        kind: CompareRevisionKind,
-        name: &str,
-        full_name: &str,
-    ) -> RevisionPickerOption {
+    fn option(kind: CompareRevisionKind, name: &str, full_name: &str) -> RevisionPickerOption {
         RevisionPickerOption::new(
             CompareRevision {
                 name: name.to_string(),
@@ -212,8 +199,7 @@ mod tests {
 
     #[test]
     fn filter_matches_names_refs_and_subjects() {
-        let mut option =
-            option(CompareRevisionKind::Commit, "abc1234", &"a".repeat(40));
+        let mut option = option(CompareRevisionKind::Commit, "abc1234", &"a".repeat(40));
         option.label = "commit · abc1234 · Fix Unicode 路径".into();
         assert!(option.matches("unicode"));
         assert!(option.matches("路径"));

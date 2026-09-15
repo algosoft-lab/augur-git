@@ -67,12 +67,7 @@ impl CommitMessageDialog {
 
     /// Store an asynchronously loaded message, ignoring responses for a
     /// commit that is no longer displayed.
-    pub fn set_message(
-        &mut self,
-        oid: &str,
-        message: CommitMessage,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_message(&mut self, oid: &str, message: CommitMessage, cx: &mut Context<Self>) {
         let Some(commit) = self.commit.as_mut() else {
             return;
         };
@@ -84,11 +79,7 @@ impl CommitMessageDialog {
 }
 
 impl Render for CommitMessageDialog {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let mono = cx.theme().mono_font_family.clone();
 
@@ -97,10 +88,7 @@ impl Render for CommitMessageDialog {
                 div()
                     .text_size(crate::theme::scaled_text_size(12.))
                     .text_color(colors.muted_foreground)
-                    .child(shared(i18n::text(
-                        self.locale,
-                        "commit-message-loading",
-                    ))),
+                    .child(shared(i18n::text(self.locale, "commit-message-loading"))),
             );
         };
 
@@ -165,25 +153,16 @@ impl Render for CommitMessageDialog {
                             .gap_0p5()
                             .child(
                                 div()
-                                    .text_size(crate::theme::scaled_text_size(
-                                        11.,
-                                    ))
+                                    .text_size(crate::theme::scaled_text_size(11.))
                                     .text_color(colors.muted_foreground)
-                                    .child(shared(i18n::text(
-                                        self.locale,
-                                        "commit-coauthors",
-                                    ))),
+                                    .child(shared(i18n::text(self.locale, "commit-coauthors"))),
                             )
-                            .children(message.co_authors.iter().map(
-                                |co_author| {
-                                    div()
-                                        .text_size(
-                                            crate::theme::scaled_text_size(11.),
-                                        )
-                                        .text_color(colors.foreground)
-                                        .child(shared(co_author.display()))
-                                },
-                            )),
+                            .children(message.co_authors.iter().map(|co_author| {
+                                div()
+                                    .text_size(crate::theme::scaled_text_size(11.))
+                                    .text_color(colors.foreground)
+                                    .child(shared(co_author.display()))
+                            })),
                     );
                 }
             }
@@ -192,10 +171,7 @@ impl Render for CommitMessageDialog {
                     div()
                         .text_size(crate::theme::scaled_text_size(11.))
                         .text_color(colors.muted_foreground)
-                        .child(shared(i18n::text(
-                            self.locale,
-                            "commit-message-loading",
-                        ))),
+                        .child(shared(i18n::text(self.locale, "commit-message-loading"))),
                 );
             }
         }

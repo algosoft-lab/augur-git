@@ -10,38 +10,26 @@ use crate::core::i18n;
 use crate::git::GitStatus;
 
 use super::{
-    DIFF_RESIZE_HANDLE_HEIGHT, DiffViewerResize, MIN_COMMIT_HEIGHT, RepoTab,
-    RepoTabEvent, RightPanelResize, SidebarResize,
+    DIFF_RESIZE_HANDLE_HEIGHT, DiffViewerResize, MIN_COMMIT_HEIGHT, RepoTab, RepoTabEvent,
+    RightPanelResize, SidebarResize,
 };
 
 /// Drag payloads for the resize handles; their render output is empty and
 /// only serves as the drag marker type.
 impl Render for SidebarResize {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
     }
 }
 
 impl Render for RightPanelResize {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
     }
 }
 
 impl Render for DiffViewerResize {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
     }
 }
@@ -49,10 +37,7 @@ impl Render for DiffViewerResize {
 impl RepoTab {
     /// Bottom status bar: repository path, the last operation result
     /// message, and transient or failing connection states.
-    pub(super) fn status_bar(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    pub(super) fn status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let state_text = match &self.status {
             GitStatus::Ready(_) => None,
@@ -60,13 +45,10 @@ impl RepoTab {
                 i18n::text(self.locale, "no-repo-open"),
                 colors.muted_foreground,
             )),
-            GitStatus::Scanning => Some((
-                i18n::text(self.locale, "status-scanning"),
-                colors.warning,
-            )),
-            GitStatus::Error(message) => {
-                Some((format!("✗ {message}"), colors.red))
+            GitStatus::Scanning => {
+                Some((i18n::text(self.locale, "status-scanning"), colors.warning))
             }
+            GitStatus::Error(message) => Some((format!("✗ {message}"), colors.red)),
         };
         // While a generic Git command runs, its animated verb takes over the
         // result slot; a finished operation's message is stale anyway
@@ -134,10 +116,9 @@ impl RepoTab {
         let sidebar_width = px(self.layout.sidebar_width);
         let right_panel_width = px(self.layout.right_panel_width);
         let available_height = f32::from(window.bounds().size.height);
-        let max_diff_height =
-            (available_height - MIN_COMMIT_HEIGHT - DIFF_RESIZE_HANDLE_HEIGHT)
-                .max(MIN_DIFF_HEIGHT)
-                .min(MAX_DIFF_HEIGHT);
+        let max_diff_height = (available_height - MIN_COMMIT_HEIGHT - DIFF_RESIZE_HANDLE_HEIGHT)
+            .max(MIN_DIFF_HEIGHT)
+            .min(MAX_DIFF_HEIGHT);
         let diff_height = self
             .layout
             .diff_height
@@ -151,13 +132,9 @@ impl RepoTab {
                 |tab, event: &DragMoveEvent<SidebarResize>, _, cx| {
                     let new_width = f32::from(event.event.position.x)
                         .clamp(MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH);
-                    if (tab.layout.sidebar_width - new_width).abs()
-                        > f32::EPSILON
-                    {
+                    if (tab.layout.sidebar_width - new_width).abs() > f32::EPSILON {
                         tab.layout.sidebar_width = new_width;
-                        cx.emit(RepoTabEvent::LayoutChanged(
-                            tab.layout.clone(),
-                        ));
+                        cx.emit(RepoTabEvent::LayoutChanged(tab.layout.clone()));
                         cx.notify();
                     }
                 },
@@ -165,40 +142,28 @@ impl RepoTab {
             .on_drag_move::<RightPanelResize>(cx.listener(
                 |tab, event: &DragMoveEvent<RightPanelResize>, window, cx| {
                     let width = window.bounds().size.width;
-                    let new_width = (f32::from(width)
-                        - f32::from(event.event.position.x))
-                    .clamp(MIN_RIGHT_PANEL_WIDTH, MAX_RIGHT_PANEL_WIDTH);
-                    if (tab.layout.right_panel_width - new_width).abs()
-                        > f32::EPSILON
-                    {
+                    let new_width = (f32::from(width) - f32::from(event.event.position.x))
+                        .clamp(MIN_RIGHT_PANEL_WIDTH, MAX_RIGHT_PANEL_WIDTH);
+                    if (tab.layout.right_panel_width - new_width).abs() > f32::EPSILON {
                         tab.layout.right_panel_width = new_width;
-                        cx.emit(RepoTabEvent::LayoutChanged(
-                            tab.layout.clone(),
-                        ));
+                        cx.emit(RepoTabEvent::LayoutChanged(tab.layout.clone()));
                         cx.notify();
                     }
                 },
             ))
             .on_drag_move::<DiffViewerResize>(cx.listener(
                 |tab, event: &DragMoveEvent<DiffViewerResize>, _, cx| {
-                    let main_content_height =
-                        f32::from(event.bounds.size.height);
-                    let position = f32::from(
-                        event.event.position.y - event.bounds.origin.y,
-                    );
-                    let max_diff_height = (main_content_height
-                        - MIN_COMMIT_HEIGHT
-                        - DIFF_RESIZE_HANDLE_HEIGHT)
-                        .clamp(MIN_DIFF_HEIGHT, MAX_DIFF_HEIGHT);
+                    let main_content_height = f32::from(event.bounds.size.height);
+                    let position = f32::from(event.event.position.y - event.bounds.origin.y);
+                    let max_diff_height =
+                        (main_content_height - MIN_COMMIT_HEIGHT - DIFF_RESIZE_HANDLE_HEIGHT)
+                            .clamp(MIN_DIFF_HEIGHT, MAX_DIFF_HEIGHT);
                     let diff_height = Some(
-                        (main_content_height - position)
-                            .clamp(MIN_DIFF_HEIGHT, max_diff_height),
+                        (main_content_height - position).clamp(MIN_DIFF_HEIGHT, max_diff_height),
                     );
                     if tab.layout.diff_height != diff_height {
                         tab.layout.diff_height = diff_height;
-                        cx.emit(RepoTabEvent::LayoutChanged(
-                            tab.layout.clone(),
-                        ));
+                        cx.emit(RepoTabEvent::LayoutChanged(tab.layout.clone()));
                         cx.notify();
                     }
                 },
@@ -250,8 +215,7 @@ impl RepoTab {
                             }),
                     )
                     .child({
-                        let bottom =
-                            v_flex().min_h_0().child(self.bottom.clone());
+                        let bottom = v_flex().min_h_0().child(self.bottom.clone());
                         match diff_height {
                             Some(height) => bottom.h(height).flex_shrink_0(),
                             None => bottom.flex_1(),
@@ -269,13 +233,7 @@ impl RepoTab {
                     .flex()
                     .flex_col()
                     .child(self.commit.clone())
-                    .child(
-                        div()
-                            .w_full()
-                            .h(px(1.))
-                            .flex_shrink_0()
-                            .bg(colors.border),
-                    )
+                    .child(div().w_full().h(px(1.)).flex_shrink_0().bg(colors.border))
                     .child(div().flex_1().min_h_0().child(self.changes.clone()))
                     .child(
                         div()

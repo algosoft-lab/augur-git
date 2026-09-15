@@ -9,14 +9,13 @@ use std::thread;
 use chrono::Local;
 
 use crate::core::extension::{
-    ExtensionPackage, ExtensionRunRecord, ExtensionRunTrigger,
-    RepositoryRunRecord, RepositoryRunResult, SettingValue,
+    ExtensionPackage, ExtensionRunRecord, ExtensionRunTrigger, RepositoryRunRecord,
+    RepositoryRunResult, SettingValue,
 };
 
 use super::api::{
-    ExtensionEventPayload, ExtensionHost, ExtensionInvocation,
-    ExtensionRunAdmission, ExtensionRuntime, ExtensionRuntimeError,
-    ExtensionTrigger, RepositorySnapshot,
+    ExtensionEventPayload, ExtensionHost, ExtensionInvocation, ExtensionRunAdmission,
+    ExtensionRuntime, ExtensionRuntimeError, ExtensionTrigger, RepositorySnapshot,
 };
 
 /// A package source plus the validated package metadata used to start a VM.
@@ -106,8 +105,7 @@ impl ExtensionManager {
         definitions: Vec<ExtensionDefinition>,
         host: Arc<dyn ExtensionHost>,
     ) -> Result<(Self, Receiver<ExtensionEvent>), String> {
-        let mut definition_map: HashMap<String, ExtensionDefinition> =
-            HashMap::new();
+        let mut definition_map: HashMap<String, ExtensionDefinition> = HashMap::new();
         let mut worker_map: HashMap<String, Worker> = HashMap::new();
         for definition in definitions {
             let id = definition.package.manifest.id.clone();
@@ -150,9 +148,7 @@ impl ExtensionManager {
                     event_tx,
                 )
             })
-            .map_err(|error| {
-                format!("failed to start extension queue: {error}")
-            })?;
+            .map_err(|error| format!("failed to start extension queue: {error}"))?;
 
         Ok((
             Self {
@@ -184,10 +180,7 @@ impl ExtensionManager {
     /// source, so callers must wait until the queue is idle. New workers are
     /// started before the shared maps are swapped; a failed package leaves the
     /// currently running manager untouched.
-    pub fn reload(
-        &self,
-        definitions: Vec<ExtensionDefinition>,
-    ) -> Result<(), String> {
+    pub fn reload(&self, definitions: Vec<ExtensionDefinition>) -> Result<(), String> {
         if self
             .pending
             .lock()
@@ -198,8 +191,7 @@ impl ExtensionManager {
             return Err("cannot reload extensions while a run is active".into());
         }
 
-        let mut definition_map: HashMap<String, ExtensionDefinition> =
-            HashMap::new();
+        let mut definition_map: HashMap<String, ExtensionDefinition> = HashMap::new();
         let mut worker_map: HashMap<String, Worker> = HashMap::new();
         for definition in definitions {
             let id = definition.package.manifest.id.clone();
@@ -241,10 +233,7 @@ impl ExtensionManager {
     /// Queue a run. Repeated manual invocations are coalesced while one is in
     /// flight. Event invocations retain one trailing, merged batch per
     /// extension and trigger so status bursts are not lost.
-    pub fn run(
-        &self,
-        mut request: ExtensionRunRequest,
-    ) -> Result<Option<u64>, String> {
+    pub fn run(&self, mut request: ExtensionRunRequest) -> Result<Option<u64>, String> {
         let exists = self
             .definitions
             .lock()
@@ -259,16 +248,18 @@ impl ExtensionManager {
         let key = run_key(&request);
         let extension_id_for_log = request.extension_id.clone();
         let already_pending = {
-            let mut pending = self.pending.lock().map_err(|_| {
-                "extension queue state is unavailable".to_string()
-            })?;
+            let mut pending = self
+                .pending
+                .lock()
+                .map_err(|_| "extension queue state is unavailable".to_string())?;
             !pending.insert(key.clone())
         };
         if already_pending {
             if !request.events.is_empty() {
-                let mut coalesced = self.coalesced.lock().map_err(|_| {
-                    "extension coalescing state is unavailable".to_string()
-                })?;
+                let mut coalesced = self
+                    .coalesced
+                    .lock()
+                    .map_err(|_| "extension coalescing state is unavailable".to_string())?;
                 if let Some(existing) = coalesced.get_mut(&key) {
                     merge_event_requests(existing, request);
                 } else {
@@ -341,9 +332,7 @@ impl ExtensionManager {
     pub fn active_labels(&self) -> Vec<String> {
         self.active_runs()
             .into_iter()
-            .map(|(extension_id, run_id)| {
-                format!("{extension_id} (run {run_id})")
-            })
+            .map(|(extension_id, run_id)| format!("{extension_id} (run {run_id})"))
             .collect()
     }
 
@@ -357,9 +346,7 @@ impl ExtensionManager {
             .iter()
             .map(|(run_id, extension_id)| (extension_id.clone(), *run_id))
             .collect::<Vec<_>>();
-        runs.sort_by(|left, right| {
-            left.0.cmp(&right.0).then(left.1.cmp(&right.1))
-        });
+        runs.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
         runs
     }
 
@@ -449,11 +436,9 @@ fn spawn_worker(
                             };
                         }
                         let Some(runtime) = runtime.as_ref() else {
-                            let _ = completed.send(Err(
-                                ExtensionRuntimeError::Lua(
-                                    "extension runtime is unavailable".into(),
-                                ),
-                            ));
+                            let _ = completed.send(Err(ExtensionRuntimeError::Lua(
+                                "extension runtime is unavailable".into(),
+                            )));
                             continue;
                         };
                         let result = runtime.run(invocation, &handler);
@@ -463,9 +448,7 @@ fn spawn_worker(
                 }
             }
         })
-        .map_err(|error| {
-            format!("failed to start extension worker: {error}")
-        })?;
+        .map_err(|error| format!("failed to start extension worker: {error}"))?;
     ready_rx
         .recv()
         .map_err(|_| "extension worker exited during startup".to_string())??;
@@ -511,19 +494,13 @@ fn dispatcher_loop(
                 "extension run cancelled before start".into(),
             ))
         } else {
-            match host.begin_run(
-                &job.extension_id,
-                job.run_id,
-                &request.repositories,
-            ) {
+            match host.begin_run(&job.extension_id, job.run_id, &request.repositories) {
                 Err(error) => Err(ExtensionRuntimeError::Lua(error)),
-                Ok(ExtensionRunAdmission::Rejected { code, summary }) => {
-                    Ok(serde_json::json!({
-                        "ok": false,
-                        "code": code,
-                        "summary": summary,
-                    }))
-                }
+                Ok(ExtensionRunAdmission::Rejected { code, summary }) => Ok(serde_json::json!({
+                    "ok": false,
+                    "code": code,
+                    "summary": summary,
+                })),
                 Ok(ExtensionRunAdmission::Accepted) => {
                     let _ = event_tx.send(ExtensionEvent::RunStarted {
                         extension_id: job.extension_id.clone(),
@@ -557,13 +534,9 @@ fn dispatcher_loop(
                             })
                         });
                     match sent {
-                        Some(Ok(())) => {
-                            completed_rx.recv().unwrap_or_else(|_| {
-                                Err(ExtensionRuntimeError::Lua(
-                                    "extension worker exited".into(),
-                                ))
-                            })
-                        }
+                        Some(Ok(())) => completed_rx.recv().unwrap_or_else(|_| {
+                            Err(ExtensionRuntimeError::Lua("extension worker exited".into()))
+                        }),
                         Some(Err(_)) | None => Err(ExtensionRuntimeError::Lua(
                             "extension worker is unavailable".into(),
                         )),
@@ -598,8 +571,7 @@ fn dispatcher_loop(
                     .and_then(serde_json::Value::as_array)
                     .and_then(|items| {
                         items.iter().find(|item| {
-                            item.get("repository")
-                                .and_then(serde_json::Value::as_str)
+                            item.get("repository").and_then(serde_json::Value::as_str)
                                 == Some(repository.display_name.as_str())
                         })
                     });
@@ -737,10 +709,7 @@ fn run_key(request: &ExtensionRunRequest) -> String {
     }
 }
 
-fn merge_event_requests(
-    existing: &mut ExtensionRunRequest,
-    incoming: ExtensionRunRequest,
-) {
+fn merge_event_requests(existing: &mut ExtensionRunRequest, incoming: ExtensionRunRequest) {
     existing.repositories = incoming.repositories;
     existing.settings = incoming.settings;
     existing.scheduled_at = incoming.scheduled_at;
@@ -772,12 +741,8 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::core::extension::{
-        ExtensionManifest, ExtensionPackage, ExtensionSource,
-    };
-    use crate::extension::api::{
-        ExtensionHostRequest, HostRequest, HostResponse,
-    };
+    use crate::core::extension::{ExtensionManifest, ExtensionPackage, ExtensionSource};
+    use crate::extension::api::{ExtensionHostRequest, HostRequest, HostResponse};
 
     struct BlockingHost {
         started: Sender<()>,
@@ -785,10 +750,7 @@ mod tests {
     }
 
     impl ExtensionHost for BlockingHost {
-        fn request(
-            &self,
-            request: ExtensionHostRequest,
-        ) -> Result<HostResponse, String> {
+        fn request(&self, request: ExtensionHostRequest) -> Result<HostResponse, String> {
             if matches!(request.request, HostRequest::Log { .. }) {
                 let _ = self.started.send(());
                 self.release.wait();
@@ -943,11 +905,9 @@ mod tests {
             started: mpsc::channel().0,
             release: Arc::new(std::sync::Barrier::new(1)),
         });
-        let (manager, events) = ExtensionManager::new(
-            vec![definition("invalid-extension", "return {")],
-            host,
-        )
-        .expect("worker startup must not evaluate source");
+        let (manager, events) =
+            ExtensionManager::new(vec![definition("invalid-extension", "return {")], host)
+                .expect("worker startup must not evaluate source");
         assert!(manager.run(request("invalid-extension")).unwrap().is_some());
         let mut saw_error = false;
         for _ in 0..4 {

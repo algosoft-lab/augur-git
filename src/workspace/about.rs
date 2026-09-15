@@ -18,20 +18,13 @@ impl AboutWindow {
         Self { locale }
     }
 
-    pub(super) fn set_locale(
-        &mut self,
-        locale: Locale,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn set_locale(&mut self, locale: Locale, cx: &mut Context<Self>) {
         self.locale = locale;
         cx.notify();
     }
 }
 
-pub(super) fn open_about_window(
-    workspace: &mut Workspace,
-    cx: &mut Context<Workspace>,
-) {
+pub(super) fn open_about_window(workspace: &mut Workspace, cx: &mut Context<Workspace>) {
     if let Some(existing) = workspace.about_window {
         if existing
             .update(cx, |_, window, _| window.activate_window())
@@ -64,19 +57,13 @@ pub(super) fn open_about_window(
     }) {
         Ok(handle) => workspace.about_window = Some(handle),
         Err(error) => {
-            log::error!(
-                "[workspace_about] failed to open About window: {error}"
-            );
+            log::error!("[workspace_about] failed to open About window: {error}");
         }
     }
 }
 
 impl Render for AboutWindow {
-    fn render(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         window.set_rem_size(cx.theme().font_size);
         let colors = cx.theme().colors.clone();
         let locale = self.locale;

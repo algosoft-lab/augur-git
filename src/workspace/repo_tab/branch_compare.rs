@@ -6,9 +6,7 @@ use gpui_component::{Root, TitleBar};
 
 use crate::core::i18n::Locale;
 use crate::git::GitUiEvent;
-use crate::git::branch_compare::{
-    BranchCompareEvent, BranchCompareView, BranchCompareWindow,
-};
+use crate::git::branch_compare::{BranchCompareEvent, BranchCompareView, BranchCompareWindow};
 use crate::workspace::window_lifecycle::defer_entity_update;
 
 use super::RepoTab;
@@ -20,9 +18,7 @@ pub(super) fn new_view(
     diff_layout: crate::git::diff_view::DiffLayoutMode,
     repo_path: String,
 ) -> Entity<BranchCompareView> {
-    cx.new(|cx| {
-        BranchCompareView::new(window, cx, locale, diff_layout, repo_path)
-    })
+    cx.new(|cx| BranchCompareView::new(window, cx, locale, diff_layout, repo_path))
 }
 
 pub(super) fn subscribe(
@@ -30,8 +26,10 @@ pub(super) fn subscribe(
     window: &mut Window,
     cx: &mut Context<RepoTab>,
 ) {
-    cx.subscribe_in(compare, window, |tab, _event, event, _window, cx| {
-        match event {
+    cx.subscribe_in(
+        compare,
+        window,
+        |tab, _event, event, _window, cx| match event {
             BranchCompareEvent::Cancel => {
                 tab.git_view
                     .update(cx, |view, _| view.cancel_branch_compare());
@@ -42,11 +40,7 @@ pub(super) fn subscribe(
                 target,
             } => {
                 tab.git_view.update(cx, |view, _| {
-                    view.branch_compare(
-                        *request_id,
-                        base.clone(),
-                        target.clone(),
-                    );
+                    view.branch_compare(*request_id, base.clone(), target.clone());
                 });
             }
             BranchCompareEvent::ExportPatch {
@@ -64,8 +58,8 @@ pub(super) fn subscribe(
                     );
                 });
             }
-        }
-    })
+        },
+    )
     .detach();
 }
 
@@ -135,12 +129,7 @@ pub(super) fn handle_git_event(
             bytes,
         } => {
             tab.compare.update(cx, |view, cx| {
-                view.set_export_result(
-                    *request_id,
-                    destination.clone(),
-                    *bytes,
-                    cx,
-                );
+                view.set_export_result(*request_id, destination.clone(), *bytes, cx);
             });
             true
         }
@@ -183,8 +172,7 @@ pub(super) fn open(tab: &mut RepoTab, cx: &mut Context<RepoTab>) {
             view.attach_window(window, cx);
             view.open(cx);
         });
-        let compare_window =
-            cx.new(|_| BranchCompareWindow::new(compare_for_window.clone()));
+        let compare_window = cx.new(|_| BranchCompareWindow::new(compare_for_window.clone()));
         let root = cx.new(|cx| Root::new(compare_window, window, cx));
         window.activate_window();
         root
@@ -198,36 +186,34 @@ pub(super) fn open(tab: &mut RepoTab, cx: &mut Context<RepoTab>) {
                 "[git_compare] standalone comparison window created: id={}",
                 window_id.as_u64()
             );
-            tab.compare_window_closed =
-                Some(cx.on_window_closed(move |cx, closed_window_id| {
-                    if closed_window_id != window_id {
+            tab.compare_window_closed = Some(cx.on_window_closed(move |cx, closed_window_id| {
+                if closed_window_id != window_id {
+                    return;
+                }
+                log::info!(
+                    "[git_compare] standalone comparison window closed: id={}",
+                    window_id.as_u64()
+                );
+                defer_entity_update(weak_tab.clone(), cx, move |tab, cx| {
+                    if tab
+                        .compare_window
+                        .is_none_or(|handle| handle.window_id() != window_id)
+                    {
                         return;
                     }
-                    log::info!(
-                        "[git_compare] standalone comparison window closed: id={}",
-                        window_id.as_u64()
-                    );
-                    defer_entity_update(weak_tab.clone(), cx, move |tab, cx| {
-                        if tab.compare_window.is_none_or(|handle| {
-                            handle.window_id() != window_id
-                        }) {
-                            return;
-                        }
-                        tab.compare_window = None;
-                        tab.compare_window_closed = None;
-                        tab.git_view.update(cx, |view, _| {
-                            view.cancel_branch_compare();
-                        });
-                        tab.compare.update(cx, |view, cx| view.close(cx));
-                        cx.notify();
+                    tab.compare_window = None;
+                    tab.compare_window_closed = None;
+                    tab.git_view.update(cx, |view, _| {
+                        view.cancel_branch_compare();
                     });
-                }));
+                    tab.compare.update(cx, |view, cx| view.close(cx));
+                    cx.notify();
+                });
+            }));
             cx.notify();
         }
         Err(error) => {
-            log::error!(
-                "[git_compare] failed to open standalone comparison window: {error}"
-            );
+            log::error!("[git_compare] failed to open standalone comparison window: {error}");
             compare.update(cx, |view, cx| view.close(cx));
         }
     }
@@ -244,11 +230,7 @@ pub(super) fn close(tab: &mut RepoTab, cx: &mut Context<RepoTab>) {
     cx.notify();
 }
 
-pub(super) fn set_locale(
-    tab: &mut RepoTab,
-    locale: Locale,
-    cx: &mut Context<RepoTab>,
-) {
+pub(super) fn set_locale(tab: &mut RepoTab, locale: Locale, cx: &mut Context<RepoTab>) {
     tab.compare
         .update(cx, |view, cx| view.set_locale(locale, cx));
 }
@@ -263,10 +245,6 @@ pub(super) fn set_diff_layout(
     });
 }
 
-pub(super) fn render(
-    tab: &RepoTab,
-    window: &mut Window,
-    cx: &mut Context<RepoTab>,
-) -> AnyElement {
+pub(super) fn render(tab: &RepoTab, window: &mut Window, cx: &mut Context<RepoTab>) -> AnyElement {
     tab.main_content(window, cx).into_any_element()
 }

@@ -25,10 +25,7 @@ use super::SettingsPanelEvent;
 use super::agents::agent_profile_options;
 
 impl SettingsPanel {
-    pub(super) fn render_agents_section(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    pub(super) fn render_agents_section(&self, cx: &mut Context<Self>) -> AnyElement {
         let colors = cx.theme().colors.clone();
         let accent = cx.theme().tokens.accent.color;
         let accent_foreground = cx.theme().accent_foreground;
@@ -57,10 +54,7 @@ impl SettingsPanel {
             })
             .trigger(
                 Button::new("settings-agent-add-trigger")
-                    .label(shared(i18n::text(
-                        self.locale,
-                        "agent-add-agent",
-                    )))
+                    .label(shared(i18n::text(self.locale, "agent-add-agent")))
                     .ghost()
                     .small()
                     .dropdown_caret(true),
@@ -76,10 +70,7 @@ impl SettingsPanel {
                                 "settings-agent-add-{agent_id}",
                                 agent_id = agent.id()
                             )))
-                            .label(shared(format!(
-                                "＋ {}",
-                                agent.display_name()
-                            )))
+                            .label(shared(format!("＋ {}", agent.display_name())))
                             .ghost()
                             .w_full()
                             .justify_start()
@@ -91,9 +82,7 @@ impl SettingsPanel {
                                 );
                                 add.update(cx, |panel, cx| {
                                     panel.agent_add_open = false;
-                                    cx.emit(
-                                        SettingsPanelEvent::AgentBuiltinAddRequested(agent),
-                                    );
+                                    cx.emit(SettingsPanelEvent::AgentBuiltinAddRequested(agent));
                                 });
                             }),
                         );
@@ -112,9 +101,7 @@ impl SettingsPanel {
                             .on_click(move |_event, window, cx| {
                                 custom.update(cx, |panel, cx| {
                                     panel.agent_add_open = false;
-                                    panel.open_agent_profile_editor(
-                                        None, window, cx,
-                                    );
+                                    panel.open_agent_profile_editor(None, window, cx);
                                 });
                             }),
                     )
@@ -153,19 +140,13 @@ impl SettingsPanel {
                             div()
                                 .text_color(colors.foreground)
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .child(shared(i18n::text(
-                                    self.locale,
-                                    "agent-empty-title",
-                                ))),
+                                .child(shared(i18n::text(self.locale, "agent-empty-title"))),
                         )
                         .child(
                             div()
                                 .text_size(crate::theme::scaled_text_size(12.))
                                 .text_color(colors.muted_foreground)
-                                .child(shared(i18n::text(
-                                    self.locale,
-                                    "agent-empty-description",
-                                ))),
+                                .child(shared(i18n::text(self.locale, "agent-empty-description"))),
                         ),
                 )
                 .into_any_element();
@@ -194,23 +175,17 @@ impl SettingsPanel {
         let cards = profiles.iter().map(|option| {
             let profile_id = option.value.clone();
             let resolved = self.agent_settings.profile(&profile_id);
-            let built_in =
-                resolved.as_ref().and_then(|resolved| resolved.built_in);
+            let built_in = resolved.as_ref().and_then(|resolved| resolved.built_in);
             let executable_path_missing = resolved
                 .as_ref()
-                .is_some_and(|profile| {
-                    explicit_executable_path_missing(&profile.executable)
-                });
+                .is_some_and(|profile| explicit_executable_path_missing(&profile.executable));
             let probe_result = self
                 .agent_probe_results
                 .iter()
                 .find(|(id, _)| id == &profile_id)
                 .and_then(|(_, result)| result.as_ref());
             let (status_text, status_color) = if resolved.is_none() {
-                (
-                    i18n::text(self.locale, "agent-profile-invalid"),
-                    colors.red,
-                )
+                (i18n::text(self.locale, "agent-profile-invalid"), colors.red)
             } else if executable_path_missing {
                 (
                     i18n::text(self.locale, "agent-executable-not-found"),
@@ -245,32 +220,22 @@ impl SettingsPanel {
                             .agent_settings
                             .launch_overrides
                             .get(&agent)
-                            .map(|overrides| {
-                                overrides.validate_for(agent).is_ok()
-                            })
+                            .map(|overrides| overrides.validate_for(agent).is_ok())
                             .unwrap_or(true);
-                        Some(
-                            saved_is_valid
-                                && !self
-                                    .agent_override_errors
-                                    .contains_key(&agent),
-                        )
+                        Some(saved_is_valid && !self.agent_override_errors.contains_key(&agent))
                     })
                 })
                 .unwrap_or(true);
             let variant_capability_ready = resolved
                 .as_ref()
                 .and_then(|resolved| {
-                    let has_variant = resolved.built_in
-                        == Some(BuiltInAgent::OpenCode)
+                    let has_variant = resolved.built_in == Some(BuiltInAgent::OpenCode)
                         && self
                             .agent_settings
                             .launch_overrides_for(resolved)
                             .variant
                             .is_some();
-                    has_variant.then(|| {
-                        self.agent_variant_capability_ready(&resolved.id)
-                    })
+                    has_variant.then(|| self.agent_variant_capability_ready(&resolved.id))
                 })
                 .unwrap_or(true);
             let can_test = resolved.is_some()
@@ -304,31 +269,21 @@ impl SettingsPanel {
             let test = this.clone();
             let test_id = profile_id.clone();
             let mut actions = h_flex().items_center().gap_1().child(
-                Button::new(SharedString::from(format!(
-                    "agent-profile-test-{test_id}"
-                )))
-                .label(shared(i18n::text(
-                    self.locale,
-                    "agent-profile-test",
-                )))
-                .tooltip(shared(i18n::text(
-                    self.locale,
-                    "agent-test-description",
-                )))
-                .ghost()
-                .xsmall()
-                .disabled(!can_test)
-                .on_click(move |_event, _window, cx| {
-                    if can_test {
-                        test.update(cx, |_panel, cx| {
-                            cx.emit(
-                                SettingsPanelEvent::AgentConnectivityTestRequested(
+                Button::new(SharedString::from(format!("agent-profile-test-{test_id}")))
+                    .label(shared(i18n::text(self.locale, "agent-profile-test")))
+                    .tooltip(shared(i18n::text(self.locale, "agent-test-description")))
+                    .ghost()
+                    .xsmall()
+                    .disabled(!can_test)
+                    .on_click(move |_event, _window, cx| {
+                        if can_test {
+                            test.update(cx, |_panel, cx| {
+                                cx.emit(SettingsPanelEvent::AgentConnectivityTestRequested(
                                     test_id.clone(),
-                                ),
-                            );
-                        });
-                    }
-                }),
+                                ));
+                            });
+                        }
+                    }),
             );
             if let Some(agent) = built_in {
                 let remove = this.clone();
@@ -341,9 +296,7 @@ impl SettingsPanel {
                     .xsmall()
                     .on_click(move |_event, _window, cx| {
                         remove.update(cx, |_panel, cx| {
-                            cx.emit(
-                                SettingsPanelEvent::AgentBuiltinRemoveRequested(agent),
-                            );
+                            cx.emit(SettingsPanelEvent::AgentBuiltinRemoveRequested(agent));
                         });
                     }),
                 );
@@ -359,41 +312,30 @@ impl SettingsPanel {
                 let remove_id = profile_id.clone();
                 actions = actions
                     .child(
-                        Button::new(SharedString::from(format!(
-                            "agent-profile-edit-{edit_id}"
-                        )))
-                        .label(shared(i18n::text(
-                            self.locale,
-                            "agent-profile-edit",
-                        )))
-                        .ghost()
-                        .xsmall()
-                        .on_click(move |_event, window, cx| {
-                            edit.update(cx, |panel, cx| {
-                                panel.open_agent_profile_editor(
-                                    Some(edit_id.clone()),
-                                    window,
-                                    cx,
-                                );
-                            });
-                        }),
+                        Button::new(SharedString::from(format!("agent-profile-edit-{edit_id}")))
+                            .label(shared(i18n::text(self.locale, "agent-profile-edit")))
+                            .ghost()
+                            .xsmall()
+                            .on_click(move |_event, window, cx| {
+                                edit.update(cx, |panel, cx| {
+                                    panel.open_agent_profile_editor(
+                                        Some(edit_id.clone()),
+                                        window,
+                                        cx,
+                                    );
+                                });
+                            }),
                     )
                     .child(
                         Button::new(SharedString::from(format!(
                             "agent-profile-remove-{remove_id}"
                         )))
-                        .label(shared(i18n::text(
-                            self.locale,
-                            "agent-profile-remove",
-                        )))
+                        .label(shared(i18n::text(self.locale, "agent-profile-remove")))
                         .ghost()
                         .xsmall()
                         .on_click(move |_event, _window, cx| {
                             remove.update(cx, |panel, cx| {
-                                panel.remove_agent_profile(
-                                    remove_id.clone(),
-                                    cx,
-                                );
+                                panel.remove_agent_profile(remove_id.clone(), cx);
                             });
                         }),
                     );
@@ -425,15 +367,10 @@ impl SettingsPanel {
                                     .px_2()
                                     .py_0p5()
                                     .rounded_full()
-                                    .text_size(crate::theme::scaled_text_size(
-                                        11.,
-                                    ))
+                                    .text_size(crate::theme::scaled_text_size(11.))
                                     .text_color(accent_foreground)
                                     .bg(accent)
-                                    .child(shared(i18n::text(
-                                        self.locale,
-                                        "agent-default-badge",
-                                    ))),
+                                    .child(shared(i18n::text(self.locale, "agent-default-badge"))),
                             )
                         })
                         .when(!executable_label.is_empty(), |row| {
@@ -443,12 +380,8 @@ impl SettingsPanel {
                                     .min_w_0()
                                     .text_ellipsis()
                                     .text_color(colors.muted_foreground)
-                                    .text_size(crate::theme::scaled_text_size(
-                                        11.,
-                                    ))
-                                    .child(SharedString::from(
-                                        executable_label.clone(),
-                                    )),
+                                    .text_size(crate::theme::scaled_text_size(11.))
+                                    .child(SharedString::from(executable_label.clone())),
                             )
                         }),
                 )
@@ -467,11 +400,7 @@ impl SettingsPanel {
                         .child(actions),
                 );
             if expanded {
-                card = card.child(self.render_agent_card_body(
-                    &profile_id,
-                    built_in,
-                    cx,
-                ));
+                card = card.child(self.render_agent_card_body(&profile_id, built_in, cx));
             }
             card
         });
@@ -509,17 +438,11 @@ impl SettingsPanel {
                     };
                     let prompt_mode = match &profile.prompt_mode {
                         crate::agent::PromptMode::TrailingArgument => {
-                            i18n::text(
-                                self.locale,
-                                "agent-profile-prompt-trailing",
-                            )
+                            i18n::text(self.locale, "agent-profile-prompt-trailing")
                         }
                         crate::agent::PromptMode::Flag(flag) => flag.clone(),
                     };
-                    format!(
-                        "{} · {args} · {prompt_mode}",
-                        profile.executable.display()
-                    )
+                    format!("{} · {args} · {prompt_mode}", profile.executable.display())
                 })
                 .unwrap_or_default();
             return div()
@@ -566,25 +489,18 @@ impl SettingsPanel {
                             "agent-executable-browse-{agent_id}",
                             agent_id = agent.id()
                         )))
-                        .label(shared(i18n::text(
-                            self.locale,
-                            "agent-executable-browse",
-                        )))
+                        .label(shared(i18n::text(self.locale, "agent-executable-browse")))
                         .tooltip(shared(i18n::text(
                             self.locale,
                             "agent-executable-description",
                         )))
                         .ghost()
                         .small()
-                        .on_click(
-                            move |_event, window, cx| {
-                                this.update(cx, |panel, cx| {
-                                    panel.browse_agent_executable(
-                                        agent, window, cx,
-                                    );
-                                });
-                            },
-                        ),
+                        .on_click(move |_event, window, cx| {
+                            this.update(cx, |panel, cx| {
+                                panel.browse_agent_executable(agent, window, cx);
+                            });
+                        }),
                     )
                     .into_any_element(),
                 colors.foreground,
@@ -637,25 +553,26 @@ impl SettingsPanel {
             )
             .into_any_element()
         };
-        let launch_error =
-            self.agent_override_errors
-                .get(&agent)
-                .cloned()
-                .or_else(|| {
-                    self.agent_settings.launch_overrides.get(&agent).and_then(
-                        |overrides| overrides.validate_for(agent).err(),
-                    )
-                })
-                .map(|error| {
-                    div()
-                        .text_size(crate::theme::scaled_text_size(11.))
-                        .text_color(colors.red)
-                        .child(shared(i18n::text_args(
-                            self.locale,
-                            "agent-launch-invalid",
-                            &[("error", &error)],
-                        )))
-                });
+        let launch_error = self
+            .agent_override_errors
+            .get(&agent)
+            .cloned()
+            .or_else(|| {
+                self.agent_settings
+                    .launch_overrides
+                    .get(&agent)
+                    .and_then(|overrides| overrides.validate_for(agent).err())
+            })
+            .map(|error| {
+                div()
+                    .text_size(crate::theme::scaled_text_size(11.))
+                    .text_color(colors.red)
+                    .child(shared(i18n::text_args(
+                        self.locale,
+                        "agent-launch-invalid",
+                        &[("error", &error)],
+                    )))
+            });
         let inherit_note = div()
             .text_size(crate::theme::scaled_text_size(11.))
             .text_color(colors.muted_foreground)
@@ -673,7 +590,6 @@ impl SettingsPanel {
 /// A configured explicit path that no longer resolves means the agent is
 /// unusable regardless of probe results.
 fn explicit_executable_path_missing(path: &std::path::Path) -> bool {
-    let has_directory_component =
-        path.is_absolute() || path.components().count() > 1;
+    let has_directory_component = path.is_absolute() || path.components().count() > 1;
     has_directory_component && crate::agent::resolve_executable(path).is_err()
 }

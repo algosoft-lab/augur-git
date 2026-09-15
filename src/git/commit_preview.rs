@@ -57,12 +57,7 @@ impl CommitHoverPreview {
         cx.notify();
     }
 
-    pub fn set_message(
-        &mut self,
-        oid: &str,
-        message: CommitMessage,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_message(&mut self, oid: &str, message: CommitMessage, cx: &mut Context<Self>) {
         let Some(commit) = self.commit.as_mut() else {
             return;
         };
@@ -80,11 +75,7 @@ impl CommitHoverPreview {
 }
 
 impl Render for CommitHoverPreview {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let mono = cx.theme().mono_font_family.clone();
         let mut preview = v_flex()
@@ -116,10 +107,7 @@ impl Render for CommitHoverPreview {
                 div()
                     .text_size(crate::theme::scaled_text_size(10.))
                     .text_color(colors.muted_foreground)
-                    .child(shared(i18n::text(
-                        self.locale,
-                        "commit-message-preview",
-                    ))),
+                    .child(shared(i18n::text(self.locale, "commit-message-preview"))),
             )
             .child(
                 h_flex()
@@ -173,10 +161,7 @@ impl Render for CommitHoverPreview {
                             div()
                                 .text_size(crate::theme::scaled_text_size(11.))
                                 .text_color(colors.muted_foreground)
-                                .child(shared(i18n::text(
-                                    self.locale,
-                                    "commit-coauthors",
-                                ))),
+                                .child(shared(i18n::text(self.locale, "commit-coauthors"))),
                         )
                         .children(message.co_authors.iter().map(|co_author| {
                             div()
@@ -191,10 +176,7 @@ impl Render for CommitHoverPreview {
                 div()
                     .text_size(crate::theme::scaled_text_size(11.))
                     .text_color(colors.muted_foreground)
-                    .child(shared(i18n::text(
-                        self.locale,
-                        "commit-message-loading",
-                    ))),
+                    .child(shared(i18n::text(self.locale, "commit-message-loading"))),
             );
         }
 

@@ -174,10 +174,7 @@ pub(crate) fn wait_for_agent_session(
             Ok(result) => return result,
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                return Err(
-                    "the Agent session window closed without reporting a result"
-                        .into(),
-                );
+                return Err("the Agent session window closed without reporting a result".into());
             }
         }
     }
@@ -203,13 +200,9 @@ mod tests {
             summary: "committed".into(),
         }))
         .expect("send outcome");
-        let outcome = wait_for_agent_session(
-            rx,
-            &cancelled,
-            &session_cancelled,
-            Duration::from_secs(5),
-        )
-        .expect("session result");
+        let outcome =
+            wait_for_agent_session(rx, &cancelled, &session_cancelled, Duration::from_secs(5))
+                .expect("session result");
         assert_eq!(
             outcome,
             AgentSessionOutcome::Confirmed {
@@ -226,13 +219,9 @@ mod tests {
         let session_cancelled = Arc::new(AtomicBool::new(false));
         tx.send(Err("an Agent session is already active".into()))
             .expect("send failure");
-        let error = wait_for_agent_session(
-            rx,
-            &cancelled,
-            &session_cancelled,
-            Duration::from_secs(5),
-        )
-        .expect_err("session failure must surface");
+        let error =
+            wait_for_agent_session(rx, &cancelled, &session_cancelled, Duration::from_secs(5))
+                .expect_err("session failure must surface");
         assert!(error.contains("already active"));
     }
 
@@ -241,13 +230,9 @@ mod tests {
         let (_tx, rx) = channel();
         let cancelled = AtomicBool::new(true);
         let session_cancelled = Arc::new(AtomicBool::new(false));
-        let outcome = wait_for_agent_session(
-            rx,
-            &cancelled,
-            &session_cancelled,
-            Duration::from_secs(30),
-        )
-        .expect("cancelled result");
+        let outcome =
+            wait_for_agent_session(rx, &cancelled, &session_cancelled, Duration::from_secs(30))
+                .expect("cancelled result");
         assert_eq!(outcome, AgentSessionOutcome::Cancelled);
         assert!(session_cancelled.load(Ordering::Acquire));
     }
@@ -274,13 +259,9 @@ mod tests {
         drop(tx);
         let cancelled = AtomicBool::new(false);
         let session_cancelled = Arc::new(AtomicBool::new(false));
-        let error = wait_for_agent_session(
-            rx,
-            &cancelled,
-            &session_cancelled,
-            Duration::from_secs(5),
-        )
-        .expect_err("a dropped channel must fail");
+        let error =
+            wait_for_agent_session(rx, &cancelled, &session_cancelled, Duration::from_secs(5))
+                .expect_err("a dropped channel must fail");
         assert!(error.contains("without reporting a result"));
     }
 

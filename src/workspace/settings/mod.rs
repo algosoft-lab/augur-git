@@ -19,13 +19,10 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::agent::{
-    AgentCliCapabilities, AgentSettings, BuiltInAgent, CustomAgentProfile,
-};
+use crate::agent::{AgentCliCapabilities, AgentSettings, BuiltInAgent, CustomAgentProfile};
 use crate::core::config::{
-    AppConfig, DiffLayoutPreference, GraphHistoryPreference,
-    LanguagePreference, MAX_DIFF_FONT_SIZE, MAX_UI_FONT_SIZE,
-    MIN_DIFF_FONT_SIZE, MIN_UI_FONT_SIZE, ThemePreference,
+    AppConfig, DiffLayoutPreference, GraphHistoryPreference, LanguagePreference,
+    MAX_DIFF_FONT_SIZE, MAX_UI_FONT_SIZE, MIN_DIFF_FONT_SIZE, MIN_UI_FONT_SIZE, ThemePreference,
 };
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
@@ -132,22 +129,16 @@ pub struct SettingsPanel {
     agent_expanded: HashSet<String>,
     agent_add_open: bool,
     font_families: Vec<String>,
-    language_state:
-        Entity<SelectState<Vec<SettingsOption<LanguagePreference>>>>,
+    language_state: Entity<SelectState<Vec<SettingsOption<LanguagePreference>>>>,
     auto_refresh_state: Entity<SelectState<Vec<SettingsOption<bool>>>>,
     theme_state: Entity<SelectState<Vec<SettingsOption<ThemePreference>>>>,
-    diff_layout_state:
-        Entity<SelectState<Vec<SettingsOption<DiffLayoutPreference>>>>,
-    graph_history_state:
-        Entity<SelectState<Vec<SettingsOption<GraphHistoryPreference>>>>,
-    ui_font_state:
-        Entity<SelectState<SearchableVec<SettingsOption<Option<String>>>>>,
-    mono_font_state:
-        Entity<SelectState<SearchableVec<SettingsOption<Option<String>>>>>,
+    diff_layout_state: Entity<SelectState<Vec<SettingsOption<DiffLayoutPreference>>>>,
+    graph_history_state: Entity<SelectState<Vec<SettingsOption<GraphHistoryPreference>>>>,
+    ui_font_state: Entity<SelectState<SearchableVec<SettingsOption<Option<String>>>>>,
+    mono_font_state: Entity<SelectState<SearchableVec<SettingsOption<Option<String>>>>>,
     ui_font_size_state: Entity<SliderState>,
     diff_font_size_state: Entity<SliderState>,
-    agent_default_profile_state:
-        Entity<SelectState<Vec<SettingsOption<String>>>>,
+    agent_default_profile_state: Entity<SelectState<Vec<SettingsOption<String>>>>,
     agent_executable_inputs: Vec<(BuiltInAgent, Entity<InputState>)>,
     agent_model_inputs: Vec<(BuiltInAgent, Entity<InputState>)>,
     agent_variant_inputs: Vec<(BuiltInAgent, Entity<InputState>)>,
@@ -185,10 +176,7 @@ impl SettingsPanel {
         let language_state = cx.new(|cx| {
             SelectState::new(
                 options::language_options(locale),
-                options::selected_index(
-                    &options::language_options(locale),
-                    &language,
-                ),
+                options::selected_index(&options::language_options(locale), &language),
                 window,
                 cx,
             )
@@ -207,10 +195,7 @@ impl SettingsPanel {
         let theme_state = cx.new(|cx| {
             SelectState::new(
                 options::theme_options(locale),
-                options::selected_index(
-                    &options::theme_options(locale),
-                    &theme,
-                ),
+                options::selected_index(&options::theme_options(locale), &theme),
                 window,
                 cx,
             )
@@ -218,10 +203,7 @@ impl SettingsPanel {
         let diff_layout_state = cx.new(|cx| {
             SelectState::new(
                 options::diff_layout_options(locale),
-                options::selected_index(
-                    &options::diff_layout_options(locale),
-                    &diff_layout,
-                ),
+                options::selected_index(&options::diff_layout_options(locale), &diff_layout),
                 window,
                 cx,
             )
@@ -229,10 +211,7 @@ impl SettingsPanel {
         let graph_history_state = cx.new(|cx| {
             SelectState::new(
                 options::graph_history_options(locale),
-                options::selected_index(
-                    &options::graph_history_options(locale),
-                    &graph_history,
-                ),
+                options::selected_index(&options::graph_history_options(locale), &graph_history),
                 window,
                 cx,
             )
@@ -272,8 +251,7 @@ impl SettingsPanel {
                 .default_value(diff_font_size)
         });
         let agent_default_profile_state = cx.new(|cx| {
-            let options =
-                agents::agent_profile_options(locale, &agent_settings);
+            let options = agents::agent_profile_options(locale, &agent_settings);
             SelectState::new(
                 options.clone(),
                 options::selected_index(&options, &agent_default_profile),
@@ -310,10 +288,7 @@ impl SettingsPanel {
                 let input = cx.new(|cx| {
                     InputState::new(window, cx)
                         .default_value(value)
-                        .placeholder(i18n::text(
-                            locale,
-                            "agent-model-placeholder",
-                        ))
+                        .placeholder(i18n::text(locale, "agent-model-placeholder"))
                 });
                 (agent, input)
             })
@@ -330,10 +305,7 @@ impl SettingsPanel {
                 let input = cx.new(|cx| {
                     InputState::new(window, cx)
                         .default_value(value)
-                        .placeholder(i18n::text(
-                            locale,
-                            "agent-variant-placeholder",
-                        ))
+                        .placeholder(i18n::text(locale, "agent-variant-placeholder"))
                 });
                 (agent, input)
             })
@@ -500,8 +472,7 @@ impl SettingsPanel {
         )
         .detach();
 
-        let diff_font_size_state_for_events =
-            panel.diff_font_size_state.clone();
+        let diff_font_size_state_for_events = panel.diff_font_size_state.clone();
         cx.subscribe(
             &diff_font_size_state_for_events,
             |panel, _, event: &SliderEvent, cx| {
@@ -524,12 +495,7 @@ impl SettingsPanel {
         panel
     }
 
-    pub fn set_locale(
-        &mut self,
-        locale: Locale,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_locale(&mut self, locale: Locale, window: &mut Window, cx: &mut Context<Self>) {
         self.locale = locale;
         self.agent_profile_editor = None;
         let language = self.language;
@@ -579,8 +545,7 @@ impl SettingsPanel {
             state.set_selected_value(&mono_font, window, cx);
         });
         self.agent_default_profile_state.update(cx, |state, cx| {
-            let options =
-                agents::agent_profile_options(locale, &agent_settings);
+            let options = agents::agent_profile_options(locale, &agent_settings);
             state.set_items(options.clone(), window, cx);
             state.set_selected_value(&agent_default_profile, window, cx);
         });
@@ -598,11 +563,7 @@ impl SettingsPanel {
         cx.notify();
     }
 
-    fn select_section(
-        &mut self,
-        section: SettingsSection,
-        cx: &mut Context<Self>,
-    ) {
+    fn select_section(&mut self, section: SettingsSection, cx: &mut Context<Self>) {
         log::debug!("[agent_settings] selecting settings section: {section:?}");
         self.section = section;
         cx.notify();
@@ -657,11 +618,7 @@ impl SettingsPanel {
             .child(shared(label))
     }
 
-    fn field(
-        label: String,
-        control: AnyElement,
-        foreground: Hsla,
-    ) -> impl IntoElement {
+    fn field(label: String, control: AnyElement, foreground: Hsla) -> impl IntoElement {
         v_flex()
             .w_full()
             .gap_1()
@@ -710,10 +667,7 @@ impl SettingsPanel {
                         .text_size(crate::theme::scaled_text_size(20.))
                         .font_weight(FontWeight::BOLD)
                         .text_color(colors.foreground)
-                        .child(shared(i18n::text(
-                            self.locale,
-                            "settings-general",
-                        ))),
+                        .child(shared(i18n::text(self.locale, "settings-general"))),
                 )
                 .child(Self::field(
                     i18n::text(self.locale, "language-title"),
@@ -738,10 +692,7 @@ impl SettingsPanel {
                         .text_size(crate::theme::scaled_text_size(20.))
                         .font_weight(FontWeight::BOLD)
                         .text_color(colors.foreground)
-                        .child(shared(i18n::text(
-                            self.locale,
-                            "settings-appearance",
-                        ))),
+                        .child(shared(i18n::text(self.locale, "settings-appearance"))),
                 )
                 .child(Self::field(
                     i18n::text(self.locale, "theme-title"),
@@ -752,10 +703,7 @@ impl SettingsPanel {
                     i18n::text(self.locale, "ui-font-title"),
                     Select::new(&self.ui_font_state)
                         .w_full()
-                        .search_placeholder(i18n::text(
-                            self.locale,
-                            "font-search-placeholder",
-                        ))
+                        .search_placeholder(i18n::text(self.locale, "font-search-placeholder"))
                         .menu_width(px(360.))
                         .into_any_element(),
                     colors.foreground,
@@ -764,10 +712,7 @@ impl SettingsPanel {
                     i18n::text(self.locale, "mono-font-title"),
                     Select::new(&self.mono_font_state)
                         .w_full()
-                        .search_placeholder(i18n::text(
-                            self.locale,
-                            "font-search-placeholder",
-                        ))
+                        .search_placeholder(i18n::text(self.locale, "font-search-placeholder"))
                         .menu_width(px(360.))
                         .into_any_element(),
                     colors.foreground,
@@ -781,10 +726,7 @@ impl SettingsPanel {
                     div()
                         .text_size(crate::theme::scaled_text_size(12.))
                         .text_color(colors.muted_foreground)
-                        .child(shared(i18n::text(
-                            self.locale,
-                            "ui-font-size-description",
-                        ))),
+                        .child(shared(i18n::text(self.locale, "ui-font-size-description"))),
                 )
                 .child(Self::field(
                     i18n::text(self.locale, "diff-font-size-title"),
@@ -809,10 +751,7 @@ impl SettingsPanel {
                         .text_size(crate::theme::scaled_text_size(20.))
                         .font_weight(FontWeight::BOLD)
                         .text_color(colors.foreground)
-                        .child(shared(i18n::text(
-                            self.locale,
-                            "settings-layout",
-                        ))),
+                        .child(shared(i18n::text(self.locale, "settings-layout"))),
                 )
                 .child(Self::field(
                     i18n::text(self.locale, "diff-layout-title"),
@@ -832,10 +771,7 @@ impl SettingsPanel {
                     div()
                         .text_size(crate::theme::scaled_text_size(12.))
                         .text_color(colors.muted_foreground)
-                        .child(shared(i18n::text(
-                            self.locale,
-                            "graph-history-description",
-                        ))),
+                        .child(shared(i18n::text(self.locale, "graph-history-description"))),
                 )
                 .child(
                     div()
@@ -854,11 +790,7 @@ impl SettingsPanel {
 }
 
 impl Render for SettingsPanel {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let this = cx.entity();
         let close = this.clone();
@@ -893,10 +825,7 @@ impl Render for SettingsPanel {
                             .text_size(crate::theme::scaled_text_size(15.))
                             .font_weight(FontWeight::BOLD)
                             .text_color(colors.foreground)
-                            .child(shared(i18n::text(
-                                self.locale,
-                                "settings-title",
-                            ))),
+                            .child(shared(i18n::text(self.locale, "settings-title"))),
                     )
                     .child(self.category_button(
                         "settings-category-general",
@@ -945,28 +874,18 @@ impl Render for SettingsPanel {
                             .border_color(colors.border)
                             .child(
                                 div()
-                                    .text_size(crate::theme::scaled_text_size(
-                                        13.,
-                                    ))
+                                    .text_size(crate::theme::scaled_text_size(13.))
                                     .text_color(colors.muted_foreground)
-                                    .child(shared(i18n::text(
-                                        self.locale,
-                                        "settings-description",
-                                    ))),
+                                    .child(shared(i18n::text(self.locale, "settings-description"))),
                             )
                             .child(
                                 Button::new("settings-close")
                                     .icon(IconName::Close)
                                     .ghost()
                                     .small()
-                                    .tooltip(i18n::text(
-                                        self.locale,
-                                        "settings-close",
-                                    ))
+                                    .tooltip(i18n::text(self.locale, "settings-close"))
                                     .on_click(move |_event, _window, cx| {
-                                        close.update(cx, |panel, cx| {
-                                            panel.close(cx)
-                                        });
+                                        close.update(cx, |panel, cx| panel.close(cx));
                                     }),
                             ),
                     )

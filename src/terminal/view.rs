@@ -11,8 +11,8 @@ use gpui_component::ActiveTheme;
 use super::geometry::TerminalGeometry;
 use super::model::TerminalSnapshot;
 use super::render::{
-    PlainRenderPlan, StyledRenderPlan, build_plain_render_plan,
-    build_styled_render_plan, terminal_color_to_hsla, terminal_text_run,
+    PlainRenderPlan, StyledRenderPlan, build_plain_render_plan, build_styled_render_plan,
+    terminal_color_to_hsla, terminal_text_run,
 };
 use super::{CELL_WIDTH, TerminalBackend, TerminalEvent, encode_key};
 
@@ -37,10 +37,7 @@ impl TerminalView {
                     .await;
                 let events = backend_for_task.drain_events();
                 let done = events.iter().any(|event| {
-                    matches!(
-                        event,
-                        TerminalEvent::ChildExit(_) | TerminalEvent::Error(_)
-                    )
+                    matches!(event, TerminalEvent::ChildExit(_) | TerminalEvent::Error(_))
                 });
                 view_entity.update(cx, |view, cx| {
                     view.apply(events, cx);
@@ -86,11 +83,7 @@ impl TerminalView {
 }
 
 impl Render for TerminalView {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let this = cx.entity();
         let focus = self.focus_handle.clone();
@@ -101,8 +94,7 @@ impl Render for TerminalView {
         let terminal_canvas = canvas(
             move |bounds, window, _cx| {
                 let geometry = terminal_geometry_for_bounds(bounds, window);
-                let (generation, snapshot) =
-                    geometry_backend.synchronize_viewport(geometry);
+                let (generation, snapshot) = geometry_backend.synchronize_viewport(geometry);
                 let plan = build_styled_render_plan(&snapshot);
                 let plain_plan = build_plain_render_plan(&snapshot);
                 StyledCanvasState {
@@ -116,13 +108,7 @@ impl Render for TerminalView {
                 }
             },
             move |bounds, state, window, cx| {
-                paint_styled_terminal(
-                    bounds,
-                    state,
-                    &terminal_colors,
-                    window,
-                    cx,
-                );
+                paint_styled_terminal(bounds, state, &terminal_colors, window, cx);
             },
         )
         .size_full()
@@ -151,44 +137,24 @@ impl Render for TerminalView {
             .on_mouse_down(MouseButton::Middle, {
                 let backend = backend.clone();
                 move |event, _window, _cx| {
-                    backend.send_mouse_report(
-                        1,
-                        event.position,
-                        true,
-                        event.modifiers,
-                    );
+                    backend.send_mouse_report(1, event.position, true, event.modifiers);
                 }
             })
             .on_mouse_down(MouseButton::Right, {
                 let backend = backend.clone();
                 move |event, _window, _cx| {
-                    backend.send_mouse_report(
-                        2,
-                        event.position,
-                        true,
-                        event.modifiers,
-                    );
+                    backend.send_mouse_report(2, event.position, true, event.modifiers);
                 }
             })
             .on_mouse_down(MouseButton::Left, move |event, _window, _cx| {
-                if !backend_for_mouse.send_mouse_report(
-                    0,
-                    event.position,
-                    true,
-                    event.modifiers,
-                ) {
+                if !backend_for_mouse.send_mouse_report(0, event.position, true, event.modifiers) {
                     backend_for_mouse.begin_selection(event.position);
                 }
             })
             .on_mouse_up(MouseButton::Left, {
                 let backend = backend.clone();
                 move |event, _window, _cx| {
-                    if !backend.send_mouse_report(
-                        0,
-                        event.position,
-                        false,
-                        event.modifiers,
-                    ) {
+                    if !backend.send_mouse_report(0, event.position, false, event.modifiers) {
                         backend.finish_selection();
                     }
                 }
@@ -196,35 +162,20 @@ impl Render for TerminalView {
             .on_mouse_up(MouseButton::Middle, {
                 let backend = backend.clone();
                 move |event, _window, _cx| {
-                    backend.send_mouse_report(
-                        1,
-                        event.position,
-                        false,
-                        event.modifiers,
-                    );
+                    backend.send_mouse_report(1, event.position, false, event.modifiers);
                 }
             })
             .on_mouse_up(MouseButton::Right, {
                 let backend = backend.clone();
                 move |event, _window, _cx| {
-                    backend.send_mouse_report(
-                        2,
-                        event.position,
-                        false,
-                        event.modifiers,
-                    );
+                    backend.send_mouse_report(2, event.position, false, event.modifiers);
                 }
             })
             .on_mouse_move({
                 let backend = backend.clone();
                 move |event, _window, _cx| {
                     if event.pressed_button.is_some() {
-                        if !backend.send_mouse_report(
-                            32,
-                            event.position,
-                            true,
-                            event.modifiers,
-                        ) {
+                        if !backend.send_mouse_report(32, event.position, true, event.modifiers) {
                             backend.update_selection(event.position);
                         }
                     }
@@ -246,9 +197,7 @@ impl Render for TerminalView {
                     && ((modifiers.platform && !modifiers.control)
                         || (modifiers.control && modifiers.shift));
                 if paste {
-                    if let Some(text) =
-                        cx.read_from_clipboard().and_then(|item| item.text())
-                    {
+                    if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
                         backend_for_keyboard.paste_text(&text);
                         return;
                     }
@@ -260,19 +209,12 @@ impl Render for TerminalView {
                 move |event, _window, _cx| {
                     let delta = match event.delta {
                         ScrollDelta::Lines(point) => point.y,
-                        ScrollDelta::Pixels(point) => {
-                            backend.line_delta(f32::from(point.y))
-                        }
+                        ScrollDelta::Pixels(point) => backend.line_delta(f32::from(point.y)),
                     };
                     if delta.abs() > f32::EPSILON {
-                        let button =
-                            if delta.is_sign_negative() { 64 } else { 65 };
-                        if !backend.send_mouse_report(
-                            button,
-                            event.position,
-                            true,
-                            event.modifiers,
-                        ) {
+                        let button = if delta.is_sign_negative() { 64 } else { 65 };
+                        if !backend.send_mouse_report(button, event.position, true, event.modifiers)
+                        {
                             backend.scroll_lines(delta.round() as i32);
                         }
                     }
@@ -492,10 +434,7 @@ fn paint_styled_terminal(
     });
 }
 
-fn terminal_geometry_for_bounds(
-    bounds: Bounds<Pixels>,
-    window: &Window,
-) -> TerminalGeometry {
+fn terminal_geometry_for_bounds(bounds: Bounds<Pixels>, window: &Window) -> TerminalGeometry {
     let text_style = window.text_style();
     let font_id = window.text_system().resolve_font(&text_style.font());
     let font_size = text_style.font_size.to_pixels(window.rem_size());
@@ -506,8 +445,7 @@ fn terminal_geometry_for_bounds(
         .ok()
         .filter(|width| width.is_finite() && *width > 0.)
         .unwrap_or(f32::from(CELL_WIDTH));
-    let line_height =
-        f32::from(text_style.line_height_in_pixels(window.rem_size()));
+    let line_height = f32::from(text_style.line_height_in_pixels(window.rem_size()));
     TerminalGeometry::from_bounds(
         f32::from(bounds.origin.x),
         f32::from(bounds.origin.y),
@@ -525,8 +463,7 @@ mod tests {
 
     #[test]
     fn rejects_snapshot_from_a_previous_grid_size() {
-        let geometry =
-            TerminalGeometry::from_bounds(0., 0., 640., 400., 8., 20., 1.);
+        let geometry = TerminalGeometry::from_bounds(0., 0., 640., 400., 8., 20., 1.);
         let stale = TerminalFrame {
             geometry,
             snapshot: TerminalSnapshot {

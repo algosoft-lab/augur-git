@@ -16,23 +16,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 
 use gpui::{
-    App, AppContext, Context, WeakEntity, Window, WindowBounds,
-    WindowDecorations, WindowKind, WindowOptions, px, size,
+    App, AppContext, Context, WeakEntity, Window, WindowBounds, WindowDecorations, WindowKind,
+    WindowOptions, px, size,
 };
 use gpui_component::TitleBar;
 
 use crate::agent::{
-    AgentOperation, AgentOperationChallenge, AgentPromptChallenge,
-    ResolvedAgentProfile,
+    AgentOperation, AgentOperationChallenge, AgentPromptChallenge, ResolvedAgentProfile,
 };
 use crate::core::git::GitRepo;
-use crate::core::git::agent_operation::{
-    probe_agent_merge, probe_agent_rebase,
-};
+use crate::core::git::agent_operation::{probe_agent_merge, probe_agent_rebase};
 use crate::core::i18n::Locale;
-use crate::extension::{
-    AgentSessionOperation, AgentSessionOutcome, AgentSessionRequest,
-};
+use crate::extension::{AgentSessionOperation, AgentSessionOutcome, AgentSessionRequest};
 
 use super::Workspace;
 use super::agent_commit::AgentCommitOutcome;
@@ -115,72 +110,62 @@ pub(super) fn open_extension_session(
         return;
     };
     let locale = workspace.locale;
-    log::info!(
-        "[agent_operation] extension Agent session accepted: extension={extension_id}"
-    );
+    log::info!("[agent_operation] extension Agent session accepted: extension={extension_id}");
     match operation {
         AgentSessionOperation::Repository { operation, hint } => {
             let Some(path) = repository_path else {
                 let _ = reply.send(Err(
-                    "a repository Agent operation requires a repository".into(),
+                    "a repository Agent operation requires a repository".into()
                 ));
                 return;
             };
             let key = commit_key(&path.to_string_lossy());
             if running_session_exists(workspace, &key, cx) {
                 let _ = reply.send(Err(
-                    "an Agent session is already active for this repository"
-                        .into(),
+                    "an Agent session is already active for this repository".into(),
                 ));
                 return;
             }
             match operation {
                 AgentOperation::Commit => start_commit_session(
-                    workspace, key, locale, profile, path, hint, reply,
-                    cancelled, cx,
+                    workspace, key, locale, profile, path, hint, reply, cancelled, cx,
                 ),
-                AgentOperation::Merge { target_oid, .. } => {
-                    start_merge_session(
-                        key,
-                        locale,
-                        profile,
-                        path,
-                        AgentMergeMode::Start {
-                            target_oid: target_oid.clone(),
-                        },
-                        reply,
-                        cancelled,
-                        cx,
-                    )
-                }
-                AgentOperation::ResolveMerge { merge_head_oid, .. } => {
-                    start_merge_session(
-                        key,
-                        locale,
-                        profile,
-                        path,
-                        AgentMergeMode::Resolve {
-                            merge_head_oid: merge_head_oid.clone(),
-                        },
-                        reply,
-                        cancelled,
-                        cx,
-                    )
-                }
-                AgentOperation::Rebase { upstream_oid, .. } => {
-                    start_rebase_session(
-                        key,
-                        locale,
-                        profile,
-                        path,
-                        AgentRebaseMode::Start {
-                            upstream_oid: upstream_oid.clone(),
-                        },
-                        reply,
-                        cancelled,
-                        cx,
-                    )
-                }
+                AgentOperation::Merge { target_oid, .. } => start_merge_session(
+                    key,
+                    locale,
+                    profile,
+                    path,
+                    AgentMergeMode::Start {
+                        target_oid: target_oid.clone(),
+                    },
+                    reply,
+                    cancelled,
+                    cx,
+                ),
+                AgentOperation::ResolveMerge { merge_head_oid, .. } => start_merge_session(
+                    key,
+                    locale,
+                    profile,
+                    path,
+                    AgentMergeMode::Resolve {
+                        merge_head_oid: merge_head_oid.clone(),
+                    },
+                    reply,
+                    cancelled,
+                    cx,
+                ),
+                AgentOperation::Rebase { upstream_oid, .. } => start_rebase_session(
+                    key,
+                    locale,
+                    profile,
+                    path,
+                    AgentRebaseMode::Start {
+                        upstream_oid: upstream_oid.clone(),
+                    },
+                    reply,
+                    cancelled,
+                    cx,
+                ),
                 AgentOperation::ResolveRebase {
                     rebase_head_oid,
                     upstream_oid,
@@ -215,8 +200,7 @@ pub(super) fn open_extension_session(
 
 fn running_session_exists(workspace: &Workspace, key: &str, cx: &App) -> bool {
     workspace.agent_sessions.iter().any(|(entry, handle)| {
-        entry == key
-            && handle.read(cx).is_ok_and(|session| session.is_running())
+        entry == key && handle.read(cx).is_ok_and(|session| session.is_running())
     })
 }
 
@@ -234,23 +218,15 @@ fn start_commit_session(
 ) {
     let session_id = next_session_id();
     let challenge = AgentOperationChallenge::new();
-    let prompt = match AgentOperation::Commit
-        .prompt_with_challenge(hint.as_deref(), &challenge)
-    {
+    let prompt = match AgentOperation::Commit.prompt_with_challenge(hint.as_deref(), &challenge) {
         Ok(prompt) => prompt,
         Err(error) => {
             let _ = reply.send(Err(error.to_string()));
             return;
         }
     };
-    let extension = ExtensionChannel::new(
-        cx.entity().downgrade(),
-        session_id,
-        reply,
-        cancelled,
-    );
-    let (spec, startup_error) =
-        launch_for_profile(workspace, &profile, &prompt, cx);
+    let extension = ExtensionChannel::new(cx.entity().downgrade(), session_id, reply, cancelled);
+    let (spec, startup_error) = launch_for_profile(workspace, &profile, &prompt, cx);
     if let Some(error) = startup_error {
         extension.report_error(error);
         return;
@@ -304,8 +280,7 @@ fn start_merge_session(
         let baseline = cx
             .background_executor()
             .spawn(async move {
-                let repo =
-                    GitRepo::local(probe_path.to_string_lossy().into_owned());
+                let repo = GitRepo::local(probe_path.to_string_lossy().into_owned());
                 probe_agent_merge(&repo, &target)
             })
             .await;
@@ -324,23 +299,19 @@ fn start_merge_session(
                     target_oid: target_oid.clone(),
                     baseline_head: baseline.head.clone(),
                 },
-                AgentMergeMode::Resolve { merge_head_oid } => {
-                    AgentOperation::ResolveMerge {
-                        merge_head_oid: merge_head_oid.clone(),
-                        baseline_head: baseline.head.clone(),
-                    }
-                }
+                AgentMergeMode::Resolve { merge_head_oid } => AgentOperation::ResolveMerge {
+                    merge_head_oid: merge_head_oid.clone(),
+                    baseline_head: baseline.head.clone(),
+                },
             };
-            let prompt = match operation.prompt_with_challenge(None, &challenge)
-            {
+            let prompt = match operation.prompt_with_challenge(None, &challenge) {
                 Ok(prompt) => prompt,
                 Err(error) => {
                     extension.report_error(error.to_string());
                     return;
                 }
             };
-            let (spec, startup_error) =
-                launch_for_profile(workspace, &profile, &prompt, cx);
+            let (spec, startup_error) = launch_for_profile(workspace, &profile, &prompt, cx);
             if let Some(error) = startup_error {
                 extension.report_error(error);
                 return;
@@ -399,8 +370,7 @@ fn start_rebase_session(
         let baseline = cx
             .background_executor()
             .spawn(async move {
-                let repo =
-                    GitRepo::local(probe_path.to_string_lossy().into_owned());
+                let repo = GitRepo::local(probe_path.to_string_lossy().into_owned());
                 probe_agent_rebase(&repo, upstream.as_deref())
             })
             .await;
@@ -414,12 +384,10 @@ fn start_rebase_session(
             };
             // Mirror the rebase prompt construction in agent_connectivity.
             let operation = match &mode {
-                AgentRebaseMode::Start { upstream_oid } => {
-                    AgentOperation::Rebase {
-                        upstream_oid: upstream_oid.clone(),
-                        baseline_head: baseline.head.clone(),
-                    }
-                }
+                AgentRebaseMode::Start { upstream_oid } => AgentOperation::Rebase {
+                    upstream_oid: upstream_oid.clone(),
+                    baseline_head: baseline.head.clone(),
+                },
                 AgentRebaseMode::Resolve {
                     upstream_oid,
                     rebase_head_oid,
@@ -429,16 +397,14 @@ fn start_rebase_session(
                     baseline_head: baseline.head.clone(),
                 },
             };
-            let prompt = match operation.prompt_with_challenge(None, &challenge)
-            {
+            let prompt = match operation.prompt_with_challenge(None, &challenge) {
                 Ok(prompt) => prompt,
                 Err(error) => {
                     extension.report_error(error.to_string());
                     return;
                 }
             };
-            let (spec, startup_error) =
-                launch_for_profile(workspace, &profile, &prompt, cx);
+            let (spec, startup_error) = launch_for_profile(workspace, &profile, &prompt, cx);
             if let Some(error) = startup_error {
                 extension.report_error(error);
                 return;
@@ -485,17 +451,11 @@ fn start_prompt_session(
     let session_id = next_session_id();
     let challenge = AgentPromptChallenge::new();
     let full_prompt = format!("{prompt}\n\n{}", challenge.prompt);
-    let extension = ExtensionChannel::new(
-        cx.entity().downgrade(),
-        session_id,
-        reply,
-        cancelled,
-    );
+    let extension = ExtensionChannel::new(cx.entity().downgrade(), session_id, reply, cancelled);
     let working_directory = repository_path
         .or_else(dirs::home_dir)
         .unwrap_or_else(|| PathBuf::from("."));
-    let (spec, startup_error) =
-        launch_for_profile(workspace, &profile, &full_prompt, cx);
+    let (spec, startup_error) = launch_for_profile(workspace, &profile, &full_prompt, cx);
     if let Some(error) = startup_error {
         extension.report_error(error);
         return;
@@ -529,17 +489,11 @@ fn open_extension_session_window(
     key: String,
     extension: ExtensionChannel,
     session_id: u64,
-    build: impl FnOnce(
-        &mut Window,
-        &mut Context<AgentSessionWindow>,
-    ) -> AgentSessionWindow,
+    build: impl FnOnce(&mut Window, &mut Context<AgentSessionWindow>) -> AgentSessionWindow,
     cx: &mut Context<Workspace>,
 ) {
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::centered(
-            size(px(1120.), px(760.)),
-            cx,
-        )),
+        window_bounds: Some(WindowBounds::centered(size(px(1120.), px(760.)), cx)),
         is_resizable: true,
         kind: WindowKind::Normal,
         window_decorations: Some(WindowDecorations::Client),
@@ -562,23 +516,17 @@ fn open_extension_session_window(
     }) {
         Ok(handle) => workspace.agent_sessions.push((key, handle)),
         Err(_error) => {
-            log::error!(
-                "[agent_terminal] failed to open extension agent session window"
-            );
+            log::error!("[agent_terminal] failed to open extension agent session window");
         }
     }
 }
 
 /// Map a window commit outcome onto the extension session protocol.
-pub(super) fn commit_outcome(
-    outcome: &AgentCommitOutcome,
-) -> AgentSessionOutcome {
+pub(super) fn commit_outcome(outcome: &AgentCommitOutcome) -> AgentSessionOutcome {
     match outcome {
-        AgentCommitOutcome::Committed { .. } => {
-            AgentSessionOutcome::Confirmed {
-                summary: "the Agent reported the commit complete".into(),
-            }
-        }
+        AgentCommitOutcome::Committed { .. } => AgentSessionOutcome::Confirmed {
+            summary: "the Agent reported the commit complete".into(),
+        },
         AgentCommitOutcome::NoChanges => AgentSessionOutcome::Confirmed {
             summary: "the working tree had no changes to commit".into(),
         },
@@ -590,23 +538,17 @@ pub(super) fn commit_outcome(
             summary: "the Agent did not complete the commit".into(),
         },
         AgentCommitOutcome::Cancelled => AgentSessionOutcome::Cancelled,
-        AgentCommitOutcome::ExitedUnverified { code } => {
-            AgentSessionOutcome::Unconfirmed {
-                exit_code: *code,
-                summary: "the Agent exited without the completion marker"
-                    .into(),
-            }
-        }
+        AgentCommitOutcome::ExitedUnverified { code } => AgentSessionOutcome::Unconfirmed {
+            exit_code: *code,
+            summary: "the Agent exited without the completion marker".into(),
+        },
     }
 }
 
 /// Map a window merge outcome onto the extension session protocol.
-pub(super) fn merge_outcome(
-    outcome: &AgentMergeOutcome,
-) -> AgentSessionOutcome {
+pub(super) fn merge_outcome(outcome: &AgentMergeOutcome) -> AgentSessionOutcome {
     match outcome {
-        AgentMergeOutcome::Merged { .. }
-        | AgentMergeOutcome::AlreadyUpToDate => {
+        AgentMergeOutcome::Merged { .. } | AgentMergeOutcome::AlreadyUpToDate => {
             AgentSessionOutcome::Confirmed {
                 summary: "the Agent reported the merge complete".into(),
             }
@@ -619,23 +561,17 @@ pub(super) fn merge_outcome(
             summary: "the Agent did not complete the merge".into(),
         },
         AgentMergeOutcome::Cancelled => AgentSessionOutcome::Cancelled,
-        AgentMergeOutcome::ExitedUnverified { code } => {
-            AgentSessionOutcome::Unconfirmed {
-                exit_code: *code,
-                summary: "the Agent exited without the completion marker"
-                    .into(),
-            }
-        }
+        AgentMergeOutcome::ExitedUnverified { code } => AgentSessionOutcome::Unconfirmed {
+            exit_code: *code,
+            summary: "the Agent exited without the completion marker".into(),
+        },
     }
 }
 
 /// Map a window rebase outcome onto the extension session protocol.
-pub(super) fn rebase_outcome(
-    outcome: &AgentRebaseOutcome,
-) -> AgentSessionOutcome {
+pub(super) fn rebase_outcome(outcome: &AgentRebaseOutcome) -> AgentSessionOutcome {
     match outcome {
-        AgentRebaseOutcome::Rebased { .. }
-        | AgentRebaseOutcome::AlreadyUpToDate => {
+        AgentRebaseOutcome::Rebased { .. } | AgentRebaseOutcome::AlreadyUpToDate => {
             AgentSessionOutcome::Confirmed {
                 summary: "the Agent reported the rebase complete".into(),
             }
@@ -648,13 +584,10 @@ pub(super) fn rebase_outcome(
             summary: "the Agent did not complete the rebase".into(),
         },
         AgentRebaseOutcome::Cancelled => AgentSessionOutcome::Cancelled,
-        AgentRebaseOutcome::ExitedUnverified { code } => {
-            AgentSessionOutcome::Unconfirmed {
-                exit_code: *code,
-                summary: "the Agent exited without the completion marker"
-                    .into(),
-            }
-        }
+        AgentRebaseOutcome::ExitedUnverified { code } => AgentSessionOutcome::Unconfirmed {
+            exit_code: *code,
+            summary: "the Agent exited without the completion marker".into(),
+        },
     }
 }
 

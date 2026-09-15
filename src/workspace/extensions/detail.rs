@@ -10,15 +10,10 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::core::extension::{
-    EventTrigger, ExtensionSettings, ExtensionSource, SettingValue,
-};
+use crate::core::extension::{EventTrigger, ExtensionSettings, ExtensionSource, SettingValue};
 use crate::core::i18n::{self, Locale};
 
-use super::{
-    ExtensionRow, ExtensionsPanel, ExtensionsPanelEvent, capabilities_summary,
-    settings,
-};
+use super::{ExtensionRow, ExtensionsPanel, ExtensionsPanelEvent, capabilities_summary, settings};
 
 /// Renders the detail card of the selected extension: title, action buttons,
 /// metadata, trust warnings, event subscriptions, and settings.
@@ -92,8 +87,7 @@ pub(super) fn detail_card(
         .unwrap_or_else(|| "—".to_string());
     let version = row.definition.package.manifest.version.clone();
     let status = panel.statuses.get(&id).cloned();
-    let capabilities =
-        capabilities_summary(row, &manual_capability, &events_capability);
+    let capabilities = capabilities_summary(row, &manual_capability, &events_capability);
     let can_uninstall = !row.definition.package.bundled;
     let has_settings = !row.definition.package.manifest.settings.is_empty();
     let settings = row
@@ -102,9 +96,7 @@ pub(super) fn detail_card(
         .manifest
         .settings
         .iter()
-        .map(|(key, definition)| {
-            settings::render_setting(panel, row, key, definition, &colors, cx)
-        })
+        .map(|(key, definition)| settings::render_setting(panel, row, key, definition, &colors, cx))
         .collect::<Vec<_>>();
     let events = row
         .definition
@@ -122,15 +114,12 @@ pub(super) fn detail_card(
             } else {
                 subscribe_label.clone()
             };
-            let mut label =
-                format!("{} · {}", trigger.label(), trigger.event_type);
+            let mut label = format!("{} · {}", trigger.label(), trigger.event_type);
             if let Some(description) = trigger.description.as_deref() {
                 label.push_str(" — ");
                 label.push_str(description);
             }
-            if let Some(schedule) =
-                next_event_hint(locale, &trigger, &row.settings)
-            {
+            if let Some(schedule) = next_event_hint(locale, &trigger, &row.settings) {
                 label.push_str(" · ");
                 label.push_str(&next_run_label);
                 label.push_str(": ");
@@ -214,93 +203,64 @@ pub(super) fn detail_card(
                 .items_center()
                 .gap_2()
                 .child(
-                    Button::new(SharedString::from(format!(
-                        "extension-trust-{id}"
-                    )))
-                    .label(trust_label)
-                    .ghost()
-                    .small()
-                    .on_click(
-                        move |_event, _window, cx| {
+                    Button::new(SharedString::from(format!("extension-trust-{id}")))
+                        .label(trust_label)
+                        .ghost()
+                        .small()
+                        .on_click(move |_event, _window, cx| {
                             panel_for_trust.update(cx, |panel, cx| {
-                                panel.handle_trust_click(
-                                    id_for_trust.clone(),
-                                    cx,
-                                )
+                                panel.handle_trust_click(id_for_trust.clone(), cx)
                             });
-                        },
-                    ),
+                        }),
                 )
                 .child(
-                    Button::new(SharedString::from(format!(
-                        "extension-run-{id}"
-                    )))
-                    .label(run_once_label.clone())
-                    .primary()
-                    .small()
-                    .on_click(
-                        move |_event, _window, cx| {
+                    Button::new(SharedString::from(format!("extension-run-{id}")))
+                        .label(run_once_label.clone())
+                        .primary()
+                        .small()
+                        .on_click(move |_event, _window, cx| {
                             panel_for_run.update(cx, |_panel, cx| {
-                                cx.emit(ExtensionsPanelEvent::RunNow(
-                                    id_for_run.clone(),
-                                ))
+                                cx.emit(ExtensionsPanelEvent::RunNow(id_for_run.clone()))
                             });
-                        },
-                    ),
+                        }),
                 )
                 .child(
-                    Button::new(SharedString::from(format!(
-                        "extension-cancel-{id}"
-                    )))
-                    .label(cancel_label.clone())
-                    .ghost()
-                    .small()
-                    .on_click(
-                        move |_event, _window, cx| {
+                    Button::new(SharedString::from(format!("extension-cancel-{id}")))
+                        .label(cancel_label.clone())
+                        .ghost()
+                        .small()
+                        .on_click(move |_event, _window, cx| {
                             panel_for_cancel.update(cx, |_panel, cx| {
-                                cx.emit(ExtensionsPanelEvent::Cancel(
-                                    id_for_cancel.clone(),
-                                ))
+                                cx.emit(ExtensionsPanelEvent::Cancel(id_for_cancel.clone()))
                             });
-                        },
-                    ),
+                        }),
                 )
                 .when(has_settings, |element| {
                     element.child(
-                        Button::new(SharedString::from(format!(
-                            "extension-save-{id}"
-                        )))
-                        .label(save_settings_label.clone())
-                        .ghost()
-                        .small()
-                        .on_click(
-                            move |_event, _window, cx| {
+                        Button::new(SharedString::from(format!("extension-save-{id}")))
+                            .label(save_settings_label.clone())
+                            .ghost()
+                            .small()
+                            .on_click(move |_event, _window, cx| {
                                 panel_for_save.update(cx, |_panel, cx| {
-                                    cx.emit(ExtensionsPanelEvent::SaveSettings(
-                                        id_for_save.clone(),
-                                    ))
+                                    cx.emit(ExtensionsPanelEvent::SaveSettings(id_for_save.clone()))
                                 });
-                            },
-                        ),
+                            }),
                     )
                 })
                 .when(can_uninstall, |element| {
                     element.child(
-                        Button::new(SharedString::from(format!(
-                            "extension-uninstall-{id}"
-                        )))
-                        .label(uninstall_label.clone())
-                        .ghost()
-                        .small()
-                        .on_click(
-                            move |_event, _window, cx| {
+                        Button::new(SharedString::from(format!("extension-uninstall-{id}")))
+                            .label(uninstall_label.clone())
+                            .ghost()
+                            .small()
+                            .on_click(move |_event, _window, cx| {
                                 panel_for_uninstall.update(cx, |_panel, cx| {
                                     cx.emit(ExtensionsPanelEvent::Uninstall(
                                         id_for_uninstall.clone(),
                                     ))
                                 });
-                            },
-                        ),
+                            }),
                     )
                 }),
         )

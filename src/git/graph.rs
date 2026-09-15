@@ -20,9 +20,8 @@ use gpui_component::{
 
 use crate::core::commit_search::{CommitSearchField, search_log_rows};
 use crate::core::graph::{
-    AUTHOR_COL_WIDTH, DATE_COL_WIDTH, GraphRow, HASH_COL_WIDTH, LogRow,
-    RefKind, RefLabel, column_visibility, compute_graph, format_relative_time,
-    parse_ref_labels,
+    AUTHOR_COL_WIDTH, DATE_COL_WIDTH, GraphRow, HASH_COL_WIDTH, LogRow, RefKind, RefLabel,
+    column_visibility, compute_graph, format_relative_time, parse_ref_labels,
 };
 use crate::core::i18n::{self, Locale};
 use crate::git::shared;
@@ -114,23 +113,16 @@ struct GraphRenderOptions {
 impl EventEmitter<GraphEvent> for GraphView {}
 
 impl GraphView {
-    pub fn new(
-        tab_id: u64,
-        locale: Locale,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(tab_id: u64, locale: Locale, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let hover_preview = cx.new(|_| CommitHoverPreview::new(locale));
         let message_dialog = cx.new(|_| CommitMessageDialog::new(locale));
         let search_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder(i18n::text(locale, "commit-search-placeholder"))
+            InputState::new(window, cx).placeholder(i18n::text(locale, "commit-search-placeholder"))
         });
         let search_input_entity = search_input.clone();
         cx.subscribe(&search_input_entity, |graph, _event, event, cx| {
             if matches!(event, InputEvent::Change) {
-                graph.search_query =
-                    graph.search_input.read(cx).value().to_string();
+                graph.search_query = graph.search_input.read(cx).value().to_string();
                 graph.rebuild_rows(cx);
                 log::debug!(
                     "[commit_search] input changed: field={:?}, matches={}/{}",
@@ -167,19 +159,10 @@ impl GraphView {
     }
 
     /// Synchronize the locale with the workspace.
-    pub fn set_locale(
-        &mut self,
-        locale: Locale,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_locale(&mut self, locale: Locale, window: &mut Window, cx: &mut Context<Self>) {
         self.locale = locale;
         self.search_input.update(cx, |input, cx| {
-            input.set_placeholder(
-                i18n::text(locale, "commit-search-placeholder"),
-                window,
-                cx,
-            );
+            input.set_placeholder(i18n::text(locale, "commit-search-placeholder"), window, cx);
         });
         self.hover_preview.update(cx, |preview, cx| {
             preview.set_locale(locale, cx);
@@ -200,11 +183,7 @@ impl GraphView {
 
     /// Update the remote names used to classify ref decorations as remote
     /// branches (first path segment matched against this list).
-    pub fn set_remote_names(
-        &mut self,
-        remotes: Vec<String>,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_remote_names(&mut self, remotes: Vec<String>, cx: &mut Context<Self>) {
         if self.remote_names != remotes {
             self.remote_names = remotes;
             cx.notify();
@@ -254,11 +233,7 @@ impl GraphView {
             .and_then(|index| self.rows.get(index))
             .map(|row| row.oid.clone());
         self.history_count = self.all_rows.len();
-        self.rows = search_log_rows(
-            &self.all_rows,
-            &self.search_query,
-            self.search_field,
-        );
+        self.rows = search_log_rows(&self.all_rows, &self.search_query, self.search_field);
         log::debug!(
             "[commit_search] rows rebuilt: source={}, history={}, matches={}, active={}, field={:?}",
             self.all_rows.len(),
@@ -278,16 +253,15 @@ impl GraphView {
             .cloned()
             .map(|mut row| {
                 if !self.search_query.is_empty() {
-                    row.parents.retain(|parent| {
-                        visible_oids.contains(parent.as_str())
-                    });
+                    row.parents
+                        .retain(|parent| visible_oids.contains(parent.as_str()));
                 }
                 row
             })
             .collect::<Vec<_>>();
         self.layout = compute_graph(&layout_rows);
-        self.selected = selected_oid
-            .and_then(|oid| self.rows.iter().position(|row| row.oid == oid));
+        self.selected =
+            selected_oid.and_then(|oid| self.rows.iter().position(|row| row.oid == oid));
         if had_selection && self.selected.is_none() {
             cx.emit(GraphEvent::SelectionCleared);
         }
@@ -312,11 +286,7 @@ impl GraphView {
             && rendered_end + LOAD_AHEAD_ROWS >= self.rows.len()
     }
 
-    fn set_search_field(
-        &mut self,
-        field: CommitSearchField,
-        cx: &mut Context<Self>,
-    ) {
+    fn set_search_field(&mut self, field: CommitSearchField, cx: &mut Context<Self>) {
         if self.search_field == field {
             return;
         }
@@ -372,15 +342,11 @@ impl GraphView {
             dialog.set_commit(row, cached, cx);
         });
         if !self.commit_messages.contains_key(&row.oid) {
-            log::debug!(
-                "[commit_message_dialog] requesting dialog commit message"
-            );
+            log::debug!("[commit_message_dialog] requesting dialog commit message");
             cx.emit(GraphEvent::CommitMessageRequested(row.oid.clone()));
         }
         if window.has_active_dialog(cx) {
-            log::debug!(
-                "[commit_message_dialog] skip open: another dialog is active"
-            );
+            log::debug!("[commit_message_dialog] skip open: another dialog is active");
             return;
         }
         let view = self.message_dialog.clone();
@@ -394,12 +360,7 @@ impl GraphView {
         });
     }
 
-    fn set_hovered(
-        &mut self,
-        index: usize,
-        hovered: bool,
-        cx: &mut Context<Self>,
-    ) {
+    fn set_hovered(&mut self, index: usize, hovered: bool, cx: &mut Context<Self>) {
         let Some(row) = self.rows.get(index).cloned() else {
             return;
         };
@@ -414,9 +375,7 @@ impl GraphView {
                     preview.set_commit(&row, message, cx);
                 });
                 if needs_message {
-                    log::debug!(
-                        "[commit_preview] requesting hovered commit message"
-                    );
+                    log::debug!("[commit_preview] requesting hovered commit message");
                     cx.emit(GraphEvent::CommitMessageRequested(row.oid));
                 }
             }
@@ -443,11 +402,7 @@ impl GraphView {
 }
 
 impl Render for GraphView {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors;
         let mono = cx.theme().mono_font_family.clone();
         let max_lanes = self
@@ -458,8 +413,7 @@ impl Render for GraphView {
             .unwrap_or(1);
         let tree_w = GRAPH_LEFT_PAD + max_lanes as f32 * COL_WIDTH + 8.0;
         // 响应式列显隐：以自身实测宽为准（窄则先藏 Author 再藏 Message，见 column_visibility）
-        let (show_author, show_message) =
-            column_visibility(self.content_width, tree_w);
+        let (show_author, show_message) = column_visibility(self.content_width, tree_w);
         // 相对时间基准（unix 秒）
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -511,9 +465,7 @@ impl Render for GraphView {
                         cx.emit(GraphEvent::MoreLogPageRequested);
                     }
                     range
-                        .map(|index| {
-                            graph.render_row(index, &render_options, cx)
-                        })
+                        .map(|index| graph.render_row(index, &render_options, cx))
                         .collect()
                 }),
             )
@@ -523,12 +475,7 @@ impl Render for GraphView {
             v_flex()
                 .flex_1()
                 .min_h_0()
-                .child(self.column_header(
-                    &colors,
-                    tree_w,
-                    show_author,
-                    show_message,
-                ))
+                .child(self.column_header(&colors, tree_w, show_author, show_message))
                 .child(rows)
         };
 
@@ -583,9 +530,7 @@ impl GraphView {
         let node_col = Some(graph_row.node_lane as f32);
         let node_letters: String = row.author.chars().take(2).collect();
         let initials_color = if graph_row.is_head {
-            crate::theme::initials_text_color(
-                lane_colors[graph_row.node_color % lane_colors.len()],
-            )
+            crate::theme::initials_text_color(lane_colors[graph_row.node_color % lane_colors.len()])
         } else {
             colors.foreground
         };
@@ -602,20 +547,14 @@ impl GraphView {
                     .flex()
                     .items_center()
                     .gap_1()
-                    .children(
-                        ref_labels
-                            .iter()
-                            .map(|label| ref_label_chip(label, colors)),
-                    )
+                    .children(ref_labels.iter().map(|label| ref_label_chip(label, colors)))
                     .into_any_element(),
             )
         };
         let checkout_label = i18n::text(self.locale, "context-checkout");
         let copy_label = i18n::text(self.locale, "context-copy-commit");
-        let copy_message_label =
-            i18n::text(self.locale, "context-copy-commit-message");
-        let show_message_label =
-            i18n::text(self.locale, "context-show-commit-message");
+        let copy_message_label = i18n::text(self.locale, "context-copy-commit-message");
+        let show_message_label = i18n::text(self.locale, "context-show-commit-message");
         let commit_target = CheckoutTarget::Commit(row.oid.clone());
         let copy_value = row.oid.clone();
         let copy_message_value = row.oid.clone();
@@ -650,8 +589,7 @@ impl GraphView {
             })
             .tooltip(move |window, cx| {
                 let hover_preview = hover_preview.clone();
-                Tooltip::element(move |_window, _cx| hover_preview.clone())
-                    .build(window, cx)
+                Tooltip::element(move |_window, _cx| hover_preview.clone()).build(window, cx)
             })
             .tooltip_show_delay(Duration::from_millis(500))
             // Graph column: row canvas plus HEAD initials overlay.
@@ -663,9 +601,7 @@ impl GraphView {
                     .relative()
                     .child(
                         canvas(
-                            |_b: Bounds<Pixels>,
-                             _w: &mut Window,
-                             _c: &mut App| {},
+                            |_b: Bounds<Pixels>, _w: &mut Window, _c: &mut App| {},
                             move |bounds: Bounds<Pixels>,
                                   (): (),
                                   window: &mut Window,
@@ -682,8 +618,7 @@ impl GraphView {
                         .h_full(),
                     )
                     .when_some(node_col, |el, col| {
-                        let xc =
-                            GRAPH_LEFT_PAD + col * COL_WIDTH + COL_WIDTH / 2.0;
+                        let xc = GRAPH_LEFT_PAD + col * COL_WIDTH + COL_WIDTH / 2.0;
                         let letters = node_letters.clone();
                         el.child(
                             div()
@@ -766,9 +701,7 @@ impl GraphView {
                         .disabled(checkout_disabled)
                         .on_click(move |_event, _window, cx| {
                             graph_for_checkout.update(cx, |_graph, cx| {
-                                cx.emit(GraphEvent::CheckoutRef(
-                                    commit_target.clone(),
-                                ));
+                                cx.emit(GraphEvent::CheckoutRef(commit_target.clone()));
                             });
                         }),
                 )
@@ -777,9 +710,7 @@ impl GraphView {
                         .icon(IconName::Copy)
                         .on_click(move |_event, _window, cx| {
                             graph_for_copy.update(cx, |_graph, cx| {
-                                cx.emit(GraphEvent::CopyRef(
-                                    copy_value.clone(),
-                                ));
+                                cx.emit(GraphEvent::CopyRef(copy_value.clone()));
                             });
                         }),
                 )
@@ -789,9 +720,7 @@ impl GraphView {
                         .disabled(checkout_disabled)
                         .on_click(move |_event, _window, cx| {
                             graph_for_copy_message.update(cx, |_graph, cx| {
-                                cx.emit(GraphEvent::CopyCommitMessage(
-                                    copy_message_value.clone(),
-                                ));
+                                cx.emit(GraphEvent::CopyCommitMessage(copy_message_value.clone()));
                             });
                         }),
                 )
@@ -803,9 +732,7 @@ impl GraphView {
                         .icon(IconName::Eye)
                         .on_click(move |_event, window, cx| {
                             graph_for_show_message.update(cx, |graph, cx| {
-                                graph.open_commit_message_dialog(
-                                    &row, window, cx,
-                                );
+                                graph.open_commit_message_dialog(&row, window, cx);
                             });
                         })
                 })
@@ -957,10 +884,7 @@ fn measure_width_canvas(entity: Entity<GraphView>) -> impl IntoElement {
                 });
             }
         },
-        |_bounds: Bounds<Pixels>,
-         _state: (),
-         _window: &mut Window,
-         _cx: &mut App| {},
+        |_bounds: Bounds<Pixels>, _state: (), _window: &mut Window, _cx: &mut App| {},
     )
     .w_full()
     .h(px(0.))

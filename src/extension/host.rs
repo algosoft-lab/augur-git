@@ -22,13 +22,11 @@ use crate::core::build_info;
 use crate::core::git::automation;
 
 use super::agent_session::{
-    AgentResult, AgentSessionOperation, AgentSessionRequest, agent_response,
-    wait_for_agent_session,
+    AgentResult, AgentSessionOperation, AgentSessionRequest, agent_response, wait_for_agent_session,
 };
 use super::api::{
-    AgentPromptOptions, AgentRequest, ExtensionHost, ExtensionHostRequest,
-    ExtensionRunAdmission, HostRequest, HostResponse, RepositoryOperation,
-    RepositorySnapshot,
+    AgentPromptOptions, AgentRequest, ExtensionHost, ExtensionHostRequest, ExtensionRunAdmission,
+    HostRequest, HostResponse, RepositoryOperation, RepositorySnapshot,
 };
 use super::file_log::ExtensionFileLogger;
 use super::storage::ExtensionStorage;
@@ -146,23 +144,14 @@ impl HostBridge {
             .ok_or_else(|| "repository tab is no longer open".to_string())
     }
 
-    fn check_owner(
-        &self,
-        tab_id: u64,
-        extension_id: &str,
-        run_id: u64,
-    ) -> Result<(), String> {
+    fn check_owner(&self, tab_id: u64, extension_id: &str, run_id: u64) -> Result<(), String> {
         let state = self
             .state
             .lock()
             .map_err(|_| "extension host state is poisoned".to_string())?;
         match state.owners.get(&tab_id) {
-            Some(owner) if owner == &(extension_id.to_string(), run_id) => {
-                Ok(())
-            }
-            Some(_) => {
-                Err("repository is busy with another extension run".into())
-            }
+            Some(owner) if owner == &(extension_id.to_string(), run_id) => Ok(()),
+            Some(_) => Err("repository is busy with another extension run".into()),
             None => Err("extension run does not own this repository".into()),
         }
     }
@@ -173,24 +162,22 @@ impl HostBridge {
         expected_branch: &str,
         expected_head: Option<&str>,
     ) -> Result<automation::RepositoryState, HostResponse> {
-        let current = automation::capture(Path::new(&snapshot.path)).map_err(
-            |summary| HostResponse::Failure {
+        let current = automation::capture(Path::new(&snapshot.path)).map_err(|summary| {
+            HostResponse::Failure {
                 code: "status_failed".into(),
                 summary,
-            },
-        )?;
+            }
+        })?;
         if current.branch != expected_branch {
             return Err(HostResponse::Failure {
                 code: "branch_changed".into(),
-                summary: "repository branch changed since the trigger snapshot"
-                    .into(),
+                summary: "repository branch changed since the trigger snapshot".into(),
             });
         }
         if current.head.as_deref() != expected_head {
             return Err(HostResponse::Failure {
                 code: "head_changed".into(),
-                summary: "repository HEAD changed since the trigger snapshot"
-                    .into(),
+                summary: "repository HEAD changed since the trigger snapshot".into(),
             });
         }
         Ok(current)
@@ -255,9 +242,7 @@ impl HostBridge {
         if matches!(operation, RepositoryOperation::Status) {
             return Ok(self.status_response(&snapshot));
         }
-        if let Err(summary) =
-            self.check_owner(tab_id, &request.extension_id, request.run_id)
-        {
+        if let Err(summary) = self.check_owner(tab_id, &request.extension_id, request.run_id) {
             // A lease race is an expected business failure. Keep it in the
             // structured Lua result so one repository does not abort the
             // extension's remaining sequential work.
@@ -273,25 +258,18 @@ impl HostBridge {
             &expected_branch,
             expected_head.as_deref(),
         )?;
-        let current = match self.check_identity(
-            &snapshot,
-            &identity_branch,
-            identity_head.as_deref(),
-        ) {
-            Ok(current) => current,
-            Err(response) => return Ok(response),
-        };
+        let current =
+            match self.check_identity(&snapshot, &identity_branch, identity_head.as_deref()) {
+                Ok(current) => current,
+                Err(response) => return Ok(response),
+            };
         let path = Path::new(&snapshot.path);
         let cancelled = request.cancelled.as_ref();
         let response = match operation {
             RepositoryOperation::Status => unreachable!(),
-            RepositoryOperation::WaitUntilReady { timeout_seconds } => self
-                .wait_until_ready(
-                    tab_id,
-                    &snapshot,
-                    timeout_seconds,
-                    cancelled,
-                ),
+            RepositoryOperation::WaitUntilReady { timeout_seconds } => {
+                self.wait_until_ready(tab_id, &snapshot, timeout_seconds, cancelled)
+            }
             RepositoryOperation::Git {
                 args,
                 label: _,
@@ -300,29 +278,20 @@ impl HostBridge {
                 let result = automation::run(
                     path,
                     &args,
-                    Some(Duration::from_secs(
-                        timeout_seconds.clamp(1, 30 * 60),
-                    )),
+                    Some(Duration::from_secs(timeout_seconds.clamp(1, 30 * 60))),
                     cancelled,
                 );
                 self.command_response(tab_id, result)
             }
-            RepositoryOperation::PullRebase => {
-                match automation::pull_rebase(path, cancelled) {
-                    Ok(result) => self.command_response(tab_id, result),
-                    Err(summary) => HostResponse::Failure {
-                        code: "pull_status_failed".into(),
-                        summary,
-                    },
-                }
-            }
+            RepositoryOperation::PullRebase => match automation::pull_rebase(path, cancelled) {
+                Ok(result) => self.command_response(tab_id, result),
+                Err(summary) => HostResponse::Failure {
+                    code: "pull_status_failed".into(),
+                    summary,
+                },
+            },
             RepositoryOperation::Push { remote, branch } => {
-                match automation::push(
-                    path,
-                    remote.as_deref(),
-                    branch.as_deref(),
-                    cancelled,
-                ) {
+                match automation::push(path, remote.as_deref(), branch.as_deref(), cancelled) {
                     Ok(result) => self.command_response(tab_id, result),
                     Err(summary) => HostResponse::Failure {
                         code: "push_status_failed".into(),
@@ -352,19 +321,11 @@ impl HostBridge {
                         });
                     }
                 };
-                self.agent_merge(
-                    &request.extension_id,
-                    path,
-                    &current,
-                    &target,
-                    cancelled,
-                )
-                .unwrap_or_else(|summary| {
-                    HostResponse::Failure {
+                self.agent_merge(&request.extension_id, path, &current, &target, cancelled)
+                    .unwrap_or_else(|summary| HostResponse::Failure {
                         code: "agent_merge_failed".into(),
                         summary,
-                    }
-                })
+                    })
             }
             RepositoryOperation::AgentRebase { source } => {
                 let upstream = match resolve_commit(path, &source) {
@@ -376,38 +337,20 @@ impl HostBridge {
                         });
                     }
                 };
-                self.agent_rebase(
-                    &request.extension_id,
-                    path,
-                    &current,
-                    &upstream,
-                    cancelled,
-                )
-                .unwrap_or_else(|summary| {
-                    HostResponse::Failure {
+                self.agent_rebase(&request.extension_id, path, &current, &upstream, cancelled)
+                    .unwrap_or_else(|summary| HostResponse::Failure {
                         code: "agent_rebase_failed".into(),
                         summary,
-                    }
-                })
+                    })
             }
             RepositoryOperation::ResolveMerge => self
-                .agent_resolve_merge(
-                    &request.extension_id,
-                    path,
-                    &current,
-                    cancelled,
-                )
+                .agent_resolve_merge(&request.extension_id, path, &current, cancelled)
                 .unwrap_or_else(|summary| HostResponse::Failure {
                     code: "merge_recovery_failed".into(),
                     summary,
                 }),
             RepositoryOperation::ResolveRebase => self
-                .agent_resolve_rebase(
-                    &request.extension_id,
-                    path,
-                    &current,
-                    cancelled,
-                )
+                .agent_resolve_rebase(&request.extension_id, path, &current, cancelled)
                 .unwrap_or_else(|summary| HostResponse::Failure {
                     code: "rebase_recovery_failed".into(),
                     summary,
@@ -419,12 +362,7 @@ impl HostBridge {
             origin_run_id: request.run_id,
         });
         if let Ok(after) = automation::capture(path) {
-            self.update_run_identity(
-                &request.extension_id,
-                request.run_id,
-                tab_id,
-                &after,
-            );
+            self.update_run_identity(&request.extension_id, request.run_id, tab_id, &after);
         }
         Ok(response)
     }
@@ -469,9 +407,7 @@ impl HostBridge {
             if Instant::now() >= deadline {
                 return HostResponse::Failure {
                     code: "repository_busy_timeout".into(),
-                    summary:
-                        "repository remained busy for the configured timeout"
-                            .into(),
+                    summary: "repository remained busy for the configured timeout".into(),
                 };
             }
             std::thread::sleep(Duration::from_millis(100));
@@ -488,22 +424,14 @@ impl HostBridge {
         }
     }
 
-    fn command_response(
-        &self,
-        _tab_id: u64,
-        result: automation::CommandResult,
-    ) -> HostResponse {
-        let mut value =
-            serde_json::to_value(&result).unwrap_or_else(|_| JsonValue::Null);
+    fn command_response(&self, _tab_id: u64, result: automation::CommandResult) -> HostResponse {
+        let mut value = serde_json::to_value(&result).unwrap_or_else(|_| JsonValue::Null);
         if let JsonValue::Object(object) = &mut value {
             if !result.ok && !result.cancelled && !result.timed_out {
                 if result.stderr.contains("CONFLICT")
                     || result.summary.to_ascii_lowercase().contains("conflict")
                 {
-                    object.insert(
-                        "code".into(),
-                        JsonValue::String("conflict".into()),
-                    );
+                    object.insert("code".into(), JsonValue::String("conflict".into()));
                 }
             }
             object.insert("ok".into(), JsonValue::Bool(result.ok));
@@ -529,8 +457,7 @@ impl HostBridge {
             DEFAULT_AGENT_TIMEOUT,
             cancelled,
         )?;
-        let after =
-            automation::capture(path).map_err(|error| error.to_string())?;
+        let after = automation::capture(path).map_err(|error| error.to_string())?;
         let verified = result.completed
             && before.head != after.head
             && !after.dirty
@@ -557,14 +484,9 @@ impl HostBridge {
             target_oid: target.to_string(),
             baseline_head: before.head.clone(),
         };
-        self.run_verified_operation(
-            extension_id,
-            path,
-            before,
-            operation,
-            cancelled,
-            |after| after.operation.is_none() && !after.conflicts,
-        )
+        self.run_verified_operation(extension_id, path, before, operation, cancelled, |after| {
+            after.operation.is_none() && !after.conflicts
+        })
     }
 
     fn agent_rebase(
@@ -579,14 +501,9 @@ impl HostBridge {
             upstream_oid: upstream.to_string(),
             baseline_head: before.head.clone(),
         };
-        self.run_verified_operation(
-            extension_id,
-            path,
-            before,
-            operation,
-            cancelled,
-            |after| after.operation.is_none() && !after.conflicts,
-        )
+        self.run_verified_operation(extension_id, path, before, operation, cancelled, |after| {
+            after.operation.is_none() && !after.conflicts
+        })
     }
 
     fn agent_resolve_merge(
@@ -607,14 +524,9 @@ impl HostBridge {
             merge_head_oid: merge_head.unwrap_or_else(|| "unknown".into()),
             baseline_head: before.head.clone(),
         };
-        self.run_verified_operation(
-            extension_id,
-            path,
-            before,
-            operation,
-            cancelled,
-            |after| after.operation.is_none() && !after.conflicts,
-        )
+        self.run_verified_operation(extension_id, path, before, operation, cancelled, |after| {
+            after.operation.is_none() && !after.conflicts
+        })
     }
 
     fn agent_resolve_rebase(
@@ -635,14 +547,9 @@ impl HostBridge {
             upstream_oid: None,
             baseline_head: before.head.clone(),
         };
-        self.run_verified_operation(
-            extension_id,
-            path,
-            before,
-            operation,
-            cancelled,
-            |after| after.operation.is_none() && !after.conflicts,
-        )
+        self.run_verified_operation(extension_id, path, before, operation, cancelled, |after| {
+            after.operation.is_none() && !after.conflicts
+        })
     }
 
     fn run_verified_operation(
@@ -664,8 +571,7 @@ impl HostBridge {
             DEFAULT_AGENT_TIMEOUT,
             cancelled,
         )?;
-        let after =
-            automation::capture(path).map_err(|error| error.to_string())?;
+        let after = automation::capture(path).map_err(|error| error.to_string())?;
         let verified = result.completed && verify(&after);
         let summary = if verified {
             "agent operation completed and repository state was verified"
@@ -697,9 +603,9 @@ impl HostBridge {
             .map_err(|_| "agent settings are unavailable".to_string())?
             .clone();
         let profile_id = settings.default_profile_id();
-        let profile = settings.profile(&profile_id).ok_or_else(|| {
-            format!("configured Agent profile is unavailable: {profile_id}")
-        })?;
+        let profile = settings
+            .profile(&profile_id)
+            .ok_or_else(|| format!("configured Agent profile is unavailable: {profile_id}"))?;
         resolve_executable(&profile.executable).map_err(|error| {
             log::warn!(
                 "[agent_operation] extension Agent for {extension_id} did not start: {error}"
@@ -719,17 +625,11 @@ impl HostBridge {
             "[agent_operation] extension Agent session requested: extension={extension_id}, timeout={timeout:?}"
         );
         let started = Instant::now();
-        self.session_tx.send(request).map_err(|_| {
-            "the Agent session channel is unavailable".to_string()
-        })?;
-        let outcome = wait_for_agent_session(
-            reply_rx,
-            cancelled,
-            &session_cancelled,
-            timeout,
-        )?;
-        let result =
-            AgentResult::from_outcome(outcome, started.elapsed(), timeout);
+        self.session_tx
+            .send(request)
+            .map_err(|_| "the Agent session channel is unavailable".to_string())?;
+        let outcome = wait_for_agent_session(reply_rx, cancelled, &session_cancelled, timeout)?;
+        let result = AgentResult::from_outcome(outcome, started.elapsed(), timeout);
         log::info!(
             "[agent_operation] extension Agent session finished: completed={}, cancelled={}, timed_out={}, elapsed={:?}",
             result.completed,
@@ -742,30 +642,22 @@ impl HostBridge {
 }
 
 impl ExtensionHost for HostBridge {
-    fn request(
-        &self,
-        request: ExtensionHostRequest,
-    ) -> Result<HostResponse, String> {
+    fn request(&self, request: ExtensionHostRequest) -> Result<HostResponse, String> {
         if request.cancelled.load(Ordering::Acquire) {
             return Err("extension run cancelled".into());
         }
         let response = match request.request.clone() {
             HostRequest::WorkspaceRepositoryTabs => json_response(
-                serde_json::to_value(self.snapshots()?)
-                    .map_err(|error| error.to_string())?,
+                serde_json::to_value(self.snapshots()?).map_err(|error| error.to_string())?,
             ),
             HostRequest::Repository {
                 tab_id,
                 operation,
                 expected_branch,
                 expected_head,
-            } => self.handle_repository(
-                &request,
-                tab_id,
-                operation,
-                expected_branch,
-                expected_head,
-            )?,
+            } => {
+                self.handle_repository(&request, tab_id, operation, expected_branch, expected_head)?
+            }
             HostRequest::AgentPrompt(AgentRequest {
                 repository,
                 options:
@@ -775,9 +667,7 @@ impl ExtensionHost for HostBridge {
                     },
             }) => {
                 let path = repository
-                    .map(|tab_id| {
-                        self.repository(tab_id).map(|snapshot| snapshot.path)
-                    })
+                    .map(|tab_id| self.repository(tab_id).map(|snapshot| snapshot.path))
                     .transpose()?;
                 let result = match self.run_agent(
                     &request.extension_id,
@@ -811,15 +701,11 @@ impl ExtensionHost for HostBridge {
                 "architecture": std::env::consts::ARCH,
                 "locale": sys_locale::get_locale().unwrap_or_else(|| "en-US".into()),
             })),
-            HostRequest::StorageGet(key) => {
-                self.storage.get(&request.extension_id, key)?
-            }
+            HostRequest::StorageGet(key) => self.storage.get(&request.extension_id, key)?,
             HostRequest::StorageSet { key, value } => {
                 self.storage.set(&request.extension_id, &key, value)?
             }
-            HostRequest::StorageDelete(key) => {
-                self.storage.delete(&request.extension_id, key)?
-            }
+            HostRequest::StorageDelete(key) => self.storage.delete(&request.extension_id, key)?,
             HostRequest::Log {
                 level,
                 message,
@@ -909,21 +795,18 @@ impl ExtensionHost for HostBridge {
 
     fn finish_run(&self, extension_id: &str, run_id: u64) {
         if let Ok(mut state) = self.state.lock() {
-            state.owners.retain(|_, owner| {
-                owner != &(extension_id.to_string(), run_id)
-            });
-            state.run_identities.retain(|(id, current_run, _), _| {
-                id != extension_id || *current_run != run_id
-            });
+            state
+                .owners
+                .retain(|_, owner| owner != &(extension_id.to_string(), run_id));
+            state
+                .run_identities
+                .retain(|(id, current_run, _), _| id != extension_id || *current_run != run_id);
         }
     }
 }
 
 fn resolve_commit(path: &Path, source: &str) -> Result<String, String> {
-    if source.trim().is_empty()
-        || source.starts_with('-')
-        || source.contains('\0')
-    {
+    if source.trim().is_empty() || source.starts_with('-') || source.contains('\0') {
         return Err("invalid commit or branch reference".into());
     }
     let result = automation::run(
@@ -975,8 +858,7 @@ fn resolve_marker(path: &Path, marker: &str) -> Option<String> {
 /// `status` and `wait_until_ready` results carry it just like command and
 /// Agent results do.
 fn status_value(state: automation::RepositoryState) -> JsonValue {
-    let mut value =
-        serde_json::to_value(state).unwrap_or_else(|_| JsonValue::Null);
+    let mut value = serde_json::to_value(state).unwrap_or_else(|_| JsonValue::Null);
     if let JsonValue::Object(object) = &mut value {
         object.insert("ok".into(), JsonValue::Bool(true));
     }
@@ -1019,8 +901,7 @@ mod tests {
     fn file_log_host_request_appends_and_reports_bytes() {
         let root = temporary_root("append");
         let path = root.join("nested").join("run.log");
-        let (host, _events, _sessions) =
-            HostBridge::new(AgentSettings::default());
+        let (host, _events, _sessions) = HostBridge::new(AgentSettings::default());
 
         let response = host
             .request(file_log_request(&path, "hello\n"))
@@ -1040,8 +921,7 @@ mod tests {
     fn file_log_host_request_maps_filesystem_failures() {
         let root = temporary_root("directory");
         fs::create_dir_all(&root).unwrap();
-        let (host, _events, _sessions) =
-            HostBridge::new(AgentSettings::default());
+        let (host, _events, _sessions) = HostBridge::new(AgentSettings::default());
 
         let response = host
             .request(file_log_request(&root, "content"))
@@ -1073,8 +953,7 @@ mod tests {
     fn status_and_wait_until_ready_results_carry_ok_flag() {
         let root = temporary_root("status-ok");
         create_repository(&root);
-        let state =
-            automation::capture(&root).expect("capture repository state");
+        let state = automation::capture(&root).expect("capture repository state");
         let snapshot = RepositorySnapshot {
             tab_id: 1,
             path: root.to_string_lossy().to_string(),
@@ -1089,8 +968,7 @@ mod tests {
             busy: false,
             remotes: Vec::new(),
         };
-        let (host, _events, _sessions) =
-            HostBridge::new(AgentSettings::default());
+        let (host, _events, _sessions) = HostBridge::new(AgentSettings::default());
         host.set_repositories(vec![snapshot.clone()]);
 
         let status_request = ExtensionHostRequest {
@@ -1122,9 +1000,7 @@ mod tests {
             cancelled: Arc::new(AtomicBool::new(false)),
             request: HostRequest::Repository {
                 tab_id: 1,
-                operation: RepositoryOperation::WaitUntilReady {
-                    timeout_seconds: 1,
-                },
+                operation: RepositoryOperation::WaitUntilReady { timeout_seconds: 1 },
                 expected_branch: snapshot.branch.clone(),
                 expected_head: snapshot.head.clone(),
             },

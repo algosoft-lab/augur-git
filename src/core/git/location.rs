@@ -265,9 +265,7 @@ pub fn parse_unc_path(input: &str) -> Option<(String, String)> {
     let trimmed = input.trim().trim_matches(['"', '\'']);
     let mut parts = trimmed.split(['\\', '/']).filter(|part| !part.is_empty());
     let prefix = parts.next()?;
-    if !prefix.eq_ignore_ascii_case("wsl$")
-        && !prefix.eq_ignore_ascii_case("wsl.localhost")
-    {
+    if !prefix.eq_ignore_ascii_case("wsl$") && !prefix.eq_ignore_ascii_case("wsl.localhost") {
         return None;
     }
     let distro = parts.next()?.to_string();
@@ -310,9 +308,7 @@ pub fn classify_open_failure(stderr: &str) -> &'static str {
     if text.contains("no distribution with the supplied name") {
         return "err-wsl-distro-not-found";
     }
-    if text.contains("git")
-        && (text.contains("not found") || text.contains("not installed"))
-    {
+    if text.contains("git") && (text.contains("not found") || text.contains("not installed")) {
         return "err-wsl-git-missing";
     }
     if text.contains("not a git repository") {
@@ -411,7 +407,8 @@ mod tests {
 
     #[test]
     fn distro_list_parser_trims_and_drops_footers() {
-        let text = "Ubuntu-22.04\r\nDebian\r\n\r\n docker-desktop \n(older builds print guidance)\n";
+        let text =
+            "Ubuntu-22.04\r\nDebian\r\n\r\n docker-desktop \n(older builds print guidance)\n";
         assert_eq!(
             parse_wsl_distro_list(text),
             vec![
@@ -477,9 +474,7 @@ mod tests {
     #[test]
     fn open_failure_classification_prefers_specific_wsl_causes() {
         assert_eq!(
-            classify_open_failure(
-                "There is no distribution with the supplied name."
-            ),
+            classify_open_failure("There is no distribution with the supplied name."),
             "err-wsl-distro-not-found"
         );
         assert_eq!(
@@ -487,15 +482,11 @@ mod tests {
             "err-wsl-git-missing"
         );
         assert_eq!(
-            classify_open_failure(
-                "fatal: not a git repository (or any of the parent directories)"
-            ),
+            classify_open_failure("fatal: not a git repository (or any of the parent directories)"),
             "err-not-a-repo"
         );
         assert_eq!(
-            classify_open_failure(
-                "fatal: cannot change to '/no/repo': No such file or directory"
-            ),
+            classify_open_failure("fatal: cannot change to '/no/repo': No such file or directory"),
             "err-path-not-exist"
         );
         assert_eq!(classify_open_failure("unknown failure"), "err-not-a-repo");

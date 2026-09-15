@@ -16,8 +16,7 @@ use crate::core::config;
 
 /// System-level shortcut defaults, embedded at compile time so releases carry
 /// their baseline keymap without a runtime file lookup.
-pub const SYSTEM_DEFAULTS_JSON: &str =
-    include_str!("../../assets/keymap.default.json");
+pub const SYSTEM_DEFAULTS_JSON: &str = include_str!("../../assets/keymap.default.json");
 
 /// The full set of shortcut bindings from one JSON document.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,8 +39,7 @@ pub struct ShortcutBinding {
 
 impl ShortcutBinding {
     pub fn matches_platform(&self, platform: &str) -> bool {
-        self.platforms.is_empty()
-            || self.platforms.iter().any(|name| name == platform)
+        self.platforms.is_empty() || self.platforms.iter().any(|name| name == platform)
     }
 }
 
@@ -64,9 +62,7 @@ pub fn system_defaults() -> ShortcutFile {
     match parse(SYSTEM_DEFAULTS_JSON) {
         Ok(file) => file,
         Err(error) => {
-            log::error!(
-                "[keymap] embedded system defaults failed to parse: {error}"
-            );
+            log::error!("[keymap] embedded system defaults failed to parse: {error}");
             ShortcutFile::default()
         }
     }
@@ -109,19 +105,13 @@ pub fn resolve(
         let user_entries: Vec<&ShortcutBinding> = user
             .bindings
             .iter()
-            .filter(|binding| {
-                binding.command == *command
-                    && binding.matches_platform(platform)
-            })
+            .filter(|binding| binding.command == *command && binding.matches_platform(platform))
             .collect();
         let entries = if user_entries.is_empty() {
             system
                 .bindings
                 .iter()
-                .filter(|binding| {
-                    binding.command == *command
-                        && binding.matches_platform(platform)
-                })
+                .filter(|binding| binding.command == *command && binding.matches_platform(platform))
                 .collect::<Vec<_>>()
         } else {
             user_entries
@@ -156,11 +146,7 @@ pub fn resolve(
 
 /// Replace or remove the user override for one command. `None` deletes every
 /// user entry for the command, restoring system defaults.
-pub fn set_user_command(
-    file: &mut ShortcutFile,
-    command: &str,
-    keys: Option<Vec<String>>,
-) {
+pub fn set_user_command(file: &mut ShortcutFile, command: &str, keys: Option<Vec<String>>) {
     file.bindings.retain(|binding| binding.command != command);
     if let Some(keys) = keys {
         file.bindings.push(ShortcutBinding {
@@ -191,9 +177,7 @@ mod tests {
         let quit = file
             .bindings
             .iter()
-            .filter(|entry| {
-                entry.command == "app.quit" && entry.matches_platform(platform)
-            })
+            .filter(|entry| entry.command == "app.quit" && entry.matches_platform(platform))
             .collect::<Vec<_>>();
         assert_eq!(quit.len(), 1, "exactly one quit default per platform");
         assert!(!quit[0].keys.is_empty());
@@ -244,8 +228,7 @@ mod tests {
         let system = ShortcutFile {
             bindings: vec![binding("app.quit", &["alt-f4"]), entry],
         };
-        let resolved =
-            resolve(&system, &ShortcutFile::default(), &["app.quit"]);
+        let resolved = resolve(&system, &ShortcutFile::default(), &["app.quit"]);
         assert_eq!(resolved[0].keys, vec!["alt-f4".to_string()]);
     }
 
@@ -257,8 +240,7 @@ mod tests {
                 binding("app.quit", &["cmd-q"]),
             ],
         };
-        let resolved =
-            resolve(&system, &ShortcutFile::default(), &["app.quit"]);
+        let resolved = resolve(&system, &ShortcutFile::default(), &["app.quit"]);
         assert_eq!(
             resolved[0].keys,
             vec!["cmd-q".to_string(), "alt-f4".to_string()]

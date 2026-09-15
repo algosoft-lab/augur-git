@@ -44,9 +44,7 @@ pub(super) fn attach(cx: &mut App, pending: PendingOpen) {
         if !startup_paths.is_empty() {
             open_paths(cx, &startup_paths).await;
         }
-        if let Some(receiver) =
-            instance_server.map(InstanceServer::into_receiver)
-        {
+        if let Some(receiver) = instance_server.map(InstanceServer::into_receiver) {
             listen(cx, receiver).await;
         }
     })
@@ -88,10 +86,7 @@ async fn open_paths(cx: &mut AsyncApp, paths: &[String]) {
 
 /// Open one repository tab per path in the current main window. Fails when
 /// the window is gone, so the caller can fall back to re-opening one.
-fn try_open_in_active_window(
-    cx: &mut AsyncApp,
-    paths: &[String],
-) -> anyhow::Result<()> {
+fn try_open_in_active_window(cx: &mut AsyncApp, paths: &[String]) -> anyhow::Result<()> {
     let Some(window) = cx.update(|app| {
         app.try_global::<ActiveWorkspace>()
             .and_then(|active| active.window)

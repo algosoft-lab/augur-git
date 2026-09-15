@@ -53,10 +53,7 @@ pub(super) fn handle_sidebar_event(
             );
         }
         SidebarEvent::RenameBranch(name) => {
-            tab.open_branch_dialog(
-                PendingBranchDialog::Rename { old: name.clone() },
-                cx,
-            );
+            tab.open_branch_dialog(PendingBranchDialog::Rename { old: name.clone() }, cx);
         }
         SidebarEvent::DeleteBranch(name) => {
             tab.open_branch_dialog(

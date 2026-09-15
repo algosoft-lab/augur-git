@@ -24,10 +24,9 @@ pub(super) fn validate_branch_name(
         || name.contains("..")
         || name.contains("//")
         || name.contains("@{")
-        || name.chars().any(|c| {
-            matches!(c, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\')
-                || c.is_control()
-        })
+        || name
+            .chars()
+            .any(|c| matches!(c, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\') || c.is_control())
     {
         return Some(NameError::Invalid);
     }
@@ -48,11 +47,7 @@ pub(super) fn rename_args(old: &str, new: &str) -> (&'static str, Vec<String>) {
 
 /// Command label and arguments for deleting a local branch or a tag. Pure
 /// so it can be unit tested.
-pub(super) fn delete_args(
-    name: &str,
-    force: bool,
-    is_tag: bool,
-) -> (&'static str, Vec<String>) {
+pub(super) fn delete_args(name: &str, force: bool, is_tag: bool) -> (&'static str, Vec<String>) {
     if is_tag {
         ("tag -d", vec!["tag".into(), "-d".into(), name.into()])
     } else if force {
@@ -64,10 +59,7 @@ pub(super) fn delete_args(
 
 /// Command label and arguments for merging `source` into the current
 /// branch. Pure so it can be unit tested.
-pub(super) fn merge_args(
-    source: &str,
-    no_ff: bool,
-) -> (&'static str, Vec<String>) {
+pub(super) fn merge_args(source: &str, no_ff: bool) -> (&'static str, Vec<String>) {
     if no_ff {
         (
             "merge --no-ff",
@@ -128,10 +120,7 @@ pub(super) fn rename_remote_args(
 
 /// Command label and arguments for deleting a remote branch on its remote.
 /// Pure so it can be unit tested.
-pub(super) fn delete_remote_args(
-    remote: &str,
-    branch: &str,
-) -> (&'static str, Vec<String>) {
+pub(super) fn delete_remote_args(remote: &str, branch: &str) -> (&'static str, Vec<String>) {
     (
         "push --delete",
         vec![
@@ -146,9 +135,8 @@ pub(super) fn delete_remote_args(
 #[cfg(test)]
 mod tests {
     use super::{
-        NameError, apply_patch_args, delete_args, delete_remote_args,
-        merge_args, rename_args, rename_remote_args, stash_drop_args,
-        stash_pop_args, validate_branch_name,
+        NameError, apply_patch_args, delete_args, delete_remote_args, merge_args, rename_args,
+        rename_remote_args, stash_drop_args, stash_pop_args, validate_branch_name,
     };
 
     fn existing(names: &[&str]) -> Vec<String> {
@@ -173,8 +161,8 @@ mod tests {
     #[test]
     fn rejects_invalid_ref_syntax() {
         for name in [
-            "-dev", ".hidden", "a..b", "a b", "a~b", "a^b", "a:b", "a?b",
-            "a*b", "a[b", "a\\b", "a@{b", "a.lock", "a/", "a.", "/a", "a//b",
+            "-dev", ".hidden", "a..b", "a b", "a~b", "a^b", "a:b", "a?b", "a*b", "a[b", "a\\b",
+            "a@{b", "a.lock", "a/", "a.", "/a", "a//b",
         ] {
             assert_eq!(
                 validate_branch_name(name, &[], None),
@@ -263,8 +251,7 @@ mod tests {
 
     #[test]
     fn apply_patch_args_pass_the_patch_path_as_one_argument() {
-        let (label, args) =
-            apply_patch_args(r"C:\patches\main-to-feature.patch");
+        let (label, args) = apply_patch_args(r"C:\patches\main-to-feature.patch");
         assert_eq!(label, "apply");
         assert_eq!(args, vec!["apply", r"C:\patches\main-to-feature.patch"]);
     }

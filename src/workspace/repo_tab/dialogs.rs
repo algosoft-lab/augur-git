@@ -17,11 +17,7 @@ use crate::git::shared;
 use super::{PendingConfirmation, RepoTab};
 
 impl RepoTab {
-    pub(super) fn request_discard(
-        &mut self,
-        scope: WorkingTreeScope,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn request_discard(&mut self, scope: WorkingTreeScope, cx: &mut Context<Self>) {
         if self.is_busy() {
             return;
         }
@@ -29,10 +25,8 @@ impl RepoTab {
         if files.is_empty() || files.iter().any(|file| file.is_conflicted()) {
             return;
         }
-        let tracked_count =
-            files.iter().filter(|file| !file.is_untracked()).count();
-        let untracked_count =
-            files.iter().filter(|file| file.is_untracked()).count();
+        let tracked_count = files.iter().filter(|file| !file.is_untracked()).count();
+        let untracked_count = files.iter().filter(|file| file.is_untracked()).count();
         if tracked_count == 0 && untracked_count == 0 {
             return;
         }
@@ -92,10 +86,7 @@ impl RepoTab {
         cx.notify();
     }
 
-    pub(super) fn start_resolve_merge_by_agent(
-        &mut self,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn start_resolve_merge_by_agent(&mut self, cx: &mut Context<Self>) {
         if self.is_busy() {
             return;
         }
@@ -116,10 +107,7 @@ impl RepoTab {
         cx.notify();
     }
 
-    pub(super) fn start_resolve_rebase_by_agent(
-        &mut self,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn start_resolve_rebase_by_agent(&mut self, cx: &mut Context<Self>) {
         if self.is_busy() {
             return;
         }
@@ -147,10 +135,7 @@ impl RepoTab {
     /// Returns whether the confirmation dialog was opened. The dialog is
     /// skipped for detached or unborn HEAD states and when no remote exists,
     /// so a plain push can surface Git's own error in those cases.
-    pub(super) fn request_push_upstream(
-        &mut self,
-        cx: &mut Context<Self>,
-    ) -> bool {
+    pub(super) fn request_push_upstream(&mut self, cx: &mut Context<Self>) -> bool {
         if self.branch.is_empty() || self.branch.starts_with("HEAD") {
             return false;
         }
@@ -181,9 +166,7 @@ impl RepoTab {
         if self.is_busy() {
             return;
         }
-        log::info!(
-            "[git_push] publishing branch '{branch}' to '{remote}' with --set-upstream"
-        );
+        log::info!("[git_push] publishing branch '{branch}' to '{remote}' with --set-upstream");
         self.git_view.update(cx, |view, _| {
             view.run(
                 "push --set-upstream",
@@ -195,16 +178,10 @@ impl RepoTab {
     }
 
     pub(super) fn confirm_discard(&mut self, cx: &mut Context<Self>) {
-        let Some(PendingConfirmation::Discard { scope, .. }) =
-            self.confirmation.take()
-        else {
+        let Some(PendingConfirmation::Discard { scope, .. }) = self.confirmation.take() else {
             return;
         };
-        self.start_working_tree_operation(
-            WorkingTreeAction::Discard,
-            scope,
-            cx,
-        );
+        self.start_working_tree_operation(WorkingTreeAction::Discard, scope, cx);
         cx.notify();
     }
 
@@ -224,10 +201,7 @@ impl RepoTab {
         self.cancel_confirmation(cx);
     }
 
-    pub(super) fn confirmation_overlay(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    pub(super) fn confirmation_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
         match self.confirmation.as_ref() {
             Some(PendingConfirmation::ForcePush) => {
                 self.force_push_confirm_overlay(cx).into_any_element()
@@ -235,21 +209,11 @@ impl RepoTab {
             Some(PendingConfirmation::PushSetUpstream { .. }) => {
                 self.push_upstream_confirm_overlay(cx)
             }
-            Some(PendingConfirmation::Discard { .. }) => {
-                self.discard_confirm_overlay(cx)
-            }
-            Some(PendingConfirmation::MergeConflict { .. }) => {
-                self.merge_conflict_overlay(cx)
-            }
-            Some(PendingConfirmation::MergeError { .. }) => {
-                self.merge_error_overlay(cx)
-            }
-            Some(PendingConfirmation::RebaseConflict { .. }) => {
-                self.rebase_conflict_overlay(cx)
-            }
-            Some(PendingConfirmation::RebaseError { .. }) => {
-                self.rebase_error_overlay(cx)
-            }
+            Some(PendingConfirmation::Discard { .. }) => self.discard_confirm_overlay(cx),
+            Some(PendingConfirmation::MergeConflict { .. }) => self.merge_conflict_overlay(cx),
+            Some(PendingConfirmation::MergeError { .. }) => self.merge_error_overlay(cx),
+            Some(PendingConfirmation::RebaseConflict { .. }) => self.rebase_conflict_overlay(cx),
+            Some(PendingConfirmation::RebaseError { .. }) => self.rebase_error_overlay(cx),
             None => div().into_any_element(),
         }
     }
@@ -268,9 +232,7 @@ impl RepoTab {
         let title = h_flex()
             .items_center()
             .gap_2()
-            .child(
-                Icon::new(IconName::TriangleAlert).text_color(colors.warning),
-            )
+            .child(Icon::new(IconName::TriangleAlert).text_color(colors.warning))
             .child(
                 div()
                     .font_weight(FontWeight::BOLD)
@@ -317,9 +279,7 @@ impl RepoTab {
                     .primary()
                     .flex_1()
                     .on_click(move |_event, _window, cx| {
-                        resolve.update(cx, |tab, cx| {
-                            tab.start_resolve_merge_by_agent(cx)
-                        });
+                        resolve.update(cx, |tab, cx| tab.start_resolve_merge_by_agent(cx));
                     }),
             );
         self.overlay_card(
@@ -336,8 +296,7 @@ impl RepoTab {
     fn merge_error_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
         let colors = cx.theme().colors.clone();
         let locale = self.locale;
-        let Some(PendingConfirmation::MergeError { label, detail }) =
-            self.confirmation.as_ref()
+        let Some(PendingConfirmation::MergeError { label, detail }) = self.confirmation.as_ref()
         else {
             return div().into_any_element();
         };
@@ -396,14 +355,11 @@ impl RepoTab {
         let this = cx.entity();
         let abort = this.clone();
         let resolve = this.clone();
-        let source_label =
-            source.as_deref().unwrap_or("pull --rebase").to_string();
+        let source_label = source.as_deref().unwrap_or("pull --rebase").to_string();
         let title = h_flex()
             .items_center()
             .gap_2()
-            .child(
-                Icon::new(IconName::TriangleAlert).text_color(colors.warning),
-            )
+            .child(Icon::new(IconName::TriangleAlert).text_color(colors.warning))
             .child(
                 div()
                     .font_weight(FontWeight::BOLD)
@@ -454,9 +410,7 @@ impl RepoTab {
                     .primary()
                     .flex_1()
                     .on_click(move |_event, _window, cx| {
-                        resolve.update(cx, |tab, cx| {
-                            tab.start_resolve_rebase_by_agent(cx)
-                        });
+                        resolve.update(cx, |tab, cx| tab.start_resolve_rebase_by_agent(cx));
                     }),
             );
         self.overlay_card(
@@ -473,8 +427,7 @@ impl RepoTab {
     fn rebase_error_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
         let colors = cx.theme().colors.clone();
         let locale = self.locale;
-        let Some(PendingConfirmation::RebaseError { label, detail }) =
-            self.confirmation.as_ref()
+        let Some(PendingConfirmation::RebaseError { label, detail }) = self.confirmation.as_ref()
         else {
             return div().into_any_element();
         };
@@ -518,10 +471,7 @@ impl RepoTab {
         .into_any_element()
     }
 
-    fn push_upstream_confirm_overlay(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn push_upstream_confirm_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
         let colors = cx.theme().colors.clone();
         let locale = self.locale;
         let this = cx.entity();
@@ -591,10 +541,7 @@ impl RepoTab {
         .into_any_element()
     }
 
-    fn force_push_confirm_overlay(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn force_push_confirm_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let locale = self.locale;
         let this = cx.entity();
@@ -790,9 +737,7 @@ impl RepoTab {
                     .when(cx.theme().shadow, |element| element.shadow_md())
                     .on_mouse_down(
                         MouseButton::Left,
-                        |_event: &MouseDownEvent,
-                         window: &mut Window,
-                         cx: &mut App| {
+                        |_event: &MouseDownEvent, window: &mut Window, cx: &mut App| {
                             window.prevent_default();
                             cx.stop_propagation();
                         },
@@ -836,10 +781,7 @@ mod tests {
         assert_eq!(default_push_remote(&multi).as_deref(), Some("origin"));
 
         let no_origin = vec!["upstream".to_string(), "fork".to_string()];
-        assert_eq!(
-            default_push_remote(&no_origin).as_deref(),
-            Some("upstream")
-        );
+        assert_eq!(default_push_remote(&no_origin).as_deref(), Some("upstream"));
 
         let empty: Vec<String> = Vec::new();
         assert_eq!(default_push_remote(&empty), None);

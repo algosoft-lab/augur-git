@@ -29,52 +29,30 @@ struct AppAssets;
 /// list in sync with the directory.
 fn local_asset(path: &str) -> Option<&'static [u8]> {
     match path {
-        "augur-git-logo.svg" => {
-            Some(include_bytes!("../assets/augur-git-logo.svg").as_slice())
+        "augur-git-logo.svg" => Some(include_bytes!("../assets/augur-git-logo.svg").as_slice()),
+        "icons/archive.svg" => Some(include_bytes!("../assets/icons/archive.svg").as_slice()),
+        "icons/archive-restore.svg" => {
+            Some(include_bytes!("../assets/icons/archive-restore.svg").as_slice())
         }
-        "icons/archive.svg" => {
-            Some(include_bytes!("../assets/icons/archive.svg").as_slice())
+        "icons/download.svg" => Some(include_bytes!("../assets/icons/download.svg").as_slice()),
+        "icons/git-branch.svg" => Some(include_bytes!("../assets/icons/git-branch.svg").as_slice()),
+        "icons/git-branch-plus.svg" => {
+            Some(include_bytes!("../assets/icons/git-branch-plus.svg").as_slice())
         }
-        "icons/archive-restore.svg" => Some(
-            include_bytes!("../assets/icons/archive-restore.svg").as_slice(),
-        ),
-        "icons/download.svg" => {
-            Some(include_bytes!("../assets/icons/download.svg").as_slice())
+        "icons/git-commit-horizontal.svg" => {
+            Some(include_bytes!("../assets/icons/git-commit-horizontal.svg").as_slice())
         }
-        "icons/git-branch.svg" => {
-            Some(include_bytes!("../assets/icons/git-branch.svg").as_slice())
-        }
-        "icons/git-branch-plus.svg" => Some(
-            include_bytes!("../assets/icons/git-branch-plus.svg").as_slice(),
-        ),
-        "icons/git-commit-horizontal.svg" => Some(
-            include_bytes!("../assets/icons/git-commit-horizontal.svg")
-                .as_slice(),
-        ),
-        "icons/git-merge.svg" => {
-            Some(include_bytes!("../assets/icons/git-merge.svg").as_slice())
-        }
-        "icons/pencil.svg" => {
-            Some(include_bytes!("../assets/icons/pencil.svg").as_slice())
-        }
-        "icons/refresh-cw.svg" => {
-            Some(include_bytes!("../assets/icons/refresh-cw.svg").as_slice())
-        }
-        "icons/trash-2.svg" => {
-            Some(include_bytes!("../assets/icons/trash-2.svg").as_slice())
-        }
-        "icons/upload.svg" => {
-            Some(include_bytes!("../assets/icons/upload.svg").as_slice())
-        }
+        "icons/git-merge.svg" => Some(include_bytes!("../assets/icons/git-merge.svg").as_slice()),
+        "icons/pencil.svg" => Some(include_bytes!("../assets/icons/pencil.svg").as_slice()),
+        "icons/refresh-cw.svg" => Some(include_bytes!("../assets/icons/refresh-cw.svg").as_slice()),
+        "icons/trash-2.svg" => Some(include_bytes!("../assets/icons/trash-2.svg").as_slice()),
+        "icons/upload.svg" => Some(include_bytes!("../assets/icons/upload.svg").as_slice()),
         _ => None,
     }
 }
 
 impl AssetSource for AppAssets {
-    fn load(
-        &self,
-        path: &str,
-    ) -> anyhow::Result<Option<std::borrow::Cow<'static, [u8]>>> {
+    fn load(&self, path: &str) -> anyhow::Result<Option<std::borrow::Cow<'static, [u8]>>> {
         if let Some(bytes) = local_asset(path) {
             return Ok(Some(std::borrow::Cow::Borrowed(bytes)));
         }
@@ -134,8 +112,7 @@ mod tests {
     /// `debug-logs/debug-system.log` fills with "could not find asset" errors.
     #[test]
     fn local_assets_register_every_icon_on_disk() {
-        let entries = std::fs::read_dir("assets/icons")
-            .expect("assets/icons directory must exist");
+        let entries = std::fs::read_dir("assets/icons").expect("assets/icons directory must exist");
         let mut checked = 0;
         for entry in entries {
             let entry = entry.expect("readable directory entry");

@@ -20,9 +20,7 @@ pub mod operations;
 mod resolve;
 #[allow(unused_imports)]
 pub use operations::AgentCommitChallenge;
-pub use operations::{
-    AgentOperation, AgentOperationChallenge, AgentPromptChallenge,
-};
+pub use operations::{AgentOperation, AgentOperationChallenge, AgentPromptChallenge};
 pub use resolve::resolve_executable;
 
 const TEST_DIRECTORY_PREFIX: &str = "augur-git-agent-test";
@@ -175,17 +173,13 @@ impl CustomAgentProfile {
             return Err("profile id cannot be empty".to_string());
         }
         if self.id.chars().any(char::is_control) {
-            return Err(
-                "profile id cannot contain control characters".to_string()
-            );
+            return Err("profile id cannot contain control characters".to_string());
         }
         if self.name.trim().is_empty() {
             return Err("profile name cannot be empty".to_string());
         }
         if self.name.chars().any(char::is_control) {
-            return Err(
-                "profile name cannot contain control characters".to_string()
-            );
+            return Err("profile name cannot contain control characters".to_string());
         }
         if self.executable.as_os_str().is_empty() {
             return Err("profile executable cannot be empty".to_string());
@@ -196,8 +190,7 @@ impl CustomAgentProfile {
             .chars()
             .any(char::is_control)
         {
-            return Err("profile executable cannot contain control characters"
-                .to_string());
+            return Err("profile executable cannot contain control characters".to_string());
         }
         if self
             .args
@@ -208,8 +201,7 @@ impl CustomAgentProfile {
             })
             .any(|arg| arg.chars().any(char::is_control))
         {
-            return Err("profile arguments cannot contain control characters"
-                .to_string());
+            return Err("profile arguments cannot contain control characters".to_string());
         }
         if let PromptMode::Flag(flag) = &self.prompt_mode {
             if flag.trim().is_empty() {
@@ -257,13 +249,8 @@ impl AgentSettings {
             }
         }
         for (agent, path) in &self.executable_overrides {
-            if path.as_os_str().is_empty()
-                || path.to_string_lossy().chars().any(char::is_control)
-            {
-                errors.push(format!(
-                    "{}: invalid executable override",
-                    agent.id()
-                ));
+            if path.as_os_str().is_empty() || path.to_string_lossy().chars().any(char::is_control) {
+                errors.push(format!("{}: invalid executable override", agent.id()));
             }
         }
         for (agent, overrides) in &self.launch_overrides {
@@ -376,10 +363,7 @@ impl AgentSettings {
             })
     }
 
-    pub fn launch_overrides_for(
-        &self,
-        profile: &ResolvedAgentProfile,
-    ) -> AgentLaunchOverrides {
+    pub fn launch_overrides_for(&self, profile: &ResolvedAgentProfile) -> AgentLaunchOverrides {
         profile
             .built_in
             .and_then(|agent| self.launch_overrides.get(&agent).cloned())
@@ -424,9 +408,9 @@ impl std::fmt::Display for LaunchSpecError {
                     agent.display_name()
                 )
             }
-            Self::CustomProfileOverrides => formatter.write_str(
-                "custom profiles do not support typed launch overrides",
-            ),
+            Self::CustomProfileOverrides => {
+                formatter.write_str("custom profiles do not support typed launch overrides")
+            }
         }
     }
 }
@@ -445,8 +429,7 @@ impl AgentConnectivityChallenge {
     pub fn new() -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let token =
-            format!("augur-git-check-{}-{counter:016x}", std::process::id());
+        let token = format!("augur-git-check-{}-{counter:016x}", std::process::id());
         let expected_response = token.chars().rev().collect::<String>();
         let prompt = format!(
             "Augur Git connectivity diagnostic. Do not read, create, edit, delete, or execute anything in this directory. Reverse this token and reply with the reversed token only: {token}. Then remain in the interactive session."
@@ -467,14 +450,11 @@ impl Default for AgentConnectivityChallenge {
 impl ResolvedAgentProfile {
     /// Build a direct-prompt launch with structured executable arguments.
     pub fn launch_spec_for_prompt(&self, prompt: &str) -> AgentLaunchSpec {
-        self.launch_spec_for_prompt_with_overrides(
-            prompt,
-            &AgentLaunchOverrides::default(),
-        )
-        .unwrap_or_else(|_| AgentLaunchSpec {
-            executable: self.executable.clone(),
-            args: self.args.clone(),
-        })
+        self.launch_spec_for_prompt_with_overrides(prompt, &AgentLaunchOverrides::default())
+            .unwrap_or_else(|_| AgentLaunchSpec {
+                executable: self.executable.clone(),
+                args: self.args.clone(),
+            })
     }
 
     /// Build a direct-prompt launch with provider-specific typed overrides.
@@ -492,9 +472,9 @@ impl ResolvedAgentProfile {
             }
             return Ok(self.launch_spec_with_args(prompt, self.args.clone()));
         };
-        overrides.validate_for(agent).map_err(|summary| {
-            LaunchSpecError::InvalidOverride { agent, summary }
-        })?;
+        overrides
+            .validate_for(agent)
+            .map_err(|summary| LaunchSpecError::InvalidOverride { agent, summary })?;
 
         let mut args = self.args.clone();
         if let Some(model) = overrides.model.as_deref() {
@@ -505,16 +485,11 @@ impl ResolvedAgentProfile {
                 BuiltInAgent::Codex => {
                     args.extend([
                         "--config".to_string(),
-                        format!(
-                            "model_reasoning_effort=\"{reasoning_effort}\""
-                        ),
+                        format!("model_reasoning_effort=\"{reasoning_effort}\""),
                     ]);
                 }
                 BuiltInAgent::ClaudeCode => {
-                    args.extend([
-                        "--effort".to_string(),
-                        reasoning_effort.to_string(),
-                    ]);
+                    args.extend(["--effort".to_string(), reasoning_effort.to_string()]);
                 }
                 BuiltInAgent::OpenCode => {
                     // validate_for rejects this before reaching the adapter;
@@ -533,9 +508,7 @@ impl ResolvedAgentProfile {
             if agent != BuiltInAgent::OpenCode {
                 return Err(LaunchSpecError::InvalidOverride {
                     agent,
-                    summary:
-                        "only OpenCode supports a startup variant override"
-                            .to_string(),
+                    summary: "only OpenCode supports a startup variant override".to_string(),
                 });
             }
             args.extend(["--variant".to_string(), variant.to_string()]);
@@ -543,11 +516,7 @@ impl ResolvedAgentProfile {
         Ok(self.launch_spec_with_args(prompt, args))
     }
 
-    fn launch_spec_with_args(
-        &self,
-        prompt: &str,
-        mut args: Vec<String>,
-    ) -> AgentLaunchSpec {
+    fn launch_spec_with_args(&self, prompt: &str, mut args: Vec<String>) -> AgentLaunchSpec {
         match &self.prompt_mode {
             PromptMode::TrailingArgument => args.push(prompt.to_string()),
             PromptMode::Flag(flag) => {
@@ -639,9 +608,7 @@ fn agent_test_directory_root() -> anyhow::Result<PathBuf> {
         let data_dir = dirs::data_local_dir()
             .or_else(dirs::home_dir)
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "could not locate a per-user data directory for the Agent test"
-                )
+                anyhow::anyhow!("could not locate a per-user data directory for the Agent test")
             })?;
         return Ok(data_dir.join("augur-git").join("agent-tests"));
     }
@@ -662,9 +629,7 @@ impl Drop for AgentTestDirectory {
             return;
         }
         if self.cleanup().is_err() {
-            log::debug!(
-                "[agent_terminal] temporary test directory cleanup deferred"
-            );
+            log::debug!("[agent_terminal] temporary test directory cleanup deferred");
         }
     }
 }
@@ -823,8 +788,8 @@ mod tests {
         let shim = directory.join("agent.cmd");
         fs::write(&shim, "@echo off\r\n").expect("resolver shim");
 
-        let resolved = resolve_executable(&directory.join("agent"))
-            .expect("cmd shim should resolve");
+        let resolved =
+            resolve_executable(&directory.join("agent")).expect("cmd shim should resolve");
         assert_eq!(resolved, shim);
         let _ = fs::remove_dir_all(directory);
     }
@@ -842,8 +807,7 @@ mod tests {
         ));
         fs::create_dir(&directory).expect("probe test directory");
         let shim = directory.join("agent.cmd");
-        fs::write(&shim, "@echo off\r\necho shim-version\r\n")
-            .expect("probe shim");
+        fs::write(&shim, "@echo off\r\necho shim-version\r\n").expect("probe shim");
         let profile = ResolvedAgentProfile {
             id: "probe".into(),
             name: "Probe".into(),
@@ -862,11 +826,11 @@ mod tests {
 
     #[test]
     fn prompt_mode_accepts_stable_kebab_case_and_legacy_variant_names() {
-        let mode: PromptMode = serde_json::from_str(r#"{"flag":"--prompt"}"#)
-            .expect("kebab-case prompt mode");
+        let mode: PromptMode =
+            serde_json::from_str(r#"{"flag":"--prompt"}"#).expect("kebab-case prompt mode");
         assert_eq!(mode, PromptMode::Flag("--prompt".into()));
-        let legacy: PromptMode = serde_json::from_str(r#"{"Flag":"--prompt"}"#)
-            .expect("legacy prompt mode");
+        let legacy: PromptMode =
+            serde_json::from_str(r#"{"Flag":"--prompt"}"#).expect("legacy prompt mode");
         assert_eq!(legacy, PromptMode::Flag("--prompt".into()));
         assert_eq!(
             serde_json::to_string(&PromptMode::TrailingArgument).unwrap(),
@@ -908,8 +872,7 @@ mod tests {
         assert!(settings.profile("codex").is_none());
         assert_eq!(settings.default_profile_id(), "");
         let round_trip: AgentSettings =
-            serde_json::from_str(&serde_json::to_string(&settings).unwrap())
-                .expect("round trip");
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).expect("round trip");
         assert_eq!(round_trip.enabled_builtins(), Vec::new());
     }
 

@@ -57,19 +57,14 @@ impl AgentProfileEditor {
             .as_ref()
             .map(|profile| profile.args.join("\n"))
             .unwrap_or_default();
-        let (flag_mode, flag_value) =
-            match profile.as_ref().map(|profile| &profile.prompt_mode) {
-                Some(PromptMode::Flag(flag)) => (true, flag.clone()),
-                _ => (false, String::new()),
-            };
+        let (flag_mode, flag_value) = match profile.as_ref().map(|profile| &profile.prompt_mode) {
+            Some(PromptMode::Flag(flag)) => (true, flag.clone()),
+            _ => (false, String::new()),
+        };
 
-        let id =
-            cx.new(|cx| InputState::new(window, cx).default_value(id_value));
-        let name =
-            cx.new(|cx| InputState::new(window, cx).default_value(name_value));
-        let executable = cx.new(|cx| {
-            InputState::new(window, cx).default_value(executable_value)
-        });
+        let id = cx.new(|cx| InputState::new(window, cx).default_value(id_value));
+        let name = cx.new(|cx| InputState::new(window, cx).default_value(name_value));
+        let executable = cx.new(|cx| InputState::new(window, cx).default_value(executable_value));
         let args = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(2, 8)
@@ -107,11 +102,7 @@ impl AgentProfileEditor {
 
     /// Open the native file picker to fill the executable path field, so
     /// unusual install locations can be selected without typing them by hand.
-    fn browse_executable(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn browse_executable(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
             files: true,
             directories: false,
@@ -143,9 +134,7 @@ impl AgentProfileEditor {
         let profile = CustomAgentProfile {
             id: self.id.read(cx).value().trim().to_string(),
             name: self.name.read(cx).value().trim().to_string(),
-            executable: std::path::PathBuf::from(
-                self.executable.read(cx).value().trim(),
-            ),
+            executable: std::path::PathBuf::from(self.executable.read(cx).value().trim()),
             args: self
                 .args
                 .read(cx)
@@ -156,9 +145,7 @@ impl AgentProfileEditor {
                 .map(ToOwned::to_owned)
                 .collect(),
             prompt_mode: if self.flag_mode {
-                PromptMode::Flag(
-                    self.prompt_flag.read(cx).value().trim().to_string(),
-                )
+                PromptMode::Flag(self.prompt_flag.read(cx).value().trim().to_string())
             } else {
                 PromptMode::TrailingArgument
             },
@@ -202,11 +189,7 @@ impl AgentProfileEditor {
 }
 
 impl Render for AgentProfileEditor {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let this = cx.entity();
         let cancel = this.clone();
@@ -257,19 +240,15 @@ impl Render for AgentProfileEditor {
                                 h_flex()
                                     .items_center()
                                     .gap_2()
-                                    .child(
-                                        Icon::new(IconName::Bot).size(px(16.)),
-                                    )
+                                    .child(Icon::new(IconName::Bot).size(px(16.)))
                                     .child(
                                         div()
                                             .text_color(colors.foreground)
                                             .font_weight(FontWeight::BOLD)
-                                            .child(SharedString::from(
-                                                i18n::text(
-                                                    self.locale,
-                                                    title_key,
-                                                ),
-                                            )),
+                                            .child(SharedString::from(i18n::text(
+                                                self.locale,
+                                                title_key,
+                                            ))),
                                     ),
                             )
                             .child(
@@ -278,9 +257,7 @@ impl Render for AgentProfileEditor {
                                     .ghost()
                                     .small()
                                     .on_click(move |_event, _window, cx| {
-                                        cancel.update(cx, |editor, cx| {
-                                            editor.cancel(cx)
-                                        });
+                                        cancel.update(cx, |editor, cx| editor.cancel(cx));
                                     }),
                             ),
                     )
@@ -301,25 +278,17 @@ impl Render for AgentProfileEditor {
                                 .w_full()
                                 .items_start()
                                 .gap_2()
-                                .child(div().flex_1().child(
-                                    Input::new(&self.executable).w_full(),
-                                ))
+                                .child(div().flex_1().child(Input::new(&self.executable).w_full()))
                                 .child(
-                                    Button::new(
-                                        "agent-profile-executable-browse",
-                                    )
-                                    .label(i18n::text(
-                                        self.locale,
-                                        "agent-executable-browse",
-                                    ))
-                                    .ghost()
-                                    .small()
-                                    .on_click(move |_event, window, cx| {
-                                        browse.update(cx, |editor, cx| {
-                                            editor
-                                                .browse_executable(window, cx);
-                                        });
-                                    }),
+                                    Button::new("agent-profile-executable-browse")
+                                        .label(i18n::text(self.locale, "agent-executable-browse"))
+                                        .ghost()
+                                        .small()
+                                        .on_click(move |_event, window, cx| {
+                                            browse.update(cx, |editor, cx| {
+                                                editor.browse_executable(window, cx);
+                                            });
+                                        }),
                                 ),
                             &colors,
                         ),
@@ -346,9 +315,7 @@ impl Render for AgentProfileEditor {
                             .child(
                                 div()
                                     .flex_1()
-                                    .text_size(crate::theme::scaled_text_size(
-                                        12.,
-                                    ))
+                                    .text_size(crate::theme::scaled_text_size(12.))
                                     .text_color(colors.muted_foreground)
                                     .child(SharedString::from(i18n::text(
                                         self.locale,
@@ -361,9 +328,8 @@ impl Render for AgentProfileEditor {
                                     .ghost()
                                     .small()
                                     .on_click(move |_event, _window, cx| {
-                                        toggle.update(cx, |editor, cx| {
-                                            editor.toggle_prompt_mode(cx)
-                                        });
+                                        toggle
+                                            .update(cx, |editor, cx| editor.toggle_prompt_mode(cx));
                                     }),
                             ),
                     )
@@ -389,28 +355,18 @@ impl Render for AgentProfileEditor {
                             .gap_2()
                             .child(
                                 Button::new("agent-profile-editor-cancel")
-                                    .label(i18n::text(
-                                        self.locale,
-                                        "agent-profile-cancel",
-                                    ))
+                                    .label(i18n::text(self.locale, "agent-profile-cancel"))
                                     .ghost()
                                     .on_click(move |_event, _window, cx| {
-                                        save.update(cx, |editor, cx| {
-                                            editor.cancel(cx)
-                                        });
+                                        save.update(cx, |editor, cx| editor.cancel(cx));
                                     }),
                             )
                             .child(
                                 Button::new("agent-profile-editor-save")
-                                    .label(i18n::text(
-                                        self.locale,
-                                        "agent-profile-save",
-                                    ))
+                                    .label(i18n::text(self.locale, "agent-profile-save"))
                                     .primary()
                                     .on_click(move |_event, _window, cx| {
-                                        this.update(cx, |editor, cx| {
-                                            editor.save(cx)
-                                        });
+                                        this.update(cx, |editor, cx| editor.save(cx));
                                     }),
                             ),
                     ),

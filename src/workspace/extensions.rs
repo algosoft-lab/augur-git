@@ -18,9 +18,7 @@ use gpui_component::{
 };
 
 use crate::core::config::AppConfig;
-use crate::core::extension::{
-    ExtensionSettings, SettingDefinition, SettingValue,
-};
+use crate::core::extension::{ExtensionSettings, SettingDefinition, SettingValue};
 use crate::core::i18n::{self, Locale};
 use crate::extension::ExtensionDefinition;
 
@@ -58,10 +56,7 @@ pub struct ExtensionsPanel {
     rows: Vec<ExtensionRow>,
     selected_extension: Option<String>,
     inputs: BTreeMap<(String, String), Entity<InputState>>,
-    selects: BTreeMap<
-        (String, String),
-        Entity<SelectState<Vec<ExtensionSelectOption>>>,
-    >,
+    selects: BTreeMap<(String, String), Entity<SelectState<Vec<ExtensionSelectOption>>>>,
     statuses: BTreeMap<String, String>,
     setting_errors: BTreeMap<(String, String), String>,
     trust_confirmations: std::collections::BTreeSet<String>,
@@ -77,8 +72,7 @@ impl ExtensionsPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let (rows, inputs, selects) =
-            Self::build_rows(definitions, config, window, cx);
+        let (rows, inputs, selects) = Self::build_rows(definitions, config, window, cx);
         let selected_extension = rows
             .first()
             .map(|row| row.definition.package.manifest.id.clone());
@@ -102,10 +96,7 @@ impl ExtensionsPanel {
     ) -> (
         Vec<ExtensionRow>,
         BTreeMap<(String, String), Entity<InputState>>,
-        BTreeMap<
-            (String, String),
-            Entity<SelectState<Vec<ExtensionSelectOption>>>,
-        >,
+        BTreeMap<(String, String), Entity<SelectState<Vec<ExtensionSelectOption>>>>,
     ) {
         let mut rows = Vec::new();
         let mut inputs = BTreeMap::new();
@@ -116,11 +107,7 @@ impl ExtensionsPanel {
                 .extensions
                 .get(&id)
                 .cloned()
-                .unwrap_or_else(|| {
-                    ExtensionSettings::with_defaults(
-                        &definition.package.manifest,
-                    )
-                })
+                .unwrap_or_else(|| ExtensionSettings::with_defaults(&definition.package.manifest))
                 .normalized_for(&definition.package.manifest);
             for (key, setting) in &definition.package.manifest.settings {
                 if matches!(
@@ -153,9 +140,8 @@ impl ExtensionsPanel {
                         Some(SettingValue::Select(value)) => value.clone(),
                         _ => default.clone(),
                     };
-                    let state = settings::build_select_editor(
-                        &id, key, options, current, window, cx,
-                    );
+                    let state =
+                        settings::build_select_editor(&id, key, options, current, window, cx);
                     selects.insert((id.clone(), key.clone()), state);
                 }
             }
@@ -174,8 +160,7 @@ impl ExtensionsPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let (rows, inputs, selects) =
-            Self::build_rows(definitions, config, window, cx);
+        let (rows, inputs, selects) = Self::build_rows(definitions, config, window, cx);
         let selected_extension = self
             .selected_extension
             .clone()
@@ -209,11 +194,7 @@ impl ExtensionsPanel {
         self.locale = locale;
     }
 
-    pub fn select_extension(
-        &mut self,
-        extension_id: String,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn select_extension(&mut self, extension_id: String, cx: &mut Context<Self>) {
         if self
             .rows
             .iter()
@@ -224,11 +205,7 @@ impl ExtensionsPanel {
         }
     }
 
-    fn handle_trust_click(
-        &mut self,
-        extension_id: String,
-        cx: &mut Context<Self>,
-    ) {
+    fn handle_trust_click(&mut self, extension_id: String, cx: &mut Context<Self>) {
         let trusted = self
             .rows
             .iter()
@@ -273,12 +250,7 @@ impl ExtensionsPanel {
         cx.notify();
     }
 
-    pub fn clear_setting_error(
-        &mut self,
-        extension_id: &str,
-        key: &str,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn clear_setting_error(&mut self, extension_id: &str, key: &str, cx: &mut Context<Self>) {
         if self
             .setting_errors
             .remove(&(extension_id.to_string(), key.to_string()))
@@ -305,12 +277,7 @@ impl ExtensionsPanel {
         }
     }
 
-    pub fn update_trust(
-        &mut self,
-        extension_id: &str,
-        trusted: bool,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn update_trust(&mut self, extension_id: &str, trusted: bool, cx: &mut Context<Self>) {
         if let Some(row) = self
             .rows
             .iter_mut()
@@ -349,11 +316,7 @@ impl ExtensionsPanel {
 }
 
 impl Render for ExtensionsPanel {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let this = cx.entity();
         let locale = self.locale;
@@ -369,8 +332,7 @@ impl Render for ExtensionsPanel {
             .rows
             .iter()
             .filter(|row| {
-                selected_id.as_deref()
-                    == Some(row.definition.package.manifest.id.as_str())
+                selected_id.as_deref() == Some(row.definition.package.manifest.id.as_str())
             })
             .map(|row| detail::detail_card(self, &this, row, cx))
             .collect::<Vec<_>>();
@@ -380,11 +342,8 @@ impl Render for ExtensionsPanel {
             .map(|row| {
                 let id = row.definition.package.manifest.id.clone();
                 let name = row.definition.package.manifest.name.clone();
-                let capabilities = capabilities_summary(
-                    row,
-                    &manual_capability,
-                    &events_capability,
-                );
+                let capabilities =
+                    capabilities_summary(row, &manual_capability, &events_capability);
                 let selected = selected_id.as_deref() == Some(id.as_str());
                 let panel = this.clone();
                 v_flex()
@@ -399,19 +358,15 @@ impl Render for ExtensionsPanel {
                         colors.border
                     })
                     .child(
-                        Button::new(SharedString::from(format!(
-                            "extension-select-{id}"
-                        )))
-                        .label(name)
-                        .ghost()
-                        .small()
-                        .on_click(
-                            move |_event, _window, cx| {
+                        Button::new(SharedString::from(format!("extension-select-{id}")))
+                            .label(name)
+                            .ghost()
+                            .small()
+                            .on_click(move |_event, _window, cx| {
                                 panel.update(cx, |panel, cx| {
                                     panel.select_extension(id.clone(), cx);
                                 });
-                            },
-                        ),
+                            }),
                     )
                     .child(
                         div()
@@ -471,11 +426,7 @@ impl Render for ExtensionsPanel {
 
 /// Builds the "Manual · Events" capability summary shared by the extension
 /// list rows and the detail card header.
-fn capabilities_summary(
-    row: &ExtensionRow,
-    manual_label: &str,
-    events_label: &str,
-) -> String {
+fn capabilities_summary(row: &ExtensionRow, manual_label: &str, events_label: &str) -> String {
     [
         row.definition
             .package
@@ -483,8 +434,7 @@ fn capabilities_summary(
             .manual_handler
             .as_ref()
             .map(|_| manual_label),
-        (!row.definition.package.manifest.event_triggers().is_empty())
-            .then_some(events_label),
+        (!row.definition.package.manifest.event_triggers().is_empty()).then_some(events_label),
     ]
     .into_iter()
     .flatten()

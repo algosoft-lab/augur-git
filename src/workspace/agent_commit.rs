@@ -45,11 +45,7 @@ mod tests {
     use super::{AgentCommitOutcome, classify_probe};
     use crate::core::git::agent_operation::AgentCommitProbe;
 
-    fn probe(
-        head: Option<&str>,
-        changes: bool,
-        conflicts: bool,
-    ) -> AgentCommitProbe {
+    fn probe(head: Option<&str>, changes: bool, conflicts: bool) -> AgentCommitProbe {
         AgentCommitProbe {
             head: head.map(str::to_owned),
             has_changes: changes,
@@ -73,10 +69,7 @@ mod tests {
     #[test]
     fn unborn_head_becoming_a_commit_is_verified() {
         assert_eq!(
-            classify_probe(
-                &probe(None, true, false),
-                &probe(Some("new"), false, false),
-            ),
+            classify_probe(&probe(None, true, false), &probe(Some("new"), false, false),),
             Some(AgentCommitOutcome::Committed {
                 oid: "new".to_string(),
             })

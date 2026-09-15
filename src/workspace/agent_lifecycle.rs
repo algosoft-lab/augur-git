@@ -35,9 +35,7 @@ impl Workspace {
         if count == 0 {
             cx.quit();
         } else {
-            log::info!(
-                "[workspace] delaying application quit for {count} active operation(s)"
-            );
+            log::info!("[workspace] delaying application quit for {count} active operation(s)");
             self.pending_close = Some(PendingWorkspaceClose::Application);
             cx.notify();
         }
@@ -46,10 +44,7 @@ impl Workspace {
     /// Handle a native window close request. Returning `false` keeps the
     /// window open while the same confirmation card used by application Quit
     /// is displayed.
-    pub(super) fn request_window_close(
-        &mut self,
-        cx: &mut Context<Self>,
-    ) -> bool {
+    pub(super) fn request_window_close(&mut self, cx: &mut Context<Self>) -> bool {
         if self.pending_close.is_some() {
             return false;
         }
@@ -57,20 +52,14 @@ impl Workspace {
         if count == 0 {
             true
         } else {
-            log::info!(
-                "[workspace] delaying window close for {count} active operation(s)"
-            );
+            log::info!("[workspace] delaying window close for {count} active operation(s)");
             self.pending_close = Some(PendingWorkspaceClose::Application);
             cx.notify();
             false
         }
     }
 
-    pub(super) fn request_tab_close(
-        &mut self,
-        id: TabId,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn request_tab_close(&mut self, id: TabId, cx: &mut Context<Self>) {
         if self.pending_close.is_some() {
             return;
         }
@@ -92,9 +81,7 @@ impl Workspace {
             .as_ref()
             .is_some_and(|manager| manager.active_count() > 0);
         if agent_active || extension_active {
-            log::info!(
-                "[workspace] delaying repository tab close for active background operation"
-            );
+            log::info!("[workspace] delaying repository tab close for active background operation");
             self.pending_close = Some(PendingWorkspaceClose::Tab(id));
             cx.notify();
             return;
@@ -181,10 +168,7 @@ impl Workspace {
         }
     }
 
-    pub(super) fn close_confirmation_overlay(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    pub(super) fn close_confirmation_overlay(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(pending) = self.pending_close else {
             return div().into_any_element();
         };
@@ -198,11 +182,7 @@ impl Workspace {
                 .iter()
                 .find(|entry| entry.id == id)
                 .and_then(|entry| entry.path.as_deref())
-                .map(|path| {
-                    super::agent_connectivity::running_labels_for_repo(
-                        self, path, cx,
-                    )
-                })
+                .map(|path| super::agent_connectivity::running_labels_for_repo(self, path, cx))
                 .unwrap_or_default(),
         };
         if let Some(manager) = &self.extension_manager {
@@ -251,9 +231,7 @@ impl Workspace {
                     .when(cx.theme().shadow, |element| element.shadow_md())
                     .on_mouse_down(
                         MouseButton::Left,
-                        |_event: &MouseDownEvent,
-                         window: &mut Window,
-                         cx: &mut App| {
+                        |_event: &MouseDownEvent, window: &mut Window, cx: &mut App| {
                             window.prevent_default();
                             cx.stop_propagation();
                         },
@@ -262,10 +240,7 @@ impl Workspace {
                         h_flex()
                             .items_center()
                             .gap_2()
-                            .child(
-                                Icon::new(IconName::TriangleAlert)
-                                    .text_color(colors.warning),
-                            )
+                            .child(Icon::new(IconName::TriangleAlert).text_color(colors.warning))
                             .child(
                                 div()
                                     .text_color(colors.foreground)
@@ -292,10 +267,7 @@ impl Workspace {
                             .gap_2()
                             .child(
                                 Button::new("workspace-close-cancel")
-                                    .label(i18n::text(
-                                        self.locale,
-                                        "workspace-close-cancel",
-                                    ))
+                                    .label(i18n::text(self.locale, "workspace-close-cancel"))
                                     .ghost()
                                     .flex_1()
                                     .on_click(move |_event, _window, cx| {
@@ -306,10 +278,7 @@ impl Workspace {
                             )
                             .child(
                                 Button::new("workspace-close-confirm")
-                                    .label(i18n::text(
-                                        self.locale,
-                                        "workspace-close-confirm",
-                                    ))
+                                    .label(i18n::text(self.locale, "workspace-close-confirm"))
                                     .danger()
                                     .flex_1()
                                     .on_click(move |_event, _window, cx| {

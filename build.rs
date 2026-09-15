@@ -68,8 +68,7 @@ fn watch_git_metadata() {
     let Ok(head_contents) = fs::read_to_string(&head) else {
         return;
     };
-    let Some(reference) = head_contents.strip_prefix("ref: ").map(str::trim)
-    else {
+    let Some(reference) = head_contents.strip_prefix("ref: ").map(str::trim) else {
         return;
     };
 

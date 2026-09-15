@@ -56,13 +56,8 @@ pub struct WslOpenDialog {
 impl EventEmitter<WslOpenDialogEvent> for WslOpenDialog {}
 
 impl WslOpenDialog {
-    pub fn new(
-        locale: Locale,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let path_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("/srv/git"));
+    pub fn new(locale: Locale, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let path_input = cx.new(|cx| InputState::new(window, cx).placeholder("/srv/git"));
         cx.subscribe_in(
             &path_input,
             window,
@@ -98,17 +93,10 @@ impl WslOpenDialog {
     }
 
     /// Translate a UNC paste into distro + path before validating.
-    fn absorb_unc_input(
-        &mut self,
-        raw: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn absorb_unc_input(&mut self, raw: &str, window: &mut Window, cx: &mut Context<Self>) {
         if let Some((distro, path)) = git::parse_unc_path(raw) {
             if self.distro.as_deref() != Some(distro.as_str()) {
-                log::info!(
-                    "[workspace_wsl] UNC input selects distro {distro:?}"
-                );
+                log::info!("[workspace_wsl] UNC input selects distro {distro:?}");
                 self.distro = Some(distro);
             }
             if self.path_text(cx) != path {
@@ -193,9 +181,7 @@ impl WslOpenDialog {
         let Ok(path) = git::validate_linux_path(&self.path_text(cx)) else {
             return;
         };
-        log::info!(
-            "[workspace_wsl] opening wsl repository: distro={distro:?}, path={path:?}"
-        );
+        log::info!("[workspace_wsl] opening wsl repository: distro={distro:?}, path={path:?}");
         cx.emit(WslOpenDialogEvent::Open { distro, path });
     }
 
@@ -207,18 +193,12 @@ impl WslOpenDialog {
                 colors.muted_foreground,
                 i18n::text(self.locale, "wsl-checking"),
             )),
-            Validation::Ok => {
-                Some((colors.green, i18n::text(self.locale, "wsl-check-ok")))
-            }
+            Validation::Ok => Some((colors.green, i18n::text(self.locale, "wsl-check-ok"))),
             Validation::Failed { key, detail } => {
                 let message = if key.starts_with("wsl-path-") {
                     i18n::text(self.locale, key.as_str())
                 } else {
-                    i18n::text_args(
-                        self.locale,
-                        key.as_str(),
-                        &[("detail", detail.as_str())],
-                    )
+                    i18n::text_args(self.locale, key.as_str(), &[("detail", detail.as_str())])
                 };
                 Some((colors.red, message))
             }
@@ -228,11 +208,7 @@ impl WslOpenDialog {
 
 /// Load (or reload) the distro list on the background executor, keeping a
 /// selection that still exists.
-async fn load_distros(
-    dialog: WeakEntity<WslOpenDialog>,
-    cx: &mut AsyncApp,
-    keep_selection: bool,
-) {
+async fn load_distros(dialog: WeakEntity<WslOpenDialog>, cx: &mut AsyncApp, keep_selection: bool) {
     let distros = cx
         .background_executor()
         .spawn(async { git::list_wsl_distros() })
@@ -266,11 +242,7 @@ fn probe_repository(distro: &str, path: &str) -> Result<(), GitError> {
 }
 
 impl Render for WslOpenDialog {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let this = cx.entity();
 
@@ -283,10 +255,7 @@ impl Render for WslOpenDialog {
         });
 
         let distros = self.distros.clone();
-        let distro_menu_key = SharedString::from(format!(
-            "wsl-distros:{}",
-            self.distros_revision
-        ));
+        let distro_menu_key = SharedString::from(format!("wsl-distros:{}", self.distros_revision));
         let selector = Button::new("wsl-distro-selector")
             .ghost()
             .label(distro_label)
@@ -297,37 +266,34 @@ impl Render for WslOpenDialog {
             let distro_count = distros.len();
             let distro_revision = self.distros_revision;
             selector
-                .dropdown_menu_below_with_key(
-                    distro_menu_key,
-                    move |menu, _, _| {
-                        log::debug!(
-                            "[workspace_wsl] building distro menu: revision={}, count={}",
-                            distro_revision,
-                            distro_count
-                        );
-                        let this = this.clone();
-                        distros.iter().enumerate().fold(
-                            menu,
-                            |menu, (index, name)| {
-                                let name = name.clone();
-                                let item_entity = this.clone();
-                                menu.item(PopupMenuItem::new(name.clone()).on_click(
-                                    move |_event, window, cx| {
-                                        log::info!(
-                                            "[workspace_wsl] distro selected: index={}, count={}",
-                                            index,
-                                            distro_count
-                                        );
-                                        item_entity.update(cx, |dialog, cx| {
-                                            dialog.distro = Some(name.clone());
-                                            dialog.schedule_probe(window, cx);
-                                        });
-                                    },
-                                ))
-                            },
-                        )
-                    },
-                )
+                .dropdown_menu_below_with_key(distro_menu_key, move |menu, _, _| {
+                    log::debug!(
+                        "[workspace_wsl] building distro menu: revision={}, count={}",
+                        distro_revision,
+                        distro_count
+                    );
+                    let this = this.clone();
+                    distros
+                        .iter()
+                        .enumerate()
+                        .fold(menu, |menu, (index, name)| {
+                            let name = name.clone();
+                            let item_entity = this.clone();
+                            menu.item(PopupMenuItem::new(name.clone()).on_click(
+                                move |_event, window, cx| {
+                                    log::info!(
+                                        "[workspace_wsl] distro selected: index={}, count={}",
+                                        index,
+                                        distro_count
+                                    );
+                                    item_entity.update(cx, |dialog, cx| {
+                                        dialog.distro = Some(name.clone());
+                                        dialog.schedule_probe(window, cx);
+                                    });
+                                },
+                            ))
+                        })
+                })
                 .deferred_priority(DIALOG_DROPDOWN_PRIORITY)
                 .into_any_element()
         };
@@ -353,8 +319,7 @@ impl Render for WslOpenDialog {
                 .child(shared(message))
         });
 
-        let can_open =
-            self.distro.is_some() && matches!(self.validation, Validation::Ok);
+        let can_open = self.distro.is_some() && matches!(self.validation, Validation::Ok);
         let confirm = {
             let this = cx.entity();
             let mut button = Button::new("wsl-open-confirm")
@@ -382,10 +347,7 @@ impl Render for WslOpenDialog {
                         div()
                             .text_size(crate::theme::scaled_text_size(12.))
                             .text_color(colors.muted_foreground)
-                            .child(shared(i18n::text(
-                                self.locale,
-                                "wsl-distro-label",
-                            ))),
+                            .child(shared(i18n::text(self.locale, "wsl-distro-label"))),
                     )
                     .child(selector)
                     .child(refresh),
@@ -398,20 +360,14 @@ impl Render for WslOpenDialog {
                         div()
                             .text_size(crate::theme::scaled_text_size(12.))
                             .text_color(colors.muted_foreground)
-                            .child(shared(i18n::text(
-                                self.locale,
-                                "wsl-path-label",
-                            ))),
+                            .child(shared(i18n::text(self.locale, "wsl-path-label"))),
                     )
                     .child(div().w_full().child(Input::new(&self.path_input)))
                     .child(
                         div()
                             .text_size(crate::theme::scaled_text_size(11.))
                             .text_color(colors.muted_foreground)
-                            .child(shared(i18n::text(
-                                self.locale,
-                                "wsl-path-hint",
-                            ))),
+                            .child(shared(i18n::text(self.locale, "wsl-path-hint"))),
                     )
                     .children(validation),
             )

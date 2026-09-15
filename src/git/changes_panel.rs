@@ -71,11 +71,7 @@ impl ChangesPanel {
         self.refresh_selected = refresh;
     }
 
-    pub fn set_files(
-        &mut self,
-        files: Vec<FileStatus>,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_files(&mut self, files: Vec<FileStatus>, cx: &mut Context<Self>) {
         let refresh_selected = self.refresh_selected;
         self.refresh_selected = false;
         let selected = self.selected.clone();
@@ -149,12 +145,7 @@ impl ChangesPanel {
         cx.notify();
     }
 
-    fn select_file(
-        &mut self,
-        staged: bool,
-        index: usize,
-        cx: &mut Context<Self>,
-    ) {
+    fn select_file(&mut self, staged: bool, index: usize, cx: &mut Context<Self>) {
         let list = if staged { &self.staged } else { &self.unstaged };
         let Some(file) = list.get(index).cloned() else {
             return;
@@ -225,9 +216,7 @@ impl ChangesPanel {
                         _panel.request_file_operation(action, staged, file, cx);
                     }
                     WorkingTreeScope::All(files) => {
-                        _panel.request_group_operation(
-                            action, staged, &files, cx,
-                        );
+                        _panel.request_group_operation(action, staged, &files, cx);
                     }
                 });
             });
@@ -373,15 +362,14 @@ impl ChangesPanel {
         let colors = cx.theme().colors.clone();
         let (status_color, status_label) =
             status_style(&colors, file.code_for(staged), self.locale);
-        let selected =
-            self.selected
-                .as_ref()
-                .is_some_and(|(selected_staged, path)| {
-                    *selected_staged == staged && path == &file.path
-                });
+        let selected = self
+            .selected
+            .as_ref()
+            .is_some_and(|(selected_staged, path)| {
+                *selected_staged == staged && path == &file.path
+            });
         let conflicted = file.is_conflicted();
-        let row_group =
-            SharedString::from(format!("working-tree-row-{staged}-{index}"));
+        let row_group = SharedString::from(format!("working-tree-row-{staged}-{index}"));
         let this = cx.entity();
         let file_for_context = file.clone();
         let file_for_stage = file.clone();
@@ -435,8 +423,7 @@ impl ChangesPanel {
                     .child(shared(file.path.clone())),
             );
 
-        let action_disabled =
-            |action| self.busy || !can_operate(action, staged, file);
+        let action_disabled = |action| self.busy || !can_operate(action, staged, file);
         let stage_tooltip = if conflicted {
             "changes-action-conflict"
         } else {
@@ -560,12 +547,7 @@ impl ChangesPanel {
         })
     }
 
-    fn section(
-        &self,
-        cx: &Context<Self>,
-        staged: bool,
-        files: &[FileStatus],
-    ) -> impl IntoElement {
+    fn section(&self, cx: &Context<Self>, staged: bool, files: &[FileStatus]) -> impl IntoElement {
         let key = if staged {
             "section-staged"
         } else {
@@ -587,11 +569,7 @@ impl ChangesPanel {
             .when(!collapsed, |section| section.children(rows))
     }
 
-    fn panel_header(
-        &self,
-        cx: &Context<Self>,
-        total: usize,
-    ) -> impl IntoElement {
+    fn panel_header(&self, cx: &Context<Self>, total: usize) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
 
         h_flex()
@@ -612,8 +590,7 @@ impl ChangesPanel {
                     .child(shared(i18n::text(self.locale, "changes-title"))),
             )
             .when(self.busy, |header| {
-                header
-                    .child(Spinner::new().with_size(px(13.)).color(colors.blue))
+                header.child(Spinner::new().with_size(px(13.)).color(colors.blue))
             })
             .child(
                 div()
@@ -625,11 +602,7 @@ impl ChangesPanel {
 }
 
 impl Render for ChangesPanel {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let total = self.staged.len() + self.unstaged.len();
         let sections = v_flex()
@@ -667,10 +640,7 @@ impl Render for ChangesPanel {
                         div()
                             .text_size(crate::theme::scaled_text_size(11.))
                             .text_color(colors.muted_foreground)
-                            .child(shared(i18n::text(
-                                self.locale,
-                                "changes-empty",
-                            ))),
+                            .child(shared(i18n::text(self.locale, "changes-empty"))),
                     )
                     .into_any_element()
             } else {
@@ -679,11 +649,7 @@ impl Render for ChangesPanel {
     }
 }
 
-fn can_operate(
-    action: WorkingTreeAction,
-    staged: bool,
-    file: &FileStatus,
-) -> bool {
+fn can_operate(action: WorkingTreeAction, staged: bool, file: &FileStatus) -> bool {
     if file.is_conflicted() {
         return false;
     }

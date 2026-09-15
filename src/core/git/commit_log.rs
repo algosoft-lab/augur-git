@@ -46,11 +46,7 @@ impl Default for LogState {
 }
 
 /// Build the `git log` arguments for one graph page.
-pub(super) fn log_args(
-    repo_path: &str,
-    scope: &LogScope,
-    skip: usize,
-) -> Vec<String> {
+pub(super) fn log_args(repo_path: &str, scope: &LogScope, skip: usize) -> Vec<String> {
     let mut args = vec![
         "--no-pager".to_string(),
         "-C".to_string(),
@@ -81,10 +77,7 @@ pub(super) fn log_args(
     args.push(format!("--max-count={LOG_PAGE_SIZE}"));
     args.push("--date=format:%Y-%m-%d %H:%M".to_string());
     args.push("-z".to_string());
-    args.push(
-        "--pretty=format:%H%x00%h%x00%an%x00%ai%x00%at%x00%s%x00%D%x00%P%x00%B"
-            .to_string(),
-    );
+    args.push("--pretty=format:%H%x00%h%x00%an%x00%ai%x00%at%x00%s%x00%D%x00%P%x00%B".to_string());
     args
 }
 
@@ -100,9 +93,7 @@ fn resolve_scope_upstream(repo: &GitRepo, scope: &LogScope) -> LogScope {
     if is_rev_resolvable(repo, &format!("{upstream}^{{commit}}")) {
         return scope.clone();
     }
-    log::warn!(
-        "[git_log] unresolvable upstream {upstream}, querying HEAD only"
-    );
+    log::warn!("[git_log] unresolvable upstream {upstream}, querying HEAD only");
     LogScope::CurrentBranch { upstream: None }
 }
 
@@ -167,14 +158,10 @@ pub(super) fn run_page(
         }
         Ok(output) => {
             let msg = String::from_utf8_lossy(&output.stderr);
-            let _ = event_tx
-                .send(GitEvent::Error(GitError::new("err-git-log", msg)));
+            let _ = event_tx.send(GitEvent::Error(GitError::new("err-git-log", msg)));
         }
         Err(e) => {
-            let _ = event_tx.send(GitEvent::Error(GitError::new(
-                "err-git-run",
-                e.to_string(),
-            )));
+            let _ = event_tx.send(GitEvent::Error(GitError::new("err-git-run", e.to_string())));
         }
     }
 }
@@ -191,11 +178,7 @@ pub(super) fn set_scope(
 }
 
 /// Fetch the next page if the current query reported more commits.
-pub(super) fn request_more(
-    repo: &GitRepo,
-    state: &mut LogState,
-    event_tx: &Sender<GitEvent>,
-) {
+pub(super) fn request_more(repo: &GitRepo, state: &mut LogState, event_tx: &Sender<GitEvent>) {
     if !state.has_more {
         return;
     }
@@ -218,8 +201,7 @@ pub(super) fn parse_log(text: &str) -> Vec<LogRow> {
         if oid.len() != 40 || !oid.bytes().all(|b| b.is_ascii_hexdigit()) {
             continue;
         }
-        let parents =
-            record[7].split_whitespace().map(str::to_string).collect();
+        let parents = record[7].split_whitespace().map(str::to_string).collect();
         // `%at` is the author timestamp used for relative-time display.
         let timestamp = record[4].parse().unwrap_or(0);
         rows.push(LogRow {
@@ -245,9 +227,10 @@ mod tests {
     fn all_branches_scope_uses_explicit_ref_groups() {
         let args = log_args("repo with spaces", &LogScope::AllBranches, 0);
 
-        assert!(args.windows(2).any(|pair| {
-            pair == ["-C".to_string(), "repo with spaces".to_string()]
-        }));
+        assert!(
+            args.windows(2)
+                .any(|pair| { pair == ["-C".to_string(), "repo with spaces".to_string()] })
+        );
         assert!(args.iter().any(|arg| arg == "--branches"));
         assert!(args.iter().any(|arg| arg == "--remotes"));
         assert!(args.iter().any(|arg| arg == "--tags"));
@@ -274,8 +257,7 @@ mod tests {
         assert!(revs.contains(&"HEAD".to_string()));
         assert!(revs.contains(&"origin/main".to_string()));
         assert!(!revs.iter().any(|arg| arg == "--branches"));
-        let skip_position =
-            args.iter().position(|arg| arg == "--skip").unwrap();
+        let skip_position = args.iter().position(|arg| arg == "--skip").unwrap();
         assert_eq!(args[skip_position + 1], "250");
     }
 
@@ -293,10 +275,7 @@ mod tests {
         let scope = LogScope::CurrentBranch {
             upstream: Some("origin/definitely-missing-ref".to_string()),
         };
-        let resolved = resolve_scope_upstream(
-            &GitRepo::local("/nonexistent-repo"),
-            &scope,
-        );
+        let resolved = resolve_scope_upstream(&GitRepo::local("/nonexistent-repo"), &scope);
         assert_eq!(resolved, LogScope::CurrentBranch { upstream: None });
     }
 

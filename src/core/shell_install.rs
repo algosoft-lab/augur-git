@@ -167,10 +167,7 @@ fn build_block(kind: ShellKind, binary: &Path) -> String {
         ShellKind::Posix => {
             format!("{COMMAND_NAME}() {{ {} \"$@\"; }}", quote_posix(binary))
         }
-        ShellKind::Fish => format!(
-            "function {COMMAND_NAME}; {} $argv; end",
-            quote_fish(binary)
-        ),
+        ShellKind::Fish => format!("function {COMMAND_NAME}; {} $argv; end", quote_fish(binary)),
         ShellKind::PowerShell => format!(
             "function {COMMAND_NAME} {{ & {} @args }}",
             quote_powershell(binary)
@@ -202,8 +199,7 @@ fn quote_powershell(path: &Path) -> String {
 fn upsert_block(existing: &str, block: &str) -> Result<String, String> {
     match locate_block(existing) {
         BlockLocation::None => {
-            let mut out =
-                String::with_capacity(existing.len() + block.len() + 2);
+            let mut out = String::with_capacity(existing.len() + block.len() + 2);
             out.push_str(existing);
             if !out.is_empty() {
                 if !out.ends_with('\n') {
@@ -283,9 +279,7 @@ pub fn install() -> ChangeReport {
             operation: Operation::Install,
             results: vec![TargetResult {
                 path: PathBuf::new(),
-                outcome: Outcome::Failed(
-                    "cannot locate the running executable".to_string(),
-                ),
+                outcome: Outcome::Failed("cannot locate the running executable".to_string()),
             }],
             fallback_binary: false,
         };
@@ -388,9 +382,7 @@ fn apply_to_target(target: &RcTarget, mode: Mode, block: &str) -> TargetResult {
             if let Err(error) = std::fs::create_dir_all(parent) {
                 return TargetResult {
                     path,
-                    outcome: Outcome::Failed(format!(
-                        "create directory: {error}"
-                    )),
+                    outcome: Outcome::Failed(format!("create directory: {error}")),
                 };
             }
         }
@@ -423,9 +415,8 @@ mod tests {
             ShellKind::Posix,
             Path::new("/opt/Augur Git.app/Contents/MacOS/augurgit"),
         );
-        let result =
-            upsert_block("export EDITOR=vim\nalias ll='ls -l'\n", &installed)
-                .expect("append succeeds");
+        let result = upsert_block("export EDITOR=vim\nalias ll='ls -l'\n", &installed)
+            .expect("append succeeds");
         assert!(result.starts_with("export EDITOR=vim\nalias ll='ls -l'\n\n"));
         assert!(result.contains(&installed));
         assert!(result.ends_with(&format!("{installed}\n")));
@@ -436,8 +427,7 @@ mod tests {
         let first = build_block(ShellKind::Posix, Path::new("/old/path"));
         let second = build_block(ShellKind::Posix, Path::new("/new/path"));
         let existing = format!("keep=me\n\n{first}\nafter=1\n");
-        let result =
-            upsert_block(&existing, &second).expect("replace succeeds");
+        let result = upsert_block(&existing, &second).expect("replace succeeds");
         assert!(!result.contains("/old/path"));
         assert!(result.contains("/new/path"));
         assert!(result.starts_with("keep=me\n"));
@@ -446,8 +436,7 @@ mod tests {
 
     #[test]
     fn upsert_is_idempotent() {
-        let block =
-            build_block(ShellKind::Posix, Path::new("/opt/bin/augurgit"));
+        let block = build_block(ShellKind::Posix, Path::new("/opt/bin/augurgit"));
         let once = upsert_block("", &block).expect("first install");
         let twice = upsert_block(&once, &block).expect("second install");
         assert_eq!(once, twice);
@@ -470,20 +459,15 @@ mod tests {
 
     #[test]
     fn strip_removes_block_and_keeps_surroundings() {
-        let block =
-            build_block(ShellKind::Fish, Path::new("/usr/bin/augurgit"));
-        let existing =
-            format!("set -x EDITOR vim\n\n{block}\n\nset -x FOO 1\n");
+        let block = build_block(ShellKind::Fish, Path::new("/usr/bin/augurgit"));
+        let existing = format!("set -x EDITOR vim\n\n{block}\n\nset -x FOO 1\n");
         let result = strip_block(&existing).expect("strip succeeds");
         assert_eq!(result, "set -x EDITOR vim\n\nset -x FOO 1\n");
     }
 
     #[test]
     fn strip_of_block_only_file_becomes_empty() {
-        let block = build_block(
-            ShellKind::PowerShell,
-            Path::new(r"C:\App\augurgit.exe"),
-        );
+        let block = build_block(ShellKind::PowerShell, Path::new(r"C:\App\augurgit.exe"));
         let existing = format!("{block}\n");
         let result = strip_block(&existing).expect("strip succeeds");
         assert_eq!(result, "");
@@ -517,11 +501,8 @@ mod tests {
 
     #[test]
     fn fish_block_uses_fish_function_syntax() {
-        let block =
-            build_block(ShellKind::Fish, Path::new("/usr/local/bin/augurgit"));
-        assert!(block.contains(
-            "function augurgit; '/usr/local/bin/augurgit' $argv; end"
-        ));
+        let block = build_block(ShellKind::Fish, Path::new("/usr/local/bin/augurgit"));
+        assert!(block.contains("function augurgit; '/usr/local/bin/augurgit' $argv; end"));
     }
 
     #[test]
@@ -530,9 +511,11 @@ mod tests {
             ShellKind::PowerShell,
             Path::new(r"C:\Program Files\Augur Git\augurgit.exe"),
         );
-        assert!(block.contains(
-            r"function augurgit { & 'C:\Program Files\Augur Git\augurgit.exe' @args }"
-        ));
+        assert!(
+            block.contains(
+                r"function augurgit { & 'C:\Program Files\Augur Git\augurgit.exe' @args }"
+            )
+        );
     }
 
     /// End-to-end round trip against real files inside a temporary
@@ -578,16 +561,11 @@ mod tests {
             "first install must report Updated: {:?}",
             report.results
         );
-        let installed =
-            std::fs::read_to_string(&rc).expect("read installed rc");
+        let installed = std::fs::read_to_string(&rc).expect("read installed rc");
         assert!(installed.starts_with(original));
-        assert!(
-            installed
-                .contains("augurgit() { '/opt/Augur Git/augurgit' \"$@\"; }")
-        );
-        let fish_installed =
-            std::fs::read_to_string(root.join("fresh").join("config.fish"))
-                .expect("read created fish config");
+        assert!(installed.contains("augurgit() { '/opt/Augur Git/augurgit' \"$@\"; }"));
+        let fish_installed = std::fs::read_to_string(root.join("fresh").join("config.fish"))
+            .expect("read created fish config");
         assert!(fish_installed.contains("function augurgit;"));
 
         let again = install_with_targets(targets.clone(), binary);

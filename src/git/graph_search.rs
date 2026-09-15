@@ -42,37 +42,28 @@ pub(super) fn render(
         .icon(IconName::ChevronDown)
         .ghost()
         .xsmall()
-        .dropdown_menu_with_anchor(
-            Anchor::TopRight,
-            move |menu, _window, _cx| {
-                let subject_graph = field_graph.clone();
-                let full_graph = field_graph.clone();
-                menu.item(
-                    PopupMenuItem::new(subject_label.clone())
-                        .checked(field == CommitSearchField::Subject)
-                        .on_click(move |_event, _window, cx| {
-                            subject_graph.update(cx, |graph, cx| {
-                                graph.set_search_field(
-                                    CommitSearchField::Subject,
-                                    cx,
-                                );
-                            });
-                        }),
-                )
-                .item(
-                    PopupMenuItem::new(full_message_label.clone())
-                        .checked(field == CommitSearchField::FullMessage)
-                        .on_click(move |_event, _window, cx| {
-                            full_graph.update(cx, |graph, cx| {
-                                graph.set_search_field(
-                                    CommitSearchField::FullMessage,
-                                    cx,
-                                );
-                            });
-                        }),
-                )
-            },
-        );
+        .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _window, _cx| {
+            let subject_graph = field_graph.clone();
+            let full_graph = field_graph.clone();
+            menu.item(
+                PopupMenuItem::new(subject_label.clone())
+                    .checked(field == CommitSearchField::Subject)
+                    .on_click(move |_event, _window, cx| {
+                        subject_graph.update(cx, |graph, cx| {
+                            graph.set_search_field(CommitSearchField::Subject, cx);
+                        });
+                    }),
+            )
+            .item(
+                PopupMenuItem::new(full_message_label.clone())
+                    .checked(field == CommitSearchField::FullMessage)
+                    .on_click(move |_event, _window, cx| {
+                        full_graph.update(cx, |graph, cx| {
+                            graph.set_search_field(CommitSearchField::FullMessage, cx);
+                        });
+                    }),
+            )
+        });
     let result_label = i18n::text_args(
         locale,
         "commit-search-results",

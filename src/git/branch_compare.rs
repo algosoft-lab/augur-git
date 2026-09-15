@@ -9,29 +9,22 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::spinner::Spinner;
-use gpui_component::{
-    ActiveTheme, Disableable, Icon, IconName, Sizable, TitleBar, h_flex, v_flex,
-};
+use gpui_component::{ActiveTheme, Disableable, Icon, IconName, Sizable, TitleBar, h_flex, v_flex};
 
 use crate::core::diff::{DiffDocument, FileChange};
-use crate::core::git::{
-    CompareRevision, CompareRevisionKind, RefsInfo, suggested_patch_filename,
-};
+use crate::core::git::{CompareRevision, CompareRevisionKind, RefsInfo, suggested_patch_filename};
 use crate::core::graph::LogRow;
 use crate::core::i18n::{self, Locale};
 
 use super::diff_view::{self, DiffLayoutMode, DiffViewCache};
-use super::revision_picker::{
-    RevisionPicker, RevisionPickerEvent, RevisionPickerOption,
-};
+use super::revision_picker::{RevisionPicker, RevisionPickerEvent, RevisionPickerOption};
 use super::{lucide, shared};
 
 #[path = "branch_compare_helpers.rs"]
 mod helpers;
 use helpers::{
-    choose_selection, choose_target, compare_field, compare_field_action,
-    empty_state, first_line, format_commit_revision_label,
-    format_revision_label, stat_bar, stat_summary,
+    choose_selection, choose_target, compare_field, compare_field_action, empty_state, first_line,
+    format_commit_revision_label, format_revision_label, stat_bar, stat_summary,
 };
 
 /// Events emitted by the branch comparison view.
@@ -109,10 +102,8 @@ impl BranchCompareView {
         diff_layout: DiffLayoutMode,
         repo_path: String,
     ) -> Self {
-        let base_picker =
-            cx.new(|cx| RevisionPicker::new("base", window, cx, locale));
-        let target_picker =
-            cx.new(|cx| RevisionPicker::new("target", window, cx, locale));
+        let base_picker = cx.new(|cx| RevisionPicker::new("base", window, cx, locale));
+        let target_picker = cx.new(|cx| RevisionPicker::new("target", window, cx, locale));
 
         let base_entity = base_picker.clone();
         cx.subscribe(&base_entity, |view, _, _: &RevisionPickerEvent, cx| {
@@ -157,11 +148,7 @@ impl BranchCompareView {
 
     /// Rebind window-scoped picker subscriptions when the view moves to a
     /// standalone native window.
-    pub fn attach_window(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn attach_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.base_picker.update(cx, |picker, cx| {
             picker.attach_window(window, cx);
         });
@@ -189,11 +176,7 @@ impl BranchCompareView {
         cx.notify();
     }
 
-    pub fn set_diff_layout(
-        &mut self,
-        diff_layout: DiffLayoutMode,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_diff_layout(&mut self, diff_layout: DiffLayoutMode, cx: &mut Context<Self>) {
         if self.diff_layout != diff_layout {
             self.diff_layout = diff_layout;
             cx.notify();
@@ -215,11 +198,7 @@ impl BranchCompareView {
         cx.notify();
     }
 
-    pub fn set_current_branch(
-        &mut self,
-        branch: String,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_current_branch(&mut self, branch: String, cx: &mut Context<Self>) {
         if self.current_branch != branch {
             self.current_branch = branch;
             self.revision = self.revision.wrapping_add(1).max(1);
@@ -227,12 +206,7 @@ impl BranchCompareView {
         }
     }
 
-    pub fn set_files(
-        &mut self,
-        request_id: u64,
-        files: Vec<FileChange>,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_files(&mut self, request_id: u64, files: Vec<FileChange>, cx: &mut Context<Self>) {
         if request_id != self.request_id {
             log::warn!(
                 "[git_compare] UI dropped metadata: event_request_id={}, current_request_id={}",
@@ -289,12 +263,8 @@ impl BranchCompareView {
         let identity = file.identity();
         let old_source_bytes = old_source.as_ref().map_or(0, String::len);
         let new_source_bytes = new_source.as_ref().map_or(0, String::len);
-        let mut document = DiffDocument::from_patch(
-            file.path.clone(),
-            &patch,
-            old_source,
-            new_source,
-        );
+        let mut document =
+            DiffDocument::from_patch(file.path.clone(), &patch, old_source, new_source);
         document.binary |= file.is_binary();
         let row_count = document.rows.len();
         let document_binary = document.binary;
@@ -475,15 +445,11 @@ impl BranchCompareView {
                 Ok(Ok(Some(path))) => Some(path),
                 Ok(Ok(None)) => None,
                 Ok(Err(error)) => {
-                    log::warn!(
-                        "[git_compare] patch save dialog failed: {error}"
-                    );
+                    log::warn!("[git_compare] patch save dialog failed: {error}");
                     None
                 }
                 Err(error) => {
-                    log::warn!(
-                        "[git_compare] patch save dialog channel closed: {error}"
-                    );
+                    log::warn!("[git_compare] patch save dialog channel closed: {error}");
                     return;
                 }
             };
@@ -492,15 +458,11 @@ impl BranchCompareView {
                 return;
             };
             match cx.update(|_window, cx| {
-                this.update(cx, |view, cx| {
-                    view.begin_patch_export(destination, cx)
-                })
+                this.update(cx, |view, cx| view.begin_patch_export(destination, cx))
             }) {
                 Ok(Ok(())) => {}
                 Ok(Err(error)) | Err(error) => {
-                    log::warn!(
-                        "[git_compare] compare view unavailable after save dialog: {error}"
-                    );
+                    log::warn!("[git_compare] compare view unavailable after save dialog: {error}");
                 }
             }
         })
@@ -508,11 +470,7 @@ impl BranchCompareView {
     }
 
     /// Start a patch export against the currently selected revisions.
-    fn begin_patch_export(
-        &mut self,
-        destination: PathBuf,
-        cx: &mut Context<Self>,
-    ) {
+    fn begin_patch_export(&mut self, destination: PathBuf, cx: &mut Context<Self>) {
         let (Some(base), Some(target)) = (
             self.base_picker.read(cx).candidate().revision(),
             self.target_picker.read(cx).candidate().revision(),
@@ -560,12 +518,7 @@ impl BranchCompareView {
         cx.notify();
     }
 
-    pub fn set_export_error(
-        &mut self,
-        request_id: u64,
-        detail: String,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_export_error(&mut self, request_id: u64, detail: String, cx: &mut Context<Self>) {
         if request_id != self.export_request_id {
             return;
         }
@@ -593,9 +546,7 @@ impl BranchCompareView {
                     .await;
                 let stop = this
                     .update(cx, |view, cx| {
-                        let Some(ExportState::Saving { dots }) =
-                            &mut view.export_state
-                        else {
+                        let Some(ExportState::Saving { dots }) = &mut view.export_state else {
                             view.export_animating = false;
                             cx.notify();
                             return true;
@@ -617,9 +568,7 @@ impl BranchCompareView {
         if self.revision == self.synced_revision {
             return;
         }
-        let mut options = Vec::with_capacity(
-            self.refs.len().saturating_add(self.commits.len()),
-        );
+        let mut options = Vec::with_capacity(self.refs.len().saturating_add(self.commits.len()));
         options.extend(self.refs.iter().cloned().map(|value| {
             RevisionPickerOption::new(
                 value.clone(),
@@ -646,18 +595,12 @@ impl BranchCompareView {
             .collect::<Vec<_>>();
         let current_base = self.base_picker.read(cx).selected();
         let current_target = self.target_picker.read(cx).selected();
-        let base =
-            choose_selection(&current_base, &values, &self.current_branch);
+        let base = choose_selection(&current_base, &values, &self.current_branch);
         let target = choose_target(&current_target, &values, base.as_ref());
         let picker_options = options;
         self.base_picker.update(cx, |picker, cx| {
             picker.set_locale(self.locale, window, cx);
-            picker.set_options(
-                picker_options.clone(),
-                base.clone(),
-                window,
-                cx,
-            );
+            picker.set_options(picker_options.clone(), base.clone(), window, cx);
         });
         self.target_picker.update(cx, |picker, cx| {
             picker.set_locale(self.locale, window, cx);
@@ -675,11 +618,7 @@ impl BranchCompareView {
             .is_some_and(|(base, target)| base.full_name != target.full_name)
     }
 
-    fn header(
-        &self,
-        colors: &gpui_component::theme::ThemeColor,
-        cx: &Context<Self>,
-    ) -> AnyElement {
+    fn header(&self, colors: &gpui_component::theme::ThemeColor, cx: &Context<Self>) -> AnyElement {
         let this = cx.entity();
         let compare_enabled = self.can_compare(cx);
         let base_label = i18n::text(self.locale, "branch-compare-base");
@@ -689,8 +628,7 @@ impl BranchCompareView {
         } else {
             i18n::text(self.locale, "branch-compare-run")
         };
-        let export_label =
-            i18n::text(self.locale, "branch-compare-export-patch");
+        let export_label = i18n::text(self.locale, "branch-compare-export-patch");
         let export_enabled = self.can_export(cx);
         let (total_added, total_deleted) =
             self.files.iter().fold((0, 0), |(added, deleted), file| {
@@ -718,25 +656,15 @@ impl BranchCompareView {
                         .gap_2()
                         .child(div().flex_1())
                         .when(self.loading, |row| {
-                            row.child(
-                                Spinner::new()
-                                    .with_size(px(14.))
-                                    .color(colors.blue),
-                            )
-                            .child(shared(
-                                format!(
+                            row.child(Spinner::new().with_size(px(14.)).color(colors.blue))
+                                .child(shared(format!(
                                     "{} / {}",
                                     self.documents.len(),
                                     self.files.len()
-                                ),
-                            ))
+                                )))
                         })
                         .when(!self.files.is_empty(), |row| {
-                            row.child(stat_summary(
-                                colors,
-                                total_added,
-                                total_deleted,
-                            ))
+                            row.child(stat_summary(colors, total_added, total_deleted))
                         }),
                 )
             })
@@ -757,24 +685,13 @@ impl BranchCompareView {
                             .compact()
                             .flex_shrink_0()
                             .disabled(
-                                self.base_picker
-                                    .read(cx)
-                                    .candidate()
-                                    .revision()
-                                    .is_none()
-                                    || self
-                                        .target_picker
-                                        .read(cx)
-                                        .candidate()
-                                        .revision()
-                                        .is_none(),
+                                self.base_picker.read(cx).candidate().revision().is_none()
+                                    || self.target_picker.read(cx).candidate().revision().is_none(),
                             )
                             .on_click({
                                 let this = this.clone();
                                 move |_event, window, cx| {
-                                    this.update(cx, |view, cx| {
-                                        view.swap(window, cx)
-                                    });
+                                    this.update(cx, |view, cx| view.swap(window, cx));
                                 }
                             }),
                     ))
@@ -792,16 +709,12 @@ impl BranchCompareView {
                             .on_click({
                                 let this = this.clone();
                                 move |_event, _window, cx| {
-                                    this.update(cx, |view, cx| {
-                                        view.start_compare(cx)
-                                    });
+                                    this.update(cx, |view, cx| view.start_compare(cx));
                                 }
                             })
                             .child(
                                 div()
-                                    .text_size(crate::theme::scaled_text_size(
-                                        12.,
-                                    ))
+                                    .text_size(crate::theme::scaled_text_size(12.))
                                     .child(shared(run_label)),
                             ),
                     ))
@@ -814,17 +727,13 @@ impl BranchCompareView {
                             .on_click({
                                 let this = this.clone();
                                 move |_event, window, cx| {
-                                    this.update(cx, |view, cx| {
-                                        view.export_patch(window, cx)
-                                    });
+                                    this.update(cx, |view, cx| view.export_patch(window, cx));
                                 }
                             })
                             .icon(lucide("download"))
                             .child(
                                 div()
-                                    .text_size(crate::theme::scaled_text_size(
-                                        12.,
-                                    ))
+                                    .text_size(crate::theme::scaled_text_size(12.))
                                     .child(shared(export_label)),
                             ),
                     )),
@@ -843,10 +752,7 @@ impl BranchCompareView {
                     ExportState::Saving { dots } => (
                         format!(
                             "{}{}",
-                            i18n::text(
-                                self.locale,
-                                "branch-compare-export-saving"
-                            ),
+                            i18n::text(self.locale, "branch-compare-export-saving"),
                             ".".repeat(dots)
                         ),
                         colors.warning,
@@ -898,16 +804,12 @@ impl BranchCompareView {
                     .flex_1()
                     .text_size(crate::theme::scaled_text_size(11.))
                     .text_color(colors.foreground)
-                    .child(shared(i18n::text(
-                        self.locale,
-                        "branch-compare-all-files",
-                    ))),
+                    .child(shared(i18n::text(self.locale, "branch-compare-all-files"))),
             )
             .child(shared(self.files.len().to_string()));
         let rows = self.files.iter().enumerate().map(|(index, file)| {
             let selected = !self.show_all
-                && self.selected_identity().as_deref()
-                    == Some(file.identity().as_str());
+                && self.selected_identity().as_deref() == Some(file.identity().as_str());
             let identity = file.identity();
             let error = self.file_errors.get(&identity).cloned();
             let has_error = error.is_some();
@@ -927,9 +829,7 @@ impl BranchCompareView {
                 })
                 .hover(|row| row.bg(colors.list_hover))
                 .on_click(move |_event, _window, cx| {
-                    this.update(cx, |view, cx| {
-                        view.select_file(Some(index), cx)
-                    });
+                    this.update(cx, |view, cx| view.select_file(Some(index), cx));
                 })
                 .child(
                     div()
@@ -1015,13 +915,8 @@ impl BranchCompareView {
             } else {
                 i18n::text(self.locale, "branch-compare-select-hint")
             };
-            return empty_state(
-                "branch-compare-empty",
-                colors,
-                message,
-                diff_font_size,
-            )
-            .into_any_element();
+            return empty_state("branch-compare-empty", colors, message, diff_font_size)
+                .into_any_element();
         }
         if self.show_all {
             let sections = self
@@ -1082,16 +977,10 @@ impl BranchCompareView {
                         .items_center()
                         .px_2()
                         .gap_2()
-                        .text_size(crate::theme::scaled_diff_text_size(
-                            11.,
-                            diff_font_size,
-                        ))
+                        .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
                         .border_b_1()
                         .border_color(colors.border)
-                        .child(shared(i18n::text(
-                            self.locale,
-                            "branch-compare-all-files",
-                        )))
+                        .child(shared(i18n::text(self.locale, "branch-compare-all-files")))
                         .when(self.loading, |row| {
                             row.child(shared(format!(
                                 "{} / {}",
@@ -1108,9 +997,7 @@ impl BranchCompareView {
                                 .hover(|button| button.bg(colors.list_hover))
                                 .child(Icon::new(IconName::Copy).size(px(13.)))
                                 .on_click(move |_event, _window, cx| {
-                                    copy_entity.update(cx, |view, cx| {
-                                        view.copy_diff(cx)
-                                    });
+                                    copy_entity.update(cx, |view, cx| view.copy_diff(cx));
                                 }),
                         ),
                 )
@@ -1128,10 +1015,11 @@ impl BranchCompareView {
             .into_any_element();
         };
         let Some(entry) = self.documents.get(&identity) else {
-            let message =
-                self.file_errors.get(&identity).cloned().unwrap_or_else(|| {
-                    i18n::text(self.locale, "branch-compare-loading")
-                });
+            let message = self
+                .file_errors
+                .get(&identity)
+                .cloned()
+                .unwrap_or_else(|| i18n::text(self.locale, "branch-compare-loading"));
             return empty_state(
                 "branch-compare-file-loading",
                 colors,
@@ -1161,10 +1049,7 @@ impl BranchCompareView {
                     .flex_shrink_0()
                     .items_center()
                     .px_2()
-                    .text_size(crate::theme::scaled_diff_text_size(
-                        11.,
-                        diff_font_size,
-                    ))
+                    .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
                     .child(shared(entry.document.path.clone()))
                     .child(div().flex_1())
                     .child(
@@ -1173,8 +1058,7 @@ impl BranchCompareView {
                             .px_1()
                             .child(Icon::new(IconName::Copy).size(px(13.)))
                             .on_click(move |_event, _window, cx| {
-                                copy_entity
-                                    .update(cx, |view, cx| view.copy_diff(cx));
+                                copy_entity.update(cx, |view, cx| view.copy_diff(cx));
                             }),
                     ),
             )
@@ -1201,11 +1085,7 @@ impl BranchCompareWindow {
 }
 
 impl Render for BranchCompareWindow {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let locale = self.compare.read(cx).locale;
         v_flex()
@@ -1220,10 +1100,7 @@ impl Render for BranchCompareWindow {
                         .text_size(crate::theme::scaled_text_size(12.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(colors.foreground)
-                        .child(shared(i18n::text(
-                            locale,
-                            "branch-compare-title",
-                        ))),
+                        .child(shared(i18n::text(locale, "branch-compare-title"))),
                 ),
             )
             .child(div().flex_1().min_h_0().child(self.compare.clone()))
@@ -1231,11 +1108,7 @@ impl Render for BranchCompareWindow {
 }
 
 impl Render for BranchCompareView {
-    fn render(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_selectors(window, cx);
         let colors = cx.theme().colors.clone();
         let layout = if self.diff_layout == DiffLayoutMode::SideBySide

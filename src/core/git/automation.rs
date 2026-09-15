@@ -75,8 +75,7 @@ pub struct RepositoryState {
 pub fn capture(path: &Path) -> Result<RepositoryState, String> {
     let path_text = path.to_string_lossy().into_owned();
     let (branch, upstream, files, ahead, behind) =
-        run_status(&GitRepo::local(path_text.clone()))
-            .map_err(git_error_detail)?;
+        run_status(&GitRepo::local(path_text.clone())).map_err(git_error_detail)?;
     let head = read_line(path, &["rev-parse", "HEAD"]);
     let remotes = read_lines(path, &["remote"]);
     let operation = detect_operation(path);
@@ -103,9 +102,7 @@ pub fn run(
     cancelled: &AtomicBool,
 ) -> CommandResult {
     if args.is_empty() {
-        return CommandResult::failure(
-            "git command requires at least one argument",
-        );
+        return CommandResult::failure("git command requires at least one argument");
     }
     run_command(path, args, timeout.unwrap_or(DEFAULT_TIMEOUT), cancelled)
 }
@@ -113,10 +110,7 @@ pub fn run(
 /// Execute `git pull --rebase` after checking that no unsupported operation is
 /// already in progress. A conflict is returned as a normal business failure;
 /// callers can then invoke an AI recovery operation.
-pub fn pull_rebase(
-    path: &Path,
-    cancelled: &AtomicBool,
-) -> Result<CommandResult, String> {
+pub fn pull_rebase(path: &Path, cancelled: &AtomicBool) -> Result<CommandResult, String> {
     let state = capture(path)?;
     if let Some(operation) = state.operation {
         return Ok(CommandResult::failure(format!(
@@ -139,8 +133,7 @@ pub fn pull_rebase(
         if after.operation.is_some() || after.conflicts {
             return Ok(CommandResult {
                 ok: false,
-                summary: "pull completed with unresolved repository state"
-                    .into(),
+                summary: "pull completed with unresolved repository state".into(),
                 ..result
             });
         }
@@ -299,13 +292,8 @@ fn run_command(
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            log::warn!(
-                "[git_command] request_id={request_id} git spawn failed: {error}"
-            );
-            return CommandResult::failure_with_id(
-                request_id,
-                error.to_string(),
-            );
+            log::warn!("[git_command] request_id={request_id} git spawn failed: {error}");
+            return CommandResult::failure_with_id(request_id, error.to_string());
         }
     };
     let started = Instant::now();

@@ -93,8 +93,7 @@ pub(super) fn build_select_editor(
         .iter()
         .position(|option| option.value == current)
         .map(|index| IndexPath::default().row(index));
-    let state = cx
-        .new(|cx| SelectState::new(select_options, selected_index, window, cx));
+    let state = cx.new(|cx| SelectState::new(select_options, selected_index, window, cx));
     let extension_id = extension_id.to_string();
     let key = key.to_string();
     cx.subscribe(&state, move |_panel, _, event, cx| {
@@ -203,9 +202,9 @@ pub(super) fn render_setting(
 
 pub(super) fn setting_display(value: &SettingValue) -> String {
     match value {
-        SettingValue::String(value)
-        | SettingValue::Time(value)
-        | SettingValue::Select(value) => value.clone(),
+        SettingValue::String(value) | SettingValue::Time(value) | SettingValue::Select(value) => {
+            value.clone()
+        }
         SettingValue::Integer(value) => value.to_string(),
         SettingValue::Boolean(value) => value.to_string(),
     }

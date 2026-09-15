@@ -25,10 +25,7 @@ pub fn fallback_after_close(
         .or_else(|| index.checked_sub(1).and_then(|i| order.get(i).copied()))
 }
 
-pub fn should_refresh_after_switch(
-    changed: bool,
-    target_was_opened: bool,
-) -> bool {
+pub fn should_refresh_after_switch(changed: bool, target_was_opened: bool) -> bool {
     changed && target_was_opened
 }
 
@@ -91,12 +88,7 @@ impl RepoTabBar {
         }
     }
 
-    fn tab(
-        &self,
-        summary: &TabSummary,
-        colors: &ThemeColor,
-        cx: &Context<Self>,
-    ) -> AnyElement {
+    fn tab(&self, summary: &TabSummary, colors: &ThemeColor, cx: &Context<Self>) -> AnyElement {
         let id = summary.id;
         let active = self.active == Some(id);
         let select_this = cx.entity();
@@ -175,11 +167,7 @@ impl Default for RepoTabBar {
 }
 
 impl Render for RepoTabBar {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let tabs = self
             .tabs

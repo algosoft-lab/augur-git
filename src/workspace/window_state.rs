@@ -1,20 +1,13 @@
-use gpui::{
-    App, Bounds, Window, WindowBounds, WindowDecorations, WindowOptions, point,
-    px, size,
-};
+use gpui::{App, Bounds, Window, WindowBounds, WindowDecorations, WindowOptions, point, px, size};
 use gpui_component::TitleBar;
 
 use crate::core::config::{
-    DEFAULT_EXTENSIONS_WINDOW_HEIGHT, DEFAULT_EXTENSIONS_WINDOW_WIDTH,
-    DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH, MIN_EXTENSIONS_WINDOW_HEIGHT,
-    MIN_EXTENSIONS_WINDOW_WIDTH, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, UiState,
-    WindowState,
+    DEFAULT_EXTENSIONS_WINDOW_HEIGHT, DEFAULT_EXTENSIONS_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT,
+    DEFAULT_WINDOW_WIDTH, MIN_EXTENSIONS_WINDOW_HEIGHT, MIN_EXTENSIONS_WINDOW_WIDTH,
+    MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, UiState, WindowState,
 };
 
-pub fn initial_window_options(
-    cx: &mut App,
-    state: &WindowState,
-) -> WindowOptions {
+pub fn initial_window_options(cx: &mut App, state: &WindowState) -> WindowOptions {
     initial_window_options_with_limits(
         cx,
         state,
@@ -25,10 +18,7 @@ pub fn initial_window_options(
     )
 }
 
-pub fn initial_extensions_window_options(
-    cx: &mut App,
-    state: &WindowState,
-) -> WindowOptions {
+pub fn initial_extensions_window_options(cx: &mut App, state: &WindowState) -> WindowOptions {
     initial_window_options_with_limits(
         cx,
         state,
@@ -48,18 +38,12 @@ fn initial_window_options_with_limits(
     min_height: u32,
 ) -> WindowOptions {
     let primary_display = cx.primary_display();
-    let selected_display = select_display(
-        cx,
-        state,
-        primary_display.clone(),
-        min_width,
-        min_height,
-    );
+    let selected_display =
+        select_display(cx, state, primary_display.clone(), min_width, min_height);
     let (window_bounds, display_id) = selected_display
         .map(|display| {
             let visible_bounds = display.visible_bounds();
-            let bounds =
-                restore_bounds(state, visible_bounds, min_width, min_height);
+            let bounds = restore_bounds(state, visible_bounds, min_width, min_height);
             let window_bounds = if state.maximized {
                 WindowBounds::Maximized(bounds)
             } else {
@@ -68,8 +52,7 @@ fn initial_window_options_with_limits(
             (window_bounds, Some(display.id()))
         })
         .unwrap_or_else(|| {
-            let desired_size =
-                size(px(default_width as f32), px(default_height as f32));
+            let desired_size = size(px(default_width as f32), px(default_height as f32));
             let bounds = Bounds::centered(None, desired_size, cx);
             let window_bounds = if state.maximized {
                 WindowBounds::Maximized(bounds)
@@ -93,11 +76,7 @@ fn initial_window_options_with_limits(
 }
 
 pub fn capture_window_state(window: &Window) -> WindowState {
-    capture_window_state_with_limits(
-        window,
-        MIN_WINDOW_WIDTH,
-        MIN_WINDOW_HEIGHT,
-    )
+    capture_window_state_with_limits(window, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
 }
 
 pub fn capture_extensions_window_state(window: &Window) -> WindowState {
@@ -218,14 +197,8 @@ mod tests {
             height: 700,
             maximized: false,
         };
-        let visible =
-            Bounds::new(point(px(0.), px(0.)), size(px(1920.), px(1080.)));
-        let bounds = restore_bounds(
-            &state,
-            visible,
-            MIN_WINDOW_WIDTH,
-            MIN_WINDOW_HEIGHT,
-        );
+        let visible = Bounds::new(point(px(0.), px(0.)), size(px(1920.), px(1080.)));
+        let bounds = restore_bounds(&state, visible, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
         assert_eq!(f32::from(bounds.origin.x), 920.0);
         assert_eq!(f32::from(bounds.origin.y), 380.0);
     }
@@ -233,14 +206,8 @@ mod tests {
     #[test]
     fn restore_bounds_uses_defaults_without_position() {
         let state = WindowState::default();
-        let visible =
-            Bounds::new(point(px(0.), px(0.)), size(px(1920.), px(1080.)));
-        let bounds = restore_bounds(
-            &state,
-            visible,
-            MIN_WINDOW_WIDTH,
-            MIN_WINDOW_HEIGHT,
-        );
+        let visible = Bounds::new(point(px(0.), px(0.)), size(px(1920.), px(1080.)));
+        let bounds = restore_bounds(&state, visible, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
         assert_eq!(f32::from(bounds.origin.x), 320.0);
         assert_eq!(f32::from(bounds.origin.y), 140.0);
     }

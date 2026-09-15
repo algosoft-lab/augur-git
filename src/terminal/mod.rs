@@ -64,9 +64,7 @@ impl TerminalProxy {
     fn cleanup_resources(&self) {
         if let Some(test_directory) = &self.test_directory {
             if test_directory.cleanup().is_err() {
-                log::debug!(
-                    "[agent_terminal] temporary test directory cleanup deferred"
-                );
+                log::debug!("[agent_terminal] temporary test directory cleanup deferred");
             }
         }
     }
@@ -87,9 +85,7 @@ impl EventListener for TerminalProxy {
                 }
                 if !self.child_exit_seen.swap(true, Ordering::AcqRel) {
                     self.cleanup_resources();
-                    let _ = self
-                        .events
-                        .send(TerminalEvent::ChildExit(status.code()));
+                    let _ = self.events.send(TerminalEvent::ChildExit(status.code()));
                 }
             }
             Event::Exit => {
@@ -110,8 +106,7 @@ impl EventListener for TerminalProxy {
                     .ok()
                     .and_then(|sender| sender.clone());
                 if let Some(sender) = sender {
-                    let _ =
-                        sender.send(Msg::Input(Cow::Owned(text.into_bytes())));
+                    let _ = sender.send(Msg::Input(Cow::Owned(text.into_bytes())));
                 }
             }
             // OSC clipboard, title, bell, and hyperlink side effects are not
@@ -232,8 +227,7 @@ impl TerminalBackend {
         )?;
         let events_sender = proxy.events.clone();
         let child_exit_seen = proxy.child_exit_seen.clone();
-        let event_loop =
-            EventLoop::new(terminal.clone(), proxy, pty, true, false)?;
+        let event_loop = EventLoop::new(terminal.clone(), proxy, pty, true, false)?;
         let sender = event_loop.channel();
         if let Ok(mut input) = input_sender.lock() {
             *input = Some(sender.clone());
@@ -246,14 +240,10 @@ impl TerminalBackend {
             if !child_exit_for_join.swap(true, Ordering::AcqRel) {
                 if let Some(test_directory) = test_directory_for_join {
                     if test_directory.cleanup().is_err() {
-                        log::debug!(
-                            "[agent_terminal] temporary test directory cleanup deferred"
-                        );
+                        log::debug!("[agent_terminal] temporary test directory cleanup deferred");
                     }
                 }
-                log::error!(
-                    "[agent_terminal] PTY event loop stopped before child exit"
-                );
+                log::error!("[agent_terminal] PTY event loop stopped before child exit");
                 let _ = events_for_join.send(TerminalEvent::Error(
                     "PTY event loop stopped unexpectedly".to_string(),
                 ));
@@ -302,9 +292,7 @@ impl TerminalBackend {
             if !child_exit_seen.swap(true, Ordering::AcqRel) {
                 if let Some(test_directory) = test_directory {
                     if test_directory.cleanup().is_err() {
-                        log::debug!(
-                            "[agent_terminal] temporary test directory cleanup deferred"
-                        );
+                        log::debug!("[agent_terminal] temporary test directory cleanup deferred");
                     }
                 }
                 let _ = events_sender.send(TerminalEvent::ChildExit(None));
@@ -347,8 +335,7 @@ impl TerminalBackend {
             terminal.grid().display_offset(),
             geometry,
         );
-        terminal.selection =
-            Some(Selection::new(SelectionType::Simple, point, Side::Left));
+        terminal.selection = Some(Selection::new(SelectionType::Simple, point, Side::Left));
         true
     }
 
@@ -423,14 +410,12 @@ impl TerminalBackend {
         let column = (f32::from(position.x) / geometry.cell_width)
             .floor()
             .max(0.)
-            .min(f32::from(geometry.columns.saturating_sub(1)))
-            as u16
+            .min(f32::from(geometry.columns.saturating_sub(1))) as u16
             + 1;
         let row = (f32::from(position.y) / geometry.line_height)
             .floor()
             .max(0.)
-            .min(f32::from(geometry.lines.saturating_sub(1)))
-            as u16
+            .min(f32::from(geometry.lines.saturating_sub(1))) as u16
             + 1;
         let column = column.min(223);
         let row = row.min(223);
@@ -485,8 +470,7 @@ impl TerminalBackend {
 
     fn local_position(&self, position: Point<Pixels>) -> Point<Pixels> {
         let geometry = self.geometry();
-        let (x, y) = geometry
-            .local_position(f32::from(position.x), f32::from(position.y));
+        let (x, y) = geometry.local_position(f32::from(position.x), f32::from(position.y));
         point(px(x), px(y))
     }
 
@@ -594,13 +578,11 @@ fn viewport_point(
     let column = (f32::from(position.x) / geometry.cell_width)
         .floor()
         .max(0.)
-        .min(f32::from(geometry.columns.saturating_sub(1)))
-        as usize;
+        .min(f32::from(geometry.columns.saturating_sub(1))) as usize;
     let line = (f32::from(position.y) / geometry.line_height)
         .floor()
         .max(0.)
-        .min(f32::from(geometry.lines.saturating_sub(1)))
-        as usize;
+        .min(f32::from(geometry.lines.saturating_sub(1))) as usize;
     alacritty_terminal::term::viewport_to_point(
         display_offset,
         TerminalPoint::new(line, Column(column)),
@@ -640,9 +622,7 @@ fn grid_contains_text(grid: &Grid<Cell>, needle: &str) -> bool {
     let mut current_line = None;
     let mut row = String::new();
     let mut all_text = String::new();
-    for indexed in
-        grid.iter_from(TerminalPoint::new(grid.topmost_line(), Column(0)))
-    {
+    for indexed in grid.iter_from(TerminalPoint::new(grid.topmost_line(), Column(0))) {
         let line = indexed.point.line.0;
         if current_line != Some(line) {
             if current_line.is_some() {
@@ -768,9 +748,8 @@ mod tests {
     use super::model::TerminalSnapshot;
     use super::render::xterm_rgb;
     use super::{
-        Cell, CellFlags, TerminalConfig, TerminalDimensions, encode_key,
-        encode_paste, grid_contains_text, viewport_point,
-        window_size_for_geometry,
+        Cell, CellFlags, TerminalConfig, TerminalDimensions, encode_key, encode_paste,
+        grid_contains_text, viewport_point, window_size_for_geometry,
     };
     use alacritty_terminal::event::VoidListener;
     use alacritty_terminal::grid::Dimensions;
@@ -779,11 +758,7 @@ mod tests {
     use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
     use gpui::{KeyDownEvent, Keystroke, Modifiers, point, px};
 
-    fn key(
-        key: &str,
-        character: Option<&str>,
-        modifiers: Modifiers,
-    ) -> KeyDownEvent {
+    fn key(key: &str, character: Option<&str>, modifiers: Modifiers) -> KeyDownEvent {
         KeyDownEvent {
             keystroke: Keystroke {
                 key: key.to_string(),
@@ -828,8 +803,7 @@ mod tests {
 
     #[test]
     fn viewport_points_share_the_grid_and_clamp_edges() {
-        let geometry =
-            TerminalGeometry::from_bounds(10., 20., 80., 40., 8., 20., 1.);
+        let geometry = TerminalGeometry::from_bounds(10., 20., 80., 40., 8., 20., 1.);
         let point = viewport_point(point(px(999.), px(999.)), 0, geometry);
         assert_eq!(
             point,
@@ -839,8 +813,7 @@ mod tests {
 
     #[test]
     fn pty_resize_request_matches_the_measured_geometry() {
-        let geometry =
-            TerminalGeometry::from_bounds(0., 0., 640., 320., 8.5, 19.5, 1.);
+        let geometry = TerminalGeometry::from_bounds(0., 0., 640., 320., 8.5, 19.5, 1.);
         let size = window_size_for_geometry(geometry);
         assert_eq!(size.num_cols, geometry.columns);
         assert_eq!(size.num_lines, geometry.lines);
@@ -852,15 +825,11 @@ mod tests {
     #[test]
     fn normalizes_verbatim_working_directories_for_cmd_shims() {
         assert_eq!(
-            super::normalize_working_directory(Path::new(
-                r"\\?\C:\Users\example\repo",
-            )),
+            super::normalize_working_directory(Path::new(r"\\?\C:\Users\example\repo",)),
             PathBuf::from(r"C:\Users\example\repo")
         );
         assert_eq!(
-            super::normalize_working_directory(Path::new(
-                r"\\?\UNC\server\share\repo",
-            )),
+            super::normalize_working_directory(Path::new(r"\\?\UNC\server\share\repo",)),
             PathBuf::from(r"\\server\share\repo")
         );
     }
@@ -963,13 +932,9 @@ mod tests {
             columns: 120,
             lines: 32,
         };
-        let mut terminal =
-            Term::new(TerminalConfig::default(), &initial, VoidListener);
+        let mut terminal = Term::new(TerminalConfig::default(), &initial, VoidListener);
         let mut processor = Processor::<StdSyncHandler>::new();
-        processor.advance(
-            &mut terminal,
-            b"\x1b[?1049h\x1b[2J\x1b[Halternate-screen",
-        );
+        processor.advance(&mut terminal, b"\x1b[?1049h\x1b[2J\x1b[Halternate-screen");
 
         terminal.resize(TerminalDimensions {
             columns: 48,
@@ -994,8 +959,7 @@ mod tests {
         let mut text = String::new();
         for line in grid.topmost_line().0..=grid.bottommost_line().0 {
             for column in 0..grid.columns() {
-                let cell = &grid[Line(line)]
-                    [alacritty_terminal::index::Column(column)];
+                let cell = &grid[Line(line)][alacritty_terminal::index::Column(column)];
                 if cell.flags.contains(CellFlags::WIDE_CHAR_SPACER) {
                     continue;
                 }

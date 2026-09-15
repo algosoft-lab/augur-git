@@ -45,8 +45,7 @@ impl AgentOperationChallenge {
     pub fn new() -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let token =
-            format!("augur-git-commit-{}-{counter:016x}", std::process::id());
+        let token = format!("augur-git-commit-{}-{counter:016x}", std::process::id());
         let reversed = token.chars().rev().collect::<String>();
         let expected_marker = format!("AUGUR_GIT_DONE:{reversed}");
         let prompt = format!(
@@ -77,8 +76,7 @@ impl AgentPromptChallenge {
     pub fn new() -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let token =
-            format!("augur-git-prompt-{}-{counter:016x}", std::process::id());
+        let token = format!("augur-git-prompt-{}-{counter:016x}", std::process::id());
         let reversed = token.chars().rev().collect::<String>();
         let expected_marker = format!("AUGUR_GIT_DONE:{reversed}");
         let prompt = format!(
@@ -110,9 +108,9 @@ impl std::fmt::Display for CommitPromptError {
             Self::HintContainsControlCharacter => {
                 formatter.write_str("commit hint contains a control character")
             }
-            Self::HintNotSupported => formatter.write_str(
-                "this agent operation does not accept a commit hint",
-            ),
+            Self::HintNotSupported => {
+                formatter.write_str("this agent operation does not accept a commit hint")
+            }
         }
     }
 }
@@ -138,10 +136,7 @@ impl AgentOperation {
     /// The hint is intentionally constrained to commit-message guidance. It
     /// is not a second task prompt and is placed after an explicit delimiter
     /// so the fixed operation remains the source of truth.
-    pub fn prompt(
-        self,
-        hint: Option<&str>,
-    ) -> Result<String, CommitPromptError> {
+    pub fn prompt(self, hint: Option<&str>) -> Result<String, CommitPromptError> {
         match self {
             Self::Commit => commit_prompt(hint),
             Self::Merge {
@@ -212,9 +207,10 @@ fn commit_prompt(hint: Option<&str>) -> Result<String, CommitPromptError> {
             max_bytes: MAX_COMMIT_HINT_BYTES,
         });
     }
-    if hint.chars().any(|character| {
-        character.is_control() && !matches!(character, '\n' | '\r' | '\t')
-    }) {
+    if hint
+        .chars()
+        .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+    {
         return Err(CommitPromptError::HintContainsControlCharacter);
     }
 
@@ -234,10 +230,7 @@ fn merge_prompt(target_oid: &str, baseline_head: Option<&str>) -> String {
     )
 }
 
-fn resolve_merge_prompt(
-    merge_head_oid: &str,
-    baseline_head: Option<&str>,
-) -> String {
+fn resolve_merge_prompt(merge_head_oid: &str, baseline_head: Option<&str>) -> String {
     format!(
         "{RESOLVE_MERGE_PROMPT_PREFIX} {merge_head_oid}. The session baseline HEAD is {}. {RESOLVE_MERGE_PROMPT_SUFFIX}",
         baseline_label(baseline_head)
@@ -257,8 +250,7 @@ fn resolve_rebase_prompt(
     baseline_head: Option<&str>,
 ) -> String {
     let rebase_head = rebase_head_oid.unwrap_or("unknown");
-    let upstream = upstream_oid
-        .unwrap_or("not available (for example, a pull --rebase session)");
+    let upstream = upstream_oid.unwrap_or("not available (for example, a pull --rebase session)");
     format!(
         "{RESOLVE_REBASE_PROMPT_PREFIX}; REBASE_HEAD is {rebase_head}, the recorded upstream is {upstream}, and the session baseline HEAD is {}. {RESOLVE_REBASE_PROMPT_SUFFIX}",
         baseline_label(baseline_head)
@@ -335,10 +327,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             first.expected_marker,
-            format!(
-                "AUGUR_GIT_DONE:{}",
-                token.chars().rev().collect::<String>()
-            )
+            format!("AUGUR_GIT_DONE:{}", token.chars().rev().collect::<String>())
         );
     }
 

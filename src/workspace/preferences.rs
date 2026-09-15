@@ -2,9 +2,8 @@ use gpui::*;
 
 use crate::agent::{AgentLaunchOverrides, BuiltInAgent, CustomAgentProfile};
 use crate::core::config::{
-    CommitActionPreference, DiffLayoutPreference, GraphHistoryPreference,
-    LanguagePreference, ThemePreference, normalized_diff_font_size,
-    normalized_ui_font_size,
+    CommitActionPreference, DiffLayoutPreference, GraphHistoryPreference, LanguagePreference,
+    ThemePreference, normalized_diff_font_size, normalized_ui_font_size,
 };
 use crate::core::i18n;
 use crate::git::diff_view::DiffLayoutMode;
@@ -101,22 +100,14 @@ impl Workspace {
     /// Switch the UI theme: applies the embedded theme immediately and
     /// persists the choice. Panels read colors from `cx.theme()` on every
     /// render, so no per-panel fan-out is needed.
-    pub(super) fn set_theme(
-        &mut self,
-        preference: ThemePreference,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn set_theme(&mut self, preference: ThemePreference, cx: &mut Context<Self>) {
         self.config.theme = preference;
         theme::apply(preference, &self.config.typography, cx);
         self.config_saver.schedule(&self.config);
         cx.notify();
     }
 
-    pub(super) fn set_ui_font(
-        &mut self,
-        font: Option<String>,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn set_ui_font(&mut self, font: Option<String>, cx: &mut Context<Self>) {
         if self.config.typography.ui_font_family == font {
             return;
         }
@@ -127,11 +118,7 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn set_mono_font(
-        &mut self,
-        font: Option<String>,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn set_mono_font(&mut self, font: Option<String>, cx: &mut Context<Self>) {
         if self.config.typography.mono_font_family == font {
             return;
         }
@@ -142,11 +129,7 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn set_ui_font_size(
-        &mut self,
-        size: f32,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn set_ui_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
         let size = normalized_ui_font_size(size);
         if (self.config.typography.ui_font_size - size).abs() <= f32::EPSILON {
             return;
@@ -158,14 +141,9 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn set_diff_font_size(
-        &mut self,
-        size: f32,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn set_diff_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
         let size = normalized_diff_font_size(size);
-        if (self.config.typography.diff_font_size - size).abs() <= f32::EPSILON
-        {
+        if (self.config.typography.diff_font_size - size).abs() <= f32::EPSILON {
             return;
         }
         self.config.typography.diff_font_size = size;
@@ -243,11 +221,7 @@ impl Workspace {
     /// Enable or disable the focus-triggered repository refresh: persists
     /// the choice. The flag is read whenever the window is activated, so no
     /// fan-out to open tabs is needed.
-    pub(super) fn set_auto_refresh_on_focus(
-        &mut self,
-        enabled: bool,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn set_auto_refresh_on_focus(&mut self, enabled: bool, cx: &mut Context<Self>) {
         if self.config.view.auto_refresh_on_focus == enabled {
             return;
         }
@@ -268,9 +242,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if let Err(error) = super::keymap::set_shortcut(cx, &command, keys) {
-            log::error!(
-                "[keymap] failed to persist shortcut {command}: {error}"
-            );
+            log::error!("[keymap] failed to persist shortcut {command}: {error}");
         }
         self.refresh_app_menu(cx);
         self.settings_panel.update(cx, |panel, cx| {
@@ -287,9 +259,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if let Err(error) = super::keymap::reset_shortcut(cx, &command) {
-            log::error!(
-                "[keymap] failed to persist shortcut reset for {command}: {error}"
-            );
+            log::error!("[keymap] failed to persist shortcut reset for {command}: {error}");
         }
         self.refresh_app_menu(cx);
         self.settings_panel.update(cx, |panel, cx| {
@@ -297,19 +267,12 @@ impl Workspace {
         });
     }
 
-    pub(super) fn set_agent_default_profile(
-        &mut self,
-        profile_id: String,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn set_agent_default_profile(&mut self, profile_id: String, cx: &mut Context<Self>) {
         if self.config.agent.profile(&profile_id).is_none() {
-            log::warn!(
-                "[agent_terminal] ignoring unknown default profile: {profile_id}"
-            );
+            log::warn!("[agent_terminal] ignoring unknown default profile: {profile_id}");
             return;
         }
-        if self.config.agent.default_profile_id.as_deref() == Some(&profile_id)
-        {
+        if self.config.agent.default_profile_id.as_deref() == Some(&profile_id) {
             return;
         }
         self.config.agent.default_profile_id = Some(profile_id.clone());
@@ -325,8 +288,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if executable.as_ref().is_some_and(|path| {
-            path.as_os_str().is_empty()
-                || path.to_string_lossy().chars().any(char::is_control)
+            path.as_os_str().is_empty() || path.to_string_lossy().chars().any(char::is_control)
         }) {
             log::warn!(
                 "[agent_terminal] ignoring invalid executable override for {}",
@@ -334,9 +296,7 @@ impl Workspace {
             );
             return;
         }
-        if executable.as_ref()
-            == self.config.agent.executable_overrides.get(&agent)
-        {
+        if executable.as_ref() == self.config.agent.executable_overrides.get(&agent) {
             return;
         }
         match executable {

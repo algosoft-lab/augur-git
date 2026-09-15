@@ -116,10 +116,7 @@ fn serve(listener: TcpListener, token: String, sender: Sender<Vec<String>>) {
 
 /// Read one handshake, validate the token, acknowledge it, and return the
 /// requested paths. `None` means the connection was rejected or malformed.
-fn accept_connection(
-    stream: &mut TcpStream,
-    token: &str,
-) -> Option<Vec<String>> {
+fn accept_connection(stream: &mut TcpStream, token: &str) -> Option<Vec<String>> {
     let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
     let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
     let line = match read_line_bounded(stream) {
@@ -198,8 +195,7 @@ pub fn forward_to_running_instance(paths: &[String]) -> bool {
         return false;
     }
     let address = SocketAddr::from(([127, 0, 0, 1], record.port));
-    let mut stream = match TcpStream::connect_timeout(&address, CONNECT_TIMEOUT)
-    {
+    let mut stream = match TcpStream::connect_timeout(&address, CONNECT_TIMEOUT) {
         Ok(stream) => stream,
         Err(error) => {
             log::info!(
@@ -228,27 +224,23 @@ pub fn forward_to_running_instance(paths: &[String]) -> bool {
 
 /// Write the handshake and wait for the acknowledgement. Split from the
 /// file-based plumbing so tests can drive both sides directly.
-fn send_handshake(
-    stream: &mut TcpStream,
-    token: &str,
-    paths: &[String],
-) -> Result<(), String> {
+fn send_handshake(stream: &mut TcpStream, token: &str, paths: &[String]) -> Result<(), String> {
     let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
     let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
     let request = Handshake {
         token: token.to_string(),
         paths: paths.to_vec(),
     };
-    let mut text = serde_json::to_string(&request)
-        .map_err(|error| format!("encode request: {error}"))?;
+    let mut text =
+        serde_json::to_string(&request).map_err(|error| format!("encode request: {error}"))?;
     text.push('\n');
     stream
         .write_all(text.as_bytes())
         .map_err(|error| format!("send request: {error}"))?;
-    let line = read_line_bounded(stream)
-        .map_err(|error| format!("read acknowledgement: {error}"))?;
-    let ack: Ack = serde_json::from_str(&line)
-        .map_err(|error| format!("decode acknowledgement: {error}"))?;
+    let line =
+        read_line_bounded(stream).map_err(|error| format!("read acknowledgement: {error}"))?;
+    let ack: Ack =
+        serde_json::from_str(&line).map_err(|error| format!("decode acknowledgement: {error}"))?;
     if ack.ok {
         Ok(())
     } else {
@@ -289,15 +281,11 @@ fn instance_file_path() -> Option<PathBuf> {
 }
 
 fn write_instance_file(record: &InstanceRecord) -> anyhow::Result<()> {
-    let path = instance_file_path()
-        .ok_or_else(|| anyhow::anyhow!("no user cache directory"))?;
+    let path = instance_file_path().ok_or_else(|| anyhow::anyhow!("no user cache directory"))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    crate::core::config::write_atomically(
-        &path,
-        &serde_json::to_string_pretty(record)?,
-    )
+    crate::core::config::write_atomically(&path, &serde_json::to_string_pretty(record)?)
 }
 
 fn read_instance_file() -> Option<InstanceRecord> {
@@ -332,8 +320,7 @@ fn remove_stale_instance_file(token: &str) {
 /// open requests; the cache directory itself is already user-private.
 fn generate_token() -> String {
     use std::hash::{BuildHasher, Hasher};
-    let mut first =
-        std::collections::hash_map::RandomState::new().build_hasher();
+    let mut first = std::collections::hash_map::RandomState::new().build_hasher();
     first.write_u32(std::process::id());
     first.write_u128(
         std::time::SystemTime::now()
@@ -341,8 +328,7 @@ fn generate_token() -> String {
             .map(|duration| duration.as_nanos())
             .unwrap_or(0),
     );
-    let mut second =
-        std::collections::hash_map::RandomState::new().build_hasher();
+    let mut second = std::collections::hash_map::RandomState::new().build_hasher();
     second.write(&first.finish().to_le_bytes());
     format!("{:016x}{:016x}", first.finish(), second.finish())
 }
@@ -353,8 +339,7 @@ mod tests {
 
     #[test]
     fn handshake_round_trips_through_the_socket() {
-        let listener =
-            TcpListener::bind((FORWARD_HOST, 0)).expect("bind loopback port");
+        let listener = TcpListener::bind((FORWARD_HOST, 0)).expect("bind loopback port");
         let address = listener.local_addr().expect("local address");
         let server_token = generate_token();
         let client_token = server_token.clone();
@@ -364,8 +349,7 @@ mod tests {
             accept_connection(&mut stream, &server_token)
         });
 
-        let mut client =
-            TcpStream::connect(address).expect("connect to test server");
+        let mut client = TcpStream::connect(address).expect("connect to test server");
         let paths = vec!["/tmp/repo-one".to_string()];
         send_handshake(&mut client, &client_token, &paths).expect("handshake");
 
@@ -375,8 +359,7 @@ mod tests {
 
     #[test]
     fn wrong_token_is_rejected() {
-        let listener =
-            TcpListener::bind((FORWARD_HOST, 0)).expect("bind loopback port");
+        let listener = TcpListener::bind((FORWARD_HOST, 0)).expect("bind loopback port");
         let address = listener.local_addr().expect("local address");
         let server_token = generate_token();
 
@@ -385,11 +368,9 @@ mod tests {
             accept_connection(&mut stream, &server_token)
         });
 
-        let mut client =
-            TcpStream::connect(address).expect("connect to test server");
-        let error =
-            send_handshake(&mut client, "forged-token", &["/tmp/repo".into()])
-                .expect_err("forged token must be rejected");
+        let mut client = TcpStream::connect(address).expect("connect to test server");
+        let error = send_handshake(&mut client, "forged-token", &["/tmp/repo".into()])
+            .expect_err("forged token must be rejected");
         assert!(error.contains("invalid token"));
         assert_eq!(server.join().expect("server thread"), None);
     }
@@ -402,8 +383,7 @@ mod tests {
             token: "abcdef0123456789".to_string(),
         };
         let text = serde_json::to_string(&record).expect("serialize");
-        let parsed: InstanceRecord =
-            serde_json::from_str(&text).expect("deserialize");
+        let parsed: InstanceRecord = serde_json::from_str(&text).expect("deserialize");
         assert_eq!(parsed.port, 49152);
         assert_eq!(parsed.pid, 4242);
         assert_eq!(parsed.token, "abcdef0123456789");
@@ -411,8 +391,7 @@ mod tests {
 
     #[test]
     fn oversized_messages_are_rejected_without_panic() {
-        let listener =
-            TcpListener::bind((FORWARD_HOST, 0)).expect("bind loopback port");
+        let listener = TcpListener::bind((FORWARD_HOST, 0)).expect("bind loopback port");
         let address = listener.local_addr().expect("local address");
         let server_token = generate_token();
 
@@ -421,8 +400,7 @@ mod tests {
             accept_connection(&mut stream, &server_token)
         });
 
-        let mut client =
-            TcpStream::connect(address).expect("connect to test server");
+        let mut client = TcpStream::connect(address).expect("connect to test server");
         let oversized = "x".repeat(MAX_MESSAGE_BYTES + 1);
         client
             .write_all(oversized.as_bytes())

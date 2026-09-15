@@ -55,9 +55,7 @@ pub(super) fn classify_merge_probe(
     }
     if baseline_head == probe.head.as_deref() {
         return match mode {
-            AgentMergeMode::Start { .. } => {
-                Some(AgentMergeOutcome::AlreadyUpToDate)
-            }
+            AgentMergeMode::Start { .. } => Some(AgentMergeOutcome::AlreadyUpToDate),
             AgentMergeMode::Resolve { .. } => None,
         };
     }

@@ -10,12 +10,9 @@ use gpui::{App, AppContext, Context, Window};
 use crate::core::config::{self, AppConfig, UiState};
 use crate::theme;
 
-use super::app_menu::{
-    InstallCli, NewTab, OpenRepository, OpenWslRepository, RemoveCli,
-};
+use super::app_menu::{InstallCli, NewTab, OpenRepository, OpenWslRepository, RemoveCli};
 use super::{
-    ActiveWorkspace, Workspace, installed_font_families, normalize_typography,
-    open_main_window,
+    ActiveWorkspace, Workspace, installed_font_families, normalize_typography, open_main_window,
 };
 
 /// Install global handlers for File menu actions.
@@ -57,28 +54,15 @@ impl RoutedAction {
         }
     }
 
-    fn apply(
-        self,
-        workspace: &mut Workspace,
-        window: &mut Window,
-        cx: &mut Context<Workspace>,
-    ) {
+    fn apply(self, workspace: &mut Workspace, window: &mut Window, cx: &mut Context<Workspace>) {
         match self {
-            Self::OpenRepository => {
-                workspace.handle_open_repository(&OpenRepository, window, cx)
+            Self::OpenRepository => workspace.handle_open_repository(&OpenRepository, window, cx),
+            Self::OpenWslRepository => {
+                workspace.handle_open_wsl_repository(&OpenWslRepository, window, cx)
             }
-            Self::OpenWslRepository => workspace.handle_open_wsl_repository(
-                &OpenWslRepository,
-                window,
-                cx,
-            ),
             Self::NewTab => workspace.handle_new_tab(&NewTab, window, cx),
-            Self::InstallCli => {
-                workspace.handle_install_cli(&InstallCli, window, cx)
-            }
-            Self::RemoveCli => {
-                workspace.handle_remove_cli(&RemoveCli, window, cx)
-            }
+            Self::InstallCli => workspace.handle_install_cli(&InstallCli, window, cx),
+            Self::RemoveCli => workspace.handle_remove_cli(&RemoveCli, window, cx),
         }
     }
 }
@@ -158,9 +142,7 @@ fn dispatch_to_live_window(cx: &mut App, action: RoutedAction) -> bool {
 fn reopen_and_dispatch(cx: &mut App, action: RoutedAction) {
     cx.spawn(async move |cx| {
         let (mut config, ui_state): (AppConfig, UiState) = cx
-            .background_spawn(async {
-                (config::load(), config::load_ui_state())
-            })
+            .background_spawn(async { (config::load(), config::load_ui_state()) })
             .await;
 
         let reopen_result = cx.update(|app| {
@@ -208,9 +190,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn file_actions_are_available_without_a_focused_workspace(
-        cx: &mut TestAppContext,
-    ) {
+    fn file_actions_are_available_without_a_focused_workspace(cx: &mut TestAppContext) {
         cx.update(|cx| {
             install(cx);
             assert!(cx.is_action_available(&OpenRepository));
@@ -222,9 +202,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn file_actions_remain_available_with_an_active_window(
-        cx: &mut TestAppContext,
-    ) {
+    fn file_actions_remain_available_with_an_active_window(cx: &mut TestAppContext) {
         let window = cx.add_window(|_, _| EmptyView);
         cx.update(|cx| {
             install(cx);

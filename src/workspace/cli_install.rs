@@ -25,15 +25,13 @@ impl Workspace {
         let locale = self.locale;
         log::info!("[cli_install] install requested from the File menu");
         cx.spawn_in(window, async move |_, cx| {
-            let report =
-                cx.background_spawn(async { shell_install::install() })
-                    .await;
+            let report = cx
+                .background_spawn(async { shell_install::install() })
+                .await;
             if let Err(error) =
                 cx.update(|window, cx| open_report_dialog(locale, report, window, cx))
             {
-                log::warn!(
-                    "[cli_install] window closed before the report dialog: {error}"
-                );
+                log::warn!("[cli_install] window closed before the report dialog: {error}");
             }
         })
         .detach();
@@ -48,27 +46,20 @@ impl Workspace {
         let locale = self.locale;
         log::info!("[cli_install] removal requested from the File menu");
         cx.spawn_in(window, async move |_, cx| {
-            let report =
-                cx.background_spawn(async { shell_install::uninstall() })
-                    .await;
+            let report = cx
+                .background_spawn(async { shell_install::uninstall() })
+                .await;
             if let Err(error) =
                 cx.update(|window, cx| open_report_dialog(locale, report, window, cx))
             {
-                log::warn!(
-                    "[cli_install] window closed before the report dialog: {error}"
-                );
+                log::warn!("[cli_install] window closed before the report dialog: {error}");
             }
         })
         .detach();
     }
 }
 
-fn open_report_dialog(
-    locale: Locale,
-    report: ChangeReport,
-    window: &mut Window,
-    cx: &mut App,
-) {
+fn open_report_dialog(locale: Locale, report: ChangeReport, window: &mut Window, cx: &mut App) {
     window.open_dialog(cx, move |dialog, _, _| {
         dialog
             .title(i18n::text(locale, "cli-dialog-title"))
@@ -92,9 +83,7 @@ fn report_element(locale: Locale, report: ChangeReport) -> AnyElement {
 
     let (applied_key, skipped_key) = match report.operation {
         Operation::Install => ("cli-install-updated", "cli-install-unchanged"),
-        Operation::Uninstall => {
-            ("cli-remove-updated", "cli-remove-notinstalled")
-        }
+        Operation::Uninstall => ("cli-remove-updated", "cli-remove-notinstalled"),
     };
     let applied = collect_entries(
         &report,
@@ -114,23 +103,22 @@ fn report_element(locale: Locale, report: ChangeReport) -> AnyElement {
         .results
         .iter()
         .filter_map(|result| match &result.outcome {
-            Outcome::Failed(error) => {
-                Some(format!("• {}: {error}", display_path(&result.path)))
-            }
+            Outcome::Failed(error) => Some(format!("• {}: {error}", display_path(&result.path))),
             _ => None,
         })
         .collect();
 
     column = with_group(column, i18n::text(locale, applied_key), applied);
     column = with_group(column, i18n::text(locale, skipped_key), skipped);
-    column =
-        with_group(column, i18n::text(locale, "cli-install-failed"), failed);
+    column = with_group(column, i18n::text(locale, "cli-install-failed"), failed);
     if report.fallback_binary {
         column = column.child(i18n::text(locale, "cli-binary-fallback"));
     }
-    if report.results.iter().any(|result| {
-        matches!(result.outcome, Outcome::Updated | Outcome::Unchanged)
-    }) {
+    if report
+        .results
+        .iter()
+        .any(|result| matches!(result.outcome, Outcome::Updated | Outcome::Unchanged))
+    {
         column = column.child(i18n::text(locale, "cli-install-hint"));
     }
     column.into_any_element()

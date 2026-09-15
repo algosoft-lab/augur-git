@@ -10,11 +10,7 @@ pub enum CommitSearchField {
 }
 
 /// Filter commits while preserving their existing Git order.
-pub fn search_log_rows(
-    commits: &[LogRow],
-    query: &str,
-    field: CommitSearchField,
-) -> Vec<LogRow> {
+pub fn search_log_rows(commits: &[LogRow], query: &str, field: CommitSearchField) -> Vec<LogRow> {
     if query.is_empty() {
         return commits.to_vec();
     }
@@ -27,11 +23,7 @@ pub fn search_log_rows(
 }
 
 /// Return whether a commit matches the requested field.
-pub fn commit_matches(
-    commit: &LogRow,
-    query: &str,
-    field: CommitSearchField,
-) -> bool {
+pub fn commit_matches(commit: &LogRow, query: &str, field: CommitSearchField) -> bool {
     let haystack = match field {
         CommitSearchField::Subject => &commit.subject,
         CommitSearchField::FullMessage => &commit.message,
@@ -47,9 +39,7 @@ pub fn commit_matches(
 fn normalize_loose(value: &str) -> String {
     value
         .chars()
-        .filter(|character| {
-            !character.is_whitespace() && *character != '_' && *character != '-'
-        })
+        .filter(|character| !character.is_whitespace() && *character != '_' && *character != '-')
         .flat_map(char::to_lowercase)
         .collect()
 }

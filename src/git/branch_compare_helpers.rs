@@ -11,11 +11,7 @@ use crate::core::i18n::{self, Locale};
 
 use super::{lucide, shared};
 
-pub(super) fn compare_field<T>(
-    label: &str,
-    control: T,
-    label_color: Hsla,
-) -> AnyElement
+pub(super) fn compare_field<T>(label: &str, control: T, label_color: Hsla) -> AnyElement
 where
     T: IntoElement,
 {
@@ -54,16 +50,10 @@ pub(super) fn format_revision_label(
     subject: Option<&str>,
 ) -> String {
     let prefix = match reference.kind {
-        CompareRevisionKind::Local => {
-            i18n::text(locale, "branch-compare-local")
-        }
-        CompareRevisionKind::Remote => {
-            i18n::text(locale, "branch-compare-remote")
-        }
+        CompareRevisionKind::Local => i18n::text(locale, "branch-compare-local"),
+        CompareRevisionKind::Remote => i18n::text(locale, "branch-compare-remote"),
         CompareRevisionKind::Tag => i18n::text(locale, "branch-compare-tag"),
-        CompareRevisionKind::Commit => {
-            i18n::text(locale, "branch-compare-commit")
-        }
+        CompareRevisionKind::Commit => i18n::text(locale, "branch-compare-commit"),
     };
     match subject.filter(|subject| !subject.is_empty()) {
         Some(subject) => format!("{prefix} · {} · {subject}", reference.name),
@@ -97,15 +87,12 @@ pub(super) fn choose_selection(
 ) -> Option<CompareRevision> {
     current
         .as_ref()
-        .and_then(|value| {
-            values.iter().find(|candidate| *candidate == value).cloned()
-        })
+        .and_then(|value| values.iter().find(|candidate| *candidate == value).cloned())
         .or_else(|| {
             values
                 .iter()
                 .find(|value| {
-                    value.kind == CompareRevisionKind::Local
-                        && value.name == current_branch
+                    value.kind == CompareRevisionKind::Local && value.name == current_branch
                 })
                 .cloned()
         })
@@ -119,18 +106,12 @@ pub(super) fn choose_target(
 ) -> Option<CompareRevision> {
     current
         .as_ref()
-        .and_then(|value| {
-            values.iter().find(|candidate| *candidate == value).cloned()
-        })
-        .filter(|value| {
-            base.is_none_or(|base| value.full_name != base.full_name)
-        })
+        .and_then(|value| values.iter().find(|candidate| *candidate == value).cloned())
+        .filter(|value| base.is_none_or(|base| value.full_name != base.full_name))
         .or_else(|| {
             values
                 .iter()
-                .find(|value| {
-                    base.is_none_or(|base| value.full_name != base.full_name)
-                })
+                .find(|value| base.is_none_or(|base| value.full_name != base.full_name))
                 .cloned()
         })
 }

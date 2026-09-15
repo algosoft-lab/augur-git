@@ -61,9 +61,7 @@ fn parse(program: Option<&OsStr>, args: &[OsString]) -> Parsed {
                 "-h" | "--help" => return Parsed::Help,
                 "-V" | "--version" => return Parsed::Version,
                 _ => {
-                    return Parsed::UsageError(format!(
-                        "unrecognized option '{lossy}'"
-                    ));
+                    return Parsed::UsageError(format!("unrecognized option '{lossy}'"));
                 }
             }
         }
@@ -100,13 +98,9 @@ fn current_directory_invocation() -> Parsed {
                         .into_owned(),
                 ],
             }),
-            _ => Parsed::UsageError(
-                "current directory is not accessible".to_string(),
-            ),
+            _ => Parsed::UsageError("current directory is not accessible".to_string()),
         },
-        Err(_) => Parsed::UsageError(
-            "current directory is not accessible".to_string(),
-        ),
+        Err(_) => Parsed::UsageError("current directory is not accessible".to_string()),
     }
 }
 
@@ -135,9 +129,8 @@ fn resolve_path(request: &OsString, cwd: &Path) -> Result<String, String> {
     } else {
         cwd.join(candidate)
     };
-    let canonical = std::fs::canonicalize(&absolute).map_err(|_| {
-        format!("path '{}' does not exist", candidate.to_string_lossy())
-    })?;
+    let canonical = std::fs::canonicalize(&absolute)
+        .map_err(|_| format!("path '{}' does not exist", candidate.to_string_lossy()))?;
     if !canonical.is_dir() {
         return Err(format!(
             "path '{}' is not a directory",
@@ -251,9 +244,7 @@ mod tests {
     #[test]
     fn unknown_option_is_a_usage_error() {
         let parsed = parse(Some(&os("augurgit")), &[os("--bogus")]);
-        assert!(
-            matches!(parsed, Parsed::UsageError(message) if message.contains("--bogus"))
-        );
+        assert!(matches!(parsed, Parsed::UsageError(message) if message.contains("--bogus")));
     }
 
     #[test]

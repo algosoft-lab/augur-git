@@ -1,20 +1,15 @@
 //! First-party extension packages compiled into the application.
 
-use crate::core::extension::{
-    ExtensionManifest, ExtensionPackage, ExtensionSource,
-};
+use crate::core::extension::{ExtensionManifest, ExtensionPackage, ExtensionSource};
 
 use super::manager::ExtensionDefinition;
 
-const SYNC_MANIFEST: &str =
-    include_str!("../../extensions/sync-open-tabs/manifest.toml");
-const SYNC_SOURCE: &str =
-    include_str!("../../extensions/sync-open-tabs/main.lua");
+const SYNC_MANIFEST: &str = include_str!("../../extensions/sync-open-tabs/manifest.toml");
+const SYNC_SOURCE: &str = include_str!("../../extensions/sync-open-tabs/main.lua");
 
 /// Return the read-only, pre-trusted first-party extension definitions.
 pub fn bundled_definitions() -> Result<Vec<ExtensionDefinition>, String> {
-    let manifest = ExtensionManifest::parse(SYNC_MANIFEST)
-        .map_err(|error| error.to_string())?;
+    let manifest = ExtensionManifest::parse(SYNC_MANIFEST).map_err(|error| error.to_string())?;
     Ok(vec![ExtensionDefinition {
         package: ExtensionPackage {
             manifest,

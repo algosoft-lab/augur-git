@@ -2,9 +2,7 @@
 
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::{
-    ActiveTheme, Icon, IconName, h_flex, theme::ThemeColor, v_flex,
-};
+use gpui_component::{ActiveTheme, Icon, IconName, h_flex, theme::ThemeColor, v_flex};
 use std::sync::Arc;
 
 use crate::core::config::{MAX_FILE_LIST_RATIO, MIN_FILE_LIST_RATIO};
@@ -22,13 +20,7 @@ fn bottom_empty_state(
     icon: AnyElement,
     hint: String,
 ) -> Stateful<Div> {
-    bottom_empty_state_with_size(
-        id,
-        colors,
-        icon,
-        hint,
-        crate::theme::scaled_text_size(11.),
-    )
+    bottom_empty_state_with_size(id, colors, icon, hint, crate::theme::scaled_text_size(11.))
 }
 
 pub(super) fn diff_empty_state(
@@ -97,11 +89,7 @@ pub enum BottomPanelEvent {
 pub struct DiffFileListResize;
 
 impl Render for DiffFileListResize {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
     }
 }
@@ -134,11 +122,7 @@ struct AllDiffDocument {
 impl EventEmitter<BottomPanelEvent> for BottomPanel {}
 
 impl BottomPanel {
-    pub fn new(
-        locale: Locale,
-        diff_layout: DiffLayoutMode,
-        file_list_ratio: f32,
-    ) -> Self {
+    pub fn new(locale: Locale, diff_layout: DiffLayoutMode, file_list_ratio: f32) -> Self {
         Self {
             locale,
             commit: None,
@@ -154,30 +138,20 @@ impl BottomPanel {
             diff_loading: false,
             working_tree: None,
             content_width: f32::INFINITY,
-            file_list_ratio: file_list_ratio
-                .clamp(MIN_FILE_LIST_RATIO, MAX_FILE_LIST_RATIO),
+            file_list_ratio: file_list_ratio.clamp(MIN_FILE_LIST_RATIO, MAX_FILE_LIST_RATIO),
         }
     }
 
     /// Apply the persisted diff layout chosen in the settings overlay.
-    pub fn set_diff_layout(
-        &mut self,
-        diff_layout: DiffLayoutMode,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_diff_layout(&mut self, diff_layout: DiffLayoutMode, cx: &mut Context<Self>) {
         if self.diff_layout != diff_layout {
             self.diff_layout = diff_layout;
             cx.notify();
         }
     }
 
-    pub fn set_file_list_ratio(
-        &mut self,
-        file_list_ratio: f32,
-        cx: &mut Context<Self>,
-    ) {
-        let file_list_ratio =
-            file_list_ratio.clamp(MIN_FILE_LIST_RATIO, MAX_FILE_LIST_RATIO);
+    pub fn set_file_list_ratio(&mut self, file_list_ratio: f32, cx: &mut Context<Self>) {
+        let file_list_ratio = file_list_ratio.clamp(MIN_FILE_LIST_RATIO, MAX_FILE_LIST_RATIO);
         if (self.file_list_ratio - file_list_ratio).abs() > f32::EPSILON {
             self.file_list_ratio = file_list_ratio;
             cx.notify();
@@ -194,15 +168,8 @@ impl BottomPanel {
         self.working_tree.is_some()
     }
 
-    pub fn set_commit(
-        &mut self,
-        oid: &str,
-        short: &str,
-        subject: &str,
-        cx: &mut Context<Self>,
-    ) {
-        self.commit =
-            Some((oid.to_string(), short.to_string(), subject.to_string()));
+    pub fn set_commit(&mut self, oid: &str, short: &str, subject: &str, cx: &mut Context<Self>) {
+        self.commit = Some((oid.to_string(), short.to_string(), subject.to_string()));
         self.merge_parent = None;
         self.files.clear();
         self.selected = None;
@@ -295,12 +262,8 @@ impl BottomPanel {
             {
                 return;
             }
-            let mut document = DiffDocument::from_patch(
-                file.path.clone(),
-                &patch,
-                old_source,
-                new_source,
-            );
+            let mut document =
+                DiffDocument::from_patch(file.path.clone(), &patch, old_source, new_source);
             document.binary |= file.is_binary();
             let source_key = format!(
                 "{oid}:{}:{}",
@@ -334,12 +297,8 @@ impl BottomPanel {
         if stale {
             return;
         }
-        let mut document = DiffDocument::from_patch(
-            file.path.clone(),
-            &patch,
-            old_source,
-            new_source,
-        );
+        let mut document =
+            DiffDocument::from_patch(file.path.clone(), &patch, old_source, new_source);
         document.binary |= file.is_binary();
         let source_key = format!(
             "{oid}:{}:{}",
@@ -426,12 +385,7 @@ impl BottomPanel {
         );
     }
 
-    fn all_diff_view(
-        &mut self,
-        colors: &ThemeColor,
-        cx: &Context<Self>,
-        width: f32,
-    ) -> AnyElement {
+    fn all_diff_view(&mut self, colors: &ThemeColor, cx: &Context<Self>, width: f32) -> AnyElement {
         if self.all_diffs.is_empty() {
             let body = if self.all_diff_loading {
                 div()
@@ -517,15 +471,9 @@ impl BottomPanel {
                 header.child(
                     div()
                         .mr_1()
-                        .text_size(crate::theme::scaled_diff_text_size(
-                            10.,
-                            diff_font_size,
-                        ))
+                        .text_size(crate::theme::scaled_diff_text_size(10., diff_font_size))
                         .text_color(colors.muted_foreground)
-                        .child(shared(i18n::text(
-                            self.locale,
-                            "diff-merge-first-parent",
-                        ))),
+                        .child(shared(i18n::text(self.locale, "diff-merge-first-parent"))),
                 )
             })
             .child(
@@ -573,12 +521,7 @@ impl BottomPanel {
         i18n::text(self.locale, key)
     }
 
-    fn file_list(
-        &self,
-        colors: &ThemeColor,
-        cx: &Context<Self>,
-        width_ratio: f32,
-    ) -> AnyElement {
+    fn file_list(&self, colors: &ThemeColor, cx: &Context<Self>, width_ratio: f32) -> AnyElement {
         let mono = cx.theme().mono_font_family.clone();
         if self.files.is_empty() {
             return bottom_empty_state(
@@ -606,12 +549,8 @@ impl BottomPanel {
                         .child(shared(i18n::text(self.locale, "bottom-bin")))
                         .into_any_element()
                 } else {
-                    stat_bar(
-                        colors,
-                        file.added.unwrap_or(0),
-                        file.deleted.unwrap_or(0),
-                    )
-                    .into_any_element()
+                    stat_bar(colors, file.added.unwrap_or(0), file.deleted.unwrap_or(0))
+                        .into_any_element()
                 };
                 h_flex()
                     .id(SharedString::from(format!("bottom-file-{index}")))
@@ -635,9 +574,7 @@ impl BottomPanel {
                         }
                     })
                     .on_click(move |_event, _window, cx| {
-                        this.update(cx, |panel, cx| {
-                            panel.select_file(index, cx)
-                        });
+                        this.update(cx, |panel, cx| panel.select_file(index, cx));
                     })
                     .child(
                         div()
@@ -664,12 +601,7 @@ impl BottomPanel {
             .into_any_element()
     }
 
-    fn diff_view(
-        &mut self,
-        colors: &ThemeColor,
-        cx: &Context<Self>,
-        width: f32,
-    ) -> AnyElement {
+    fn diff_view(&mut self, colors: &ThemeColor, cx: &Context<Self>, width: f32) -> AnyElement {
         let diff_font_size = cx.theme().mono_font_size;
         if self.show_all_files {
             return self.all_diff_view(colors, cx, width);
@@ -687,10 +619,7 @@ impl BottomPanel {
         let Some(document) = self.diff.as_ref() else {
             let body = if self.selected.is_some() && self.diff_loading {
                 div()
-                    .text_size(crate::theme::scaled_diff_text_size(
-                        11.,
-                        diff_font_size,
-                    ))
+                    .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
                     .text_color(colors.muted_foreground)
                     .child(shared("…"))
                     .into_any_element()
@@ -745,10 +674,7 @@ impl BottomPanel {
                 .h_full()
                 .items_center()
                 .justify_center()
-                .text_size(crate::theme::scaled_diff_text_size(
-                    11.,
-                    diff_font_size,
-                ))
+                .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
                 .text_color(colors.muted_foreground)
                 .child(shared(i18n::text(self.locale, "bottom-bin")))
                 .into_any_element();
@@ -836,11 +762,7 @@ impl BottomPanel {
 }
 
 impl Render for BottomPanel {
-    fn render(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         if self.working_tree.is_some() {
             return self.working_tree_view(&colors, window, cx);
@@ -855,13 +777,12 @@ impl Render for BottomPanel {
             .into_any_element();
         };
 
-        let (total_add, total_del) =
-            self.files.iter().fold((0, 0), |(added, deleted), file| {
-                (
-                    added + file.added.unwrap_or(0),
-                    deleted + file.deleted.unwrap_or(0),
-                )
-            });
+        let (total_add, total_del) = self.files.iter().fold((0, 0), |(added, deleted), file| {
+            (
+                added + file.added.unwrap_or(0),
+                deleted + file.deleted.unwrap_or(0),
+            )
+        });
         let window_width = f32::from(window.bounds().size.width);
         let panel_width = if self.content_width.is_finite() {
             self.content_width
@@ -911,11 +832,9 @@ impl Render for BottomPanel {
                 if width <= 0.0 {
                     return;
                 }
-                let x = f32::from(event.event.position.x)
-                    - f32::from(event.bounds.origin.x);
+                let x = f32::from(event.event.position.x) - f32::from(event.bounds.origin.x);
                 resize_entity.update(cx, |panel, cx| {
-                    let ratio = (x / width)
-                        .clamp(MIN_FILE_LIST_RATIO, MAX_FILE_LIST_RATIO);
+                    let ratio = (x / width).clamp(MIN_FILE_LIST_RATIO, MAX_FILE_LIST_RATIO);
                     if (panel.file_list_ratio - ratio).abs() > f32::EPSILON {
                         panel.file_list_ratio = ratio;
                         cx.emit(BottomPanelEvent::LayoutChanged {
@@ -970,10 +889,7 @@ fn measure_width_canvas(entity: Entity<BottomPanel>) -> impl IntoElement {
                 });
             }
         },
-        |_bounds: Bounds<Pixels>,
-         _state: (),
-         _window: &mut Window,
-         _cx: &mut App| {},
+        |_bounds: Bounds<Pixels>, _state: (), _window: &mut Window, _cx: &mut App| {},
     )
     .w_full()
     .h(px(0.))

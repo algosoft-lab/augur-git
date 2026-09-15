@@ -116,10 +116,7 @@ pub(crate) fn parse_numstat(text: &str) -> Vec<FileChange> {
 
 fn decode_git_path(path: &str) -> String {
     let bytes = path.as_bytes();
-    if bytes.len() < 2
-        || bytes.first() != Some(&b'"')
-        || bytes.last() != Some(&b'"')
-    {
+    if bytes.len() < 2 || bytes.first() != Some(&b'"') || bytes.last() != Some(&b'"') {
         return path.to_string();
     }
 
@@ -149,8 +146,7 @@ fn decode_git_path(path: &str) -> String {
             b'0'..=b'7' => {
                 let mut value = u16::from(escaped - b'0');
                 for _ in 0..2 {
-                    let Some(next @ b'0'..=b'7') = bytes.get(index).copied()
-                    else {
+                    let Some(next @ b'0'..=b'7') = bytes.get(index).copied() else {
                         break;
                     };
                     value = value * 8 + u16::from(next - b'0');
@@ -167,9 +163,7 @@ fn decode_git_path(path: &str) -> String {
     String::from_utf8_lossy(&decoded).into_owned()
 }
 
-fn split_rename_label(
-    path: &str,
-) -> (Option<String>, String, FileChangeStatus) {
+fn split_rename_label(path: &str) -> (Option<String>, String, FileChangeStatus) {
     let Some(arrow) = path.find(" => ") else {
         return (None, path.to_string(), FileChangeStatus::Modified);
     };
@@ -179,8 +173,7 @@ fn split_rename_label(
     // e.g. src/{old => new}.rs. Expand it so raw records and numstat rows
     // use the same canonical old/new paths for matching.
     let brace_open = path[..arrow].rfind('{');
-    let brace_close =
-        path[arrow_end..].find('}').map(|offset| arrow_end + offset);
+    let brace_close = path[arrow_end..].find('}').map(|offset| arrow_end + offset);
     if let (Some(open), Some(close)) = (brace_open, brace_close) {
         let prefix = &path[..open];
         let old_name = &path[open + 1..arrow];
@@ -280,10 +273,7 @@ fn valid_blob(value: &str) -> Option<String> {
 }
 
 /// Merge numstat counts into raw file metadata, matching by new and old path.
-pub(crate) fn merge_numstat(
-    mut raw: Vec<FileChange>,
-    stats: Vec<FileChange>,
-) -> Vec<FileChange> {
+pub(crate) fn merge_numstat(mut raw: Vec<FileChange>, stats: Vec<FileChange>) -> Vec<FileChange> {
     let mut by_path = HashMap::new();
     for stat in stats {
         by_path.insert(stat.path.clone(), stat);
@@ -294,9 +284,7 @@ pub(crate) fn merge_numstat(
             change.new_path.as_str(),
             change.old_path.as_deref().unwrap_or(""),
         ];
-        if let Some(stat) =
-            candidates.iter().find_map(|path| by_path.remove(*path))
-        {
+        if let Some(stat) = candidates.iter().find_map(|path| by_path.remove(*path)) {
             change.added = stat.added;
             change.deleted = stat.deleted;
         }
@@ -351,8 +339,7 @@ impl SourceText {
     }
 
     pub fn line_range(&self, line_number: Option<u32>) -> Option<Range<usize>> {
-        let line_index =
-            line_number.and_then(|number| number.checked_sub(1))? as usize;
+        let line_index = line_number.and_then(|number| number.checked_sub(1))? as usize;
         let start = self.line_start(line_number)?;
         let line = self.lines.get(line_index)?;
         Some(start..start.saturating_add(line.len()))
@@ -413,13 +400,11 @@ impl DiffDocument {
                     old_source.as_ref(),
                     new_source.as_ref(),
                 )),
-                DiffLineKind::Del | DiffLineKind::Context => {
-                    Some(row_from_line(
-                        line,
-                        old_source.as_ref(),
-                        new_source.as_ref(),
-                    ))
-                }
+                DiffLineKind::Del | DiffLineKind::Context => Some(row_from_line(
+                    line,
+                    old_source.as_ref(),
+                    new_source.as_ref(),
+                )),
                 DiffLineKind::Meta => None,
             })
             .collect();
@@ -450,16 +435,12 @@ impl DiffDocument {
             }
 
             let delete_start = index;
-            while index < self.rows.len()
-                && self.rows[index].kind == DiffLineKind::Del
-            {
+            while index < self.rows.len() && self.rows[index].kind == DiffLineKind::Del {
                 index += 1;
             }
             let delete_end = index;
             let add_start = index;
-            while index < self.rows.len()
-                && self.rows[index].kind == DiffLineKind::Add
-            {
+            while index < self.rows.len() && self.rows[index].kind == DiffLineKind::Add {
                 index += 1;
             }
             let add_end = index;
@@ -535,9 +516,9 @@ impl DiffDocument {
 /// Searching the whole patch is incorrect because a text file can contain
 /// strings such as `Binary files ` or `GIT binary patch` in its own source.
 pub fn is_binary_patch(patch: &str) -> bool {
-    patch.lines().any(|line| {
-        line.starts_with("Binary files ") || line == "GIT binary patch"
-    })
+    patch
+        .lines()
+        .any(|line| line.starts_with("Binary files ") || line == "GIT binary patch")
 }
 
 fn row_from_line(
@@ -571,12 +552,12 @@ fn row_from_line(
         new_no: line.new_no,
         old_text,
         new_text,
-        old_line_index: line.old_no.and_then(|number| {
-            number.checked_sub(1).map(|number| number as usize)
-        }),
-        new_line_index: line.new_no.and_then(|number| {
-            number.checked_sub(1).map(|number| number as usize)
-        }),
+        old_line_index: line
+            .old_no
+            .and_then(|number| number.checked_sub(1).map(|number| number as usize)),
+        new_line_index: line
+            .new_no
+            .and_then(|number| number.checked_sub(1).map(|number| number as usize)),
         hunk_header: None,
     }
 }
@@ -805,10 +786,7 @@ mod tests {
     fn language_mapping_has_plain_fallback() {
         assert_eq!(language_for_path("src/main.tsx").as_deref(), Some("tsx"));
         assert_eq!(language_for_path("Cargo.toml").as_deref(), Some("toml"));
-        assert_eq!(
-            language_for_path("src/App.astro").as_deref(),
-            Some("astro")
-        );
+        assert_eq!(language_for_path("src/App.astro").as_deref(), Some("astro"));
         assert_eq!(
             language_for_path("CMakeLists.txt").as_deref(),
             Some("cmake")
@@ -818,7 +796,8 @@ mod tests {
 
     #[test]
     fn aligned_rows_pair_replacements_and_preserve_unmatched_lines() {
-        let patch = "@@ -1,3 +1,4 @@\n-old one\n-old two\n+new one\n+new two\n+new three\n context\n";
+        let patch =
+            "@@ -1,3 +1,4 @@\n-old one\n-old two\n+new one\n+new two\n+new three\n context\n";
         let document = DiffDocument::from_patch(
             "src/example.rs",
             patch,
@@ -865,8 +844,7 @@ mod tests {
             patch,
             Some("old\n".to_string()),
             Some(
-                "let marker = \"Binary files \";\nlet other = \"GIT binary patch\";\n"
-                    .to_string(),
+                "let marker = \"Binary files \";\nlet other = \"GIT binary patch\";\n".to_string(),
             ),
         );
         assert!(!document.binary);
@@ -875,9 +853,9 @@ mod tests {
 
     #[test]
     fn document_keeps_multiple_hunks_but_hides_no_newline_metadata() {
-        let patch = "@@ -1 +1 @@\n-old\n+new\n\\ No newline at end of file\n@@ -4 +4 @@\n-before\n+after\n";
-        let document =
-            DiffDocument::from_patch("src/example.rs", patch, None, None);
+        let patch =
+            "@@ -1 +1 @@\n-old\n+new\n\\ No newline at end of file\n@@ -4 +4 @@\n-before\n+after\n";
+        let document = DiffDocument::from_patch("src/example.rs", patch, None, None);
         assert_eq!(
             document
                 .rows
@@ -916,8 +894,7 @@ mod tests {
     fn raw_records_accept_sha256_blob_ids() {
         let old_blob = "a".repeat(64);
         let new_blob = "b".repeat(64);
-        let data =
-            format!(":100644 100644 {old_blob} {new_blob} M\0src/main.rs\0");
+        let data = format!(":100644 100644 {old_blob} {new_blob} M\0src/main.rs\0");
         let records = parse_raw_records(data.as_bytes());
         assert_eq!(records[0].old_blob.as_deref(), Some(old_blob.as_str()));
         assert_eq!(records[0].new_blob.as_deref(), Some(new_blob.as_str()));
@@ -971,8 +948,7 @@ mod tests {
         let raw = parse_raw_records(
             b":100644 100644 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb M\0src/merge.rs\0:000000 100644 0000000000000000000000000000000000000000 cccccccccccccccccccccccccccccccccccccccc A\0src/incoming.rs\0",
         );
-        let stats =
-            parse_numstat("2\t1\tsrc/merge.rs\n4\t0\tsrc/incoming.rs\n");
+        let stats = parse_numstat("2\t1\tsrc/merge.rs\n4\t0\tsrc/incoming.rs\n");
         let merged = merge_numstat(raw, stats);
         assert_eq!(merged.len(), 2);
         assert_eq!(merged[0].path, "src/merge.rs");

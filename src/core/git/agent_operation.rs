@@ -69,9 +69,7 @@ pub fn probe_agent_commit(repo: &GitRepo) -> Result<AgentCommitProbe, String> {
             "--untracked-files=all",
         ])
         .output()
-        .map_err(|error| {
-            format!("failed to inspect repository status: {error}")
-        })?;
+        .map_err(|error| format!("failed to inspect repository status: {error}"))?;
     if !output.status.success() {
         return Err(status_error(&output));
     }
@@ -79,17 +77,13 @@ pub fn probe_agent_commit(repo: &GitRepo) -> Result<AgentCommitProbe, String> {
 }
 
 /// Read the repository state required before or after an Agent merge.
-pub fn probe_agent_merge(
-    repo: &GitRepo,
-    target_oid: &str,
-) -> Result<AgentMergeProbe, String> {
+pub fn probe_agent_merge(repo: &GitRepo, target_oid: &str) -> Result<AgentMergeProbe, String> {
     let commit = probe_agent_commit(repo)?;
     let merge_head = read_merge_head(repo)?;
-    let target_is_ancestor_of_head =
-        match (target_oid.is_empty(), commit.head.as_deref()) {
-            (true, _) | (false, None) => false,
-            (false, Some(_)) => is_ancestor(repo, target_oid)?,
-        };
+    let target_is_ancestor_of_head = match (target_oid.is_empty(), commit.head.as_deref()) {
+        (true, _) | (false, None) => false,
+        (false, Some(_)) => is_ancestor(repo, target_oid)?,
+    };
     Ok(AgentMergeProbe {
         head: commit.head,
         merge_head,
@@ -110,11 +104,8 @@ pub fn probe_agent_rebase(
     let commit = probe_agent_commit(repo)?;
     let rebase_head = read_rebase_head(repo)?;
     let rebase_in_progress = rebase_state_exists(repo)?;
-    let target_is_ancestor_of_head = match (target_oid, commit.head.as_deref())
-    {
-        (Some(target), Some(_)) if !target.is_empty() => {
-            is_ancestor(repo, target)?
-        }
+    let target_is_ancestor_of_head = match (target_oid, commit.head.as_deref()) {
+        (Some(target), Some(_)) if !target.is_empty() => is_ancestor(repo, target)?,
         _ => false,
     };
     Ok(AgentRebaseProbe {
@@ -137,9 +128,7 @@ pub fn probe_rebase_state(repo: &GitRepo) -> Result<AgentRebaseProbe, String> {
 /// This lets the rebase resolver attach to an existing rebase while still
 /// refusing to operate when merge, cherry-pick, revert, bisect, or sequencer
 /// state is present.
-pub fn has_other_git_operation_except_rebase(
-    repo: &GitRepo,
-) -> Result<bool, String> {
+pub fn has_other_git_operation_except_rebase(repo: &GitRepo) -> Result<bool, String> {
     for marker in [
         "MERGE_HEAD",
         "CHERRY_PICK_HEAD",
@@ -190,10 +179,7 @@ pub fn probe_merge_state(repo: &GitRepo) -> Result<AgentMergeProbe, String> {
 
 /// Resolve a local branch to an immutable commit object id before putting it
 /// in an Agent prompt. The branch name is passed as one structured argument.
-pub fn resolve_agent_merge_target(
-    repo: &GitRepo,
-    branch: &str,
-) -> Result<String, String> {
+pub fn resolve_agent_merge_target(repo: &GitRepo, branch: &str) -> Result<String, String> {
     let reference = format!("refs/heads/{branch}^{{commit}}");
     let output = git_command_in_repo(repo)
         .args(["rev-parse", "--verify"])
@@ -249,9 +235,7 @@ fn git_path(repo: &GitRepo, marker: &str) -> Result<String, String> {
         .args(["rev-parse", "--git-path"])
         .arg(marker)
         .output()
-        .map_err(|error| {
-            format!("failed to inspect Git operation state: {error}")
-        })?;
+        .map_err(|error| format!("failed to inspect Git operation state: {error}"))?;
     if !output.status.success() {
         return Err(command_error(&output, "git rev-parse --git-path"));
     }
@@ -281,9 +265,7 @@ fn git_path_exists(repo: &GitRepo, marker: &str) -> Result<bool, String> {
                 .arg("-e")
                 .arg(path)
                 .output()
-                .map_err(|error| {
-                    format!("failed to inspect Git operation state: {error}")
-                })?;
+                .map_err(|error| format!("failed to inspect Git operation state: {error}"))?;
             match output.status.code() {
                 Some(0) => Ok(true),
                 Some(1) => Ok(false),
@@ -315,9 +297,7 @@ fn is_ancestor(repo: &GitRepo, target_oid: &str) -> Result<bool, String> {
 /// repositories while leaving WSL paths in their Linux form.
 fn git_command_in_repo(repo: &GitRepo) -> Command {
     let path = match repo.location() {
-        RepoLocation::Local => {
-            normalize_repository_path(Path::new(repo.path()))
-        }
+        RepoLocation::Local => normalize_repository_path(Path::new(repo.path())),
         RepoLocation::Wsl { .. } => PathBuf::from(repo.path()),
     };
     let mut command = repo.command();
@@ -391,8 +371,8 @@ mod tests {
 
     use super::{
         AgentCommitProbe, GitRepo, NON_MERGE_OPERATION_MARKERS, RepoLocation,
-        has_other_git_operation_except_rebase, parse_agent_commit_status,
-        probe_agent_rebase, resolve_agent_merge_target,
+        has_other_git_operation_except_rebase, parse_agent_commit_status, probe_agent_rebase,
+        resolve_agent_merge_target,
     };
 
     #[test]
@@ -437,9 +417,7 @@ mod tests {
     #[test]
     fn clean_status_has_no_change_records() {
         assert_eq!(
-            parse_agent_commit_status(
-                b"# branch.oid abc123\0# branch.head main\0"
-            ),
+            parse_agent_commit_status(b"# branch.oid abc123\0# branch.head main\0"),
             AgentCommitProbe {
                 head: Some("abc123".to_string()),
                 has_changes: false,
@@ -459,8 +437,7 @@ mod tests {
 
     #[test]
     fn preserves_sha256_object_ids_without_abbreviation() {
-        let oid =
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let oid = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         let output = format!("# branch.oid {oid}\0# branch.head main\0");
         let probe = parse_agent_commit_status(output.as_bytes());
         assert_eq!(probe.head.as_deref(), Some(oid));
@@ -473,18 +450,16 @@ mod tests {
         repository.git(["commit", "--allow-empty", "-m", "initial"]);
         repository.git(["branch", "topic"]);
 
-        let target = resolve_agent_merge_target(&repo, "topic")
-            .expect("resolve local branch target");
-        let probe = probe_agent_rebase(&repo, Some(&target))
-            .expect("probe local rebase state");
+        let target =
+            resolve_agent_merge_target(&repo, "topic").expect("resolve local branch target");
+        let probe = probe_agent_rebase(&repo, Some(&target)).expect("probe local rebase state");
 
         assert!(probe.head.is_some());
         assert!(!probe.has_changes);
         assert!(!probe.rebase_in_progress);
         assert!(probe.target_is_ancestor_of_head);
         assert!(
-            !has_other_git_operation_except_rebase(&repo)
-                .expect("probe local operation markers")
+            !has_other_git_operation_except_rebase(&repo).expect("probe local operation markers")
         );
     }
 
@@ -497,8 +472,7 @@ mod tests {
             .expect("write operation marker");
 
         assert!(
-            has_other_git_operation_except_rebase(&repo)
-                .expect("probe local operation marker")
+            has_other_git_operation_except_rebase(&repo).expect("probe local operation marker")
         );
     }
 
@@ -560,14 +534,13 @@ mod tests {
         }
 
         fn git<const N: usize>(&self, args: [&str; N]) -> String {
-            let output =
-                GitRepo::local(self.path.to_string_lossy().into_owned())
-                    .command()
-                    .arg("-C")
-                    .arg(&self.path)
-                    .args(args)
-                    .output()
-                    .expect("run git test command");
+            let output = GitRepo::local(self.path.to_string_lossy().into_owned())
+                .command()
+                .arg("-C")
+                .arg(&self.path)
+                .args(args)
+                .output()
+                .expect("run git test command");
             assert!(
                 output.status.success(),
                 "git {args:?} failed: {}",

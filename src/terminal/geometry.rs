@@ -97,9 +97,7 @@ mod tests {
 
     #[test]
     fn computes_grid_from_the_actual_bounds() {
-        let geometry = TerminalGeometry::from_bounds(
-            37.25, 112.75, 801.2, 407.6, 8.75, 19.25, 1.5,
-        );
+        let geometry = TerminalGeometry::from_bounds(37.25, 112.75, 801.2, 407.6, 8.75, 19.25, 1.5);
         assert_eq!(geometry.origin_x, 37.333_332);
         assert_eq!(geometry.origin_y, 112.666_664);
         assert_eq!(geometry.columns, 92);
@@ -108,8 +106,7 @@ mod tests {
 
     #[test]
     fn converts_window_coordinates_to_clamped_viewport_coordinates() {
-        let geometry =
-            TerminalGeometry::from_bounds(100., 200., 80., 40., 8., 20., 1.);
+        let geometry = TerminalGeometry::from_bounds(100., 200., 80., 40., 8., 20., 1.);
         assert_eq!(geometry.local_position(107., 214.), (7., 14.));
         assert_eq!(geometry.local_position(1., 2.), (0., 0.));
         assert_eq!(geometry.local_position(999., 999.), (80., 40.));
@@ -125,22 +122,18 @@ mod tests {
 
     #[test]
     fn separates_grid_changes_from_pixel_metric_changes() {
-        let base =
-            TerminalGeometry::from_bounds(0., 0., 800., 400., 8., 20., 1.);
+        let base = TerminalGeometry::from_bounds(0., 0., 800., 400., 8., 20., 1.);
         assert!(!base.grid_size_changed(base));
         assert!(!base.pty_size_changed(base));
-        let moved =
-            TerminalGeometry::from_bounds(120., 80., 800., 400., 8., 20., 1.);
+        let moved = TerminalGeometry::from_bounds(120., 80., 800., 400., 8., 20., 1.);
         assert!(!base.grid_size_changed(moved));
         assert!(!base.pty_size_changed(moved));
 
-        let font_changed =
-            TerminalGeometry::from_bounds(0., 0., 900., 400., 9., 20., 1.);
+        let font_changed = TerminalGeometry::from_bounds(0., 0., 900., 400., 9., 20., 1.);
         assert!(!base.grid_size_changed(font_changed));
         assert!(base.pty_size_changed(font_changed));
 
-        let viewport_changed =
-            TerminalGeometry::from_bounds(0., 0., 640., 320., 8., 20., 1.);
+        let viewport_changed = TerminalGeometry::from_bounds(0., 0., 640., 320., 8., 20., 1.);
         assert!(base.grid_size_changed(viewport_changed));
         assert!(base.pty_size_changed(viewport_changed));
     }

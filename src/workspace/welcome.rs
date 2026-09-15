@@ -151,22 +151,22 @@ pub(super) fn render_welcome(
         )
         // Action row: pick a local folder, and on Windows open a WSL
         // repository through its distro.
-        .child(h_flex().items_center().gap_2().child(open_btn).when(
-            cfg!(windows),
-            |row| {
-                #[cfg(windows)]
-                let row = row.child(open_wsl_btn);
-                row
-            },
-        ))
+        .child(
+            h_flex()
+                .items_center()
+                .gap_2()
+                .child(open_btn)
+                .when(cfg!(windows), |row| {
+                    #[cfg(windows)]
+                    let row = row.child(open_wsl_btn);
+                    row
+                }),
+        )
         .child(
             div()
                 .text_size(crate::theme::scaled_text_size(11.))
                 .text_color(colors.muted_foreground)
-                .child(shared(i18n::text(
-                    workspace.locale,
-                    "welcome-drop-hint",
-                ))),
+                .child(shared(i18n::text(workspace.locale, "welcome-drop-hint"))),
         )
         .when(!recents.is_empty(), |w| {
             w.child(
@@ -179,10 +179,7 @@ pub(super) fn render_welcome(
                             .px_2()
                             .text_size(crate::theme::scaled_text_size(11.))
                             .text_color(colors.muted_foreground)
-                            .child(shared(i18n::text(
-                                workspace.locale,
-                                "recent-repos",
-                            ))),
+                            .child(shared(i18n::text(workspace.locale, "recent-repos"))),
                     )
                     .children(recents),
             )

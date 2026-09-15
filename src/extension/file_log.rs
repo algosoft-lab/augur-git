@@ -46,14 +46,9 @@ impl fmt::Display for ExtensionFileLogError {
                 formatter,
                 "extension log entry is {bytes} bytes; the maximum is {max} bytes"
             ),
-            Self::LockPoisoned => {
-                formatter.write_str("extension log service is unavailable")
-            }
+            Self::LockPoisoned => formatter.write_str("extension log service is unavailable"),
             Self::Io { operation, source } => {
-                write!(
-                    formatter,
-                    "could not {operation} extension log: {source}"
-                )
+                write!(formatter, "could not {operation} extension log: {source}")
             }
         }
     }
@@ -67,11 +62,7 @@ pub(super) struct ExtensionFileLogger {
 }
 
 impl ExtensionFileLogger {
-    pub(super) fn append(
-        &self,
-        path: &str,
-        content: &str,
-    ) -> Result<usize, ExtensionFileLogError> {
+    pub(super) fn append(&self, path: &str, content: &str) -> Result<usize, ExtensionFileLogError> {
         let path = validate(path, content)?;
         let _guard = self
             .lock
@@ -79,11 +70,9 @@ impl ExtensionFileLogger {
             .map_err(|_| ExtensionFileLogError::LockPoisoned)?;
 
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|source| {
-                ExtensionFileLogError::Io {
-                    operation: "create the extension log directory",
-                    source,
-                }
+            fs::create_dir_all(parent).map_err(|source| ExtensionFileLogError::Io {
+                operation: "create the extension log directory",
+                source,
             })?;
         }
 
@@ -95,12 +84,11 @@ impl ExtensionFileLogger {
                 operation: "open the extension log",
                 source,
             })?;
-        file.write_all(content.as_bytes()).map_err(|source| {
-            ExtensionFileLogError::Io {
+        file.write_all(content.as_bytes())
+            .map_err(|source| ExtensionFileLogError::Io {
                 operation: "append the extension log",
                 source,
-            }
-        })?;
+            })?;
         file.flush().map_err(|source| ExtensionFileLogError::Io {
             operation: "flush the extension log",
             source,
@@ -109,14 +97,9 @@ impl ExtensionFileLogger {
     }
 }
 
-fn validate(
-    path: &str,
-    content: &str,
-) -> Result<PathBuf, ExtensionFileLogError> {
+fn validate(path: &str, content: &str) -> Result<PathBuf, ExtensionFileLogError> {
     if path.trim().is_empty() {
-        return Err(ExtensionFileLogError::InvalidPath(
-            "path must not be empty",
-        ));
+        return Err(ExtensionFileLogError::InvalidPath("path must not be empty"));
     }
     if path.as_bytes().contains(&0) {
         return Err(ExtensionFileLogError::InvalidPath(
@@ -125,9 +108,7 @@ fn validate(
     }
     let path = Path::new(path);
     if !path.is_absolute() {
-        return Err(ExtensionFileLogError::InvalidPath(
-            "path must be absolute",
-        ));
+        return Err(ExtensionFileLogError::InvalidPath("path must be absolute"));
     }
     if content.len() > MAX_EXTENSION_LOG_ENTRY_BYTES {
         return Err(ExtensionFileLogError::EntryTooLarge {
@@ -161,10 +142,7 @@ mod tests {
         let path = root.join("nested").join("run.log");
         let logger = ExtensionFileLogger::default();
 
-        assert_eq!(
-            logger.append(path.to_str().unwrap(), "first\n").unwrap(),
-            6
-        );
+        assert_eq!(logger.append(path.to_str().unwrap(), "first\n").unwrap(), 6);
         assert_eq!(logger.append(path.to_str().unwrap(), "second").unwrap(), 6);
         assert_eq!(fs::read_to_string(&path).unwrap(), "first\nsecond");
 
@@ -213,9 +191,11 @@ mod tests {
         let contents = fs::read_to_string(&path).unwrap();
         let lines = contents.lines().collect::<Vec<_>>();
         assert_eq!(lines.len(), 8 * 16);
-        assert!(lines.iter().all(|line| {
-            (0..8).any(|index| *line == format!("worker-{index}"))
-        }));
+        assert!(
+            lines
+                .iter()
+                .all(|line| { (0..8).any(|index| *line == format!("worker-{index}")) })
+        );
 
         let _ = fs::remove_dir_all(root);
     }

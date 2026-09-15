@@ -22,13 +22,12 @@ use std::thread;
 use std::time::Duration;
 
 use crate::core::commit_diff::{
-    CommitDiffContext, merge_numstat_args, merge_patch_args, merge_raw_args,
-    parent_query_args, parse_parent_line,
+    CommitDiffContext, merge_numstat_args, merge_patch_args, merge_raw_args, parent_query_args,
+    parse_parent_line,
 };
 #[allow(unused_imports)]
 pub use crate::core::diff::{
-    DiffLine, DiffLineKind, FileChange, FileChangeStatus, parse_diff,
-    stat_blocks,
+    DiffLine, DiffLineKind, FileChange, FileChangeStatus, parse_diff, stat_blocks,
 };
 use crate::core::diff::{merge_numstat, parse_numstat, parse_raw_records};
 use crate::core::graph::LogRow;
@@ -43,9 +42,7 @@ mod working_tree;
 
 pub(crate) use branch_compare::suggested_patch_filename;
 pub use commit_log::LogScope;
-pub use location::{
-    GitRepo, RepoLocation, parse_unc_path, validate_linux_path,
-};
+pub use location::{GitRepo, RepoLocation, parse_unc_path, validate_linux_path};
 pub(crate) use progress::progress_verb;
 
 /// The kind of revision exposed by the comparison selector.
@@ -84,8 +81,7 @@ impl CompareRevision {
 
     /// Return whether a value has the supported raw commit-id format.
     pub fn is_supported_commit_id(value: &str) -> bool {
-        matches!(value.len(), 7..=64)
-            && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+        matches!(value.len(), 7..=64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
     }
 }
 
@@ -526,12 +522,7 @@ impl GitHandle {
     }
 
     /// Query a structured single-file commit diff.
-    pub fn commit_file_diff(
-        &self,
-        oid: String,
-        merge_parent: Option<String>,
-        file: FileChange,
-    ) {
+    pub fn commit_file_diff(&self, oid: String, merge_parent: Option<String>, file: FileChange) {
         let _ = self.cmd_tx.send(GitCommand::CommitFileDiff {
             oid,
             merge_parent,
@@ -554,12 +545,7 @@ impl GitHandle {
     }
 
     /// Start a read-only revision comparison and cancel the previous request.
-    pub fn branch_compare(
-        &self,
-        request_id: u64,
-        base: CompareRevision,
-        target: CompareRevision,
-    ) {
+    pub fn branch_compare(&self, request_id: u64, base: CompareRevision, target: CompareRevision) {
         self.compare_generation
             .store(request_id, std::sync::atomic::Ordering::Release);
         let _ = self.cmd_tx.send(GitCommand::BranchCompare {
@@ -622,10 +608,7 @@ impl GitHandle {
 /// WSL repositories have no meaningful local check, so their validation is
 /// deferred to the worker's first probe and reported through
 /// [`GitEvent::OpenFailed`].
-pub fn spawn_open(
-    repo: GitRepo,
-    event_tx: Sender<GitEvent>,
-) -> Result<GitHandle, GitError> {
+pub fn spawn_open(repo: GitRepo, event_tx: Sender<GitEvent>) -> Result<GitHandle, GitError> {
     if matches!(repo.location(), RepoLocation::Local) {
         let path = Path::new(repo.path());
         if !path.is_dir() {
@@ -639,8 +622,7 @@ pub fn spawn_open(
     }
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<GitCommand>();
-    let compare_generation =
-        std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let compare_generation = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     thread::spawn({
         let compare_generation = compare_generation.clone();
         move || worker_loop(repo, cmd_rx, event_tx, compare_generation)
@@ -686,13 +668,9 @@ pub fn list_wsl_distros() -> Vec<String> {
     #[cfg(windows)]
     match location::wsl_host_command(&["-l", "-q"]).output() {
         Ok(output) if output.status.success() => {
-            let distros = location::parse_wsl_distro_list(
-                &location::decode_wsl_output(&output.stdout),
-            );
-            log::info!(
-                "[git_command] wsl -l -q succeeded: count={}",
-                distros.len()
-            );
+            let distros =
+                location::parse_wsl_distro_list(&location::decode_wsl_output(&output.stdout));
+            log::info!("[git_command] wsl -l -q succeeded: count={}", distros.len());
             distros
         }
         Ok(output) => {
@@ -741,9 +719,7 @@ fn worker_loop(
 
     loop {
         match cmd_rx.recv_timeout(Duration::from_millis(20)) {
-            Ok(GitCommand::Refresh) => {
-                refresh_all(&repo, &event_tx, &mut log_state)
-            }
+            Ok(GitCommand::Refresh) => refresh_all(&repo, &event_tx, &mut log_state),
             Ok(GitCommand::LogQuery { scope }) => {
                 commit_log::set_scope(&repo, &mut log_state, scope, &event_tx);
             }
@@ -764,31 +740,21 @@ fn worker_loop(
                 merge_parent,
                 file,
             }) => {
-                run_file_diff(
-                    &repo,
-                    &oid,
-                    merge_parent.as_deref(),
-                    &file,
-                    &event_tx,
-                );
+                run_file_diff(&repo, &oid, merge_parent.as_deref(), &file, &event_tx);
             }
             Ok(GitCommand::WorkingTreeFileDiff {
                 request_id,
                 kind,
                 file,
             }) => {
-                working_tree::run_file_diff(
-                    &repo, request_id, kind, &file, &event_tx,
-                );
+                working_tree::run_file_diff(&repo, request_id, kind, &file, &event_tx);
             }
             Ok(GitCommand::BranchCompare {
                 request_id,
                 base,
                 target,
             }) => {
-                if compare_generation.load(std::sync::atomic::Ordering::Acquire)
-                    == request_id
-                {
+                if compare_generation.load(std::sync::atomic::Ordering::Acquire) == request_id {
                     branch_compare::spawn_comparison(
                         repo.clone(),
                         request_id,
@@ -820,8 +786,7 @@ fn worker_loop(
                 scope,
             }) => {
                 let scope_kind = scope.kind();
-                let result =
-                    working_tree::apply_operation(&repo, action, &scope);
+                let result = working_tree::apply_operation(&repo, action, &scope);
                 let (success, detail) = match result {
                     Ok(()) => (true, String::new()),
                     Err(detail) => (false, detail),
@@ -852,11 +817,7 @@ fn worker_loop(
 
 /// Repository snapshot refresh: status + branches merge into one Status
 /// event; the log and refs snapshots travel as separate events.
-fn refresh_all(
-    repo: &GitRepo,
-    event_tx: &Sender<GitEvent>,
-    log_state: &mut commit_log::LogState,
-) {
+fn refresh_all(repo: &GitRepo, event_tx: &Sender<GitEvent>, log_state: &mut commit_log::LogState) {
     refresh_status(repo, event_tx);
     commit_log::run_page(repo, log_state, true, event_tx);
     run_refs(repo, event_tx);
@@ -904,12 +865,7 @@ fn read_head(repo: &GitRepo) -> Option<String> {
 /// failures at warn level with the full
 /// arguments, exit status, and git output so the diagnostic logs keep an
 /// actionable trail even under the default filter.
-fn run_git(
-    repo: &GitRepo,
-    label: &str,
-    args: &[String],
-    event_tx: &Sender<GitEvent>,
-) {
+fn run_git(repo: &GitRepo, label: &str, args: &[String], event_tx: &Sender<GitEvent>) {
     log::debug!("[git_command] command started: label={label}, args={args:?}");
     let _ = event_tx.send(GitEvent::CommandStarted {
         label: label.to_string(),
@@ -936,15 +892,14 @@ fn run_git(
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
             let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-            let message =
-                match (stderr.trim().is_empty(), stdout.trim().is_empty()) {
-                    (false, false) => format!("{stderr}\n{stdout}"),
-                    (false, true) => stderr.clone(),
-                    (true, false) => stdout.clone(),
-                    (true, true) => {
-                        format!("git exited with {:?}", output.status.code())
-                    }
-                };
+            let message = match (stderr.trim().is_empty(), stdout.trim().is_empty()) {
+                (false, false) => format!("{stderr}\n{stdout}"),
+                (false, true) => stderr.clone(),
+                (true, false) => stdout.clone(),
+                (true, true) => {
+                    format!("git exited with {:?}", output.status.code())
+                }
+            };
             log::warn!(
                 "[git_command] command failed: label={label}, args={args:?}, \
                  exit={:?}, stderr={}, stdout={}",
@@ -963,10 +918,7 @@ fn run_git(
                 "[git_command] command spawn failed: label={label}, \
                  args={args:?}, error={e}"
             );
-            let _ = event_tx.send(GitEvent::Error(GitError::new(
-                "err-git-run",
-                e.to_string(),
-            )));
+            let _ = event_tx.send(GitEvent::Error(GitError::new("err-git-run", e.to_string())));
         }
     }
 }
@@ -1025,8 +977,7 @@ fn run_numstat(repo: &GitRepo, oid: &str, event_tx: &Sender<GitEvent>) {
     let merge_parent = match resolve_merge_parent(repo, oid) {
         Ok(parent) => parent,
         Err(detail) => {
-            let _ = event_tx
-                .send(GitEvent::Error(GitError::new("err-numstat", detail)));
+            let _ = event_tx.send(GitEvent::Error(GitError::new("err-numstat", detail)));
             return;
         }
     };
@@ -1080,12 +1031,9 @@ fn run_numstat(repo: &GitRepo, oid: &str, event_tx: &Sender<GitEvent>) {
     };
 
     match (raw, stats) {
-        (Ok(raw), Ok(stats))
-            if raw.status.success() && stats.status.success() =>
-        {
+        (Ok(raw), Ok(stats)) if raw.status.success() && stats.status.success() => {
             let raw_files = parse_raw_records(&raw.stdout);
-            let stat_files =
-                parse_numstat(&String::from_utf8_lossy(&stats.stdout));
+            let stat_files = parse_numstat(&String::from_utf8_lossy(&stats.stdout));
             let files = if raw_files.is_empty() {
                 stat_files
             } else {
@@ -1108,8 +1056,7 @@ fn run_numstat(repo: &GitRepo, oid: &str, event_tx: &Sender<GitEvent>) {
             } else {
                 String::from_utf8_lossy(&stats.stderr).into_owned()
             };
-            let _ = event_tx
-                .send(GitEvent::Error(GitError::new("err-numstat", detail)));
+            let _ = event_tx.send(GitEvent::Error(GitError::new("err-numstat", detail)));
         }
         (Err(error), _) | (_, Err(error)) => {
             let _ = event_tx.send(GitEvent::Error(GitError::new(
@@ -1120,10 +1067,7 @@ fn run_numstat(repo: &GitRepo, oid: &str, event_tx: &Sender<GitEvent>) {
     }
 }
 
-fn resolve_merge_parent(
-    repo: &GitRepo,
-    oid: &str,
-) -> Result<Option<String>, String> {
+fn resolve_merge_parent(repo: &GitRepo, oid: &str) -> Result<Option<String>, String> {
     let output = repo
         .command()
         .args(parent_query_args(repo.path(), oid))
@@ -1132,8 +1076,7 @@ fn resolve_merge_parent(
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).into_owned());
     }
-    let context: CommitDiffContext =
-        parse_parent_line(&String::from_utf8_lossy(&output.stdout))?;
+    let context: CommitDiffContext = parse_parent_line(&String::from_utf8_lossy(&output.stdout))?;
     Ok(context.merge_parent)
 }
 
@@ -1154,8 +1097,7 @@ fn run_commit_message(repo: &GitRepo, oid: &str, event_tx: &Sender<GitEvent>) {
         .output();
     match output {
         Ok(output) if output.status.success() => {
-            let message =
-                parse_commit_message(&String::from_utf8_lossy(&output.stdout));
+            let message = parse_commit_message(&String::from_utf8_lossy(&output.stdout));
             log::debug!(
                 "[git_commit_message] loaded commit message: oid={}, body_lines={}, co_authors={}",
                 oid,
@@ -1169,16 +1111,10 @@ fn run_commit_message(repo: &GitRepo, oid: &str, event_tx: &Sender<GitEvent>) {
         }
         Ok(output) => {
             let detail = String::from_utf8_lossy(&output.stderr);
-            let _ = event_tx.send(GitEvent::Error(GitError::new(
-                "err-commit-message",
-                detail,
-            )));
+            let _ = event_tx.send(GitEvent::Error(GitError::new("err-commit-message", detail)));
         }
         Err(e) => {
-            let _ = event_tx.send(GitEvent::Error(GitError::new(
-                "err-git-run",
-                e.to_string(),
-            )));
+            let _ = event_tx.send(GitEvent::Error(GitError::new("err-git-run", e.to_string())));
         }
     }
 }
@@ -1294,14 +1230,10 @@ fn run_file_diff(
         }
         Ok(output) => {
             let msg = String::from_utf8_lossy(&output.stderr);
-            let _ = event_tx
-                .send(GitEvent::Error(GitError::new("err-file-diff", msg)));
+            let _ = event_tx.send(GitEvent::Error(GitError::new("err-file-diff", msg)));
         }
         Err(e) => {
-            let _ = event_tx.send(GitEvent::Error(GitError::new(
-                "err-git-run",
-                e.to_string(),
-            )));
+            let _ = event_tx.send(GitEvent::Error(GitError::new("err-git-run", e.to_string())));
         }
     }
 }
@@ -1348,9 +1280,7 @@ fn run_status(
                     .status
                     .code()
                     .map(|code| format!("git status exited with status {code}"))
-                    .unwrap_or_else(|| {
-                        "git status terminated unexpectedly".to_string()
-                    })
+                    .unwrap_or_else(|| "git status terminated unexpectedly".to_string())
             } else {
                 detail
             },
@@ -1403,11 +1333,7 @@ fn parse_status(
         let index = record[0] as char;
         let worktree = record[1] as char;
         let path = decode_status_path(&record[3..])?;
-        let old_path = if index == 'R'
-            || index == 'C'
-            || worktree == 'R'
-            || worktree == 'C'
-        {
+        let old_path = if index == 'R' || index == 'C' || worktree == 'R' || worktree == 'C' {
             let old_path = records.next().ok_or_else(|| {
                 GitError::new(
                     "err-git-status",
@@ -1520,9 +1446,7 @@ fn run_refs(repo: &GitRepo, event_tx: &Sender<GitEvent>) {
             cmd.arg(arg);
         }
         match cmd.output() {
-            Ok(o) if o.status.success() => {
-                String::from_utf8_lossy(&o.stdout).into_owned()
-            }
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
             _ => String::new(),
         }
     };
@@ -1533,9 +1457,7 @@ fn run_refs(repo: &GitRepo, event_tx: &Sender<GitEvent>) {
         .ok()
         .filter(|output| output.status.success())
         .map(|output| {
-            branch_compare::parse_comparison_refs(&String::from_utf8_lossy(
-                &output.stdout,
-            ))
+            branch_compare::parse_comparison_refs(&String::from_utf8_lossy(&output.stdout))
         })
         .unwrap_or_default();
     let refs = RefsInfo {
@@ -1569,8 +1491,7 @@ fn parse_remote_branches(text: &str) -> Vec<String> {
         .filter_map(|line| {
             let (name, symref) = line.split_once('\t')?;
             let name = name.trim();
-            (!name.is_empty() && symref.trim().is_empty())
-                .then(|| name.to_string())
+            (!name.is_empty() && symref.trim().is_empty()).then(|| name.to_string())
         })
         .collect()
 }
@@ -1616,9 +1537,8 @@ mod tests {
 
     #[test]
     fn commit_revision_constructor_trims_and_validates_hex_ids() {
-        let revision =
-            CompareRevision::from_commit_id(format!("  {}  ", "a".repeat(40)))
-                .expect("valid commit id");
+        let revision = CompareRevision::from_commit_id(format!("  {}  ", "a".repeat(40)))
+            .expect("valid commit id");
         assert_eq!(revision.name, "a".repeat(40));
         assert_eq!(revision.full_name, revision.name);
         assert_eq!(revision.kind, CompareRevisionKind::Commit);
@@ -1646,8 +1566,7 @@ mod tests {
 
         static NEXT_ID: AtomicU64 = AtomicU64::new(1);
         let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir()
-            .join(format!("augur-git-refs-{}-{id}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("augur-git-refs-{}-{id}", std::process::id()));
         let source = root.join("source");
         let clone = root.join("clone");
         fs::create_dir_all(&source).expect("test directory");
@@ -1715,15 +1634,11 @@ mod tests {
     #[test]
     fn checkout_args_preserve_target_as_one_argument() {
         assert_eq!(
-            checkout_args(CheckoutTarget::LocalBranch(
-                "feature/ui polish".into()
-            )),
+            checkout_args(CheckoutTarget::LocalBranch("feature/ui polish".into())),
             vec!["checkout", "feature/ui polish"]
         );
         assert_eq!(
-            checkout_args(CheckoutTarget::RemoteBranch(
-                "origin/功能/导航".into()
-            )),
+            checkout_args(CheckoutTarget::RemoteBranch("origin/功能/导航".into())),
             vec!["checkout", "--track", "origin/功能/导航"]
         );
         assert_eq!(
@@ -1781,16 +1696,10 @@ mod tests {
             path: "new.rs".into(),
             old_path: Some("old.rs".into()),
         };
-        let staged = working_tree::working_tree_diff_args(
-            "repo",
-            WorkingTreeDiffKind::Staged,
-            &file,
-        );
-        let unstaged = working_tree::working_tree_diff_args(
-            "repo",
-            WorkingTreeDiffKind::Unstaged,
-            &file,
-        );
+        let staged =
+            working_tree::working_tree_diff_args("repo", WorkingTreeDiffKind::Staged, &file);
+        let unstaged =
+            working_tree::working_tree_diff_args("repo", WorkingTreeDiffKind::Unstaged, &file);
         let separator = staged
             .iter()
             .position(|argument| argument == "--")
@@ -1853,8 +1762,7 @@ mod tests {
     #[test]
     fn parse_status_normal() {
         let output = b"## main...origin/main [ahead 1, behind 2]\0 M src/a.rs\0A  new.rs\0?? untracked.txt\0";
-        let (branch, upstream, files, ahead, behind) =
-            parse_status(output).unwrap();
+        let (branch, upstream, files, ahead, behind) = parse_status(output).unwrap();
         assert_eq!(branch, "main");
         assert_eq!(upstream.as_deref(), Some("origin/main"));
         assert_eq!(ahead, 1);
@@ -1872,8 +1780,7 @@ mod tests {
 
     #[test]
     fn file_status_separates_staged_worktree_and_mixed_changes() {
-        let output =
-            b"## main\0M  staged.rs\0 M changed.rs\0MM mixed.rs\0?? new.txt\0";
+        let output = b"## main\0M  staged.rs\0 M changed.rs\0MM mixed.rs\0?? new.txt\0";
         let (_, _, files, _, _) = parse_status(output).unwrap();
         assert!(files[0].has_staged_changes());
         assert!(!files[0].has_worktree_changes());
@@ -1890,8 +1797,7 @@ mod tests {
     #[test]
     fn parse_status_no_upstream() {
         let output = b"## main\0 M a.rs\0";
-        let (branch, upstream, _files, ahead, behind) =
-            parse_status(output).unwrap();
+        let (branch, upstream, _files, ahead, behind) = parse_status(output).unwrap();
         assert_eq!(branch, "main");
         assert!(upstream.is_none());
         assert_eq!(ahead, 0);
@@ -1912,8 +1818,7 @@ mod tests {
 
     #[test]
     fn parse_status_tracks_worktree_rename_and_copy_paths() {
-        let output =
-            b"## main\0 R renamed.txt\0old.txt\0 C copied.txt\0source.txt\0";
+        let output = b"## main\0 R renamed.txt\0old.txt\0 C copied.txt\0source.txt\0";
         let (_, _, files, _, _) = parse_status(output).unwrap();
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].worktree, 'R');
@@ -2095,10 +2000,7 @@ mod tests {
         );
         // 非 co-author trailer（如 Signed-off-by）保留在 body
         assert!(message.body.contains("Signed-off-by"));
-        assert_eq!(
-            message.co_authors[0].display(),
-            "Alice <alice@example.com>"
-        );
+        assert_eq!(message.co_authors[0].display(), "Alice <alice@example.com>");
         assert_eq!(message.co_authors[1].display(), "Bob");
     }
 

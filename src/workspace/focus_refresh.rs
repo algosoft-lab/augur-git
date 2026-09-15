@@ -27,11 +27,7 @@ impl Workspace {
     /// Refresh the active repository when the window regains activation.
     /// The observer fires on activation and deactivation alike; only the
     /// activation branch does work.
-    pub(super) fn handle_window_activation(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn handle_window_activation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !window.is_window_active() {
             return;
         }
@@ -40,11 +36,7 @@ impl Workspace {
             return;
         }
         let now = Instant::now();
-        if !should_refresh_on_focus(
-            self.last_focus_refresh,
-            now,
-            FOCUS_REFRESH_COOLDOWN,
-        ) {
+        if !should_refresh_on_focus(self.last_focus_refresh, now, FOCUS_REFRESH_COOLDOWN) {
             log::debug!("[workspace] focus refresh skipped: cooldown active");
             return;
         }

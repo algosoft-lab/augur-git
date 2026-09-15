@@ -56,9 +56,7 @@ pub(super) fn classify_rebase_probe(
     }
     if baseline_head == probe.head.as_deref() {
         return match mode {
-            AgentRebaseMode::Start { .. } => {
-                Some(AgentRebaseOutcome::AlreadyUpToDate)
-            }
+            AgentRebaseMode::Start { .. } => Some(AgentRebaseOutcome::AlreadyUpToDate),
             AgentRebaseMode::Resolve { .. } => None,
         };
     }

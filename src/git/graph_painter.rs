@@ -21,10 +21,8 @@ pub(super) fn draw_graph_row(
     let origin_x = bounds.origin.x;
     let origin_y = bounds.origin.y;
     let mid_y = ROW_HEIGHT / 2.0;
-    let lane_x = |lane: usize| {
-        origin_x
-            + px(GRAPH_LEFT_PAD + lane as f32 * COL_WIDTH + COL_WIDTH / 2.0)
-    };
+    let lane_x =
+        |lane: usize| origin_x + px(GRAPH_LEFT_PAD + lane as f32 * COL_WIDTH + COL_WIDTH / 2.0);
     let node_x = lane_x(row.node_lane);
 
     // Parent lanes are created by the current commit. All other output lanes
@@ -63,9 +61,7 @@ pub(super) fn draw_graph_row(
             .iter()
             .enumerate()
             .find(|(lane, output)| {
-                !used_output[*lane]
-                    && !parent_lane[*lane]
-                    && output.oid == input.oid
+                !used_output[*lane] && !parent_lane[*lane] && output.oid == input.oid
             })
             .map(|(lane, _)| lane)
         else {
@@ -139,9 +135,7 @@ pub(super) fn draw_graph_row(
     }
 
     if row.is_head {
-        if let Some(path) =
-            build_filled_circle(node_x, origin_y + px(mid_y), NODE_RADIUS)
-        {
+        if let Some(path) = build_filled_circle(node_x, origin_y + px(mid_y), NODE_RADIUS) {
             window.paint_path(path, node_color);
         }
     } else if let Some(path) =
@@ -258,11 +252,7 @@ fn paint_from_node_route(
     }
 }
 
-fn build_filled_circle(
-    cx: Pixels,
-    cy: Pixels,
-    radius: f32,
-) -> Option<gpui::Path<Pixels>> {
+fn build_filled_circle(cx: Pixels, cy: Pixels, radius: f32) -> Option<gpui::Path<Pixels>> {
     let mut builder = PathBuilder::fill();
     builder.move_to(point(cx + px(radius), cy));
     builder.arc_to(

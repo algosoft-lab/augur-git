@@ -84,8 +84,7 @@ mod tests {
 
     #[test]
     fn preserves_unicode_special_and_rename_paths() {
-        let data =
-            "4\t1\t\0old name.txt\0new name-中.txt\0-\t-\tassets/logo.png\0";
+        let data = "4\t1\t\0old name.txt\0new name-中.txt\0-\t-\tassets/logo.png\0";
         let records = parse_numstat_z(data.as_bytes());
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].old_path.as_deref(), Some("old name.txt"));

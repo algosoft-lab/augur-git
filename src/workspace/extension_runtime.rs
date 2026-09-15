@@ -5,13 +5,11 @@ use std::time::{Duration, Instant};
 use chrono::Local;
 use gpui::*;
 
-use crate::core::extension::{
-    self, ExtensionRunTrigger, ExtensionSettings, SettingValue,
-};
+use crate::core::extension::{self, ExtensionRunTrigger, ExtensionSettings, SettingValue};
 use crate::core::i18n;
 use crate::extension::{
-    ExtensionEvent, ExtensionEventPayload, ExtensionRunRequest,
-    ExtensionTrigger, HostEvent, discover_definitions,
+    ExtensionEvent, ExtensionEventPayload, ExtensionRunRequest, ExtensionTrigger, HostEvent,
+    discover_definitions,
 };
 
 use super::extensions::ExtensionsPanelEvent;
@@ -43,30 +41,14 @@ impl Workspace {
         let locale = self.locale;
         let workspace = cx.entity().downgrade();
         let extension_window_state = self.ui_state.extensions_window.clone();
-        let options = super::extensions_window::window_options(
-            cx,
-            &extension_window_state,
-        );
+        let options = super::extensions_window::window_options(cx, &extension_window_state);
         match cx.open_window(options, move |window, cx| {
             let panel = cx.new(|cx| {
-                super::extensions::ExtensionsPanel::new(
-                    definitions,
-                    &config,
-                    locale,
-                    window,
-                    cx,
-                )
+                super::extensions::ExtensionsPanel::new(definitions, &config, locale, window, cx)
             });
             let workspace_for_close = workspace.clone();
-            let extension_window = cx.new(|cx| {
-                ExtensionsWindow::new(
-                    panel,
-                    locale,
-                    workspace.clone(),
-                    window,
-                    cx,
-                )
-            });
+            let extension_window =
+                cx.new(|cx| ExtensionsWindow::new(panel, locale, workspace.clone(), window, cx));
             window.on_window_should_close(cx, move |window, app| {
                 let _ = workspace_for_close.update(app, |workspace, cx| {
                     super::window_state::update_ui_state_extensions_window(
@@ -86,9 +68,7 @@ impl Workspace {
             extension_window
         }) {
             Ok(handle) => {
-                if let Ok(panel) =
-                    handle.update(cx, |window, _, _| window.panel.clone())
-                {
+                if let Ok(panel) = handle.update(cx, |window, _, _| window.panel.clone()) {
                     self.extensions_panel = panel;
                 }
                 self.extensions_window = Some(handle);
@@ -113,23 +93,18 @@ impl Workspace {
                     }
                 });
             }
-            Err(error) => log::error!(
-                "[extension_runtime] failed to open Extensions window: {error}"
-            ),
+            Err(error) => {
+                log::error!("[extension_runtime] failed to open Extensions window: {error}")
+            }
         }
     }
 
-    pub(super) fn sync_extension_repositories(
-        &mut self,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn sync_extension_repositories(&mut self, cx: &mut Context<Self>) {
         let snapshots = self
             .tabs
             .iter()
             .filter_map(|entry| match &entry.content {
-                TabContent::Repo(tab) => {
-                    Some(tab.read(cx).extension_snapshot())
-                }
+                TabContent::Repo(tab) => Some(tab.read(cx).extension_snapshot()),
                 TabContent::Welcome => None,
             })
             .collect::<Vec<_>>();
@@ -138,10 +113,8 @@ impl Workspace {
             .cloned()
             .map(|snapshot| (snapshot.tab_id, snapshot))
             .collect::<std::collections::BTreeMap<_, _>>();
-        let previous = std::mem::replace(
-            &mut self.extension_observed_repositories,
-            current.clone(),
-        );
+        let previous =
+            std::mem::replace(&mut self.extension_observed_repositories, current.clone());
         self.extension_host.set_repositories(snapshots);
         self.extension_host
             .set_agent_settings(self.config.agent.clone());
@@ -159,17 +132,16 @@ impl Workspace {
                     origin_run_id: None,
                 }),
                 Some(old) if repository_state_changed(old, snapshot) => {
-                    let origin =
-                        self.extension_pending_origins.remove(tab_id).map(
-                            |(extension_id, run_id, _)| (extension_id, run_id),
-                        );
+                    let origin = self
+                        .extension_pending_origins
+                        .remove(tab_id)
+                        .map(|(extension_id, run_id, _)| (extension_id, run_id));
                     let event_type = if old.branch != snapshot.branch {
                         "repository.branch_changed"
                     } else {
                         "repository.status_changed"
                     };
-                    let origin_extension_id =
-                        origin.as_ref().map(|value| value.0.clone());
+                    let origin_extension_id = origin.as_ref().map(|value| value.0.clone());
                     let origin_run_id = origin.as_ref().map(|value| value.1);
                     self.emit_repository_event(ExtensionEventPayload {
                         trigger_id: String::new(),
@@ -201,9 +173,7 @@ impl Workspace {
                     // Git refresh catches up, then expire it so an unrelated
                     // later event is not suppressed.
                     if self.extension_pending_origins.get(tab_id).is_some_and(
-                        |(_, _, observed_at)| {
-                            observed_at.elapsed() >= EXTENSION_ORIGIN_TIMEOUT
-                        },
+                        |(_, _, observed_at)| observed_at.elapsed() >= EXTENSION_ORIGIN_TIMEOUT,
                     ) {
                         self.extension_pending_origins.remove(tab_id);
                     }
@@ -237,8 +207,7 @@ impl Workspace {
                 let Some(workspace) = entity.upgrade() else {
                     break;
                 };
-                workspace
-                    .update(cx, |workspace, cx| workspace.poll_extensions(cx));
+                workspace.update(cx, |workspace, cx| workspace.poll_extensions(cx));
             }
         })
         .detach();
@@ -271,19 +240,12 @@ impl Workspace {
                 .extensions
                 .get(&extension_id)
                 .cloned()
-                .unwrap_or_else(|| {
-                    ExtensionSettings::with_defaults(
-                        &definition.package.manifest,
-                    )
-                })
+                .unwrap_or_else(|| ExtensionSettings::with_defaults(&definition.package.manifest))
                 .normalized_for(&definition.package.manifest);
             if !settings.trusted
-                || event.origin_extension_id.as_deref()
-                    == Some(extension_id.as_str())
+                || event.origin_extension_id.as_deref() == Some(extension_id.as_str())
             {
-                if event.origin_extension_id.as_deref()
-                    == Some(extension_id.as_str())
-                {
+                if event.origin_extension_id.as_deref() == Some(extension_id.as_str()) {
                     log::debug!(
                         "[extension_events] suppressed self-origin event: id={extension_id}, run={:?}, type={}",
                         event.origin_run_id,
@@ -293,25 +255,19 @@ impl Workspace {
                 continue;
             }
             for trigger in definition.package.manifest.event_triggers() {
-                if trigger.event_type != event.event_type
-                    || !settings.is_subscribed(&trigger.id)
-                {
+                if trigger.event_type != event.event_type || !settings.is_subscribed(&trigger.id) {
                     continue;
                 }
                 event.trigger_id = trigger.id.clone();
                 let key = (extension_id.clone(), trigger.id.clone());
-                let entry = self
-                    .extension_pending_events
-                    .entry(key)
-                    .or_insert_with(|| PendingEventBatch {
-                        due_at: now
-                            + Duration::from_millis(
-                                trigger.debounce_duration_ms(),
-                            ),
-                        events: Vec::new(),
-                    });
-                entry.due_at =
-                    now + Duration::from_millis(trigger.debounce_duration_ms());
+                let entry =
+                    self.extension_pending_events
+                        .entry(key)
+                        .or_insert_with(|| PendingEventBatch {
+                            due_at: now + Duration::from_millis(trigger.debounce_duration_ms()),
+                            events: Vec::new(),
+                        });
+                entry.due_at = now + Duration::from_millis(trigger.debounce_duration_ms());
                 if let Some(tab_id) = event
                     .repository
                     .as_ref()
@@ -348,9 +304,7 @@ impl Workspace {
             let Some(definition) = self
                 .extension_definitions
                 .iter()
-                .find(|definition| {
-                    definition.package.manifest.id == extension_id
-                })
+                .find(|definition| definition.package.manifest.id == extension_id)
                 .cloned()
             else {
                 continue;
@@ -417,11 +371,7 @@ impl Workspace {
                 .extensions
                 .get(&id)
                 .cloned()
-                .unwrap_or_else(|| {
-                    ExtensionSettings::with_defaults(
-                        &definition.package.manifest,
-                    )
-                })
+                .unwrap_or_else(|| ExtensionSettings::with_defaults(&definition.package.manifest))
                 .normalized_for(&definition.package.manifest);
             if settings.subscribed_triggers.is_empty() || !settings.trusted {
                 continue;
@@ -433,61 +383,53 @@ impl Workspace {
                 if !trigger.is_schedule() {
                     continue;
                 }
-                let (occurred_at, occurrence_key) =
-                    match trigger.event_type.as_str() {
-                        "schedule.daily" => {
-                            let Some(SettingValue::Time(time)) = trigger
-                                .time_setting
-                                .as_deref()
-                                .and_then(|key| settings.values.get(key))
-                            else {
-                                continue;
-                            };
-                            let Ok(time) = extension::parse_daily_time(time)
-                            else {
-                                continue;
-                            };
-                            let Some(occurrence) =
-                                extension::daily_occurrence_between(
-                                    previous, now, time,
-                                )
-                            else {
-                                continue;
-                            };
-                            let occurrence_key =
-                                extension::local_date_string(occurrence);
-                            if settings
-                                .last_event_occurrences
-                                .get(&trigger.id)
-                                .is_some_and(|value| value == &occurrence_key)
-                            {
-                                continue;
-                            }
-                            (occurrence, occurrence_key)
+                let (occurred_at, occurrence_key) = match trigger.event_type.as_str() {
+                    "schedule.daily" => {
+                        let Some(SettingValue::Time(time)) = trigger
+                            .time_setting
+                            .as_deref()
+                            .and_then(|key| settings.values.get(key))
+                        else {
+                            continue;
+                        };
+                        let Ok(time) = extension::parse_daily_time(time) else {
+                            continue;
+                        };
+                        let Some(occurrence) =
+                            extension::daily_occurrence_between(previous, now, time)
+                        else {
+                            continue;
+                        };
+                        let occurrence_key = extension::local_date_string(occurrence);
+                        if settings
+                            .last_event_occurrences
+                            .get(&trigger.id)
+                            .is_some_and(|value| value == &occurrence_key)
+                        {
+                            continue;
                         }
-                        "schedule.interval" => {
-                            let Some(SettingValue::Integer(minutes)) = trigger
-                                .interval_setting
-                                .as_deref()
-                                .and_then(|key| settings.values.get(key))
-                            else {
-                                continue;
-                            };
-                            let key = (id.clone(), trigger.id.clone());
-                            let last = self
-                                .extension_interval_ticks
-                                .entry(key)
-                                .or_insert(previous);
-                            if now.signed_duration_since(*last)
-                                < chrono::Duration::minutes((*minutes).max(1))
-                            {
-                                continue;
-                            }
-                            *last = now;
-                            (now, now.to_rfc3339())
+                        (occurrence, occurrence_key)
+                    }
+                    "schedule.interval" => {
+                        let Some(SettingValue::Integer(minutes)) = trigger
+                            .interval_setting
+                            .as_deref()
+                            .and_then(|key| settings.values.get(key))
+                        else {
+                            continue;
+                        };
+                        let key = (id.clone(), trigger.id.clone());
+                        let last = self.extension_interval_ticks.entry(key).or_insert(previous);
+                        if now.signed_duration_since(*last)
+                            < chrono::Duration::minutes((*minutes).max(1))
+                        {
+                            continue;
                         }
-                        _ => continue,
-                    };
+                        *last = now;
+                        (now, now.to_rfc3339())
+                    }
+                    _ => continue,
+                };
                 let request = self.extension_request(
                     &id,
                     ExtensionTrigger::Schedule {
@@ -503,15 +445,11 @@ impl Workspace {
                     if let Some(manager) = &self.extension_manager {
                         match manager.run(request) {
                             Ok(result) => {
-                                if let Some(entry) =
-                                    self.config.extensions.get_mut(&id)
-                                {
-                                    entry.last_event_occurrences.insert(
-                                        trigger.id.clone(),
-                                        occurrence_key.clone(),
-                                    );
-                                    entry.last_scheduled_date =
-                                        Some(occurrence_key.clone());
+                                if let Some(entry) = self.config.extensions.get_mut(&id) {
+                                    entry
+                                        .last_event_occurrences
+                                        .insert(trigger.id.clone(), occurrence_key.clone());
+                                    entry.last_scheduled_date = Some(occurrence_key.clone());
                                 }
                                 self.persist_config();
                                 log::info!(
@@ -553,17 +491,13 @@ impl Workspace {
             .extensions
             .get(extension_id)
             .cloned()
-            .unwrap_or_else(|| {
-                ExtensionSettings::with_defaults(&definition.package.manifest)
-            })
+            .unwrap_or_else(|| ExtensionSettings::with_defaults(&definition.package.manifest))
             .normalized_for(&definition.package.manifest);
         let repositories = self
             .tabs
             .iter()
             .filter_map(|entry| match &entry.content {
-                TabContent::Repo(tab) => {
-                    Some(tab.read(cx).extension_snapshot())
-                }
+                TabContent::Repo(tab) => Some(tab.read(cx).extension_snapshot()),
                 TabContent::Welcome => None,
             })
             .collect::<Vec<_>>();
@@ -583,8 +517,7 @@ impl Workspace {
         extension_id: &str,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        let Some(draft) = self.extension_drafts.get(extension_id).cloned()
-        else {
+        let Some(draft) = self.extension_drafts.get(extension_id).cloned() else {
             return Ok(());
         };
         let Some(definition) = self
@@ -596,8 +529,7 @@ impl Workspace {
             return Err("extension definition is unavailable".to_string());
         };
         for (key, value) in &draft {
-            let Some(setting) = definition.package.manifest.settings.get(key)
-            else {
+            let Some(setting) = definition.package.manifest.settings.get(key) else {
                 return Err(format!("unknown extension setting: {key}"));
             };
             setting
@@ -609,9 +541,7 @@ impl Workspace {
             .extensions
             .get(extension_id)
             .cloned()
-            .unwrap_or_else(|| {
-                ExtensionSettings::with_defaults(&definition.package.manifest)
-            })
+            .unwrap_or_else(|| ExtensionSettings::with_defaults(&definition.package.manifest))
             .normalized_for(&definition.package.manifest);
         for (key, value) in &draft {
             settings.values.insert(key.clone(), value.clone());
@@ -638,8 +568,7 @@ impl Workspace {
         match event {
             ExtensionsPanelEvent::Uninstall(extension_id) => {
                 if self.extension_definitions.iter().any(|definition| {
-                    definition.package.manifest.id == *extension_id
-                        && definition.package.bundled
+                    definition.package.manifest.id == *extension_id && definition.package.bundled
                 }) {
                     return;
                 }
@@ -649,25 +578,16 @@ impl Workspace {
                         self.extensions_panel.update(cx, |panel, cx| {
                             panel.set_status(
                                 extension_id,
-                                i18n::text(
-                                    self.locale,
-                                    "extensions-status-uninstalled",
-                                ),
+                                i18n::text(self.locale, "extensions-status-uninstalled"),
                                 cx,
                             );
                         });
                         self.config.extensions.remove(extension_id);
                         self.persist_config();
                     }
-                    Err(error) => {
-                        self.extensions_panel.update(cx, |panel, cx| {
-                            panel.set_status(
-                                extension_id,
-                                error.to_string(),
-                                cx,
-                            );
-                        })
-                    }
+                    Err(error) => self.extensions_panel.update(cx, |panel, cx| {
+                        panel.set_status(extension_id, error.to_string(), cx);
+                    }),
                 }
             }
             ExtensionsPanelEvent::SubscriptionChanged {
@@ -678,9 +598,7 @@ impl Workspace {
                 let Some(definition) = self
                     .extension_definitions
                     .iter()
-                    .find(|definition| {
-                        definition.package.manifest.id == *extension_id
-                    })
+                    .find(|definition| definition.package.manifest.id == *extension_id)
                     .cloned()
                 else {
                     return;
@@ -694,12 +612,9 @@ impl Workspace {
                 else {
                     return;
                 };
-                if let Err(error) =
-                    self.commit_extension_draft(extension_id, cx)
-                {
-                    self.extensions_panel.update(cx, |panel, cx| {
-                        panel.set_status(extension_id, error, cx)
-                    });
+                if let Err(error) = self.commit_extension_draft(extension_id, cx) {
+                    self.extensions_panel
+                        .update(cx, |panel, cx| panel.set_status(extension_id, error, cx));
                     return;
                 }
                 let mut settings = self
@@ -708,19 +623,14 @@ impl Workspace {
                     .get(extension_id)
                     .cloned()
                     .unwrap_or_else(|| {
-                        ExtensionSettings::with_defaults(
-                            &definition.package.manifest,
-                        )
+                        ExtensionSettings::with_defaults(&definition.package.manifest)
                     })
                     .normalized_for(&definition.package.manifest);
                 if *subscribed && !settings.trusted {
                     self.extensions_panel.update(cx, |panel, cx| {
                         panel.set_status(
                             extension_id,
-                            i18n::text(
-                                self.locale,
-                                "extensions-status-trust-subscribe",
-                            ),
+                            i18n::text(self.locale, "extensions-status-trust-subscribe"),
                             cx,
                         );
                     });
@@ -735,12 +645,7 @@ impl Workspace {
                     .extensions
                     .insert(extension_id.clone(), settings);
                 self.extensions_panel.update(cx, |panel, cx| {
-                    panel.update_subscription(
-                        extension_id,
-                        trigger_id,
-                        *subscribed,
-                        cx,
-                    );
+                    panel.update_subscription(extension_id, trigger_id, *subscribed, cx);
                     panel.set_status(
                         extension_id,
                         if *subscribed {
@@ -792,16 +697,14 @@ impl Workspace {
                 key,
                 value,
             } => {
-                let Some(definition) =
-                    self.extension_definitions.iter().find(|definition| {
-                        definition.package.manifest.id == *extension_id
-                    })
+                let Some(definition) = self
+                    .extension_definitions
+                    .iter()
+                    .find(|definition| definition.package.manifest.id == *extension_id)
                 else {
                     return;
                 };
-                let Some(setting) =
-                    definition.package.manifest.settings.get(key)
-                else {
+                let Some(setting) = definition.package.manifest.settings.get(key) else {
                     return;
                 };
                 let validation_error = setting.validate_value(value).err();
@@ -815,20 +718,14 @@ impl Workspace {
                         panel.set_setting_error(extension_id, key, error, cx);
                         panel.set_status(
                             extension_id,
-                            i18n::text(
-                                self.locale,
-                                "extensions-status-invalid-setting",
-                            ),
+                            i18n::text(self.locale, "extensions-status-invalid-setting"),
                             cx,
                         );
                     } else {
                         panel.clear_setting_error(extension_id, key, cx);
                         panel.set_status(
                             extension_id,
-                            i18n::text(
-                                self.locale,
-                                "extensions-status-unsaved-settings",
-                            ),
+                            i18n::text(self.locale, "extensions-status-unsaved-settings"),
                             cx,
                         );
                     }
@@ -839,18 +736,13 @@ impl Workspace {
                     Ok(()) => self.extensions_panel.update(cx, |panel, cx| {
                         panel.set_status(
                             extension_id,
-                            i18n::text(
-                                self.locale,
-                                "extensions-status-settings-saved",
-                            ),
+                            i18n::text(self.locale, "extensions-status-settings-saved"),
                             cx,
                         )
                     }),
-                    Err(error) => {
-                        self.extensions_panel.update(cx, |panel, cx| {
-                            panel.set_status(extension_id, error, cx)
-                        })
-                    }
+                    Err(error) => self
+                        .extensions_panel
+                        .update(cx, |panel, cx| panel.set_status(extension_id, error, cx)),
                 }
             }
             ExtensionsPanelEvent::Cancel(extension_id) => {
@@ -863,10 +755,7 @@ impl Workspace {
                     panel.set_status(
                         extension_id,
                         if cancelled == 0 {
-                            i18n::text(
-                                self.locale,
-                                "extensions-status-no-active-run",
-                            )
+                            i18n::text(self.locale, "extensions-status-no-active-run")
                         } else {
                             i18n::text_args(
                                 self.locale,
@@ -879,21 +768,18 @@ impl Workspace {
                 });
             }
             ExtensionsPanelEvent::RunNow(extension_id) => {
-                if let Err(error) =
-                    self.commit_extension_draft(extension_id, cx)
-                {
-                    self.extensions_panel.update(cx, |panel, cx| {
-                        panel.set_status(extension_id, error, cx)
-                    });
+                if let Err(error) = self.commit_extension_draft(extension_id, cx) {
+                    self.extensions_panel
+                        .update(cx, |panel, cx| panel.set_status(extension_id, error, cx));
                     return;
                 }
                 let Some(manager) = &self.extension_manager else {
                     return;
                 };
-                let Some(definition) =
-                    self.extension_definitions.iter().find(|definition| {
-                        definition.package.manifest.id == *extension_id
-                    })
+                let Some(definition) = self
+                    .extension_definitions
+                    .iter()
+                    .find(|definition| definition.package.manifest.id == *extension_id)
                 else {
                     return;
                 };
@@ -902,33 +788,23 @@ impl Workspace {
                     .extensions
                     .entry(extension_id.clone())
                     .or_insert_with(|| {
-                        ExtensionSettings::with_defaults(
-                            &definition.package.manifest,
-                        )
+                        ExtensionSettings::with_defaults(&definition.package.manifest)
                     });
                 if !settings.trusted {
                     self.extensions_panel.update(cx, |panel, cx| {
                         panel.set_status(
                             extension_id,
-                            i18n::text(
-                                self.locale,
-                                "extensions-status-trust-run",
-                            ),
+                            i18n::text(self.locale, "extensions-status-trust-run"),
                             cx,
                         );
                     });
                     return;
                 }
-                let Some(handler) =
-                    definition.package.manifest.manual_handler.clone()
-                else {
+                let Some(handler) = definition.package.manifest.manual_handler.clone() else {
                     self.extensions_panel.update(cx, |panel, cx| {
                         panel.set_status(
                             extension_id,
-                            i18n::text(
-                                self.locale,
-                                "extensions-status-no-manual-handler",
-                            ),
+                            i18n::text(self.locale, "extensions-status-no-manual-handler"),
                             cx,
                         )
                     });
@@ -944,53 +820,39 @@ impl Workspace {
                 ) {
                     Ok(request) => request,
                     Err(error) => {
-                        self.extensions_panel.update(cx, |panel, cx| {
-                            panel.set_status(extension_id, error, cx)
-                        });
+                        self.extensions_panel
+                            .update(cx, |panel, cx| panel.set_status(extension_id, error, cx));
                         return;
                     }
                 };
                 match manager.run(request) {
-                    Ok(Some(run_id)) => {
-                        self.extensions_panel.update(cx, |panel, cx| {
-                            panel.set_status(
-                                extension_id,
-                                i18n::text_args(
-                                    self.locale,
-                                    "extensions-status-queued-run",
-                                    &[("run_id", &run_id.to_string())],
-                                ),
-                                cx,
-                            )
-                        })
-                    }
-                    Ok(None) => {
-                        self.extensions_panel.update(cx, |panel, cx| {
-                            panel.set_status(
-                                extension_id,
-                                i18n::text(
-                                    self.locale,
-                                    "extensions-status-already-running",
-                                ),
-                                cx,
-                            )
-                        })
-                    }
-                    Err(error) => {
-                        self.extensions_panel.update(cx, |panel, cx| {
-                            panel.set_status(extension_id, error, cx)
-                        })
-                    }
+                    Ok(Some(run_id)) => self.extensions_panel.update(cx, |panel, cx| {
+                        panel.set_status(
+                            extension_id,
+                            i18n::text_args(
+                                self.locale,
+                                "extensions-status-queued-run",
+                                &[("run_id", &run_id.to_string())],
+                            ),
+                            cx,
+                        )
+                    }),
+                    Ok(None) => self.extensions_panel.update(cx, |panel, cx| {
+                        panel.set_status(
+                            extension_id,
+                            i18n::text(self.locale, "extensions-status-already-running"),
+                            cx,
+                        )
+                    }),
+                    Err(error) => self
+                        .extensions_panel
+                        .update(cx, |panel, cx| panel.set_status(extension_id, error, cx)),
                 }
             }
         }
     }
 
-    fn reload_extensions(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn reload_extensions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let definitions = discover_definitions();
         let reload_result = self
             .extension_manager
@@ -1010,12 +872,12 @@ impl Workspace {
         self.extension_interval_ticks.clear();
         for definition in &definitions {
             let id = definition.package.manifest.id.clone();
-            let entry = self.config.extensions.entry(id).or_insert_with(|| {
-                ExtensionSettings::with_defaults(&definition.package.manifest)
-            });
+            let entry =
+                self.config.extensions.entry(id).or_insert_with(|| {
+                    ExtensionSettings::with_defaults(&definition.package.manifest)
+                });
             *entry = entry.normalized_for(&definition.package.manifest);
-            entry.last_seen_fingerprint =
-                Some(definition.package.fingerprint.clone());
+            entry.last_seen_fingerprint = Some(definition.package.fingerprint.clone());
         }
         self.extension_definitions = definitions.clone();
         self.extensions_panel.update(cx, |panel, cx| {
@@ -1030,11 +892,7 @@ impl Workspace {
         self.persist_config();
     }
 
-    fn handle_extension_event(
-        &mut self,
-        event: ExtensionEvent,
-        cx: &mut Context<Self>,
-    ) {
+    fn handle_extension_event(&mut self, event: ExtensionEvent, cx: &mut Context<Self>) {
         match event {
             ExtensionEvent::RunQueued {
                 extension_id,
@@ -1067,9 +925,9 @@ impl Workspace {
             ExtensionEvent::WorkerError {
                 extension_id,
                 summary,
-            } => self.extensions_panel.update(cx, |panel, cx| {
-                panel.set_status(&extension_id, summary, cx)
-            }),
+            } => self
+                .extensions_panel
+                .update(cx, |panel, cx| panel.set_status(&extension_id, summary, cx)),
             ExtensionEvent::RunFinished {
                 extension_id,
                 run_id,
@@ -1086,19 +944,14 @@ impl Workspace {
                 if let Err(write_error) =
                     crate::extension::append_run_history(&extension_id, &record)
                 {
-                    log::warn!(
-                        "[extensions] failed to save run history: {write_error}"
-                    );
+                    log::warn!("[extensions] failed to save run history: {write_error}");
                 }
                 let status = error
                     .map(|error| {
                         i18n::text_args(
                             self.locale,
                             "extensions-status-run-failed",
-                            &[
-                                ("run_id", &run_id.to_string()),
-                                ("error", &error),
-                            ],
+                            &[("run_id", &run_id.to_string()), ("error", &error)],
                         )
                     })
                     .unwrap_or_else(|| {
@@ -1108,9 +961,8 @@ impl Workspace {
                             &[("run_id", &run_id.to_string())],
                         )
                     });
-                self.extensions_panel.update(cx, |panel, cx| {
-                    panel.set_status(&extension_id, status, cx)
-                });
+                self.extensions_panel
+                    .update(cx, |panel, cx| panel.set_status(&extension_id, status, cx));
             }
         }
     }
@@ -1138,11 +990,7 @@ impl Workspace {
                     "[extensions] notification id={extension_id}, level={level}, title={title}, body={body}"
                 );
                 self.extensions_panel.update(cx, |panel, cx| {
-                    panel.set_status(
-                        &extension_id,
-                        format!("{title}: {body}"),
-                        cx,
-                    )
+                    panel.set_status(&extension_id, format!("{title}: {body}"), cx)
                 });
             }
             HostEvent::RepositoryChanged {
@@ -1150,17 +998,11 @@ impl Workspace {
                 origin_extension_id,
                 origin_run_id,
             } => {
-                self.extension_pending_origins.insert(
-                    tab_id,
-                    (origin_extension_id, origin_run_id, Instant::now()),
-                );
-                if let Some(entry) =
-                    self.tabs.iter().find(|entry| entry.id == tab_id)
-                {
+                self.extension_pending_origins
+                    .insert(tab_id, (origin_extension_id, origin_run_id, Instant::now()));
+                if let Some(entry) = self.tabs.iter().find(|entry| entry.id == tab_id) {
                     if let TabContent::Repo(tab) = &entry.content {
-                        tab.update(cx, |tab, cx| {
-                            tab.refresh_after_extension(cx)
-                        });
+                        tab.update(cx, |tab, cx| tab.refresh_after_extension(cx));
                     }
                 }
             }

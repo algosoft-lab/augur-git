@@ -47,32 +47,28 @@ use gpui_component::{
 use crate::core::config::{self, AppConfig, LocationConfig, UiState};
 use crate::core::i18n::{self, Locale};
 use crate::extension::{
-    AgentSessionRequest, ExtensionDefinition, ExtensionEvent, ExtensionHost,
-    ExtensionManager, HostBridge, HostEvent, RepositorySnapshot,
-    discover_definitions,
+    AgentSessionRequest, ExtensionDefinition, ExtensionEvent, ExtensionHost, ExtensionManager,
+    HostBridge, HostEvent, RepositorySnapshot, discover_definitions,
 };
 
 use self::agent_lifecycle::PendingWorkspaceClose;
 use self::app_menu::{AppMenu, AppMenuEvent};
 use self::extensions::ExtensionsPanel;
 use self::persistence::{
-    installed_font_families, location_repo_key, normalize_repo_path,
-    normalize_typography, repo_key, welcome_tab_key,
+    installed_font_families, location_repo_key, normalize_repo_path, normalize_typography,
+    repo_key, welcome_tab_key,
 };
 use self::repo_tab::{RepoTab, RepoTabEvent};
 use self::settings::{SettingsPanel, SettingsPanelEvent};
 use self::tabs::{
-    RepoTabBar, RepoTabBarEvent, TabId, TabState, TabSummary,
-    should_refresh_after_switch,
+    RepoTabBar, RepoTabBarEvent, TabId, TabState, TabSummary, should_refresh_after_switch,
 };
 use crate::theme;
 
 pub fn run(app: Application, pending: remote_open::PendingOpen) {
     app.on_reopen(|cx| {
         if !cx.windows().is_empty() {
-            log::info!(
-                "[app_lifecycle] reopen requested while a window is open; activating it"
-            );
+            log::info!("[app_lifecycle] reopen requested while a window is open; activating it");
             cx.activate(true);
             return;
         }
@@ -81,9 +77,7 @@ pub fn run(app: Application, pending: remote_open::PendingOpen) {
         cx.activate(true);
         cx.spawn(async move |cx| {
             let (mut config, ui_state) = cx
-                .background_spawn(async {
-                    (config::load(), config::load_ui_state())
-                })
+                .background_spawn(async { (config::load(), config::load_ui_state()) })
                 .await;
             let result = cx.update(|cx| {
                 let fonts = installed_font_families(cx);
@@ -93,9 +87,7 @@ pub fn run(app: Application, pending: remote_open::PendingOpen) {
             });
             match result {
                 Ok(_) => log::info!("[app_lifecycle] reopened main window"),
-                Err(error) => log::error!(
-                    "[app_lifecycle] failed to reopen main window: {error}"
-                ),
+                Err(error) => log::error!("[app_lifecycle] failed to reopen main window: {error}"),
             }
         })
         .detach();
@@ -124,21 +116,15 @@ pub fn run(app: Application, pending: remote_open::PendingOpen) {
         });
         cx.on_action(|_: &app_menu::OpenAbout, cx| {
             log::info!("[app_menu] routing global open about action");
-            update_active_workspace(cx, |workspace, cx| {
-                workspace.open_about(cx)
-            });
+            update_active_workspace(cx, |workspace, cx| workspace.open_about(cx));
         });
         cx.on_action(|_: &app_menu::OpenSettings, cx| {
             log::info!("[app_menu] routing global open settings action");
-            update_active_workspace(cx, |workspace, cx| {
-                workspace.open_settings(cx)
-            });
+            update_active_workspace(cx, |workspace, cx| workspace.open_settings(cx));
         });
         cx.on_action(|_: &app_menu::OpenExtensions, cx| {
             log::info!("[app_menu] routing global open extensions action");
-            update_active_workspace(cx, |workspace, cx| {
-                workspace.open_extensions(cx)
-            });
+            update_active_workspace(cx, |workspace, cx| workspace.open_extensions(cx));
         });
         app_menu_router::install(cx);
         // Bind user-customizable shortcuts before menus so native menu
@@ -147,12 +133,8 @@ pub fn run(app: Application, pending: remote_open::PendingOpen) {
         app_menu::install_native_menu(i18n::resolve(&config.language), cx);
 
         cx.activate(true);
-        if let Err(error) =
-            open_main_window(cx, config, ui_state, font_families)
-        {
-            log::error!(
-                "[app_lifecycle] failed to open initial window: {error}"
-            );
+        if let Err(error) = open_main_window(cx, config, ui_state, font_families) {
+            log::error!("[app_lifecycle] failed to open initial window: {error}");
             std::process::exit(1);
         }
         if !pending.is_empty() {
@@ -196,12 +178,9 @@ fn open_main_window(
     ui_state: UiState,
     font_families: Vec<String>,
 ) -> anyhow::Result<WindowHandle<Root>> {
-    let window_options =
-        window_state::initial_window_options(cx, &ui_state.window);
+    let window_options = window_state::initial_window_options(cx, &ui_state.window);
     let window = cx.open_window(window_options, |window, cx| {
-        let workspace = cx.new(|cx| {
-            Workspace::new(config, ui_state, font_families, window, cx)
-        });
+        let workspace = cx.new(|cx| Workspace::new(config, ui_state, font_families, window, cx));
         cx.set_global(ActiveWorkspace {
             workspace: workspace.downgrade(),
             window: None,
@@ -244,8 +223,7 @@ pub struct Workspace {
     config: AppConfig,
     settings_panel: Entity<SettingsPanel>,
     extensions_panel: Entity<ExtensionsPanel>,
-    extensions_window:
-        Option<WindowHandle<extensions_window::ExtensionsWindow>>,
+    extensions_window: Option<WindowHandle<extensions_window::ExtensionsWindow>>,
     extension_host: HostBridge,
     extension_manager: Option<ExtensionManager>,
     extension_events: Receiver<ExtensionEvent>,
@@ -254,14 +232,9 @@ pub struct Workspace {
     extension_definitions: Vec<ExtensionDefinition>,
     extension_observed_repositories: BTreeMap<u64, RepositorySnapshot>,
     extension_pending_origins: HashMap<u64, (String, u64, Instant)>,
-    extension_pending_events:
-        HashMap<(String, String), extension_runtime::PendingEventBatch>,
-    extension_interval_ticks:
-        HashMap<(String, String), chrono::DateTime<chrono::Local>>,
-    extension_drafts: BTreeMap<
-        String,
-        BTreeMap<String, crate::core::extension::SettingValue>,
-    >,
+    extension_pending_events: HashMap<(String, String), extension_runtime::PendingEventBatch>,
+    extension_interval_ticks: HashMap<(String, String), chrono::DateTime<chrono::Local>>,
+    extension_drafts: BTreeMap<String, BTreeMap<String, crate::core::extension::SettingValue>>,
     last_extension_tick: chrono::DateTime<chrono::Local>,
     ui_state: UiState,
     locale: Locale,
@@ -269,8 +242,7 @@ pub struct Workspace {
     show_settings: bool,
     pending_close: Option<PendingWorkspaceClose>,
     about_window: Option<WindowHandle<about::AboutWindow>>,
-    agent_sessions:
-        Vec<(String, WindowHandle<agent_connectivity::AgentSessionWindow>)>,
+    agent_sessions: Vec<(String, WindowHandle<agent_connectivity::AgentSessionWindow>)>,
     agent_preflight_keys: HashSet<String>,
     restoring: bool,
     last_focus_refresh: Option<Instant>,
@@ -286,39 +258,32 @@ impl Workspace {
     ) -> Self {
         if let Err(errors) = config.agent.validate() {
             for error in errors {
-                log::warn!(
-                    "[agent_terminal] invalid configured profile: {error}"
-                );
+                log::warn!("[agent_terminal] invalid configured profile: {error}");
             }
         }
         let locale = i18n::resolve(&config.language);
         let config_saver = config::ConfigSaveQueue::new();
         let tab_bar = cx.new(|_cx| RepoTabBar::new());
-        let app_menu =
-            cx.new(|_cx| AppMenu::new(locale, config.recent_repos.clone()));
-        let settings_panel =
-            cx.new(|cx| SettingsPanel::new(&config, font_families, window, cx));
+        let app_menu = cx.new(|_cx| AppMenu::new(locale, config.recent_repos.clone()));
+        let settings_panel = cx.new(|cx| SettingsPanel::new(&config, font_families, window, cx));
         let extension_definitions = discover_definitions();
         for definition in &extension_definitions {
             let id = definition.package.manifest.id.clone();
             let entry = config.extensions.entry(id).or_insert_with(|| {
-                let mut settings =
-                    crate::core::extension::ExtensionSettings::with_defaults(
-                        &definition.package.manifest,
-                    );
+                let mut settings = crate::core::extension::ExtensionSettings::with_defaults(
+                    &definition.package.manifest,
+                );
                 // Bundled packages are reviewed with the application and do
                 // not need a second trust prompt; they remain disabled.
                 settings.trusted = definition.package.bundled;
                 settings
             });
             *entry = entry.normalized_for(&definition.package.manifest);
-            entry.last_seen_fingerprint =
-                Some(definition.package.fingerprint.clone());
+            entry.last_seen_fingerprint = Some(definition.package.fingerprint.clone());
         }
         let (extension_host, host_events, agent_session_requests) =
             HostBridge::new(config.agent.clone());
-        let extension_host_for_manager: Arc<dyn ExtensionHost> =
-            Arc::new(extension_host.clone());
+        let extension_host_for_manager: Arc<dyn ExtensionHost> = Arc::new(extension_host.clone());
         let (extension_manager, extension_events) = match ExtensionManager::new(
             extension_definitions.clone(),
             extension_host_for_manager,
@@ -331,13 +296,7 @@ impl Workspace {
             }
         };
         let extensions_panel = cx.new(|cx| {
-            ExtensionsPanel::new(
-                extension_definitions.clone(),
-                &config,
-                locale,
-                window,
-                cx,
-            )
+            ExtensionsPanel::new(extension_definitions.clone(), &config, locale, window, cx)
         });
 
         let app_menu_for_events = app_menu.clone();
@@ -396,12 +355,7 @@ impl Workspace {
                     workspace.set_diff_font_size(*size, cx);
                 }
                 SettingsPanelEvent::ShortcutChanged { command, keys } => {
-                    workspace.set_shortcut(
-                        command.clone(),
-                        keys.clone(),
-                        window,
-                        cx,
-                    );
+                    workspace.set_shortcut(command.clone(), keys.clone(), window, cx);
                 }
                 SettingsPanelEvent::ShortcutReset(command) => {
                     workspace.reset_shortcut(command.clone(), window, cx);
@@ -409,61 +363,29 @@ impl Workspace {
                 SettingsPanelEvent::AgentDefaultProfileChanged(profile_id) => {
                     workspace.set_agent_default_profile(profile_id.clone(), cx);
                 }
-                SettingsPanelEvent::AgentExecutableOverrideChanged {
-                    agent,
-                    executable,
-                } => {
-                    workspace.set_agent_executable_override(
-                        *agent,
-                        executable.clone(),
-                        cx,
-                    );
+                SettingsPanelEvent::AgentExecutableOverrideChanged { agent, executable } => {
+                    workspace.set_agent_executable_override(*agent, executable.clone(), cx);
                 }
-                SettingsPanelEvent::AgentModelOverrideChanged {
-                    agent,
-                    model,
-                } => {
-                    workspace.set_agent_model_override(
-                        *agent,
-                        model.clone(),
-                        cx,
-                    );
+                SettingsPanelEvent::AgentModelOverrideChanged { agent, model } => {
+                    workspace.set_agent_model_override(*agent, model.clone(), cx);
                 }
                 SettingsPanelEvent::AgentReasoningOverrideChanged {
                     agent,
                     reasoning_effort,
                 } => {
-                    workspace.set_agent_reasoning_override(
-                        *agent,
-                        reasoning_effort.clone(),
-                        cx,
-                    );
+                    workspace.set_agent_reasoning_override(*agent, reasoning_effort.clone(), cx);
                 }
-                SettingsPanelEvent::AgentVariantOverrideChanged {
-                    agent,
-                    variant,
-                } => {
-                    workspace.set_agent_variant_override(
-                        *agent,
-                        variant.clone(),
-                        cx,
-                    );
+                SettingsPanelEvent::AgentVariantOverrideChanged { agent, variant } => {
+                    workspace.set_agent_variant_override(*agent, variant.clone(), cx);
                 }
-                SettingsPanelEvent::AgentConnectivityTestRequested(
-                    profile_id,
-                ) => {
+                SettingsPanelEvent::AgentConnectivityTestRequested(profile_id) => {
                     agent_connectivity::open(workspace, profile_id.clone(), cx);
                 }
                 SettingsPanelEvent::AgentProfileSaved {
                     previous_id,
                     profile,
                 } => {
-                    workspace.save_agent_profile(
-                        previous_id.clone(),
-                        profile.clone(),
-                        window,
-                        cx,
-                    );
+                    workspace.save_agent_profile(previous_id.clone(), profile.clone(), window, cx);
                 }
                 SettingsPanelEvent::AgentProfileRemoved(profile_id) => {
                     workspace.remove_agent_profile(profile_id, window, cx);
@@ -550,10 +472,7 @@ impl Workspace {
         workspace.start_extension_polling(cx);
         workspace.persist_config();
         cx.observe_window_bounds(window, |workspace, window, _cx| {
-            window_state::update_ui_state_window(
-                &mut workspace.ui_state,
-                window,
-            );
+            window_state::update_ui_state_window(&mut workspace.ui_state, window);
         })
         .detach();
         cx.observe_window_activation(window, |workspace, window, cx| {
@@ -580,9 +499,9 @@ impl Workspace {
             .and_then(|stored| {
                 // New configs store the tab key; legacy files store a plain
                 // path, so match either spelling.
-                self.tabs.iter().find(|tab| {
-                    tab.key == stored || tab.key == repo_key(stored)
-                })
+                self.tabs
+                    .iter()
+                    .find(|tab| tab.key == stored || tab.key == repo_key(stored))
             })
             .map(|tab| tab.id)
             .or_else(|| self.tabs.first().map(|tab| tab.id));
@@ -734,27 +653,17 @@ impl Workspace {
         }
     }
 
-    fn subscribe_to_tab(
-        &mut self,
-        tab: &Entity<RepoTab>,
-        cx: &mut Context<Self>,
-    ) {
+    fn subscribe_to_tab(&mut self, tab: &Entity<RepoTab>, cx: &mut Context<Self>) {
         cx.subscribe(tab, |workspace, _tab, event, cx| {
             workspace.handle_repo_tab_event(event, cx);
         })
         .detach();
     }
 
-    fn handle_repo_tab_event(
-        &mut self,
-        event: &RepoTabEvent,
-        cx: &mut Context<Self>,
-    ) {
+    fn handle_repo_tab_event(&mut self, event: &RepoTabEvent, cx: &mut Context<Self>) {
         match event {
             RepoTabEvent::Opened { id, path, location } => {
-                if let Some(entry) =
-                    self.tabs.iter_mut().find(|tab| tab.id == *id)
-                {
+                if let Some(entry) = self.tabs.iter_mut().find(|tab| tab.id == *id) {
                     entry.persisted = true;
                     entry.location = location.clone();
                 }
@@ -767,18 +676,17 @@ impl Workspace {
                 cx.notify();
             }
             RepoTabEvent::SummaryChanged(summary) => {
-                let changed = if let Some(entry) =
-                    self.tabs.iter_mut().find(|tab| tab.id == summary.id)
-                {
-                    if entry.summary != *summary {
-                        entry.summary = summary.clone();
-                        true
+                let changed =
+                    if let Some(entry) = self.tabs.iter_mut().find(|tab| tab.id == summary.id) {
+                        if entry.summary != *summary {
+                            entry.summary = summary.clone();
+                            true
+                        } else {
+                            false
+                        }
                     } else {
                         false
-                    }
-                } else {
-                    false
-                };
+                    };
                 if changed {
                     self.refresh_tab_bar(cx);
                     cx.notify();
@@ -810,26 +718,14 @@ impl Workspace {
                 repo_path,
                 hint,
             } => {
-                agent_connectivity::open_commit(
-                    self,
-                    *id,
-                    repo_path.clone(),
-                    hint.clone(),
-                    cx,
-                );
+                agent_connectivity::open_commit(self, *id, repo_path.clone(), hint.clone(), cx);
             }
             RepoTabEvent::AgentMergeRequested {
                 id,
                 repo_path,
                 source,
             } => {
-                agent_connectivity::open_merge(
-                    self,
-                    *id,
-                    repo_path.clone(),
-                    source.clone(),
-                    cx,
-                );
+                agent_connectivity::open_merge(self, *id, repo_path.clone(), source.clone(), cx);
             }
             RepoTabEvent::AgentMergeResolveRequested {
                 id,
@@ -851,13 +747,7 @@ impl Workspace {
                 repo_path,
                 source,
             } => {
-                agent_connectivity::open_rebase(
-                    self,
-                    *id,
-                    repo_path.clone(),
-                    source.clone(),
-                    cx,
-                );
+                agent_connectivity::open_rebase(self, *id, repo_path.clone(), source.clone(), cx);
             }
             RepoTabEvent::AgentRebaseResolveRequested {
                 id,
@@ -911,9 +801,7 @@ impl Workspace {
         if changed {
             let previous_tab = self
                 .active_tab
-                .and_then(|active| {
-                    self.tabs.iter().find(|entry| entry.id == active)
-                })
+                .and_then(|active| self.tabs.iter().find(|entry| entry.id == active))
                 .and_then(|entry| match &entry.content {
                     TabContent::Repo(tab) => Some(tab.clone()),
                     TabContent::Welcome => None,
@@ -928,21 +816,15 @@ impl Workspace {
         if let Some(next_tab) = next_tab {
             let was_opened = next_tab.update(cx, |tab, cx| tab.activate(cx));
             if should_refresh_after_switch(changed, was_opened) {
-                let refresh_requested = next_tab
-                    .update(cx, |tab, cx| tab.refresh_on_tab_switch(cx));
+                let refresh_requested =
+                    next_tab.update(cx, |tab, cx| tab.refresh_on_tab_switch(cx));
                 if refresh_requested {
-                    log::debug!(
-                        "[tab_switch_refresh] refresh requested for tab {id}"
-                    );
+                    log::debug!("[tab_switch_refresh] refresh requested for tab {id}");
                 } else {
-                    log::debug!(
-                        "[tab_switch_refresh] refresh skipped for tab {id}: tab busy"
-                    );
+                    log::debug!("[tab_switch_refresh] refresh skipped for tab {id}: tab busy");
                 }
             } else if changed {
-                log::debug!(
-                    "[tab_switch_refresh] refresh skipped for tab {id}: initial load"
-                );
+                log::debug!("[tab_switch_refresh] refresh skipped for tab {id}: initial load");
             }
         }
         if changed {
@@ -969,11 +851,7 @@ impl Workspace {
         }
     }
 
-    fn title_bar(
-        &self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn title_bar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let branch = self
             .active_tab
@@ -1111,11 +989,7 @@ impl Workspace {
     /// Show the WSL open dialog. The entry points (menu items, welcome
     /// button) only exist on Windows; the body compiles everywhere so the
     /// dialog wiring is type-checked by every target.
-    fn pick_wsl_repository(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn pick_wsl_repository(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !cfg!(windows) {
             log::debug!("[workspace_wsl] wsl repositories require Windows");
             return;
@@ -1124,22 +998,13 @@ impl Workspace {
             log::debug!("[workspace_wsl] skip open: another dialog is active");
             return;
         }
-        let dialog = cx.new(|cx| {
-            wsl_open_dialog::WslOpenDialog::new(self.locale, window, cx)
-        });
+        let dialog = cx.new(|cx| wsl_open_dialog::WslOpenDialog::new(self.locale, window, cx));
         cx.subscribe_in(
             &dialog,
             window,
-            |workspace,
-             _dialog,
-             event: &wsl_open_dialog::WslOpenDialogEvent,
-             window,
-             cx| {
+            |workspace, _dialog, event: &wsl_open_dialog::WslOpenDialogEvent, window, cx| {
                 match event {
-                    wsl_open_dialog::WslOpenDialogEvent::Open {
-                        distro,
-                        path,
-                    } => {
+                    wsl_open_dialog::WslOpenDialogEvent::Open { distro, path } => {
                         window.close_dialog(cx);
                         workspace.open_repo_path(
                             path.clone(),
@@ -1187,14 +1052,7 @@ impl Workspace {
             return;
         }
         if let Some(welcome) = self.active_welcome_tab_id() {
-            self.open_repo_in_tab(
-                welcome,
-                requested_path,
-                location,
-                restored,
-                window,
-                cx,
-            );
+            self.open_repo_in_tab(welcome, requested_path, location, restored, window, cx);
             return;
         }
         self.add_repo_tab(requested_path, location, restored, true, window, cx);
@@ -1221,11 +1079,7 @@ impl Workspace {
         self.open_repo_path(path, LocationConfig::Local, false, window, cx);
     }
 
-    fn pick_repo_folder(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn pick_repo_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         log::info!("[workspace_tabs] opening repository folder picker");
         let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
             files: false,
@@ -1250,13 +1104,7 @@ impl Workspace {
             log::info!("[workspace_tabs] repository folder selected");
             match cx.update(|window, app| {
                 this.update(app, |workspace, cx| {
-                    workspace.open_repo_path(
-                        path,
-                        LocationConfig::Local,
-                        false,
-                        window,
-                        cx,
-                    );
+                    workspace.open_repo_path(path, LocationConfig::Local, false, window, cx);
                 })
             }) {
                 Ok(Ok(())) => {
@@ -1279,11 +1127,7 @@ impl Workspace {
 }
 
 impl Render for Workspace {
-    fn render(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         // Modals registered via `window.open_dialog` are drawn by the app:
         // Root::render does not include the dialog layer (checkout
@@ -1321,11 +1165,7 @@ impl Render for Workspace {
 }
 
 impl Workspace {
-    fn welcome(
-        &self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn welcome(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         welcome::render_welcome(self, window, cx)
     }
 

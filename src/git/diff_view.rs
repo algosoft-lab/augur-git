@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Div, HighlightStyle, Hsla, ListHorizontalSizingBehavior,
-    Pixels, SharedString, Stateful, StyledText, div, px, uniform_list,
+    AnyElement, Div, HighlightStyle, Hsla, ListHorizontalSizingBehavior, Pixels, SharedString,
+    Stateful, StyledText, div, px, uniform_list,
 };
 use gpui_component::highlighter::{HighlightTheme, SyntaxHighlighter};
 use gpui_component::input::Rope;
@@ -138,8 +138,7 @@ fn syntax_for_source(
     let styles = highlighter.styles(&(0..source.text.len()), theme);
     let mut style_index = 0;
     for (line_index, line) in source.lines.iter().enumerate() {
-        let Some(line_range) = source.line_range(Some((line_index + 1) as u32))
-        else {
+        let Some(line_range) = source.line_range(Some((line_index + 1) as u32)) else {
             continue;
         };
         let start = line_range.start;
@@ -148,17 +147,13 @@ fn syntax_for_source(
             style_index += 1;
         }
         let mut current_style = style_index;
-        while current_style < styles.len()
-            && styles[current_style].0.start < end
-        {
+        while current_style < styles.len() && styles[current_style].0.start < end {
             let (range, style) = &styles[current_style];
             let clipped_start = range.start.max(start);
             let clipped_end = range.end.min(end);
             if clipped_start < clipped_end {
                 let local = clipped_start - start..clipped_end - start;
-                if line.is_char_boundary(local.start)
-                    && line.is_char_boundary(local.end)
-                {
+                if line.is_char_boundary(local.start) && line.is_char_boundary(local.end) {
                     rows[line_index].push((local, *style));
                 }
             }
@@ -174,22 +169,20 @@ fn inline_ranges_for_rows(
     document: &DiffDocument,
 ) -> (Vec<Vec<Range<usize>>>, Vec<Vec<Range<usize>>>) {
     let fallback_size = document.rows.len();
-    let mut old_ranges =
-        vec![
-            Vec::new();
-            document
-                .old_source
-                .as_ref()
-                .map_or(fallback_size, |source| source.lines.len())
-        ];
-    let mut new_ranges =
-        vec![
-            Vec::new();
-            document
-                .new_source
-                .as_ref()
-                .map_or(fallback_size, |source| source.lines.len())
-        ];
+    let mut old_ranges = vec![
+        Vec::new();
+        document
+            .old_source
+            .as_ref()
+            .map_or(fallback_size, |source| source.lines.len())
+    ];
+    let mut new_ranges = vec![
+        Vec::new();
+        document
+            .new_source
+            .as_ref()
+            .map_or(fallback_size, |source| source.lines.len())
+    ];
     if document.binary {
         return (old_ranges, new_ranges);
     }
@@ -201,33 +194,25 @@ fn inline_ranges_for_rows(
             continue;
         }
         let delete_start = index;
-        while index < document.rows.len()
-            && document.rows[index].kind == DiffLineKind::Del
-        {
+        while index < document.rows.len() && document.rows[index].kind == DiffLineKind::Del {
             index += 1;
         }
         let delete_end = index;
         let add_start = index;
-        while index < document.rows.len()
-            && document.rows[index].kind == DiffLineKind::Add
-        {
+        while index < document.rows.len() && document.rows[index].kind == DiffLineKind::Add {
             index += 1;
         }
         let add_end = index;
         for offset in 0..(delete_end - delete_start).min(add_end - add_start) {
             let old_index = delete_start + offset;
             let new_index = add_start + offset;
-            let Some(old_text) = document.rows[old_index].old_text.as_deref()
-            else {
+            let Some(old_text) = document.rows[old_index].old_text.as_deref() else {
                 continue;
             };
-            let Some(new_text) = document.rows[new_index].new_text.as_deref()
-            else {
+            let Some(new_text) = document.rows[new_index].new_text.as_deref() else {
                 continue;
             };
-            if old_text.len().saturating_add(new_text.len())
-                > MAX_INLINE_REFINEMENT_BYTES
-            {
+            if old_text.len().saturating_add(new_text.len()) > MAX_INLINE_REFINEMENT_BYTES {
                 continue;
             }
             let (old, new) = inline_ranges(old_text, new_text);
@@ -246,10 +231,7 @@ fn inline_ranges_for_rows(
     (old_ranges, new_ranges)
 }
 
-fn inline_ranges(
-    old: &str,
-    new: &str,
-) -> (Vec<Range<usize>>, Vec<Range<usize>>) {
+fn inline_ranges(old: &str, new: &str) -> (Vec<Range<usize>>, Vec<Range<usize>>) {
     let mut options = InlineChangeOptions::new();
     options
         .mode(InlineChangeMode::Chars)
@@ -268,19 +250,13 @@ fn inline_ranges(
             match tag {
                 ChangeTag::Delete => {
                     if emphasized && length > 0 {
-                        push_inline_range(
-                            &mut old_ranges,
-                            old_offset..old_offset + length,
-                        );
+                        push_inline_range(&mut old_ranges, old_offset..old_offset + length);
                     }
                     old_offset += length;
                 }
                 ChangeTag::Insert => {
                     if emphasized && length > 0 {
-                        push_inline_range(
-                            &mut new_ranges,
-                            new_offset..new_offset + length,
-                        );
+                        push_inline_range(&mut new_ranges, new_offset..new_offset + length);
                     }
                     new_offset += length;
                 }
@@ -333,23 +309,13 @@ pub fn render_document(
             range
                 .filter_map(|index| rows.get(index).map(|row| (index, row)))
                 .map(|(index, row)| {
-                    render_row(
-                        row,
-                        index,
-                        layout,
-                        &cache,
-                        &colors,
-                        &mono,
-                        diff_font_size,
-                    )
+                    render_row(row, index, layout, &cache, &colors, &mono, diff_font_size)
                 })
                 .collect::<Vec<_>>()
         },
     )
     .with_width_from_item(Some(width_from_item))
-    .with_horizontal_sizing_behavior(
-        ListHorizontalSizingBehavior::Unconstrained,
-    )
+    .with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained)
     .w_full()
     .h_full()
     .flex_1()
@@ -416,10 +382,11 @@ pub fn render_documents(
         for (row_index, row) in rows.iter().enumerate() {
             // Match the natural side-by-side row width: both panes plus
             // furniture scale with the combined line lengths.
-            let score =
-                row.old_text.as_deref().map_or(0, str::len).saturating_add(
-                    row.new_text.as_deref().map_or(0, str::len),
-                );
+            let score = row
+                .old_text
+                .as_deref()
+                .map_or(0, str::len)
+                .saturating_add(row.new_text.as_deref().map_or(0, str::len));
             if score > width_score {
                 width_score = score;
                 width_item = items.len();
@@ -441,9 +408,7 @@ pub fn render_documents(
         row_count,
         move |range, _window, _cx| {
             range
-                .filter_map(|index| {
-                    items.get(index).copied().map(|item| (index, item))
-                })
+                .filter_map(|index| items.get(index).copied().map(|item| (index, item)))
                 .map(|(index, item)| match item {
                     DiffListItem::FileHeader(section) => render_section_header(
                         index,
@@ -454,34 +419,24 @@ pub fn render_documents(
                     )
                     .into_any_element(),
                     DiffListItem::Binary => div()
-                        .id(SharedString::from(format!(
-                            "commit-diff-binary-{index}"
-                        )))
+                        .id(SharedString::from(format!("commit-diff-binary-{index}")))
                         .min_w_full()
                         .h(px(22.))
                         .flex_shrink_0()
                         .items_center()
                         .px_2()
-                        .text_size(crate::theme::scaled_diff_text_size(
-                            11.,
-                            diff_font_size,
-                        ))
+                        .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
                         .text_color(colors.muted_foreground)
                         .child(binary_label.clone())
                         .into_any_element(),
                     DiffListItem::Empty => div()
-                        .id(SharedString::from(format!(
-                            "commit-diff-empty-{index}"
-                        )))
+                        .id(SharedString::from(format!("commit-diff-empty-{index}")))
                         .min_w_full()
                         .h(px(22.))
                         .flex_shrink_0()
                         .items_center()
                         .px_2()
-                        .text_size(crate::theme::scaled_diff_text_size(
-                            11.,
-                            diff_font_size,
-                        ))
+                        .text_size(crate::theme::scaled_diff_text_size(11., diff_font_size))
                         .text_color(colors.muted_foreground)
                         .child(empty_label.clone())
                         .into_any_element(),
@@ -505,18 +460,14 @@ pub fn render_documents(
                                 )
                                 .into_any_element()
                             })
-                            .unwrap_or_else(|| {
-                                div().h(px(22.)).into_any_element()
-                            })
+                            .unwrap_or_else(|| div().h(px(22.)).into_any_element())
                     }
                 })
                 .collect::<Vec<_>>()
         },
     )
     .with_width_from_item(Some(width_item))
-    .with_horizontal_sizing_behavior(
-        ListHorizontalSizingBehavior::Unconstrained,
-    )
+    .with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::Unconstrained)
     .w_full()
     .h_full()
     .flex_1()
@@ -585,18 +536,12 @@ fn render_row(
     }
     match layout {
         DiffLayoutMode::Inline => {
-            render_inline_row(row, index, cache, colors, mono, diff_font_size)
+            render_inline_row(row, index, cache, colors, mono, diff_font_size).into_any_element()
+        }
+        DiffLayoutMode::SideBySide => {
+            render_side_by_side_row(row, index, cache, colors, mono, diff_font_size)
                 .into_any_element()
         }
-        DiffLayoutMode::SideBySide => render_side_by_side_row(
-            row,
-            index,
-            cache,
-            colors,
-            mono,
-            diff_font_size,
-        )
-        .into_any_element(),
     }
 }
 
@@ -638,10 +583,7 @@ fn render_inline_row(
                 .w(px(18.))
                 .flex_shrink_0()
                 .font_family(mono.clone())
-                .text_size(crate::theme::scaled_diff_text_size(
-                    12.,
-                    diff_font_size,
-                ))
+                .text_size(crate::theme::scaled_diff_text_size(12., diff_font_size))
                 .text_color(marker_color)
                 .text_center()
                 .child(SharedString::from(marker)),
@@ -668,11 +610,9 @@ fn render_side_by_side_row(
     mono: &SharedString,
     diff_font_size: Pixels,
 ) -> Stateful<Div> {
-    let changed_pair = row.kind != DiffLineKind::Context
-        || row.old_text.as_deref() != row.new_text.as_deref();
-    let old_background = if changed_pair
-        && row.old_text.is_some()
-        && row.kind != DiffLineKind::Add
+    let changed_pair =
+        row.kind != DiffLineKind::Context || row.old_text.as_deref() != row.new_text.as_deref();
+    let old_background = if changed_pair && row.old_text.is_some() && row.kind != DiffLineKind::Add
     {
         if row.new_text.is_some() {
             Some(colors.red.opacity(0.06))
@@ -682,9 +622,7 @@ fn render_side_by_side_row(
     } else {
         None
     };
-    let new_background = if changed_pair
-        && row.new_text.is_some()
-        && row.kind != DiffLineKind::Del
+    let new_background = if changed_pair && row.new_text.is_some() && row.kind != DiffLineKind::Del
     {
         if row.old_text.is_some() {
             Some(colors.green.opacity(0.06))
@@ -772,10 +710,7 @@ fn side_cell(
                 .w(px(18.))
                 .flex_shrink_0()
                 .font_family(mono.clone())
-                .text_size(crate::theme::scaled_diff_text_size(
-                    12.,
-                    diff_font_size,
-                ))
+                .text_size(crate::theme::scaled_diff_text_size(12., diff_font_size))
                 .text_center()
                 .text_color(if new_side { colors.green } else { colors.red })
                 .child(SharedString::from(marker)),
@@ -861,8 +796,8 @@ fn code_cell(
         inline.unwrap_or(&[]),
         inline_color,
     );
-    let styled_text = StyledText::new(SharedString::from(text.to_string()))
-        .with_highlights(highlights);
+    let styled_text =
+        StyledText::new(SharedString::from(text.to_string())).with_highlights(highlights);
     div()
         .min_w_0()
         .flex_1()
@@ -899,10 +834,7 @@ fn merged_highlights(
         .filter_map(|window| {
             let start = window[0];
             let end = window[1];
-            if start >= end
-                || !text.is_char_boundary(start)
-                || !text.is_char_boundary(end)
-            {
+            if start >= end || !text.is_char_boundary(start) || !text.is_char_boundary(end) {
                 return None;
             }
             let mut style = syntax
@@ -964,8 +896,7 @@ mod tests {
 
     #[test]
     fn inline_ranges_skip_equal_prefix_and_suffix() {
-        let (old_ranges, new_ranges) =
-            inline_ranges("return old_value;", "return new_value;");
+        let (old_ranges, new_ranges) = inline_ranges("return old_value;", "return new_value;");
         assert_eq!(old_ranges, vec![7..10]);
         assert_eq!(new_ranges, vec![7..10]);
     }

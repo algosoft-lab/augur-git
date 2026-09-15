@@ -91,15 +91,11 @@ impl SettingDefinition {
 
     pub fn default_value(&self) -> SettingValue {
         match self {
-            Self::String { default, .. } => {
-                SettingValue::String(default.clone())
-            }
+            Self::String { default, .. } => SettingValue::String(default.clone()),
             Self::Integer { default, .. } => SettingValue::Integer(*default),
             Self::Boolean { default, .. } => SettingValue::Boolean(*default),
             Self::Time { default, .. } => SettingValue::Time(default.clone()),
-            Self::Select { default, .. } => {
-                SettingValue::Select(default.clone())
-            }
+            Self::Select { default, .. } => SettingValue::Select(default.clone()),
         }
     }
 
@@ -120,8 +116,7 @@ impl SettingDefinition {
                 if min.is_some_and(|minimum| *value < minimum)
                     || max.is_some_and(|maximum| *value > maximum)
                 {
-                    return Err("integer setting is outside its allowed range"
-                        .to_string());
+                    return Err("integer setting is outside its allowed range".to_string());
                 }
             }
             Self::Time { .. } => {
@@ -135,10 +130,7 @@ impl SettingDefinition {
                     unreachable!("select type was checked above")
                 };
                 if !options.iter().any(|option| option.value == *value) {
-                    return Err(
-                        "select setting value is not one of its options"
-                            .to_string(),
-                    );
+                    return Err("select setting value is not one of its options".to_string());
                 }
             }
             Self::String { .. } | Self::Boolean { .. } => {}
@@ -247,9 +239,8 @@ fn default_entrypoint() -> String {
 
 impl ExtensionManifest {
     pub fn parse(text: &str) -> Result<Self, ExtensionError> {
-        let manifest = toml::from_str::<Self>(text).map_err(|error| {
-            ExtensionError::InvalidManifest(error.to_string())
-        })?;
+        let manifest = toml::from_str::<Self>(text)
+            .map_err(|error| ExtensionError::InvalidManifest(error.to_string()))?;
         manifest.validate()?;
         Ok(manifest)
     }
@@ -260,9 +251,7 @@ impl ExtensionManifest {
             ExtensionError::InvalidManifest(format!("invalid version: {error}"))
         })?;
         if self.api_version != EXTENSION_API_VERSION {
-            return Err(ExtensionError::UnsupportedApiVersion(
-                self.api_version,
-            ));
+            return Err(ExtensionError::UnsupportedApiVersion(self.api_version));
         }
         validate_relative_lua_path(&self.entrypoint)?;
         if !self.entrypoint.ends_with(".lua") {
@@ -293,9 +282,7 @@ impl ExtensionManifest {
             definition
                 .validate_value(&definition.default_value())
                 .map_err(|error| {
-                    ExtensionError::InvalidManifest(format!(
-                        "setting {key}: {error}"
-                    ))
+                    ExtensionError::InvalidManifest(format!("setting {key}: {error}"))
                 })?;
         }
         let mut trigger_ids = HashSet::new();
@@ -440,9 +427,7 @@ fn validate_event_trigger(
             }
         }
         _ => {
-            if trigger.time_setting.is_some()
-                || trigger.interval_setting.is_some()
-            {
+            if trigger.time_setting.is_some() || trigger.interval_setting.is_some() {
                 return Err(ExtensionError::InvalidManifest(format!(
                     "repository trigger {} must not reference schedule settings",
                     trigger.id
@@ -460,11 +445,8 @@ fn validate_extension_id(id: &str) -> Result<(), ExtensionError> {
         ));
     }
     if !id.bytes().all(|byte| {
-        byte.is_ascii_lowercase()
-            || byte.is_ascii_digit()
-            || matches!(byte, b'.' | b'_' | b'-')
-    }) || !id.as_bytes()[0].is_ascii_lowercase()
-        && !id.as_bytes()[0].is_ascii_digit()
+        byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
+    }) || !id.as_bytes()[0].is_ascii_lowercase() && !id.as_bytes()[0].is_ascii_digit()
     {
         return Err(ExtensionError::InvalidManifest(
             "extension id must use lowercase ASCII letters, digits, '.', '_' or '-' and start with a letter or digit".to_string(),
@@ -479,15 +461,12 @@ fn validate_relative_lua_path(path: &str) -> Result<(), ExtensionError> {
         || candidate.components().any(|component| {
             matches!(
                 component,
-                Component::ParentDir
-                    | Component::RootDir
-                    | Component::Prefix(_)
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
             )
         })
     {
         return Err(ExtensionError::InvalidManifest(
-            "entrypoint must be a relative path inside the extension package"
-                .to_string(),
+            "entrypoint must be a relative path inside the extension package".to_string(),
         ));
     }
     Ok(())
@@ -509,17 +488,15 @@ impl fmt::Display for ExtensionError {
             Self::InvalidManifest(error) => {
                 write!(formatter, "invalid extension manifest: {error}")
             }
-            Self::UnsupportedApiVersion(version) => write!(
-                formatter,
-                "unsupported extension API version: {version}"
-            ),
-            Self::MissingFile(path) => write!(
-                formatter,
-                "extension package is missing {}",
-                path.display()
-            ),
-            Self::PackageTooLarge => formatter
-                .write_str("extension package exceeds the 100 MiB limit"),
+            Self::UnsupportedApiVersion(version) => {
+                write!(formatter, "unsupported extension API version: {version}")
+            }
+            Self::MissingFile(path) => {
+                write!(formatter, "extension package is missing {}", path.display())
+            }
+            Self::PackageTooLarge => {
+                formatter.write_str("extension package exceeds the 100 MiB limit")
+            }
             Self::SymlinkNotAllowed(path) => write!(
                 formatter,
                 "extension package contains a symlink: {}",
@@ -548,8 +525,7 @@ pub struct ExtensionPackage {
 pub fn extensions_root() -> Result<PathBuf, ExtensionError> {
     let base = dirs::data_local_dir().ok_or_else(|| {
         ExtensionError::Io(
-            "could not locate the platform local data directory for extensions"
-                .to_string(),
+            "could not locate the platform local data directory for extensions".to_string(),
         )
     })?;
     Ok(base.join("augur-git").join("extensions"))
@@ -573,15 +549,11 @@ pub fn discover_local_packages()
     }
     let mut entries = fs::read_dir(&root)
         .map_err(|error| {
-            ExtensionError::Io(format!(
-                "failed to read extension directory: {error}"
-            ))
+            ExtensionError::Io(format!("failed to read extension directory: {error}"))
         })?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| {
-            ExtensionError::Io(format!(
-                "failed to enumerate extension directory: {error}"
-            ))
+            ExtensionError::Io(format!("failed to enumerate extension directory: {error}"))
         })?;
     entries.sort_by_key(|entry| entry.file_name());
     Ok(entries
@@ -598,30 +570,24 @@ pub fn discover_local_packages()
 }
 
 /// Load and validate a package already present at `root`.
-pub fn load_local_package(
-    root: &Path,
-) -> Result<ExtensionPackage, ExtensionError> {
+pub fn load_local_package(root: &Path) -> Result<ExtensionPackage, ExtensionError> {
     let metadata = fs::symlink_metadata(root).map_err(|error| {
-        ExtensionError::Io(format!(
-            "failed to inspect extension package: {error}"
-        ))
+        ExtensionError::Io(format!("failed to inspect extension package: {error}"))
     })?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
         return Err(ExtensionError::SymlinkNotAllowed(root.to_path_buf()));
     }
     let manifest_path = root.join("manifest.toml");
-    let manifest_text =
-        fs::read_to_string(&manifest_path).map_err(|error| {
-            ExtensionError::Io(format!(
-                "failed to read {}: {error}",
-                manifest_path.display()
-            ))
-        })?;
+    let manifest_text = fs::read_to_string(&manifest_path).map_err(|error| {
+        ExtensionError::Io(format!(
+            "failed to read {}: {error}",
+            manifest_path.display()
+        ))
+    })?;
     let manifest = ExtensionManifest::parse(&manifest_text)?;
     let entrypoint = root.join(&manifest.entrypoint);
-    let entry_metadata = fs::symlink_metadata(&entrypoint).map_err(|_| {
-        ExtensionError::MissingFile(PathBuf::from(&manifest.entrypoint))
-    })?;
+    let entry_metadata = fs::symlink_metadata(&entrypoint)
+        .map_err(|_| ExtensionError::MissingFile(PathBuf::from(&manifest.entrypoint)))?;
     if !entry_metadata.is_file() || entry_metadata.file_type().is_symlink() {
         return Err(ExtensionError::MissingFile(PathBuf::from(
             &manifest.entrypoint,
@@ -661,9 +627,7 @@ pub fn uninstall_local_package(id: &str) -> Result<(), ExtensionError> {
         ));
     }
     fs::remove_dir_all(&destination).map_err(|error| {
-        ExtensionError::Io(format!(
-            "failed to uninstall extension package: {error}"
-        ))
+        ExtensionError::Io(format!("failed to uninstall extension package: {error}"))
     })
 }
 
@@ -677,9 +641,7 @@ fn fingerprint_directory(root: &Path) -> Result<String, ExtensionError> {
         hasher.update([0]);
         hasher.update(size.to_le_bytes());
         hasher.update(fs::read(&path).map_err(|error| {
-            ExtensionError::Io(format!(
-                "failed to hash extension package: {error}"
-            ))
+            ExtensionError::Io(format!("failed to hash extension package: {error}"))
         })?);
     }
     let digest = hasher.finalize();
@@ -702,15 +664,11 @@ fn collect_files(
     })?;
     for entry in entries {
         let entry = entry.map_err(|error| {
-            ExtensionError::Io(format!(
-                "failed to enumerate extension package: {error}"
-            ))
+            ExtensionError::Io(format!("failed to enumerate extension package: {error}"))
         })?;
         let path = entry.path();
         let metadata = fs::symlink_metadata(&path).map_err(|error| {
-            ExtensionError::Io(format!(
-                "failed to inspect extension package: {error}"
-            ))
+            ExtensionError::Io(format!("failed to inspect extension package: {error}"))
         })?;
         if metadata.file_type().is_symlink() {
             return Err(ExtensionError::SymlinkNotAllowed(path));
@@ -861,17 +819,13 @@ pub struct RepositoryRunRecord {
 
 /// Parse a daily local-time setting in `HH:MM` form.
 pub fn parse_daily_time(value: &str) -> Result<NaiveTime, String> {
-    NaiveTime::parse_from_str(value.trim(), "%H:%M").map_err(|_| {
-        "time setting must use HH:MM in the local 24-hour clock".to_string()
-    })
+    NaiveTime::parse_from_str(value.trim(), "%H:%M")
+        .map_err(|_| "time setting must use HH:MM in the local 24-hour clock".to_string())
 }
 
 /// Return the first valid local occurrence of a daily time after `after`.
 /// Non-existent DST times are skipped; ambiguous times use the earlier one.
-pub fn daily_occurrence(
-    date: chrono::NaiveDate,
-    time: NaiveTime,
-) -> Option<DateTime<Local>> {
+pub fn daily_occurrence(date: chrono::NaiveDate, time: NaiveTime) -> Option<DateTime<Local>> {
     match Local.from_local_datetime(&date.and_time(time)) {
         chrono::LocalResult::Single(value) => Some(value),
         chrono::LocalResult::Ambiguous(earlier, _) => Some(earlier),
@@ -1116,10 +1070,9 @@ handler = "run"
 
     #[test]
     fn migrates_legacy_enabled_to_existing_event_subscriptions() {
-        let settings: ExtensionSettings = serde_json::from_str(
-            r#"{"enabled":true,"trusted":true,"values":{}}"#,
-        )
-        .expect("legacy settings");
+        let settings: ExtensionSettings =
+            serde_json::from_str(r#"{"enabled":true,"trusted":true,"values":{}}"#)
+                .expect("legacy settings");
         let normalized = settings.normalized_for(&manifest());
         assert!(normalized.is_subscribed("daily"));
         let encoded = serde_json::to_string(&normalized).unwrap();
@@ -1142,11 +1095,7 @@ handler = "run"
         let time = now.time();
         let occurrence = daily_occurrence(date, time).unwrap();
         assert_eq!(
-            daily_occurrence_between(
-                occurrence - chrono::Duration::minutes(1),
-                occurrence,
-                time,
-            ),
+            daily_occurrence_between(occurrence - chrono::Duration::minutes(1), occurrence, time,),
             Some(occurrence)
         );
         assert!(should_fire_daily(

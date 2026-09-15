@@ -72,21 +72,13 @@ impl ExtensionStorage {
         Ok(self.root.join(format!("{extension_id}.json")))
     }
 
-    fn read(
-        &self,
-        extension_id: &str,
-    ) -> Result<BTreeMap<String, JsonValue>, String> {
+    fn read(&self, extension_id: &str) -> Result<BTreeMap<String, JsonValue>, String> {
         let path = self.path(extension_id)?;
         match fs::read_to_string(path) {
-            Ok(text) => serde_json::from_str(&text).map_err(|error| {
-                format!("extension storage is invalid: {error}")
-            }),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                Ok(BTreeMap::new())
-            }
-            Err(error) => {
-                Err(format!("failed to read extension storage: {error}"))
-            }
+            Ok(text) => serde_json::from_str(&text)
+                .map_err(|error| format!("extension storage is invalid: {error}")),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+            Err(error) => Err(format!("failed to read extension storage: {error}")),
         }
     }
 
@@ -96,17 +88,13 @@ impl ExtensionStorage {
         storage: &BTreeMap<String, JsonValue>,
     ) -> Result<(), String> {
         let path = self.path(extension_id)?;
-        fs::create_dir_all(&self.root).map_err(|error| {
-            format!("failed to create extension storage: {error}")
-        })?;
-        let text = serde_json::to_string_pretty(storage).map_err(|error| {
-            format!("failed to encode extension storage: {error}")
-        })?;
-        let temp =
-            path.with_extension(format!("json.tmp-{}", std::process::id()));
-        fs::write(&temp, text).map_err(|error| {
-            format!("failed to write extension storage: {error}")
-        })?;
+        fs::create_dir_all(&self.root)
+            .map_err(|error| format!("failed to create extension storage: {error}"))?;
+        let text = serde_json::to_string_pretty(storage)
+            .map_err(|error| format!("failed to encode extension storage: {error}"))?;
+        let temp = path.with_extension(format!("json.tmp-{}", std::process::id()));
+        fs::write(&temp, text)
+            .map_err(|error| format!("failed to write extension storage: {error}"))?;
         fs::rename(&temp, &path).map_err(|error| {
             let _ = fs::remove_file(&temp);
             format!("failed to replace extension storage: {error}")
@@ -118,9 +106,7 @@ fn validate_extension_id(id: &str) -> Result<(), String> {
     if id.is_empty()
         || id.len() > 64
         || !id.bytes().all(|byte| {
-            byte.is_ascii_lowercase()
-                || byte.is_ascii_digit()
-                || matches!(byte, b'.' | b'_' | b'-')
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
         })
         || !id.as_bytes()[0].is_ascii_alphanumeric()
     {
@@ -131,10 +117,7 @@ fn validate_extension_id(id: &str) -> Result<(), String> {
 
 fn validate_key(key: &str) -> Result<(), String> {
     if key.trim().is_empty() || key.chars().any(char::is_control) {
-        return Err(
-            "storage key must not be empty or contain control characters"
-                .into(),
-        );
+        return Err("storage key must not be empty or contain control characters".into());
     }
     Ok(())
 }

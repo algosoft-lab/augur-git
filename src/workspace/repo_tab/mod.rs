@@ -2,12 +2,9 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_component::v_flex;
 
-use crate::core::config::{
-    GraphHistoryPreference, LayoutSettings, LocationConfig,
-};
+use crate::core::config::{GraphHistoryPreference, LayoutSettings, LocationConfig};
 use crate::core::git::{
-    CheckoutTarget, GitError, GitRepo, LogScope, WorkingTreeAction,
-    WorkingTreeScope,
+    CheckoutTarget, GitError, GitRepo, LogScope, WorkingTreeAction, WorkingTreeScope,
 };
 use crate::core::i18n::{self, Locale};
 use crate::git::changes_panel::ChangesPanel;
@@ -233,24 +230,14 @@ impl RepoTab {
         let sidebar = cx.new(|cx| Sidebar::new(window, cx, locale));
         let graph = cx.new(|cx| GraphView::new(id, locale, window, cx));
         let toolbar = cx.new(|_cx| Toolbar::new(locale));
-        let commit =
-            cx.new(|cx| CommitPanel::new(window, cx, locale, commit_action));
+        let commit = cx.new(|cx| CommitPanel::new(window, cx, locale, commit_action));
         let changes = cx.new(|_cx| ChangesPanel::new(locale));
-        let bottom = cx.new(|_cx| {
-            BottomPanel::new(locale, diff_layout, layout.file_list_ratio)
-        });
-        let compare = branch_compare::new_view(
-            window,
-            cx,
-            locale,
-            diff_layout,
-            repo_path.clone(),
-        );
+        let bottom = cx.new(|_cx| BottomPanel::new(locale, diff_layout, layout.file_list_ratio));
+        let compare = branch_compare::new_view(window, cx, locale, diff_layout, repo_path.clone());
         branch_compare::subscribe(&compare, window, cx);
 
         subscriptions::wire(
-            &git_view, &sidebar, &toolbar, &graph, &commit, &changes, &bottom,
-            window, cx,
+            &git_view, &sidebar, &toolbar, &graph, &commit, &changes, &bottom, window, cx,
         );
 
         Self {
@@ -319,10 +306,7 @@ impl RepoTab {
 
     /// Refresh this tab after it becomes active through a tab switch.
     /// Returns whether a refresh was actually requested.
-    pub(super) fn refresh_on_tab_switch(
-        &mut self,
-        cx: &mut Context<Self>,
-    ) -> bool {
+    pub(super) fn refresh_on_tab_switch(&mut self, cx: &mut Context<Self>) -> bool {
         self.refresh_if_ready(cx)
     }
 
@@ -370,10 +354,7 @@ impl RepoTab {
     /// has been fully resolved in the index and is still waiting for its
     /// merge commit. Keep integration actions guarded until this probe sees
     /// that `MERGE_HEAD` has been removed.
-    pub(super) fn schedule_merge_state_probe(
-        &mut self,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn schedule_merge_state_probe(&mut self, cx: &mut Context<Self>) {
         if self.merge_state_probe_pending {
             return;
         }
@@ -385,9 +366,7 @@ impl RepoTab {
             Ok(repo) => repo,
             Err(_) => {
                 self.merge_state_probe_pending = false;
-                log::debug!(
-                    "[branch_ops] merge state probe unavailable before start"
-                );
+                log::debug!("[branch_ops] merge state probe unavailable before start");
                 return;
             }
         };
@@ -395,9 +374,7 @@ impl RepoTab {
         cx.spawn(async move |_, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move {
-                    crate::core::git::agent_operation::probe_merge_state(&repo)
-                })
+                .spawn(async move { crate::core::git::agent_operation::probe_merge_state(&repo) })
                 .await;
             let _ = entity.update(cx, |tab, cx| {
                 tab.finish_merge_state_probe(request_id, result, cx);
@@ -409,10 +386,7 @@ impl RepoTab {
     fn finish_merge_state_probe(
         &mut self,
         request_id: u64,
-        result: Result<
-            crate::core::git::agent_operation::AgentMergeProbe,
-            String,
-        >,
+        result: Result<crate::core::git::agent_operation::AgentMergeProbe, String>,
         cx: &mut Context<RepoTab>,
     ) {
         if request_id != self.merge_state_probe_request_id {
@@ -420,15 +394,11 @@ impl RepoTab {
         }
         self.merge_state_probe_pending = false;
         let Ok(probe) = result else {
-            log::debug!(
-                "[branch_ops] merge state probe unavailable; retaining conflict guard"
-            );
+            log::debug!("[branch_ops] merge state probe unavailable; retaining conflict guard");
             return;
         };
         let merge_in_progress = probe.merge_head.is_some();
-        let has_conflicts = probe.has_conflicts
-            || merge_in_progress
-            || probe.rebase_in_progress;
+        let has_conflicts = probe.has_conflicts || merge_in_progress || probe.rebase_in_progress;
         if self.has_unresolved_conflicts != has_conflicts {
             self.has_unresolved_conflicts = has_conflicts;
             self.sidebar.update(cx, |sidebar, cx| {
@@ -482,11 +452,7 @@ impl RepoTab {
         }
     }
 
-    pub(super) fn begin_agent_commit(
-        &mut self,
-        session_id: u64,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn begin_agent_commit(&mut self, session_id: u64, cx: &mut Context<Self>) {
         if self.agent_commit_session_id.is_some() {
             return;
         }
@@ -496,11 +462,7 @@ impl RepoTab {
         cx.notify();
     }
 
-    pub(super) fn begin_agent_merge(
-        &mut self,
-        session_id: u64,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn begin_agent_merge(&mut self, session_id: u64, cx: &mut Context<Self>) {
         if self.agent_merge_session_id.is_some() {
             return;
         }
@@ -565,9 +527,7 @@ impl RepoTab {
             super::agent_merge::AgentMergeOutcome::Cancelled => {
                 (i18n::text(self.locale, "agent-merge-cancelled"), false)
             }
-            super::agent_merge::AgentMergeOutcome::ExitedUnverified {
-                code,
-            } => (
+            super::agent_merge::AgentMergeOutcome::ExitedUnverified { code } => (
                 i18n::text_args(
                     self.locale,
                     "agent-merge-unverified",
@@ -587,11 +547,7 @@ impl RepoTab {
         cx.notify();
     }
 
-    pub(super) fn agent_merge_preflight_failed(
-        &mut self,
-        summary: String,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn agent_merge_preflight_failed(&mut self, summary: String, cx: &mut Context<Self>) {
         self.status_message = Some(i18n::text_args(
             self.locale,
             "agent-merge-preflight-failed",
@@ -601,11 +557,7 @@ impl RepoTab {
         cx.notify();
     }
 
-    pub(super) fn begin_agent_rebase(
-        &mut self,
-        session_id: u64,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn begin_agent_rebase(&mut self, session_id: u64, cx: &mut Context<Self>) {
         if self.agent_rebase_session_id.is_some() {
             return;
         }
@@ -664,9 +616,7 @@ impl RepoTab {
             AgentRebaseOutcome::Conflict => {
                 (i18n::text(self.locale, "agent-rebase-conflict"), false)
             }
-            AgentRebaseOutcome::Failed => {
-                (i18n::text(self.locale, "agent-rebase-failed"), false)
-            }
+            AgentRebaseOutcome::Failed => (i18n::text(self.locale, "agent-rebase-failed"), false),
             AgentRebaseOutcome::Cancelled => {
                 (i18n::text(self.locale, "agent-rebase-cancelled"), false)
             }
@@ -752,9 +702,7 @@ impl RepoTab {
             AgentCommitOutcome::Conflict => {
                 (i18n::text(self.locale, "agent-commit-conflict"), false)
             }
-            AgentCommitOutcome::Failed => {
-                (i18n::text(self.locale, "agent-commit-failed"), false)
-            }
+            AgentCommitOutcome::Failed => (i18n::text(self.locale, "agent-commit-failed"), false),
             AgentCommitOutcome::Cancelled => {
                 (i18n::text(self.locale, "agent-commit-cancelled"), false)
             }
@@ -787,8 +735,7 @@ impl RepoTab {
         if self.is_busy() {
             return;
         }
-        self.working_tree_operation_id =
-            self.working_tree_operation_id.wrapping_add(1).max(1);
+        self.working_tree_operation_id = self.working_tree_operation_id.wrapping_add(1).max(1);
         let request_id = self.working_tree_operation_id;
         log::info!(
             "[git_worktree] operation requested: request_id={}, action={}, scope={:?}",
@@ -803,11 +750,7 @@ impl RepoTab {
         cx.notify();
     }
 
-    fn start_checkout(
-        &mut self,
-        target: CheckoutTarget,
-        cx: &mut Context<Self>,
-    ) {
+    fn start_checkout(&mut self, target: CheckoutTarget, cx: &mut Context<Self>) {
         if self.is_busy() || self.has_unresolved_conflicts {
             return;
         }
@@ -826,11 +769,7 @@ impl RepoTab {
         cx.notify();
     }
 
-    fn start_copy_commit_message(
-        &mut self,
-        oid: String,
-        cx: &mut Context<Self>,
-    ) {
+    fn start_copy_commit_message(&mut self, oid: String, cx: &mut Context<Self>) {
         if self.is_busy() {
             return;
         }
@@ -840,14 +779,9 @@ impl RepoTab {
         self.set_operation_busy(true, cx);
     }
 
-    fn finish_copy_commit_message(
-        &mut self,
-        message: &str,
-        cx: &mut Context<Self>,
-    ) {
+    fn finish_copy_commit_message(&mut self, message: &str, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(message.to_string()));
-        self.status_message =
-            Some(i18n::text(self.locale, "context-copied-commit-message"));
+        self.status_message = Some(i18n::text(self.locale, "context-copied-commit-message"));
         self.status_message_ok = Some(true);
         cx.notify();
     }
@@ -896,12 +830,7 @@ impl RepoTab {
         self.log_scope = None;
     }
 
-    pub fn set_locale(
-        &mut self,
-        locale: Locale,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_locale(&mut self, locale: Locale, window: &mut Window, cx: &mut Context<Self>) {
         self.locale = locale;
         self.git_view.update(cx, |view, _| view.set_locale(locale));
         self.sidebar.update(cx, |sidebar, cx| {
@@ -927,11 +856,7 @@ impl RepoTab {
     }
 
     /// Apply the persisted diff layout chosen in the settings overlay.
-    pub fn set_diff_layout(
-        &mut self,
-        diff_layout: DiffLayoutMode,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_diff_layout(&mut self, diff_layout: DiffLayoutMode, cx: &mut Context<Self>) {
         self.bottom.update(cx, |bottom, cx| {
             bottom.set_diff_layout(diff_layout, cx);
         });
@@ -949,11 +874,7 @@ impl RepoTab {
     }
 
     /// Apply the globally shared commit action to this tab's commit panel.
-    pub fn set_commit_action(
-        &mut self,
-        action: CommitAction,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_commit_action(&mut self, action: CommitAction, cx: &mut Context<Self>) {
         self.commit
             .update(cx, |panel, cx| panel.set_action(action, cx));
     }
@@ -985,11 +906,7 @@ impl RepoTab {
             .update(cx, |view, _| view.set_log_scope(scope));
     }
 
-    pub fn set_layout(
-        &mut self,
-        mut layout: LayoutSettings,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_layout(&mut self, mut layout: LayoutSettings, cx: &mut Context<Self>) {
         layout.normalize();
         self.layout = layout.clone();
         self.bottom.update(cx, |bottom, cx| {
@@ -1021,9 +938,7 @@ impl RepoTab {
     /// Return the latest UI-known identity used to seed an extension trigger.
     /// The host refreshes the exact Git HEAD on its worker thread before the
     /// run starts, so this method never blocks the UI.
-    pub(super) fn extension_snapshot(
-        &self,
-    ) -> crate::extension::RepositorySnapshot {
+    pub(super) fn extension_snapshot(&self) -> crate::extension::RepositorySnapshot {
         crate::extension::RepositorySnapshot {
             tab_id: self.id,
             path: self.repo_path.clone(),
@@ -1050,11 +965,7 @@ fn short_oid(oid: &str) -> String {
 }
 
 impl Render for RepoTab {
-    fn render(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .id(SharedString::from(format!("repo-content-{}", self.id)))
             .relative()
@@ -1067,8 +978,7 @@ impl Render for RepoTab {
                 element.child(self.confirmation_overlay(cx))
             })
             .when(self.dialogs.pending.is_some(), |element| {
-                element
-                    .children(RepoTab::render_branch_dialog(self, window, cx))
+                element.children(RepoTab::render_branch_dialog(self, window, cx))
             })
     }
 }

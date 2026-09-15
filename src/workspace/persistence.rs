@@ -37,10 +37,7 @@ impl Workspace {
             .map(|tab| tab.key.clone());
     }
 
-    pub(super) fn persist_on_quit(
-        &mut self,
-        cx: &mut Context<Self>,
-    ) -> Task<()> {
+    pub(super) fn persist_on_quit(&mut self, cx: &mut Context<Self>) -> Task<()> {
         if let Some(manager) = &self.extension_manager {
             manager.shutdown();
         }
@@ -52,9 +49,7 @@ impl Workspace {
             if let Some(completed) = config_flush {
                 let _ = completed.recv();
             } else if let Err(error) = config::save(&config) {
-                log::error!(
-                    "[config] failed to save final configuration: {error}"
-                );
+                log::error!("[config] failed to save final configuration: {error}");
             }
             if let Err(error) = config::save_ui_state(&ui_state) {
                 log::error!("[ui_state] failed to save UI state: {error}");
@@ -82,8 +77,7 @@ pub(super) fn normalized_path(path: &str) -> String {
     // `std::fs::canonicalize` returns verbatim `\\?\C:\...` paths on
     // Windows; strip that prefix so repository paths display and persist in
     // their plain form.
-    let canonical =
-        std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     crate::core::paths::normalize_extended_path(&canonical)
         .to_string_lossy()
         .into_owned()
@@ -92,10 +86,7 @@ pub(super) fn normalized_path(path: &str) -> String {
 /// Canonical display/storage form for a requested repository path. Local
 /// paths are canonicalized; WSL paths live inside a distro filesystem, so
 /// they are only trimmed.
-pub(super) fn normalize_repo_path(
-    path: &str,
-    location: &LocationConfig,
-) -> String {
+pub(super) fn normalize_repo_path(path: &str, location: &LocationConfig) -> String {
     match location {
         LocationConfig::Local => normalized_path(path),
         LocationConfig::Wsl { .. } => path.trim().to_string(),
@@ -113,10 +104,7 @@ pub(super) fn repo_key(path: &str) -> String {
 /// Unique key for a repository tab, covering both local paths and
 /// location-qualified WSL repositories (`wsl|<distro>|<path>`; the distro is
 /// case-insensitive, the Linux path is not).
-pub(super) fn location_repo_key(
-    location: &LocationConfig,
-    path: &str,
-) -> String {
+pub(super) fn location_repo_key(location: &LocationConfig, path: &str) -> String {
     match location {
         LocationConfig::Local => repo_key(path),
         LocationConfig::Wsl { distro } => {
@@ -143,10 +131,7 @@ pub(super) fn installed_font_families(cx: &App) -> Vec<String> {
     families
 }
 
-pub(super) fn normalize_typography(
-    config: &mut AppConfig,
-    families: &[String],
-) {
+pub(super) fn normalize_typography(config: &mut AppConfig, families: &[String]) {
     for font in [
         &mut config.typography.ui_font_family,
         &mut config.typography.mono_font_family,
@@ -155,16 +140,12 @@ pub(super) fn normalize_typography(
             continue;
         };
         if !families.iter().any(|family| family == selected) {
-            log::warn!(
-                "[settings] configured font is unavailable; using system default"
-            );
+            log::warn!("[settings] configured font is unavailable; using system default");
             *font = None;
         }
     }
-    config.typography.ui_font_size =
-        normalized_ui_font_size(config.typography.ui_font_size);
-    config.typography.diff_font_size =
-        normalized_diff_font_size(config.typography.diff_font_size);
+    config.typography.ui_font_size = normalized_ui_font_size(config.typography.ui_font_size);
+    config.typography.diff_font_size = normalized_diff_font_size(config.typography.diff_font_size);
 }
 
 #[cfg(test)]

@@ -3,8 +3,7 @@
 //! Each function maps persisted preferences to localized list items.
 
 use crate::core::config::{
-    DiffLayoutPreference, GraphHistoryPreference, LanguagePreference,
-    ThemePreference,
+    DiffLayoutPreference, GraphHistoryPreference, LanguagePreference, ThemePreference,
 };
 use crate::core::i18n::{self, Locale};
 use gpui_component::IndexPath;
@@ -21,9 +20,7 @@ pub(super) fn selected_index<T: Clone + PartialEq>(
         .map(|index| IndexPath::default().row(index))
 }
 
-pub(super) fn language_options(
-    locale: Locale,
-) -> Vec<SettingsOption<LanguagePreference>> {
+pub(super) fn language_options(locale: Locale) -> Vec<SettingsOption<LanguagePreference>> {
     vec![
         SettingsOption::new(
             LanguagePreference::System,
@@ -40,9 +37,7 @@ pub(super) fn language_options(
     ]
 }
 
-pub(super) fn theme_options(
-    locale: Locale,
-) -> Vec<SettingsOption<ThemePreference>> {
+pub(super) fn theme_options(locale: Locale) -> Vec<SettingsOption<ThemePreference>> {
     vec![
         SettingsOption::new(
             ThemePreference::GitHubDark,
@@ -67,9 +62,7 @@ pub(super) fn theme_options(
     ]
 }
 
-pub(super) fn diff_layout_options(
-    locale: Locale,
-) -> Vec<SettingsOption<DiffLayoutPreference>> {
+pub(super) fn diff_layout_options(locale: Locale) -> Vec<SettingsOption<DiffLayoutPreference>> {
     vec![
         SettingsOption::new(
             DiffLayoutPreference::SideBySide,
@@ -82,9 +75,7 @@ pub(super) fn diff_layout_options(
     ]
 }
 
-pub(super) fn graph_history_options(
-    locale: Locale,
-) -> Vec<SettingsOption<GraphHistoryPreference>> {
+pub(super) fn graph_history_options(locale: Locale) -> Vec<SettingsOption<GraphHistoryPreference>> {
     vec![
         SettingsOption::new(
             GraphHistoryPreference::CurrentBranch,
@@ -97,9 +88,7 @@ pub(super) fn graph_history_options(
     ]
 }
 
-pub(super) fn auto_refresh_options(
-    locale: Locale,
-) -> Vec<SettingsOption<bool>> {
+pub(super) fn auto_refresh_options(locale: Locale) -> Vec<SettingsOption<bool>> {
     vec![
         SettingsOption::new(true, i18n::text(locale, "setting-enabled")),
         SettingsOption::new(false, i18n::text(locale, "setting-disabled")),

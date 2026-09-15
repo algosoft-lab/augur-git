@@ -92,11 +92,7 @@ impl Toolbar {
     }
 
     /// Synchronize Branch menu availability after repository status/ref refreshes.
-    pub fn set_branch_context(
-        &mut self,
-        ctx: BranchMenuContext,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_branch_context(&mut self, ctx: BranchMenuContext, cx: &mut Context<Self>) {
         if self.branch_ctx == ctx {
             return;
         }
@@ -104,12 +100,7 @@ impl Toolbar {
         cx.notify();
     }
 
-    pub fn set_ahead_behind(
-        &mut self,
-        ahead: usize,
-        behind: usize,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_ahead_behind(&mut self, ahead: usize, behind: usize, cx: &mut Context<Self>) {
         if self.ahead == ahead && self.behind == behind {
             return;
         }
@@ -126,11 +117,7 @@ impl Toolbar {
     }
 
     /// Synchronize whether unresolved merge conflicts block pull actions.
-    pub fn set_conflicts(
-        &mut self,
-        has_conflicts: bool,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_conflicts(&mut self, has_conflicts: bool, cx: &mut Context<Self>) {
         if self.has_conflicts != has_conflicts {
             self.has_conflicts = has_conflicts;
             cx.notify();
@@ -222,23 +209,16 @@ impl Toolbar {
                         .icon(lucide("git-branch-plus"))
                         .disabled(ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
-                            new_item.update(cx, |_t, cx| {
-                                cx.emit(ToolbarEvent::BranchNew)
-                            });
+                            new_item.update(cx, |_t, cx| cx.emit(ToolbarEvent::BranchNew));
                         }),
                 )
                 .item(
-                    PopupMenuItem::new(i18n::text(
-                        locale,
-                        "menu-branch-rename",
-                    ))
-                    .icon(lucide("pencil"))
-                    .disabled(!ctx.can_rename)
-                    .on_click(move |_e, _w, cx| {
-                        rename_item.update(cx, |_t, cx| {
-                            cx.emit(ToolbarEvent::BranchRename)
-                        });
-                    }),
+                    PopupMenuItem::new(i18n::text(locale, "menu-branch-rename"))
+                        .icon(lucide("pencil"))
+                        .disabled(!ctx.can_rename)
+                        .on_click(move |_e, _w, cx| {
+                            rename_item.update(cx, |_t, cx| cx.emit(ToolbarEvent::BranchRename));
+                        }),
                 )
                 .separator()
                 .item(
@@ -246,9 +226,7 @@ impl Toolbar {
                         .icon(lucide("archive"))
                         .disabled(!ctx.can_stash)
                         .on_click(move |_e, _w, cx| {
-                            stash_item.update(cx, |_t, cx| {
-                                cx.emit(ToolbarEvent::Stash)
-                            });
+                            stash_item.update(cx, |_t, cx| cx.emit(ToolbarEvent::Stash));
                         }),
                 )
                 .item(
@@ -256,9 +234,7 @@ impl Toolbar {
                         .icon(lucide("archive-restore"))
                         .disabled(ctx.stash_count == 0 || ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
-                            pop_item.update(cx, |_t, cx| {
-                                cx.emit(ToolbarEvent::StashPop)
-                            });
+                            pop_item.update(cx, |_t, cx| cx.emit(ToolbarEvent::StashPop));
                         }),
                 )
                 .separator()
@@ -267,9 +243,8 @@ impl Toolbar {
                         .icon(lucide("git-merge"))
                         .disabled(!ctx.can_integrate || ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
-                            merge_item.update(cx, |_t, cx| {
-                                cx.emit(ToolbarEvent::Merge { no_ff: false })
-                            });
+                            merge_item
+                                .update(cx, |_t, cx| cx.emit(ToolbarEvent::Merge { no_ff: false }));
                         }),
                 )
                 .item(
@@ -277,9 +252,8 @@ impl Toolbar {
                         .icon(lucide("git-merge"))
                         .disabled(!ctx.can_integrate || ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
-                            merge_ff_item.update(cx, |_t, cx| {
-                                cx.emit(ToolbarEvent::Merge { no_ff: true })
-                            });
+                            merge_ff_item
+                                .update(cx, |_t, cx| cx.emit(ToolbarEvent::Merge { no_ff: true }));
                         }),
                 )
                 .item(
@@ -287,9 +261,7 @@ impl Toolbar {
                         .icon(lucide("git-commit-horizontal"))
                         .disabled(!ctx.can_integrate || ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
-                            rebase_item.update(cx, |_t, cx| {
-                                cx.emit(ToolbarEvent::Rebase)
-                            });
+                            rebase_item.update(cx, |_t, cx| cx.emit(ToolbarEvent::Rebase));
                         }),
                 )
                 .separator()
@@ -298,9 +270,7 @@ impl Toolbar {
                         .icon(lucide("upload"))
                         .disabled(ctx.has_conflicts)
                         .on_click(move |_e, _w, cx| {
-                            apply_item.update(cx, |_t, cx| {
-                                cx.emit(ToolbarEvent::ApplyPatch)
-                            });
+                            apply_item.update(cx, |_t, cx| cx.emit(ToolbarEvent::ApplyPatch));
                         }),
                 )
             })
@@ -338,11 +308,7 @@ impl Toolbar {
 }
 
 impl Render for Toolbar {
-    fn render(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors.clone();
         let enabled = self.has_remote && !self.busy;
         let pull_enabled = enabled && !self.has_conflicts;

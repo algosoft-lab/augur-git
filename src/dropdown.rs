@@ -3,10 +3,9 @@
 use std::{cell::Cell, rc::Rc};
 
 use gpui::{
-    Anchor, App, Bounds, Context, DismissEvent, ElementId, Entity, Focusable,
-    InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point,
-    RenderOnce, Role, SharedString, StatefulInteractiveElement, Window,
-    anchored, deferred, div, point, px,
+    Anchor, App, Bounds, Context, DismissEvent, ElementId, Entity, Focusable, InteractiveElement,
+    IntoElement, MouseButton, ParentElement, Pixels, Point, RenderOnce, Role, SharedString,
+    StatefulInteractiveElement, Window, anchored, deferred, div, point, px,
 };
 use gpui_component::{Selectable, menu::PopupMenu, popover::PopoverState};
 
@@ -21,12 +20,7 @@ pub(crate) trait DropdownMenuExt:
 {
     fn dropdown_menu_below(
         self,
-        builder: impl Fn(
-            PopupMenu,
-            &mut Window,
-            &mut Context<PopupMenu>,
-        ) -> PopupMenu
-        + 'static,
+        builder: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
     ) -> DropdownMenuBelow<Self> {
         self.dropdown_menu_below_with_key("static".into(), builder)
     }
@@ -35,12 +29,7 @@ pub(crate) trait DropdownMenuExt:
     fn dropdown_menu_below_with_key(
         mut self,
         content_key: SharedString,
-        builder: impl Fn(
-            PopupMenu,
-            &mut Window,
-            &mut Context<PopupMenu>,
-        ) -> PopupMenu
-        + 'static,
+        builder: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
     ) -> DropdownMenuBelow<Self> {
         let id = self.interactivity().element_id.clone().unwrap_or(0.into());
         DropdownMenuBelow::new(id, self, content_key, builder)
@@ -67,9 +56,7 @@ pub(crate) struct DropdownMenuBelow<T: Selectable + IntoElement + 'static> {
     trigger: T,
     content_key: SharedString,
     deferred_priority: usize,
-    builder: Rc<
-        dyn Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu,
-    >,
+    builder: Rc<dyn Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu>,
 }
 
 impl<T> DropdownMenuBelow<T>
@@ -80,16 +67,10 @@ where
         id: ElementId,
         trigger: T,
         content_key: SharedString,
-        builder: impl Fn(
-            PopupMenu,
-            &mut Window,
-            &mut Context<PopupMenu>,
-        ) -> PopupMenu
-        + 'static,
+        builder: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
     ) -> Self {
         Self {
-            id: SharedString::from(format!("dropdown-menu-below:{id:?}"))
-                .into(),
+            id: SharedString::from(format!("dropdown-menu-below:{id:?}")).into(),
             trigger,
             content_key,
             deferred_priority: 1,
@@ -109,20 +90,16 @@ where
     T: Selectable + IntoElement + 'static,
 {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let state = window.use_keyed_state(
-            (self.id.clone(), "popover"),
-            cx,
-            |_, cx| PopoverState::new(false, cx),
-        );
-        let menu_state =
-            window.use_keyed_state((self.id.clone(), "menu"), cx, |_, _| {
-                DropdownMenuState::default()
-            });
+        let state = window.use_keyed_state((self.id.clone(), "popover"), cx, |_, cx| {
+            PopoverState::new(false, cx)
+        });
+        let menu_state = window.use_keyed_state((self.id.clone(), "menu"), cx, |_, _| {
+            DropdownMenuState::default()
+        });
 
         let open = state.read(cx).is_open();
         let focus_handle = state.read(cx).focus_handle(cx);
-        let trigger_bounds =
-            Rc::new(Cell::new(menu_state.read(cx).trigger_bounds));
+        let trigger_bounds = Rc::new(Cell::new(menu_state.read(cx).trigger_bounds));
         let parent_view_id = window.current_view();
         let trigger_selected = self.trigger.is_selected();
         let trigger = self
@@ -140,8 +117,8 @@ where
                     };
                     trigger_bounds.set(bounds);
                     let bounds_changed = menu_state.update(cx, |state, _| {
-                        let changed = !state.trigger_bounds_captured
-                            || state.trigger_bounds != bounds;
+                        let changed =
+                            !state.trigger_bounds_captured || state.trigger_bounds != bounds;
                         state.trigger_bounds = bounds;
                         state.trigger_bounds_captured = true;
                         changed
@@ -172,8 +149,7 @@ where
         let menu = match menu_state.read(cx).menu.clone() {
             Some(menu) => {
                 let content_changed =
-                    menu_state.read(cx).menu_content_key.as_ref()
-                        != Some(&self.content_key);
+                    menu_state.read(cx).menu_content_key.as_ref() != Some(&self.content_key);
                 if content_changed {
                     let builder = self.builder.clone();
                     let content_key = self.content_key.clone();
@@ -185,19 +161,15 @@ where
                     menu_state.update(cx, |state, _| {
                         state.menu_content_key = Some(content_key);
                     });
-                    log::debug!(
-                        "[dropdown] rebuilt menu content: id={:?}",
-                        self.id
-                    );
+                    log::debug!("[dropdown] rebuilt menu content: id={:?}", self.id);
                 }
                 menu
             }
             None => {
                 let builder = self.builder.clone();
-                let menu =
-                    PopupMenu::build(window, cx, move |menu, window, cx| {
-                        builder(menu, window, cx)
-                    });
+                let menu = PopupMenu::build(window, cx, move |menu, window, cx| {
+                    builder(menu, window, cx)
+                });
                 menu_state.update(cx, |state, _| {
                     state.menu = Some(menu.clone());
                     state.menu_content_key = Some(self.content_key.clone());
@@ -212,18 +184,12 @@ where
                 let popover_state = state.clone();
                 let menu_state_for_dismiss = menu_state.clone();
                 window
-                    .subscribe(
-                        &menu,
-                        cx,
-                        move |_, _: &DismissEvent, window, cx| {
-                            popover_state.update(cx, |state, cx| {
-                                state.dismiss(window, cx)
-                            });
-                            menu_state_for_dismiss.update(cx, |state, _| {
-                                state.menu = None;
-                            });
-                        },
-                    )
+                    .subscribe(&menu, cx, move |_, _: &DismissEvent, window, cx| {
+                        popover_state.update(cx, |state, cx| state.dismiss(window, cx));
+                        menu_state_for_dismiss.update(cx, |state, _| {
+                            state.menu = None;
+                        });
+                    })
                     .detach();
 
                 menu
@@ -237,9 +203,7 @@ where
             .tab_group()
             .track_focus(&focus_handle)
             .key_context("Popover")
-            .on_action(
-                window.listener_for(&state, PopoverState::on_action_cancel),
-            )
+            .on_action(window.listener_for(&state, PopoverState::on_action_cancel))
             // PopupMenu owns outside-click handling for the complete menu
             // hierarchy. Its parent-aware dismiss logic keeps a deferred
             // submenu alive until a menu item receives MouseUp and can fire
@@ -268,16 +232,11 @@ mod tests {
 
     use super::*;
     use gpui::{AppContext as _, Context, Render, Styled as _, canvas};
-    use gpui_component::{
-        Root, WindowExt, button::Button, h_flex, menu::PopupMenuItem, v_flex,
-    };
+    use gpui_component::{Root, WindowExt, button::Button, h_flex, menu::PopupMenuItem, v_flex};
 
     #[test]
     fn dropdown_anchor_starts_at_trigger_bottom_left() {
-        let bounds = Bounds::new(
-            point(px(100.), px(40.)),
-            gpui::size(px(180.), px(32.)),
-        );
+        let bounds = Bounds::new(point(px(100.), px(40.)), gpui::size(px(180.), px(32.)));
 
         assert_eq!(dropdown_anchor_point(bounds), point(px(100.), px(72.)),);
     }
@@ -287,11 +246,7 @@ mod tests {
     }
 
     impl Render for DropdownHarness {
-        fn render(
-            &mut self,
-            _: &mut Window,
-            _: &mut Context<Self>,
-        ) -> impl IntoElement {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
             let clicked = self.clicked.clone();
             v_flex().size_full().child(div().h(px(100.))).child(
                 Button::new("dropdown-test-trigger")
@@ -299,15 +254,13 @@ mod tests {
                     .debug_selector(|| "dropdown-test-button".into())
                     .dropdown_menu_below(move |menu, window, cx| {
                         let clicked_for_submenu = clicked.clone();
-                        let submenu =
-                            PopupMenu::build(window, cx, move |menu, _, _| {
-                                let clicked = clicked_for_submenu.clone();
-                                menu.item(
-                                    PopupMenuItem::new("Install").on_click(
-                                        move |_, _, _| clicked.set(true),
-                                    ),
-                                )
-                            });
+                        let submenu = PopupMenu::build(window, cx, move |menu, _, _| {
+                            let clicked = clicked_for_submenu.clone();
+                            menu.item(
+                                PopupMenuItem::new("Install")
+                                    .on_click(move |_, _, _| clicked.set(true)),
+                            )
+                        });
                         menu.item(PopupMenuItem::submenu("File", submenu))
                     }),
             )
@@ -323,21 +276,14 @@ mod tests {
     struct DialogHost;
 
     impl Render for DialogHost {
-        fn render(
-            &mut self,
-            window: &mut Window,
-            cx: &mut Context<Self>,
-        ) -> impl IntoElement {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             div()
                 .size_full()
                 .children(Root::render_dialog_layer(window, cx))
         }
     }
 
-    fn paint_probe(
-        order: Rc<RefCell<Vec<&'static str>>>,
-        label: &'static str,
-    ) -> impl IntoElement {
+    fn paint_probe(order: Rc<RefCell<Vec<&'static str>>>, label: &'static str) -> impl IntoElement {
         canvas(
             |_, _, _| (),
             move |_, _, _, _| order.borrow_mut().push(label),
@@ -346,11 +292,7 @@ mod tests {
     }
 
     impl Render for DynamicDropdownHarness {
-        fn render(
-            &mut self,
-            _: &mut Window,
-            _: &mut Context<Self>,
-        ) -> impl IntoElement {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
             let items = self.items.clone();
             let revision = self.revision;
             let clicked = self.clicked.clone();
@@ -361,18 +303,13 @@ mod tests {
                     .dropdown_menu_below_with_key(
                         SharedString::from(format!("dynamic:{revision}")),
                         move |menu, _, _| {
-                            items.iter().enumerate().fold(
-                                menu,
-                                |menu, (index, label)| {
-                                    let clicked = clicked.clone();
-                                    menu.item(
-                                        PopupMenuItem::new(label.clone())
-                                            .on_click(move |_, _, _| {
-                                                clicked.set(Some(index))
-                                            }),
-                                    )
-                                },
-                            )
+                            items.iter().enumerate().fold(menu, |menu, (index, label)| {
+                                let clicked = clicked.clone();
+                                menu.item(
+                                    PopupMenuItem::new(label.clone())
+                                        .on_click(move |_, _, _| clicked.set(Some(index))),
+                                )
+                            })
                         },
                     ),
             )
@@ -409,18 +346,15 @@ mod tests {
     }
 
     #[gpui::test]
-    fn dynamic_dropdown_rebuilds_and_clicks_new_item(
-        cx: &mut gpui::TestAppContext,
-    ) {
+    fn dynamic_dropdown_rebuilds_and_clicks_new_item(cx: &mut gpui::TestAppContext) {
         cx.update(gpui_component::init);
         let clicked = Rc::new(Cell::new(None));
         let clicked_for_view = clicked.clone();
-        let (view, cx) =
-            cx.add_window_view(move |_, _| DynamicDropdownHarness {
-                items: vec!["Ubuntu".into()],
-                revision: 1,
-                clicked: clicked_for_view.clone(),
-            });
+        let (view, cx) = cx.add_window_view(move |_, _| DynamicDropdownHarness {
+            items: vec!["Ubuntu".into()],
+            revision: 1,
+            clicked: clicked_for_view.clone(),
+        });
         cx.update(|window, cx| window.draw(cx).clear(cx));
 
         let button = cx
@@ -453,8 +387,7 @@ mod tests {
             "menu should grow after adding an item: initial={initial_menu:?}, updated={updated_menu:?}"
         );
 
-        let second_item =
-            point(updated_menu.center().x, updated_menu.bottom() - px(8.));
+        let second_item = point(updated_menu.center().x, updated_menu.bottom() - px(8.));
         cx.simulate_click(second_item, Default::default());
         for _ in 0..3 {
             cx.update(|window, cx| window.draw(cx).clear(cx));
@@ -468,9 +401,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn dialog_dropdown_paints_above_dialog_and_clicks_second_item(
-        cx: &mut gpui::TestAppContext,
-    ) {
+    fn dialog_dropdown_paints_above_dialog_and_clicks_second_item(cx: &mut gpui::TestAppContext) {
         cx.update(gpui_component::init);
 
         let paint_order = Rc::new(RefCell::new(Vec::new()));
@@ -493,31 +424,22 @@ mod tests {
                         .child(
                             Button::new("dialog-dropdown-test-trigger")
                                 .label("Ubuntu")
-                                .debug_selector(|| {
-                                    "dialog-dropdown-test-button".into()
-                                })
+                                .debug_selector(|| "dialog-dropdown-test-button".into())
                                 .dropdown_menu_below_with_key(
                                     SharedString::from("dialog-test"),
                                     move |menu, _, _| {
                                         let paint_order = paint_order.clone();
                                         let clicked = clicked.clone();
-                                        menu.item(PopupMenuItem::new("Ubuntu"))
-                                            .item(
-                                                PopupMenuItem::element(
-                                                    move |_, _| {
-                                                        h_flex()
-                                                            .child("archlinux")
-                                                            .child(paint_probe(
-                                                                paint_order
-                                                                    .clone(),
-                                                                "menu",
-                                                            ))
-                                                    },
-                                                )
-                                                .on_click(move |_, _, _| {
-                                                    clicked.set(Some(1));
-                                                }),
-                                            )
+                                        menu.item(PopupMenuItem::new("Ubuntu")).item(
+                                            PopupMenuItem::element(move |_, _| {
+                                                h_flex()
+                                                    .child("archlinux")
+                                                    .child(paint_probe(paint_order.clone(), "menu"))
+                                            })
+                                            .on_click(move |_, _, _| {
+                                                clicked.set(Some(1));
+                                            }),
+                                        )
                                     },
                                 )
                                 .deferred_priority(DIALOG_DROPDOWN_PRIORITY),
@@ -570,9 +492,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn dropdown_submenu_click_reaches_the_item_handler(
-        cx: &mut gpui::TestAppContext,
-    ) {
+    fn dropdown_submenu_click_reaches_the_item_handler(cx: &mut gpui::TestAppContext) {
         cx.update(gpui_component::init);
         let clicked = Rc::new(Cell::new(false));
         let clicked_for_view = clicked.clone();
@@ -598,8 +518,7 @@ mod tests {
         }
 
         // PopupMenu anchors a submenu to the right edge of its parent row.
-        let submenu_item =
-            point(menu.right() + px(32.), menu.origin.y + px(13.));
+        let submenu_item = point(menu.right() + px(32.), menu.origin.y + px(13.));
         cx.simulate_click(submenu_item, Default::default());
         for _ in 0..3 {
             cx.update(|window, cx| window.draw(cx).clear(cx));

@@ -8,8 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Local, Utc};
 use mlua::{
-    Function, HookTriggers, Lua, LuaSerdeExt, Table, UserData, UserDataMethods,
-    Value, VmState,
+    Function, HookTriggers, Lua, LuaSerdeExt, Table, UserData, UserDataMethods, Value, VmState,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -161,10 +160,7 @@ pub enum ExtensionRunAdmission {
 /// Implemented by Workspace. Calls are synchronous from Lua's perspective,
 /// but the implementation may wait for an asynchronous GPUI/Git operation.
 pub trait ExtensionHost: Send + Sync {
-    fn request(
-        &self,
-        request: ExtensionHostRequest,
-    ) -> Result<HostResponse, String>;
+    fn request(&self, request: ExtensionHostRequest) -> Result<HostResponse, String>;
 
     /// Reserve captured repositories for one run. Implementations can use
     /// this to serialize extension writes with one another; the default keeps
@@ -253,15 +249,9 @@ impl RuntimeState {
     fn invocation(&self) -> Result<ExtensionInvocation, mlua::Error> {
         self.invocation
             .lock()
-            .map_err(|_| {
-                mlua::Error::runtime("extension invocation state is poisoned")
-            })?
+            .map_err(|_| mlua::Error::runtime("extension invocation state is poisoned"))?
             .clone()
-            .ok_or_else(|| {
-                mlua::Error::runtime(
-                    "host API is unavailable outside an extension run",
-                )
-            })
+            .ok_or_else(|| mlua::Error::runtime("host API is unavailable outside an extension run"))
     }
 
     fn request(&self, request: HostRequest) -> mlua::Result<HostResponse> {
@@ -285,9 +275,10 @@ impl RuntimeState {
     }
 
     fn cancellation_hook(&self) -> mlua::Result<VmState> {
-        let invocation = self.invocation.lock().map_err(|_| {
-            mlua::Error::runtime("extension invocation state is poisoned")
-        })?;
+        let invocation = self
+            .invocation
+            .lock()
+            .map_err(|_| mlua::Error::runtime("extension invocation state is poisoned"))?;
         // Package initialization runs before a run context exists. The hook
         // still protects every handler invocation, but must not reject a
         // long module load merely because there is no active cancellation
@@ -357,25 +348,20 @@ impl ExtensionRuntime {
         handler: &str,
     ) -> Result<JsonValue, ExtensionRuntimeError> {
         if !self.has_handler(handler) {
-            return Err(ExtensionRuntimeError::MissingHandler(
-                handler.to_string(),
-            ));
+            return Err(ExtensionRuntimeError::MissingHandler(handler.to_string()));
         }
         self.state.set_invocation(invocation);
         let result = (|| {
-            let function =
-                self.handlers.get::<Function>(handler).map_err(|error| {
-                    ExtensionRuntimeError::Lua(error.to_string())
-                })?;
+            let function = self
+                .handlers
+                .get::<Function>(handler)
+                .map_err(|error| ExtensionRuntimeError::Lua(error.to_string()))?;
             let context = create_context(&self.lua, self.state.clone())
-                .map_err(|error| {
-                    ExtensionRuntimeError::Lua(error.to_string())
-                })?;
-            let value = function.call::<Value>(context).map_err(|error| {
-                ExtensionRuntimeError::Lua(error.to_string())
-            })?;
-            value_to_json(&value)
-                .map_err(|error| ExtensionRuntimeError::Lua(error.to_string()))
+                .map_err(|error| ExtensionRuntimeError::Lua(error.to_string()))?;
+            let value = function
+                .call::<Value>(context)
+                .map_err(|error| ExtensionRuntimeError::Lua(error.to_string()))?;
+            value_to_json(&value).map_err(|error| ExtensionRuntimeError::Lua(error.to_string()))
         })();
         self.state.clear_invocation();
         result
@@ -405,10 +391,7 @@ impl fmt::Display for ExtensionRuntimeError {
 
 impl std::error::Error for ExtensionRuntimeError {}
 
-fn install_package_paths(
-    lua: &Lua,
-    package_root: Option<PathBuf>,
-) -> mlua::Result<()> {
+fn install_package_paths(lua: &Lua, package_root: Option<PathBuf>) -> mlua::Result<()> {
     let Some(root) = package_root else {
         return Ok(());
     };
@@ -455,23 +438,30 @@ fn install_api(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<()> {
     augur.set("system", system)?;
 
     let log_state = state.clone();
-    augur.set("log", lua.create_function(move |_, (level, message, fields): (String, String, Option<Table>)| {
-        let fields = fields
-            .map(|table| table_to_json(&table))
-            .transpose()?
-            .unwrap_or(JsonValue::Object(serde_json::Map::new()));
-        let _ = log_state.request(HostRequest::Log { level, message, fields })?;
-        Ok(())
-    })?)?;
+    augur.set(
+        "log",
+        lua.create_function(
+            move |_, (level, message, fields): (String, String, Option<Table>)| {
+                let fields = fields
+                    .map(|table| table_to_json(&table))
+                    .transpose()?
+                    .unwrap_or(JsonValue::Object(serde_json::Map::new()));
+                let _ = log_state.request(HostRequest::Log {
+                    level,
+                    message,
+                    fields,
+                })?;
+                Ok(())
+            },
+        )?,
+    )?;
 
     let file_log_state = state.clone();
     augur.set(
         "log_file",
         lua.create_function(move |lua, (path, content): (String, String)| {
             if path.trim().is_empty() {
-                return Err(mlua::Error::runtime(
-                    "extension log path must not be empty",
-                ));
+                return Err(mlua::Error::runtime("extension log path must not be empty"));
             }
             if path.as_bytes().contains(&0) {
                 return Err(mlua::Error::runtime(
@@ -479,9 +469,7 @@ fn install_api(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<()> {
                 ));
             }
             if !Path::new(&path).is_absolute() {
-                return Err(mlua::Error::runtime(
-                    "extension log path must be absolute",
-                ));
+                return Err(mlua::Error::runtime("extension log path must be absolute"));
             }
             if content.len() > MAX_EXTENSION_LOG_ENTRY_BYTES {
                 return Err(mlua::Error::runtime(format!(
@@ -490,10 +478,7 @@ fn install_api(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<()> {
             }
             response_to_lua(
                 lua,
-                file_log_state.request(HostRequest::LogFileAppend {
-                    path,
-                    content,
-                })?,
+                file_log_state.request(HostRequest::LogFileAppend { path, content })?,
             )
         })?,
     )?;
@@ -501,16 +486,10 @@ fn install_api(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<()> {
     let notify_state = state.clone();
     augur.set(
         "notify",
-        lua.create_function(
-            move |_, (level, title, body): (String, String, String)| {
-                let _ = notify_state.request(HostRequest::Notify {
-                    level,
-                    title,
-                    body,
-                })?;
-                Ok(())
-            },
-        )?,
+        lua.create_function(move |_, (level, title, body): (String, String, String)| {
+            let _ = notify_state.request(HostRequest::Notify { level, title, body })?;
+            Ok(())
+        })?,
     )?;
 
     let storage = lua.create_table()?;
@@ -518,10 +497,7 @@ fn install_api(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<()> {
     storage.set(
         "get",
         lua.create_function(move |lua, key: Option<String>| {
-            response_to_lua(
-                lua,
-                get_state.request(HostRequest::StorageGet(key))?,
-            )
+            response_to_lua(lua, get_state.request(HostRequest::StorageGet(key))?)
         })?,
     )?;
     let set_state = state.clone();
@@ -529,13 +505,10 @@ fn install_api(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<()> {
         "set",
         lua.create_function(move |_, (key, value): (String, Value)| {
             if key.trim().is_empty() {
-                return Err(mlua::Error::runtime(
-                    "storage key must not be empty",
-                ));
+                return Err(mlua::Error::runtime("storage key must not be empty"));
             }
             let value = value_to_json(&value)?;
-            let _ =
-                set_state.request(HostRequest::StorageSet { key, value })?;
+            let _ = set_state.request(HostRequest::StorageSet { key, value })?;
             Ok(())
         })?,
     )?;
@@ -554,8 +527,7 @@ fn install_api(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<()> {
     workspace.set(
         "repository_tabs",
         lua.create_function(move |lua, ()| {
-            let response = workspace_state
-                .request(HostRequest::WorkspaceRepositoryTabs)?;
+            let response = workspace_state.request(HostRequest::WorkspaceRepositoryTabs)?;
             repository_response_to_lua(lua, response, workspace_state.clone())
         })?,
     )?;
@@ -563,21 +535,35 @@ fn install_api(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<()> {
 
     let agent = lua.create_table()?;
     let agent_state = state.clone();
-    agent.set("prompt", lua.create_function(move |lua, (repository, options): (Option<mlua::AnyUserData>, Table)| {
-        let repository = repository
-            .map(|value| value.borrow::<LuaRepository>().map(|repo| repo.snapshot.tab_id))
-            .transpose()?;
-        let prompt: String = options.get("prompt")?;
-        if prompt.trim().is_empty() {
-            return Err(mlua::Error::runtime("agent prompt must not be empty"));
-        }
-        let timeout_seconds = options.get::<Option<u64>>("timeout_seconds")?.unwrap_or(1800);
-        let response = agent_state.request(HostRequest::AgentPrompt(AgentRequest {
-            repository,
-            options: AgentPromptOptions { prompt, timeout_seconds },
-        }))?;
-        response_to_lua(lua, response)
-    })?)?;
+    agent.set(
+        "prompt",
+        lua.create_function(
+            move |lua, (repository, options): (Option<mlua::AnyUserData>, Table)| {
+                let repository = repository
+                    .map(|value| {
+                        value
+                            .borrow::<LuaRepository>()
+                            .map(|repo| repo.snapshot.tab_id)
+                    })
+                    .transpose()?;
+                let prompt: String = options.get("prompt")?;
+                if prompt.trim().is_empty() {
+                    return Err(mlua::Error::runtime("agent prompt must not be empty"));
+                }
+                let timeout_seconds = options
+                    .get::<Option<u64>>("timeout_seconds")?
+                    .unwrap_or(1800);
+                let response = agent_state.request(HostRequest::AgentPrompt(AgentRequest {
+                    repository,
+                    options: AgentPromptOptions {
+                        prompt,
+                        timeout_seconds,
+                    },
+                }))?;
+                response_to_lua(lua, response)
+            },
+        )?,
+    )?;
     augur.set("agent", agent)?;
 
     let package: Table = lua.globals().get("package")?;
@@ -643,9 +629,7 @@ fn create_context(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<Table> {
     read_only.set(
         "__newindex",
         lua.create_function(
-            |_,
-             (_table, _key, _value): (Table, Value, Value)|
-             -> mlua::Result<()> {
+            |_, (_table, _key, _value): (Table, Value, Value)| -> mlua::Result<()> {
                 Err(mlua::Error::runtime("extension settings are read-only"))
             },
         )?,
@@ -665,15 +649,11 @@ fn create_context(lua: &Lua, state: Arc<RuntimeState>) -> mlua::Result<Table> {
     context.set("repositories", repositories)?;
     let events = lua.create_table()?;
     for (index, event) in invocation.events.iter().enumerate() {
-        events.raw_set(
-            index + 1,
-            event_payload_to_lua(lua, state.clone(), event)?,
-        )?;
+        events.raw_set(index + 1, event_payload_to_lua(lua, state.clone(), event)?)?;
     }
     context.set("events", readonly_table(lua, events)?)?;
     if let Some(event) = invocation.events.first() {
-        context
-            .set("event", event_payload_to_lua(lua, state.clone(), event)?)?;
+        context.set("event", event_payload_to_lua(lua, state.clone(), event)?)?;
     } else {
         context.set("event", Value::Nil)?;
     }
@@ -701,8 +681,7 @@ fn event_payload_to_lua(
             "repository_snapshot",
             readonly_json_to_lua(
                 lua,
-                serde_json::to_value(repository)
-                    .map_err(mlua::Error::external)?,
+                serde_json::to_value(repository).map_err(mlua::Error::external)?,
             )?,
         )?;
         if event.event_type != "workspace.repository_closed" {
@@ -763,19 +742,13 @@ fn readonly_table(lua: &Lua, values: Table) -> mlua::Result<Table> {
     let length_values = values.clone();
     metatable.set(
         "__len",
-        lua.create_function(move |_, _table: Table| {
-            Ok(length_values.raw_len())
-        })?,
+        lua.create_function(move |_, _table: Table| Ok(length_values.raw_len()))?,
     )?;
     metatable.set(
         "__newindex",
-        lua.create_function(
-            |_, (_table, _key, _value): (Table, Value, Value)| {
-                Err::<(), _>(mlua::Error::runtime(
-                    "event payloads are read-only",
-                ))
-            },
-        )?,
+        lua.create_function(|_, (_table, _key, _value): (Table, Value, Value)| {
+            Err::<(), _>(mlua::Error::runtime("event payloads are read-only"))
+        })?,
     )?;
     metatable.set("__metatable", "readonly")?;
     proxy.set_metatable(Some(metatable))?;
@@ -815,8 +788,7 @@ impl UserData for LuaRepository {
         methods.add_method("snapshot", |lua, repository, ()| {
             json_to_lua(
                 lua,
-                serde_json::to_value(&repository.snapshot)
-                    .map_err(mlua::Error::external)?,
+                serde_json::to_value(&repository.snapshot).map_err(mlua::Error::external)?,
             )
         });
         methods.add_method("path", |_, repository, ()| {
@@ -841,21 +813,14 @@ impl UserData for LuaRepository {
             |lua, repository, options: Option<Table>| {
                 let timeout_seconds = options
                     .as_ref()
-                    .and_then(|table| {
-                        table
-                            .get::<Option<u64>>("timeout_seconds")
-                            .ok()
-                            .flatten()
-                    })
+                    .and_then(|table| table.get::<Option<u64>>("timeout_seconds").ok().flatten())
                     .unwrap_or(5 * 60)
                     .clamp(1, 5 * 60);
                 response_to_lua(
                     lua,
                     repository.state.request(HostRequest::Repository {
                         tab_id: repository.snapshot.tab_id,
-                        operation: RepositoryOperation::WaitUntilReady {
-                            timeout_seconds,
-                        },
+                        operation: RepositoryOperation::WaitUntilReady { timeout_seconds },
                         expected_branch: repository.snapshot.branch.clone(),
                         expected_head: repository.snapshot.head.clone(),
                     })?,
@@ -873,18 +838,11 @@ impl UserData for LuaRepository {
                 }
                 let label = options
                     .as_ref()
-                    .and_then(|table| {
-                        table.get::<Option<String>>("label").ok().flatten()
-                    })
+                    .and_then(|table| table.get::<Option<String>>("label").ok().flatten())
                     .unwrap_or_else(|| args.join(" "));
                 let timeout_seconds = options
                     .as_ref()
-                    .and_then(|table| {
-                        table
-                            .get::<Option<u64>>("timeout_seconds")
-                            .ok()
-                            .flatten()
-                    })
+                    .and_then(|table| table.get::<Option<u64>>("timeout_seconds").ok().flatten())
                     .unwrap_or(1800);
                 response_to_lua(
                     lua,
@@ -912,43 +870,37 @@ impl UserData for LuaRepository {
                 })?,
             )
         });
-        methods.add_method(
-            "push",
-            |lua, repository, options: Option<Table>| {
-                let remote = options.as_ref().and_then(|table| {
-                    table.get::<Option<String>>("remote").ok().flatten()
-                });
-                let branch = options.as_ref().and_then(|table| {
-                    table.get::<Option<String>>("branch").ok().flatten()
-                });
-                response_to_lua(
-                    lua,
-                    repository.state.request(HostRequest::Repository {
-                        tab_id: repository.snapshot.tab_id,
-                        operation: RepositoryOperation::Push { remote, branch },
-                        expected_branch: repository.snapshot.branch.clone(),
-                        expected_head: repository.snapshot.head.clone(),
-                    })?,
-                )
-            },
-        );
-        methods.add_method(
-            "agent_commit",
-            |lua, repository, options: Option<Table>| {
-                let hint = options.as_ref().and_then(|table| {
-                    table.get::<Option<String>>("hint").ok().flatten()
-                });
-                response_to_lua(
-                    lua,
-                    repository.state.request(HostRequest::Repository {
-                        tab_id: repository.snapshot.tab_id,
-                        operation: RepositoryOperation::AgentCommit { hint },
-                        expected_branch: repository.snapshot.branch.clone(),
-                        expected_head: repository.snapshot.head.clone(),
-                    })?,
-                )
-            },
-        );
+        methods.add_method("push", |lua, repository, options: Option<Table>| {
+            let remote = options
+                .as_ref()
+                .and_then(|table| table.get::<Option<String>>("remote").ok().flatten());
+            let branch = options
+                .as_ref()
+                .and_then(|table| table.get::<Option<String>>("branch").ok().flatten());
+            response_to_lua(
+                lua,
+                repository.state.request(HostRequest::Repository {
+                    tab_id: repository.snapshot.tab_id,
+                    operation: RepositoryOperation::Push { remote, branch },
+                    expected_branch: repository.snapshot.branch.clone(),
+                    expected_head: repository.snapshot.head.clone(),
+                })?,
+            )
+        });
+        methods.add_method("agent_commit", |lua, repository, options: Option<Table>| {
+            let hint = options
+                .as_ref()
+                .and_then(|table| table.get::<Option<String>>("hint").ok().flatten());
+            response_to_lua(
+                lua,
+                repository.state.request(HostRequest::Repository {
+                    tab_id: repository.snapshot.tab_id,
+                    operation: RepositoryOperation::AgentCommit { hint },
+                    expected_branch: repository.snapshot.branch.clone(),
+                    expected_head: repository.snapshot.head.clone(),
+                })?,
+            )
+        });
         methods.add_method("agent_merge", |lua, repository, source: String| {
             response_to_lua(
                 lua,
@@ -971,20 +923,17 @@ impl UserData for LuaRepository {
                 })?,
             )
         });
-        methods.add_method(
-            "agent_rebase",
-            |lua, repository, source: String| {
-                response_to_lua(
-                    lua,
-                    repository.state.request(HostRequest::Repository {
-                        tab_id: repository.snapshot.tab_id,
-                        operation: RepositoryOperation::AgentRebase { source },
-                        expected_branch: repository.snapshot.branch.clone(),
-                        expected_head: repository.snapshot.head.clone(),
-                    })?,
-                )
-            },
-        );
+        methods.add_method("agent_rebase", |lua, repository, source: String| {
+            response_to_lua(
+                lua,
+                repository.state.request(HostRequest::Repository {
+                    tab_id: repository.snapshot.tab_id,
+                    operation: RepositoryOperation::AgentRebase { source },
+                    expected_branch: repository.snapshot.branch.clone(),
+                    expected_head: repository.snapshot.head.clone(),
+                })?,
+            )
+        });
         methods.add_method("rebase", |lua, repository, source: String| {
             response_to_lua(
                 lua,
@@ -1028,8 +977,7 @@ fn repository_response_to_lua(
 ) -> mlua::Result<Value> {
     match response {
         HostResponse::Json(value) => {
-            if let Ok(snapshots) =
-                serde_json::from_value::<Vec<RepositorySnapshot>>(value.clone())
+            if let Ok(snapshots) = serde_json::from_value::<Vec<RepositorySnapshot>>(value.clone())
             {
                 let table = lua.create_table()?;
                 for (index, snapshot) in snapshots.into_iter().enumerate() {
@@ -1073,9 +1021,7 @@ fn json_to_lua(lua: &Lua, value: JsonValue) -> mlua::Result<Value> {
 
 fn setting_to_lua(lua: &Lua, value: &SettingValue) -> mlua::Result<Value> {
     match value {
-        SettingValue::String(value)
-        | SettingValue::Time(value)
-        | SettingValue::Select(value) => {
+        SettingValue::String(value) | SettingValue::Time(value) | SettingValue::Select(value) => {
             Ok(Value::String(lua.create_string(value)?))
         }
         SettingValue::Integer(value) => Ok(Value::Integer(*value)),
@@ -1099,12 +1045,8 @@ fn value_to_json(value: &Value) -> mlua::Result<JsonValue> {
         Value::Integer(value) => Ok(JsonValue::Number((*value).into())),
         Value::Number(value) => serde_json::Number::from_f64(*value)
             .map(JsonValue::Number)
-            .ok_or_else(|| {
-                mlua::Error::runtime("cannot store a non-finite number")
-            }),
-        Value::String(value) => {
-            Ok(JsonValue::String(value.to_str()?.to_string()))
-        }
+            .ok_or_else(|| mlua::Error::runtime("cannot store a non-finite number")),
+        Value::String(value) => Ok(JsonValue::String(value.to_str()?.to_string())),
         Value::Table(table) => {
             let mut object = serde_json::Map::new();
             let mut array = Vec::new();
@@ -1155,10 +1097,7 @@ mod tests {
     }
 
     impl ExtensionHost for FakeHost {
-        fn request(
-            &self,
-            request: ExtensionHostRequest,
-        ) -> Result<HostResponse, String> {
+        fn request(&self, request: ExtensionHostRequest) -> Result<HostResponse, String> {
             let response = match &request.request {
                 HostRequest::StorageSet { .. }
                 | HostRequest::Log { .. }
@@ -1171,9 +1110,7 @@ mod tests {
                         "bytes_written": content.len(),
                     }))
                 }
-                HostRequest::TimeNow => {
-                    HostResponse::Json(serde_json::json!({ "unix_ms": 1 }))
-                }
+                HostRequest::TimeNow => HostResponse::Json(serde_json::json!({ "unix_ms": 1 })),
                 HostRequest::Repository {
                     operation: RepositoryOperation::Status,
                     ..
@@ -1292,10 +1229,7 @@ mod tests {
             result.get("operation_type").and_then(JsonValue::as_str),
             Some("nil")
         );
-        assert_eq!(
-            result.get("operation_is_nil"),
-            Some(&JsonValue::Bool(true))
-        );
+        assert_eq!(result.get("operation_is_nil"), Some(&JsonValue::Bool(true)));
         assert_eq!(result.get("head_is_nil"), Some(&JsonValue::Bool(true)));
         assert_eq!(
             result.get("branch").and_then(JsonValue::as_str),
@@ -1411,13 +1345,8 @@ mod tests {
             "#,
             path = path,
         );
-        let runtime = ExtensionRuntime::load(
-            "test-extension".into(),
-            &source,
-            None,
-            host.clone(),
-        )
-        .expect("runtime should load");
+        let runtime = ExtensionRuntime::load("test-extension".into(), &source, None, host.clone())
+            .expect("runtime should load");
         runtime
             .run(invocation(), "on_run")
             .expect("file log should complete");

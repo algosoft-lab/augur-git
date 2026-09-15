@@ -69,9 +69,7 @@ pub(crate) fn normalize_combo(combo: &str) -> Option<String> {
 /// Parse the settings-page text form of a command's keys: comma-separated
 /// combinations. Invalid combinations are reported back to the UI instead of
 /// being bound.
-pub(crate) fn parse_combo_list(
-    text: &str,
-) -> Result<Vec<String>, InvalidCombo> {
+pub(crate) fn parse_combo_list(text: &str) -> Result<Vec<String>, InvalidCombo> {
     let mut combos = Vec::new();
     for part in text.split(',') {
         let part = part.trim();
@@ -118,19 +116,12 @@ fn install_with(cx: &mut App, system: ShortcutFile, user: ShortcutFile) {
 }
 
 /// Override one command's keys, persist the user file, and re-apply.
-pub(crate) fn set_shortcut(
-    cx: &mut App,
-    command: &str,
-    keys: Vec<String>,
-) -> anyhow::Result<()> {
+pub(crate) fn set_shortcut(cx: &mut App, command: &str, keys: Vec<String>) -> anyhow::Result<()> {
     update_user_bindings(cx, command, Some(keys))
 }
 
 /// Remove one command's user override, restoring system defaults.
-pub(crate) fn reset_shortcut(
-    cx: &mut App,
-    command: &str,
-) -> anyhow::Result<()> {
+pub(crate) fn reset_shortcut(cx: &mut App, command: &str) -> anyhow::Result<()> {
     update_user_bindings(cx, command, None)
 }
 
@@ -143,8 +134,7 @@ fn update_user_bindings(
         log::warn!("[keymap] ignored override for unknown command");
         return Ok(());
     }
-    let (system, mut user, old_resolved) = match cx.try_global::<KeymapState>()
-    {
+    let (system, mut user, old_resolved) = match cx.try_global::<KeymapState>() {
         Some(state) => (
             state.system.clone(),
             state.user.clone(),
@@ -185,11 +175,7 @@ fn owner_map(resolved: &[ResolvedShortcut]) -> HashMap<String, String> {
 /// reassigned combinations get a `NoAction` marker first (shadowing older
 /// bindings), then newly assigned combinations bind their action (beating any
 /// preceding `NoAction`).
-fn apply_diff(
-    cx: &mut App,
-    previous: &[ResolvedShortcut],
-    next: &[ResolvedShortcut],
-) {
+fn apply_diff(cx: &mut App, previous: &[ResolvedShortcut], next: &[ResolvedShortcut]) {
     let previous_map = owner_map(previous);
     let next_map = owner_map(next);
     for (combo, command) in &previous_map {
@@ -237,8 +223,7 @@ pub(crate) fn default_keys(cx: &App, command: &str) -> Vec<String> {
         Some(state) => state.system.clone(),
         None => keymap::system_defaults(),
     };
-    let resolved =
-        keymap::resolve(&system, &ShortcutFile::default(), &command_ids());
+    let resolved = keymap::resolve(&system, &ShortcutFile::default(), &command_ids());
     resolved
         .into_iter()
         .find(|shortcut| shortcut.command == command)
@@ -250,9 +235,11 @@ pub(crate) fn default_keys(cx: &App, command: &str) -> Vec<String> {
 pub(crate) fn is_overridden(cx: &App, command: &str) -> bool {
     let platform = std::env::consts::OS;
     cx.try_global::<KeymapState>().is_some_and(|state| {
-        state.user.bindings.iter().any(|binding| {
-            binding.command == command && binding.matches_platform(platform)
-        })
+        state
+            .user
+            .bindings
+            .iter()
+            .any(|binding| binding.command == command && binding.matches_platform(platform))
     })
 }
 
@@ -295,11 +282,7 @@ mod tests {
             cx.on_action(move |_: &app_menu::Quit, _cx| {
                 counter.set(counter.get() + 1);
             });
-            install_with(
-                cx,
-                keymap::system_defaults(),
-                ShortcutFile::default(),
-            );
+            install_with(cx, keymap::system_defaults(), ShortcutFile::default());
         });
         let combo = {
             let keys = cx.read(|cx| resolved_keys(cx, QUIT_COMMAND));
@@ -346,21 +329,13 @@ mod tests {
         // Unbinding suppresses the live combination; restoring rebinds it
         // after the suppressor so a stale duplicate cannot fire twice.
         cx.update(|cx| {
-            apply_diff(
-                cx,
-                &quit_resolved(&[second.clone()]),
-                &quit_resolved(&[]),
-            );
+            apply_diff(cx, &quit_resolved(&[second.clone()]), &quit_resolved(&[]));
         });
         cx.simulate_keystrokes(window.into(), &second);
         assert_eq!(quits.get(), 2, "unbound combination stays silent");
 
         cx.update(|cx| {
-            apply_diff(
-                cx,
-                &quit_resolved(&[]),
-                &quit_resolved(&[second.clone()]),
-            );
+            apply_diff(cx, &quit_resolved(&[]), &quit_resolved(&[second.clone()]));
         });
         cx.simulate_keystrokes(window.into(), &second);
         assert_eq!(quits.get(), 3);
