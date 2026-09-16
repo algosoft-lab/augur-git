@@ -266,9 +266,8 @@ Building requires a recent stable Rust toolchain (edition 2024).
   application, Git, Agent, extension, terminal, and system events. Release
   builds write the corresponding files under the platform's standard local
   data directory and never create the local `debug-logs/` files. `RUST_LOG`
-  can optionally override the log level.
-  See [`docs/logging.md`](docs/logging.md) for the complete file list and
-  rotation behavior.
+  can optionally override the log level. Each file rotates at 2 MB, keeping
+  the previous session as a `*.previous.log` file.
 
 ### Packaging
 
