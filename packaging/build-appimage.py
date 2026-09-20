@@ -4,12 +4,12 @@
 import argparse
 import os
 import platform
-import re
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+from common import ASSETS_DIR, TARGET_DIR, build_bins, ensure_dir, read_version, run, variant_label, variant_suffix
 
 
 APP_NAME = "Augur Git"
@@ -18,30 +18,6 @@ BINARY_NAME = "augur-git"
 APP_COMMENT = "Cross-platform Git GUI client"
 APP_CATEGORIES = "Development;RevisionControl;"
 APPIMAGETOOL_URL = "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CARGO_TOML = PROJECT_ROOT / "Cargo.toml"
-ASSETS_DIR = PROJECT_ROOT / "assets"
-TARGET_DIR = PROJECT_ROOT / "target"
-
-
-def read_version() -> str:
-    """Read the package version from Cargo.toml."""
-    text = CARGO_TOML.read_text(encoding="utf-8")
-    match = re.search(r"(?m)^\s*version\s*=\s*\"([^\"]+)\"", text)
-    if match is None:
-        raise ValueError(f"Could not read the package version from {CARGO_TOML}")
-    return match.group(1)
-
-
-def ensure_dir(path: Path) -> Path:
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def run(command: list[object], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
-    print(f"  -> {' '.join(str(item) for item in command)}")
-    return subprocess.run(command, check=True, **kwargs)
 
 
 def detect_architecture() -> str:
@@ -92,19 +68,30 @@ def build_appimage(
     release: bool,
     architecture: str,
     appimagetool_path: Path | None,
+    no_default_features: bool,
+    skip_build: bool,
 ) -> Path:
-    profile = "release" if release else "debug"
-    binary_source = TARGET_DIR / profile / BINARY_NAME
-    if not binary_source.exists():
-        print(f"[ERROR] Executable not found: {binary_source}")
-        print(f"        Build it first with: cargo build{' --release' if release else ''}")
-        raise SystemExit(1)
+    profile_dir = TARGET_DIR / ("release" if release else "debug")
+    binary_source = profile_dir / BINARY_NAME
+    variant = variant_suffix(no_default_features)
+    appimage_name = f"{APP_ID}-{version}-{architecture}{variant}.AppImage"
 
-    appimage_name = f"{APP_ID}-{version}-{architecture}.AppImage"
     print("\n" + "=" * 60)
     print("  Augur Git AppImage")
-    print(f"  Version: {version}  Profile: {profile}  Architecture: {architecture}")
+    print(f"  Version: {version}  Profile: {'release' if release else 'debug'}  Architecture: {architecture}")
+    print(f"  Variant: {variant_label(no_default_features)}")
     print("=" * 60 + "\n")
+
+    if not skip_build:
+        print("[1/6] Building executables...")
+        profile_dir = build_bins(release, ["--no-default-features"] if no_default_features else None)
+    else:
+        print("[1/6] Skipping build (--skip-build).")
+
+    if not binary_source.exists():
+        print(f"[ERROR] Executable not found: {binary_source}")
+        print("        Build it first without --skip-build, or with: cargo build --release --bins")
+        raise SystemExit(1)
 
     with tempfile.TemporaryDirectory(prefix="augur-git-appimage-") as temporary_directory:
         appdir = Path(temporary_directory) / "AppDir"
@@ -112,7 +99,7 @@ def build_appimage(
         applications_directory = ensure_dir(appdir / "usr" / "share" / "applications")
         icon_directory = ensure_dir(appdir / "usr" / "share" / "icons" / "hicolor" / "scalable" / "apps")
 
-        print("[1/5] Copying executable...")
+        print("[2/6] Copying executable...")
         binary_destination = binary_directory / BINARY_NAME
         shutil.copy2(binary_source, binary_destination)
         binary_destination.chmod(0o755)
@@ -127,7 +114,7 @@ def build_appimage(
         else:
             print(f"  [WARN] CLI alias executable not found: {alias_source}")
 
-        print("[2/5] Installing application icon...")
+        print("[3/6] Installing application icon...")
         icon_source = ASSETS_DIR / "augur-git-logo.svg"
         if icon_source.exists():
             shutil.copy2(icon_source, icon_directory / f"{APP_ID}.svg")
@@ -137,7 +124,7 @@ def build_appimage(
         else:
             print(f"  [WARN] Icon source not found: {icon_source}")
 
-        print("[3/5] Generating desktop entry...")
+        print("[4/6] Generating desktop entry...")
         desktop_entry = f"""[Desktop Entry]
 Type=Application
 Name={APP_NAME}
@@ -155,7 +142,7 @@ Keywords=git;repository;version control;development;
         shutil.copy2(desktop_path, appdir / desktop_path.name)
         print(f"  [OK] {desktop_path}")
 
-        print("[4/5] Generating AppRun...")
+        print("[5/6] Generating AppRun...")
         apprun = appdir / "AppRun"
         apprun.write_text(
             f"""#!/bin/sh
@@ -170,7 +157,7 @@ exec "$HERE/usr/bin/{BINARY_NAME}" "$@"
         apprun.chmod(0o755)
         print(f"  [OK] {apprun}")
 
-        print("[5/5] Building AppImage...")
+        print("[6/6] Building AppImage...")
         appimagetool = get_appimagetool(architecture, appimagetool_path)
         ensure_dir(output_dir)
         output_path = output_dir / appimage_name
@@ -195,8 +182,14 @@ def main() -> int:
     parser.add_argument("--version", "-v", default=None, help="Version (default: read from Cargo.toml)")
     parser.add_argument("--output", "-o", default="packaging/out", help="Output directory (default: packaging/out)")
     parser.add_argument("--debug", action="store_true", help="Use the debug executable")
+    parser.add_argument("--skip-build", action="store_true", help="Package an existing executable")
     parser.add_argument("--arch", choices=("x86_64", "aarch64"), default=None, help="AppImage architecture")
     parser.add_argument("--appimagetool", default=None, help="Path to an appimagetool executable")
+    parser.add_argument(
+        "--no-default-features",
+        action="store_true",
+        help="Build the No AI variant without default cargo features (plain Git GUI without the agent integration)",
+    )
     args = parser.parse_args()
 
     if not sys.platform.startswith("linux"):
@@ -207,7 +200,15 @@ def main() -> int:
     output_dir = Path(args.output).resolve()
     architecture = args.arch or detect_architecture()
     appimagetool_path = Path(args.appimagetool).resolve() if args.appimagetool else None
-    build_appimage(version, output_dir, release=not args.debug, architecture=architecture, appimagetool_path=appimagetool_path)
+    build_appimage(
+        version,
+        output_dir,
+        release=not args.debug,
+        architecture=architecture,
+        appimagetool_path=appimagetool_path,
+        no_default_features=args.no_default_features,
+        skip_build=args.skip_build,
+    )
     return 0
 
 

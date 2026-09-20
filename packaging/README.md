@@ -1,9 +1,27 @@
 # Packaging
 
 These scripts create native distribution artifacts for Windows, macOS, and
-Linux. Run them from the repository root with `uv`.
+Linux. Run them from the repository root with `uv`. Each script builds the
+release executables with `cargo build --release --bins` first, so no separate
+build step is needed.
+
+Every script accepts `--no-default-features` to produce the plain No AI
+variant (without the coding-agent integration, embedded terminal, and Lua
+extension runtime); its artifacts get a `-no-ai` filename suffix.
 
 All outputs default to `packaging/out`, which is ignored by Git.
+
+The `make` targets wrap the same commands and detect the host platform:
+
+```bash
+make build                  # both variants for the current platform
+make build-windows          # Windows installer (AI)
+make build-windows-no-ai    # Windows installer (No AI)
+make build-mac              # macOS app + DMG (AI)
+make build-mac-no-ai        # macOS app + DMG (No AI)
+make build-appimage         # Linux AppImage (AI)
+make build-appimage-no-ai   # Linux AppImage (No AI)
+```
 
 ## Windows
 
@@ -13,16 +31,14 @@ Install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run:
 uv run packaging/build-windows.py
 ```
 
-The script builds the release executable and creates an Inno Setup installer.
-Use `--debug` to package a debug executable or `--skip-build` to package an
-existing executable.
+The script creates an Inno Setup installer. Use `--debug` to package a debug
+executable or `--skip-build` to package an existing executable.
 
 ## macOS
 
-Run the following commands on macOS:
+Run the following on macOS:
 
 ```bash
-cargo build --release
 uv run packaging/build-mac-app.py
 ```
 
@@ -37,10 +53,9 @@ pass a PNG with `--icon`.
 
 ## Linux
 
-Run the following commands on Linux:
+Run the following on Linux:
 
 ```bash
-cargo build --release
 uv run packaging/build-appimage.py
 ```
 

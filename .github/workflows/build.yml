@@ -160,9 +160,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-
 
       - name: Build macOS app and DMG
-        run: |
-          cargo build --release ${{ matrix.cargo-flags }}
-          uv run packaging/build-mac-app.py
+        run: uv run packaging/build-mac-app.py ${{ matrix.cargo-flags }}
 
       - name: Verify macOS package
         run: |
@@ -222,9 +220,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-
 
       - name: Build AppImage
-        run: |
-          cargo build --release ${{ matrix.cargo-flags }}
-          uv run packaging/build-appimage.py
+        run: uv run packaging/build-appimage.py ${{ matrix.cargo-flags }}
 
       - name: Verify AppImage
         run: test -s packaging/out/*.AppImage
@@ -291,8 +287,7 @@ jobs:
           shopt -s nullglob
 
           # Each staging directory holds one variant package per platform; the
-          # variants build the same file names, so they must stay separated
-          # until this rename.
+          # variants are renamed to their canonical release names here.
           for staging in windows-full windows-no-ai macos-full macos-no-ai linux-full linux-no-ai; do
             count=$(find "staging/${staging}" -type f | wc -l)
             if (( count != 1 )); then

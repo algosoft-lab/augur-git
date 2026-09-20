@@ -4,42 +4,29 @@
 import argparse
 import os
 import plistlib
-import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+from common import (
+    ASSETS_DIR,
+    PROJECT_ROOT,
+    TARGET_DIR,
+    build_bins,
+    ensure_dir,
+    read_version,
+    run,
+    variant_label,
+    variant_suffix,
+)
+
 
 APP_NAME = "Augur Git"
 APP_ID = "com.augur.git"
 BINARY_NAME = "augur-git"
 UNQUARANTINE_SCRIPT_NAME = "Remove Quarantine.command"
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CARGO_TOML = PROJECT_ROOT / "Cargo.toml"
-ASSETS_DIR = PROJECT_ROOT / "assets"
-TARGET_DIR = PROJECT_ROOT / "target"
-
-
-def read_version() -> str:
-    """Read the package version from Cargo.toml."""
-    text = CARGO_TOML.read_text(encoding="utf-8")
-    match = re.search(r"(?m)^\s*version\s*=\s*\"([^\"]+)\"", text)
-    if match is None:
-        raise ValueError(f"Could not read the package version from {CARGO_TOML}")
-    return match.group(1)
-
-
-def ensure_dir(path: Path) -> Path:
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def run(command: list[object], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
-    print(f"  -> {' '.join(str(item) for item in command)}")
-    return subprocess.run(command, check=True, **kwargs)
 
 
 def icon_sources(explicit_source: Path | None) -> list[Path]:
@@ -134,18 +121,34 @@ def make_unquarantine_script(output_path: Path) -> Path:
     return output_path
 
 
-def build_app(version: str, output_dir: Path, release: bool, explicit_icon: Path | None) -> Path:
-    profile = "release" if release else "debug"
-    binary_source = TARGET_DIR / profile / BINARY_NAME
-    if not binary_source.exists():
-        print(f"[ERROR] Executable not found: {binary_source}")
-        print(f"        Build it first with: cargo build{' --release' if release else ''}")
-        raise SystemExit(1)
+def build_app(
+    version: str,
+    output_dir: Path,
+    release: bool,
+    no_default_features: bool,
+    explicit_icon: Path | None,
+    skip_build: bool,
+) -> Path:
+    profile_dir = TARGET_DIR / ("release" if release else "debug")
+    binary_source = profile_dir / BINARY_NAME
+    variant = variant_suffix(no_default_features)
 
     print("\n" + "=" * 60)
     print("  Augur Git macOS application bundle")
-    print(f"  Version: {version}  Profile: {profile}")
+    print(f"  Version: {version}  Profile: {'release' if release else 'debug'}")
+    print(f"  Variant: {variant_label(no_default_features)}")
     print("=" * 60 + "\n")
+
+    if not skip_build:
+        print("[1/5] Building executables...")
+        profile_dir = build_bins(release, ["--no-default-features"] if no_default_features else None)
+    else:
+        print("[1/5] Skipping build (--skip-build).")
+
+    if not binary_source.exists():
+        print(f"[ERROR] Executable not found: {binary_source}")
+        print("        Build it first without --skip-build, or with: cargo build --release --bins")
+        raise SystemExit(1)
 
     ensure_dir(output_dir)
     app_bundle = output_dir / f"{APP_NAME}.app"
@@ -156,7 +159,7 @@ def build_app(version: str, output_dir: Path, release: bool, explicit_icon: Path
     macos_directory = ensure_dir(app_bundle / "Contents" / "MacOS")
     resources_directory = ensure_dir(app_bundle / "Contents" / "Resources")
 
-    print("[1/4] Copying executable...")
+    print("[2/5] Copying executable...")
     binary_destination = macos_directory / BINARY_NAME
     shutil.copy2(binary_source, binary_destination)
     binary_destination.chmod(0o755)
@@ -171,7 +174,7 @@ def build_app(version: str, output_dir: Path, release: bool, explicit_icon: Path
     else:
         print(f"  [WARN] CLI alias executable not found: {alias_source}")
 
-    print("[2/4] Generating application icon...")
+    print("[3/5] Generating application icon...")
     icon_created = False
     with tempfile.TemporaryDirectory(prefix="augur-git-icon-") as temporary_directory:
         temporary_path = Path(temporary_directory)
@@ -189,7 +192,7 @@ def build_app(version: str, output_dir: Path, release: bool, explicit_icon: Path
     if not icon_created:
         print("  [WARN] No compatible PNG icon source was found; the app will use the default icon.")
 
-    print("[3/4] Generating Info.plist...")
+    print("[4/5] Generating Info.plist...")
     plist = {
         "CFBundleDevelopmentRegion": "en_US",
         "CFBundleDisplayName": APP_NAME,
@@ -211,7 +214,7 @@ def build_app(version: str, output_dir: Path, release: bool, explicit_icon: Path
         plistlib.dump(plist, plist_file)
     print("  [OK] Contents/Info.plist")
 
-    print("[4/4] Generating PkgInfo...")
+    print("[5/5] Generating PkgInfo...")
     (app_bundle / "Contents" / "PkgInfo").write_text("APPL????", encoding="ascii")
     print("  [OK] Contents/PkgInfo")
 
@@ -226,10 +229,10 @@ def build_app(version: str, output_dir: Path, release: bool, explicit_icon: Path
     return app_bundle
 
 
-def build_dmg(app_bundle: Path, version: str, output_dir: Path, include_script: bool) -> Path:
+def build_dmg(app_bundle: Path, version: str, output_dir: Path, include_script: bool, variant: str) -> Path:
     """Package the app, an Applications link, and the Gatekeeper workaround."""
-    volume_name = f"{APP_NAME} v{version}"
-    dmg_path = output_dir / f"{APP_NAME} v{version}.dmg"
+    volume_name = f"{APP_NAME} v{version}{variant}"
+    dmg_path = output_dir / f"{volume_name}.dmg"
     if dmg_path.exists():
         print(f"  Removing existing DMG: {dmg_path}")
         dmg_path.unlink()
@@ -288,9 +291,15 @@ def main() -> int:
     parser.add_argument("--version", "-v", default=None, help="Version (default: read from Cargo.toml)")
     parser.add_argument("--output", "-o", default="packaging/out", help="Output directory (default: packaging/out)")
     parser.add_argument("--debug", action="store_true", help="Use the debug executable")
+    parser.add_argument("--skip-build", action="store_true", help="Package an existing executable")
     parser.add_argument("--no-dmg", action="store_true", help="Build only the .app bundle")
     parser.add_argument("--no-script", action="store_true", help="Do not include the Gatekeeper workaround in the DMG")
     parser.add_argument("--icon", default=None, help="Optional PNG, SVG, or ICO icon source")
+    parser.add_argument(
+        "--no-default-features",
+        action="store_true",
+        help="Build the No AI variant without default cargo features (plain Git GUI without the agent integration)",
+    )
     args = parser.parse_args()
 
     if sys.platform != "darwin":
@@ -304,9 +313,22 @@ def main() -> int:
         print(f"[ERROR] Icon source not found: {explicit_icon}")
         return 1
 
-    app_bundle = build_app(version, output_dir, release=not args.debug, explicit_icon=explicit_icon)
+    app_bundle = build_app(
+        version,
+        output_dir,
+        release=not args.debug,
+        no_default_features=args.no_default_features,
+        explicit_icon=explicit_icon,
+        skip_build=args.skip_build,
+    )
     if not args.no_dmg:
-        build_dmg(app_bundle, version, output_dir, include_script=not args.no_script)
+        build_dmg(
+            app_bundle,
+            version,
+            output_dir,
+            include_script=not args.no_script,
+            variant=variant_suffix(args.no_default_features),
+        )
     return 0
 
 

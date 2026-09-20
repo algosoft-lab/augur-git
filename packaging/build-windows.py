@@ -3,12 +3,12 @@
 
 import argparse
 import os
-import re
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+from common import ASSETS_DIR, TARGET_DIR, build_bins, ensure_dir, read_version, run, variant_label, variant_suffix
 
 
 APP_NAME = "Augur Git"
@@ -17,30 +17,6 @@ BINARY_NAME = "augur-git"
 PUBLISHER = "Augur Git Contributors"
 ICON_NAME = "algogit.ico"
 REGISTRY_KEY = rf"Software\{PUBLISHER}\{APP_NAME}"
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CARGO_TOML = PROJECT_ROOT / "Cargo.toml"
-TARGET_DIR = PROJECT_ROOT / "target"
-ASSETS_DIR = PROJECT_ROOT / "assets"
-
-
-def read_version() -> str:
-    """Read the package version from Cargo.toml."""
-    text = CARGO_TOML.read_text(encoding="utf-8")
-    match = re.search(r"(?m)^\s*version\s*=\s*\"([^\"]+)\"", text)
-    if match is None:
-        raise ValueError(f"Could not read the package version from {CARGO_TOML}")
-    return match.group(1)
-
-
-def ensure_dir(path: Path) -> Path:
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def run(command: list[object], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
-    print(f"  -> {' '.join(str(item) for item in command)}")
-    return subprocess.run(command, check=True, **kwargs)
 
 
 def find_iscc() -> Path:
@@ -72,7 +48,7 @@ def inno_path(path: Path) -> str:
     return str(path).replace("/", "\\").replace('"', '""')
 
 
-def generate_iss(package_dir: Path, version: str, output_dir: Path) -> Path:
+def generate_iss(package_dir: Path, version: str, output_dir: Path, variant: str) -> Path:
     """Generate the temporary Inno Setup project used for the installer."""
     executable_path = inno_path(package_dir / f"{BINARY_NAME}.exe")
     icon_path = inno_path(package_dir / "assets" / ICON_NAME)
@@ -91,7 +67,7 @@ def generate_iss(package_dir: Path, version: str, output_dir: Path) -> Path:
         f"DefaultDirName={{autopf}}\\{APP_NAME}",
         f"DefaultGroupName={APP_NAME}",
         f"OutputDir={output_path}",
-        f"OutputBaseFilename={APP_ID}-{version}-win-x64-setup",
+        f"OutputBaseFilename={APP_ID}-{version}-win-x64-setup{variant}",
         "Compression=lzma2/ultra64",
         "SolidCompression=yes",
         "WizardStyle=modern",
@@ -141,23 +117,21 @@ def build_installer(
     output_dir: Path,
     release: bool,
     skip_build: bool,
-    cargo_extra_args: list[str] | None = None,
+    no_default_features: bool,
 ) -> Path:
-    profile = "release" if release else "debug"
-    profile_dir = TARGET_DIR / profile
+    profile_dir = TARGET_DIR / ("release" if release else "debug")
+    variant = variant_suffix(no_default_features)
+    installer_name = f"{APP_ID}-{version}-win-x64-setup{variant}.exe"
 
     print("\n" + "=" * 60)
-    print(f"  Augur Git Windows installer")
-    print(f"  Version: {version}  Profile: {profile}")
+    print("  Augur Git Windows installer")
+    print(f"  Version: {version}  Profile: {'release' if release else 'debug'}")
+    print(f"  Variant: {variant_label(no_default_features)}")
     print("=" * 60 + "\n")
 
     if not skip_build:
-        print("[1/4] Building executable...")
-        command = ["cargo", "build"]
-        if release:
-            command.append("--release")
-        command.extend(cargo_extra_args or [])
-        run(command, cwd=PROJECT_ROOT)
+        print("[1/4] Building executables...")
+        profile_dir = build_bins(release, ["--no-default-features"] if no_default_features else None)
     else:
         print("[1/4] Skipping build (--skip-build).")
 
@@ -187,14 +161,14 @@ def build_installer(
             print(f"  [WARN] CLI alias executable not found: {alias_source}")
 
         print("[3/4] Generating Inno Setup project...")
-        iss_path = generate_iss(package_dir, version, output_dir)
+        iss_path = generate_iss(package_dir, version, output_dir, variant)
 
         print("[4/4] Compiling installer...")
         iscc = find_iscc()
         print(f"  [OK] Inno Setup: {iscc}")
         run([iscc, iss_path])
 
-    installer_path = output_dir / f"{APP_ID}-{version}-win-x64-setup.exe"
+    installer_path = output_dir / installer_name
     if not installer_path.exists():
         print(f"[ERROR] Inno Setup finished, but the installer was not found in {output_dir}")
         raise SystemExit(1)
@@ -215,19 +189,18 @@ def main() -> int:
     parser.add_argument(
         "--no-default-features",
         action="store_true",
-        help="Build without default cargo features (plain Git GUI without the agent integration)",
+        help="Build the No AI variant without default cargo features (plain Git GUI without the agent integration)",
     )
     args = parser.parse_args()
 
     version = args.version or read_version()
     output_dir = Path(args.output).resolve()
-    cargo_extra_args = ["--no-default-features"] if args.no_default_features else []
     build_installer(
         version,
         output_dir,
         release=not args.debug,
         skip_build=args.skip_build,
-        cargo_extra_args=cargo_extra_args,
+        no_default_features=args.no_default_features,
     )
     return 0
 
