@@ -7,7 +7,6 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     h_flex,
     menu::{ContextMenuExt, PopupMenuItem},
-    spinner::Spinner,
     v_flex,
 };
 
@@ -589,9 +588,6 @@ impl ChangesPanel {
                     .text_color(colors.foreground)
                     .child(shared(i18n::text(self.locale, "changes-title"))),
             )
-            .when(self.busy, |header| {
-                header.child(Spinner::new().with_size(px(13.)).color(colors.blue))
-            })
             .child(
                 div()
                     .text_size(crate::theme::scaled_text_size(10.))

@@ -7,7 +7,6 @@
 
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::spinner::Spinner;
 use gpui_component::{
     ActiveTheme, Disableable, Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
@@ -409,10 +408,6 @@ impl Render for Toolbar {
                 &colors,
             ))
             .child(div().flex_1())
-            // Busy indicator (animated spinner instead of static text).
-            .when(self.busy, |el| {
-                el.child(Spinner::new().with_size(px(14.)).color(colors.blue))
-            })
             .child(self.tool_button(
                 "tb-refresh",
                 lucide("refresh-cw"),

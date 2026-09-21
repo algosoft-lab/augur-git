@@ -3,7 +3,6 @@
 //! channel for one panel; `RepoTab::new` only calls [`wire`].
 
 use gpui::{Context, Entity, Window};
-use std::time::Duration;
 
 use crate::core::git::{
     WorkingTreeAction, WorkingTreeDiffKind, WorkingTreeScopeKind, progress_verb,
@@ -494,7 +493,6 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 // The worker executes commands serially, so this result ends
                 // whatever `CommandStarted` announced most recently.
                 tab.busy_verb = None;
-                tab.progress_dots = 0;
                 if label == "merge" || label == "merge --no-ff" || label == "merge --abort" {
                     tab.handle_merge_result(label.clone(), *success, message.clone(), cx);
                     return;
@@ -593,7 +591,6 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 // Spawn failures report through `Error` instead of
                 // `CommandDone`, so the busy indicator must end here too.
                 tab.busy_verb = None;
-                tab.progress_dots = 0;
                 if tab.pending_merge_command.is_some() || tab.merge_abort_pending {
                     let label = if tab.merge_abort_pending {
                         "merge --abort".to_string()
@@ -642,46 +639,12 @@ fn first_line(text: &str) -> &str {
     text.lines().next().unwrap_or("")
 }
 
-/// Delay between busy-indicator animation steps.
-const PROGRESS_INTERVAL_MS: u64 = 350;
-
 impl RepoTab {
-    /// Show the busy indicator for a freshly started Git command and make
-    /// sure the dot-animation loop is running. The loop self-terminates once
-    /// `busy_verb` is cleared by `CommandDone` or `Error`.
+    /// Show the busy indicator for a freshly started Git command.
     fn start_command_progress(&mut self, verb: &'static str, cx: &mut Context<Self>) {
         self.busy_verb = Some(verb);
-        self.progress_dots = 1;
-        if self.progress_running {
-            cx.notify();
-            return;
-        }
-        self.progress_running = true;
         log::debug!("[workspace] command progress started: verb={verb}");
-        cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(Duration::from_millis(PROGRESS_INTERVAL_MS))
-                    .await;
-                let stop = this
-                    .update(cx, |tab, cx| {
-                        if tab.busy_verb.is_none() {
-                            tab.progress_running = false;
-                            tab.progress_dots = 0;
-                            cx.notify();
-                            return true;
-                        }
-                        tab.progress_dots = tab.progress_dots % 3 + 1;
-                        cx.notify();
-                        false
-                    })
-                    .unwrap_or(true);
-                if stop {
-                    break;
-                }
-            }
-        })
-        .detach();
+        cx.notify();
     }
 }
 

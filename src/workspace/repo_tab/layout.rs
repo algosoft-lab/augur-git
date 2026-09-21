@@ -1,6 +1,6 @@
 use gpui::prelude::*;
 use gpui::*;
-use gpui_component::{ActiveTheme, h_flex, v_flex};
+use gpui_component::{ActiveTheme, Icon, IconName, h_flex, v_flex};
 
 use crate::core::config::{
     MAX_DIFF_HEIGHT, MAX_RIGHT_PANEL_WIDTH, MAX_SIDEBAR_WIDTH, MIN_DIFF_HEIGHT,
@@ -13,6 +13,31 @@ use super::{
     DIFF_RESIZE_HANDLE_HEIGHT, DiffViewerResize, MIN_COMMIT_HEIGHT, RepoTab, RepoTabEvent,
     RightPanelResize, SidebarResize,
 };
+
+/// One full spinner cycle: two rotations followed by a short rest.
+const SPIN_CYCLE: std::time::Duration = std::time::Duration::from_millis(1400);
+/// Fraction of the cycle spent rotating; the remainder is the rest pause.
+const SPIN_ROTATION_FRACTION: f32 = 0.78;
+
+fn working_spinner(id: impl Into<ElementId>, color: Hsla) -> impl IntoElement {
+    Icon::new(IconName::Loader)
+        .size(px(13.))
+        .text_color(color)
+        .with_animation(
+            id,
+            Animation::new(SPIN_CYCLE).repeat().with_easing(ease_in_out),
+            |icon, delta| {
+                let progress = if delta < SPIN_ROTATION_FRACTION {
+                    delta / SPIN_ROTATION_FRACTION
+                } else {
+                    1.0
+                };
+                icon.transform(Transformation::rotate(radians(
+                    progress * std::f32::consts::PI * 4.0,
+                )))
+            },
+        )
+}
 
 /// Drag payloads for the resize handles; their render output is empty and
 /// only serves as the drag marker type.
@@ -53,11 +78,9 @@ impl RepoTab {
         // While a generic Git command runs, its animated verb takes over the
         // result slot; a finished operation's message is stale anyway
         // because the worker executes commands serially.
+        let busy = self.busy_verb.is_some();
         let (msg, msg_color) = if let Some(verb) = self.busy_verb {
-            (
-                Some(format!("{verb}{}", ".".repeat(self.progress_dots))),
-                colors.warning,
-            )
+            (Some(verb.to_string()), colors.warning)
         } else {
             let color = match self.status_message_ok {
                 Some(true) => colors.green,
@@ -87,7 +110,7 @@ impl RepoTab {
             )
             .child(
                 h_flex()
-                    .gap_3()
+                    .gap_2()
                     .when_some(msg, |row, message| {
                         row.child(
                             div()
@@ -95,6 +118,9 @@ impl RepoTab {
                                 .text_color(msg_color)
                                 .child(SharedString::from(message)),
                         )
+                    })
+                    .when(busy, |row| {
+                        row.child(working_spinner("status-bar-spinner", colors.warning))
                     })
                     .when_some(state_text, |row, (text, color)| {
                         row.child(
