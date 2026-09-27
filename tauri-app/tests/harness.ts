@@ -41,6 +41,8 @@ declare global {
 export interface BootOptions {
   /** Repositories the bootstrap reports as open. */
   open?: StubRepo[];
+  /** Milliseconds the comparison's per-file diffs take to arrive. */
+  compareDelay?: number;
   /**
    * Paths the saved workspace lists as open with no repository behind them, so
    * this window has to open them.
@@ -65,6 +67,7 @@ export interface BootOptions {
 function optionsFor(options: BootOptions): StubOptions {
   return {
     open: options.open ?? [],
+    compareDelay: options.compareDelay,
     savedTabs: options.savedTabs,
     available: options.available ?? [fixtureRepo(), secondFixtureRepo()],
     openFailure: options.openFailure,

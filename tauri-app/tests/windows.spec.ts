@@ -80,6 +80,56 @@ test.describe("comparison window", () => {
     );
   });
 
+  test("counts the documents as a comparison streams in", async ({ page }) => {
+    // Slow the diffs down so the in-flight state is observable at all: the real
+    // worker streams them one file at a time.
+    await boot(page, {
+      open: [fixtureRepo()],
+      window: "compare",
+      repoId: 7,
+      compareDelay: 400,
+    });
+
+    // Progress, because a window that looks finished and is not is worse than
+    // one that admits it is working. The shape is asserted rather than the exact
+    // intermediate value, because how fast a file arrives is the worker's
+    // business and not the interface's.
+    const progress = page.getByTestId("compare-progress");
+    await expect(progress).toBeVisible();
+    await expect(progress).toHaveText(/^\d+ \/ 2$/);
+    // It goes away once everything has arrived.
+    await expect(progress).toHaveCount(0);
+    await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
+  });
+
+  test("exports a comparison between a ref and a typed object id", async ({
+    page,
+  }) => {
+    await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
+
+    // A typed object id is a revision like any other, so the export is offered
+    // for it; what cannot be exported is an endpoint that names nothing.
+    await page.getByTestId("compare-input-Target").fill(
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+    await expect(page.getByTestId("compare-export")).toBeEnabled();
+    await page.getByTestId("compare-input-Target").fill("not a revision");
+    await expect(page.getByTestId("compare-export")).toBeDisabled();
+  });
+
+  test("suppresses the suggestions when free-form entry is on", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
+
+    // A list that keeps changing under a typed object id is not a list.
+    await page.getByTestId("compare-toggle-Base").click();
+    await expect(page.locator(".compare__picker-options")).toBeVisible();
+    await page.getByTestId("compare-manual-Base").click();
+    await expect(page.locator(".compare__picker-options")).toHaveCount(0);
+    // The field still takes the text.
+    await page.getByTestId("compare-input-Base").fill("release/1.2");
+    await expect(page.getByTestId("compare-input-Base")).toHaveValue("release/1.2");
+  });
+
   test("picks a revision with the keyboard alone", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
 

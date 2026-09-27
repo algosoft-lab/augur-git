@@ -1,4 +1,4 @@
-import { boot, expect, fixtureRepo, test } from "./harness";
+import { boot, expect, fixtureRepo, rightClick, test } from "./harness";
 
 /**
  * Opening and closing repositories.

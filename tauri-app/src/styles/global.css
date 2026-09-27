@@ -1587,6 +1587,23 @@ button {
   background: var(--list-hover-background);
 }
 
+/* The free-form entry switch, under the field rather than beside it, so the
+ * field keeps its width. */
+.switch {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.625);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.compare__picker-input {
+  flex-wrap: wrap;
+}
+
 .compare__picker-section {
   padding: 4px 6px 2px;
   color: var(--muted-foreground);

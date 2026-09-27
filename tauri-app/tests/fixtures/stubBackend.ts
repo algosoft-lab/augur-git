@@ -285,6 +285,14 @@ export interface StubOptions {
   /** Repositories the bootstrap reports as already open. */
   open: StubRepo[];
   /**
+   * How long the comparison's per-file diffs take to arrive, in milliseconds.
+   *
+   * The real worker streams them, and the progress counter only exists while
+   * they are in flight, so a test that wants to see it needs them to be slow.
+   */
+  compareDelay?: number;
+
+  /**
    * Paths the saved workspace lists as open, with no repository behind them.
    *
    * This is the state a window starts in when the backend has no repository for
@@ -883,6 +891,7 @@ function install(
         });
         // The worker asks for each file's diff and answers one event per file,
         // which is what the aggregate view collects.
+        const delay = options.compareDelay ?? 0;
         compareFiles().forEach((file, index) => {
           setTimeout(() => {
             emit("augur://repo-event", {
@@ -892,7 +901,7 @@ function install(
               file,
               document: diffFor(file.new_path, "rust"),
             });
-          }, 12 + index * 5);
+          }, 12 + delay + index * (delay > 0 ? delay : 5));
         });
         setTimeout(() => {
           emit("augur://repo-event", {
@@ -900,7 +909,7 @@ function install(
             type: "branchCompareFinished",
             requestId,
           });
-        }, 30);
+        }, 22 + delay * 2);
       }, 10);
       return requestId;
     },

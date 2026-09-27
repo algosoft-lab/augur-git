@@ -283,20 +283,35 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
             ? t(translate, "branch-compare-refresh")
             : t(translate, "branch-compare-run")}
         </button>
+        {loading ? (
+          // Progress while a large comparison streams in, because a window that
+          // looks finished and is not is worse than one that admits it is
+          // working.
+          <span className="compare__status" data-testid="compare-progress">
+            <Spinner size={14} color="var(--base-blue)" />
+            {Object.keys(documents).length} / {files.length}
+          </span>
+        ) : null}
+        <div style={{ flex: 1 }} />
         <button
           type="button"
           className="tool-button"
-          disabled={!base.selected || !target.selected}
+          // A typed object id is a revision like any other, so it exports; what
+          // cannot be exported is a comparison that found nothing.
+          disabled={
+            !canRun(base) ||
+            !canRun(target) ||
+            (finished && files.length === 0)
+          }
           data-testid="compare-export"
           onClick={async () => {
-            const left = base.selected;
-            const right = target.selected;
+            const left = base.selected ?? fromManualInput(base.input);
+            const right = target.selected ?? fromManualInput(target.input);
             if (repoId === null || !left || !right) {
               return;
             }
-            const suggested = `${left.name}...${right.name}.patch`;
             const destination = await save({
-              defaultPath: suggested,
+              defaultPath: suggestedPatchFilename(left, right),
               filters: [{ name: "Patch", extensions: ["patch", "diff"] }],
             });
             if (typeof destination !== "string") {
@@ -464,6 +479,30 @@ ${entry.document.copy_text}`)
   );
 }
 
+/**
+ * The default file name for an exported patch.
+ *
+ * Every character that is not a letter, a digit, a dot, an underscore, or a
+ * hyphen becomes one, because a branch name may contain a slash and a path
+ * segment cannot. An endpoint whose name sanitises away entirely falls back to a
+ * generic name rather than to something like `-.patch`.
+ */
+export function suggestedPatchFilename(base: CompareRevision, target: CompareRevision): string {
+  const sanitize = (value: string) =>
+    [...value]
+      .map((character) =>
+        /[A-Za-z0-9._-]/.test(character) ? character : "-",
+      )
+      .join("")
+      .replace(/^-+|-+$/g, "");
+  const left = sanitize(base.name);
+  const right = sanitize(target.name);
+  if (!left || !right) {
+    return "comparison.patch";
+  }
+  return `${left}-to-${right}.patch`;
+}
+
 /** The catalog key naming a revision's kind. */
 function kindKey(kind: CompareRevision["kind"]): string {
   switch (kind) {
@@ -523,6 +562,8 @@ function RevisionPicker({
   const translate = useStore((state) => state.t);
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
+  // Free-form entry: the suggestions are suppressed while it is on.
+  const [manualOnly, setManualOnly] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const query = endpoint.input;
   const filtered = options.filter((option) => {
@@ -572,6 +613,9 @@ function RevisionPicker({
       return;
     }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (manualOnly) {
+        return;
+      }
       // Prevented so the caret does not jump to the ends of the field.
       event.preventDefault();
       setOpen(true);
@@ -587,6 +631,9 @@ function RevisionPicker({
     // Enter takes the highlighted entry, which is why a list opened with the
     // arrows is usable without ever touching the pointer.
     if (event.key === "Enter") {
+      if (manualOnly) {
+        return;
+      }
       const choice = filtered[highlighted];
       if (choice) {
         event.preventDefault();
@@ -609,7 +656,25 @@ function RevisionPicker({
           onSubmit={() => setOpen(true)}
           placeholder={t(translate, "branch-compare-revision-placeholder")}
         />
-        {open ? (
+        {/* Free-form entry, for a revision no list can offer. The suggestion
+            list is suppressed while it is on, because a list that keeps
+            changing under a typed object id is not a list. */}
+        <label
+          className="switch"
+          data-testid={`compare-manual-${label}`}
+          title={t(translate, "branch-compare-manual-input")}
+        >
+          <input
+            type="checkbox"
+            checked={manualOnly}
+            onChange={(event) => {
+              setManualOnly(event.target.checked);
+              setOpen(false);
+            }}
+          />
+          <span>{t(translate, "branch-compare-manual-input")}</span>
+        </label>
+        {open && !manualOnly ? (
           <div className="compare__picker-options">
             {filtered.length === 0 && !manual ? (
               <div className="compare__picker-section">
