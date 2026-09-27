@@ -22,7 +22,9 @@ export default defineConfig({
   build: {
     // WKWebView on macOS 14 and WebViewGTK2 both ship ES2021.
     target: "es2021",
-    minify: process.env.TAURI_ENV_DEBUG ? false : "esbuild",
+    // Vite 8 bundles with rolldown, so the minifier is oxc; the esbuild
+    // minifier of earlier lines is no longer installed.
+    minify: process.env.TAURI_ENV_DEBUG ? false : "oxc",
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
     outDir: "dist",
     emptyOutDir: true,
