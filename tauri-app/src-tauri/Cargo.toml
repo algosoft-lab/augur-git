@@ -1,0 +1,48 @@
+[workspace]
+members = ["crates/augur-core"]
+
+[package]
+name = "augur-git-tauri"
+version = "0.1.0"
+description = "Augur Git Tauri desktop application"
+authors = ["Lionel Fung", "Li Haozhe"]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+default-run = "augur-git-tauri"
+
+[lib]
+name = "augur_git_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "augur-git-tauri"
+path = "src/main.rs"
+
+[[bin]]
+name = "augurgit-tauri"
+path = "src/bin/cli.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+augur-core = { path = "crates/augur-core" }
+tauri = { version = "2", features = ["macos-private-api"] }
+tauri-plugin-store = "2"
+tauri-plugin-window-state = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-log = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "s"
+panic = "abort"

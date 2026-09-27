@@ -1,0 +1,14 @@
+{
+  "bindings": [
+    {
+      "command": "app.quit",
+      "keys": ["cmd-q"],
+      "platforms": ["macos"]
+    },
+    {
+      "command": "app.quit",
+      "keys": ["alt-f4"],
+      "platforms": ["windows", "linux"]
+    }
+  ]
+}

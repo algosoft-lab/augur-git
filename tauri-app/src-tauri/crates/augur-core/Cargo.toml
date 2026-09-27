@@ -1,0 +1,25 @@
+[package]
+name = "augur-core"
+version = "0.1.0"
+edition = "2024"
+description = "Platform-independent Git domain logic for Augur Git Tauri"
+license = "MIT"
+publish = false
+
+[lib]
+name = "augur_core"
+path = "src/lib.rs"
+
+[dependencies]
+similar = { version = "3", features = ["inline"] }
+log = "0.4"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sys-locale = "0.3"
+dirs = "6"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_System_Diagnostics_Debug",
+] }
