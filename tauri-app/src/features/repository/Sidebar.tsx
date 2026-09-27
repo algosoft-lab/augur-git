@@ -198,163 +198,168 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
 
   return (
     <div className="sidebar" data-testid="sidebar">
-      <Section
-        sectionKey="branches"
-        title={t(translate, "section-branches")}
-        count={repo.branches.length}
-        collapsed={isCollapsed("branches")}
-        onToggle={toggle}
-      >
-        {repo.branches.map((branch) => (
-          <ContextMenu
-            key={branch.name}
-            testId={`ref-${branch.name}`}
-            entries={branchEntries(branch.name, branch.is_head)}
-          >
-            <button
-              type="button"
-              className={`ref-row${branch.is_head ? " is-head" : ""}`}
-              data-testid={`branch-${branch.name}`}
-              title={branch.name}
-              onDoubleClick={() => {
-                if (!blocked && !branch.is_head) {
-                  void runAction(repo.id, {
-                    action: "checkout",
-                    target: { kind: "localBranch", localBranch: branch.name },
-                  });
-                }
-              }}
-              onClick={() => {
-                setMessage(
-                  repo.id,
-                  ta(translate, "branch-selected", { name: branch.name }),
-                  null,
-                );
-              }}
+      <div className="panel-header" data-testid="sidebar-header">
+        {t(translate, "sidebar-repo")}
+      </div>
+      <div className="sidebar__scroll">
+        <Section
+          sectionKey="branches"
+          title={t(translate, "section-branches")}
+          count={repo.branches.length}
+          collapsed={isCollapsed("branches")}
+          onToggle={toggle}
+        >
+          {repo.branches.map((branch) => (
+            <ContextMenu
+              key={branch.name}
+              testId={`ref-${branch.name}`}
+              entries={branchEntries(branch.name, branch.is_head)}
             >
-              <span className={`ref-marker${branch.is_head ? " ref-marker--head" : ""}`} />
-              <span className="ref-row__label">{branch.name}</span>
-            </button>
-          </ContextMenu>
-        ))}
-      </Section>
-
-      <Section
-        sectionKey="remote-branches"
-        title={t(translate, "section-remote-branches")}
-        count={refs.remote_branches.length}
-        collapsed={isCollapsed("remote-branches")}
-        onToggle={toggle}
-      >
-        {groups.map((group) => (
-          <div key={group.remote} className="sidebar__section">
-            <button
-              type="button"
-              className="sidebar__section-header sidebar__group-header"
-              onClick={() => toggle(`remote-${group.remote}`)}
-              data-testid={`sidebar-toggle-remote-${group.remote}`}
-            >
-              <Icon
-                name={isCollapsed(`remote-${group.remote}`) ? "chevron-right" : "chevron-down"}
-                size={12}
-              />
-              <Icon name="git-branch" size={12} />
-              <span className="sidebar__section-title">{group.remote}</span>
-              <span className="sidebar__section-count">{group.branches.length}</span>
-            </button>
-            {isCollapsed(`remote-${group.remote}`)
-              ? null
-              : group.branches.map((entry) => (
-                  <ContextMenu
-                    key={entry.fullName}
-                    testId={`ref-${entry.fullName}`}
-                    entries={remoteEntries(group.remote, entry.label)}
-                  >
-                    <button
-                      type="button"
-                      className="ref-row"
-                      style={{ paddingLeft: 20 }}
-                      data-testid={`remote-branch-${entry.fullName}`}
-                      title={entry.fullName}
-                      onDoubleClick={() => {
-                        if (!blocked) {
-                          void runAction(repo.id, {
-                            action: "checkout",
-                            target: {
-                              kind: "remoteBranch",
-                              remoteBranch: entry.fullName,
-                            },
-                          });
-                        }
-                      }}
+              <button
+                type="button"
+                className={`ref-row${branch.is_head ? " is-head" : ""}`}
+                data-testid={`branch-${branch.name}`}
+                title={branch.name}
+                onDoubleClick={() => {
+                  if (!blocked && !branch.is_head) {
+                    void runAction(repo.id, {
+                      action: "checkout",
+                      target: { kind: "localBranch", localBranch: branch.name },
+                    });
+                  }
+                }}
+                onClick={() => {
+                  setMessage(
+                    repo.id,
+                    ta(translate, "branch-selected", { name: branch.name }),
+                    null,
+                  );
+                }}
+              >
+                <span className={`ref-marker${branch.is_head ? " ref-marker--head" : ""}`} />
+                <span className="ref-row__label">{branch.name}</span>
+              </button>
+            </ContextMenu>
+          ))}
+        </Section>
+  
+        <Section
+          sectionKey="remote-branches"
+          title={t(translate, "section-remote-branches")}
+          count={refs.remote_branches.length}
+          collapsed={isCollapsed("remote-branches")}
+          onToggle={toggle}
+        >
+          {groups.map((group) => (
+            <div key={group.remote} className="sidebar__section">
+              <button
+                type="button"
+                className="sidebar__section-header sidebar__group-header"
+                onClick={() => toggle(`remote-${group.remote}`)}
+                data-testid={`sidebar-toggle-remote-${group.remote}`}
+              >
+                <Icon
+                  name={isCollapsed(`remote-${group.remote}`) ? "chevron-right" : "chevron-down"}
+                  size={12}
+                />
+                <Icon name="git-branch" size={12} />
+                <span className="sidebar__section-title">{group.remote}</span>
+                <span className="sidebar__section-count">{group.branches.length}</span>
+              </button>
+              {isCollapsed(`remote-${group.remote}`)
+                ? null
+                : group.branches.map((entry) => (
+                    <ContextMenu
+                      key={entry.fullName}
+                      testId={`ref-${entry.fullName}`}
+                      entries={remoteEntries(group.remote, entry.label)}
                     >
-                      <span className="ref-marker" />
-                      <span className="ref-row__label">{entry.label}</span>
-                    </button>
-                  </ContextMenu>
-                ))}
-          </div>
-        ))}
-      </Section>
-
-      <Section
-        sectionKey="tags"
-        title={t(translate, "section-tags")}
-        count={refs.tags.length}
-        collapsed={isCollapsed("tags")}
-        onToggle={toggle}
-      >
-        {refs.tags.map((name) => (
-          <ContextMenu key={name} testId={`tag-${name}`} entries={tagEntries(name)}>
-            <button
-              type="button"
-              className="ref-row"
-              data-testid={`tag-row-${name}`}
-              title={name}
-              onDoubleClick={() => {
-                if (!blocked) {
-                  void runAction(repo.id, {
-                    action: "checkout",
-                    target: { kind: "tag", tag: name },
-                  });
-                }
-              }}
+                      <button
+                        type="button"
+                        className="ref-row"
+                        style={{ paddingLeft: 20 }}
+                        data-testid={`remote-branch-${entry.fullName}`}
+                        title={entry.fullName}
+                        onDoubleClick={() => {
+                          if (!blocked) {
+                            void runAction(repo.id, {
+                              action: "checkout",
+                              target: {
+                                kind: "remoteBranch",
+                                remoteBranch: entry.fullName,
+                              },
+                            });
+                          }
+                        }}
+                      >
+                        <span className="ref-marker" />
+                        <span className="ref-row__label">{entry.label}</span>
+                      </button>
+                    </ContextMenu>
+                  ))}
+            </div>
+          ))}
+        </Section>
+  
+        <Section
+          sectionKey="tags"
+          title={t(translate, "section-tags")}
+          count={refs.tags.length}
+          collapsed={isCollapsed("tags")}
+          onToggle={toggle}
+        >
+          {refs.tags.map((name) => (
+            <ContextMenu key={name} testId={`tag-${name}`} entries={tagEntries(name)}>
+              <button
+                type="button"
+                className="ref-row"
+                data-testid={`tag-row-${name}`}
+                title={name}
+                onDoubleClick={() => {
+                  if (!blocked) {
+                    void runAction(repo.id, {
+                      action: "checkout",
+                      target: { kind: "tag", tag: name },
+                    });
+                  }
+                }}
+              >
+                <span className="ref-marker" />
+                <span className="ref-row__label">{name}</span>
+              </button>
+            </ContextMenu>
+          ))}
+        </Section>
+  
+        <Section
+          sectionKey="stashes"
+          title={t(translate, "section-stashes")}
+          count={refs.stashes.length}
+          collapsed={isCollapsed("stashes")}
+          onToggle={toggle}
+        >
+          {refs.stashes.map((stash) => (
+            <ContextMenu
+              key={stash.reference}
+              testId={`stash-${stash.reference}`}
+              entries={stashEntries(stash.reference)}
             >
-              <span className="ref-marker" />
-              <span className="ref-row__label">{name}</span>
-            </button>
-          </ContextMenu>
-        ))}
-      </Section>
-
-      <Section
-        sectionKey="stashes"
-        title={t(translate, "section-stashes")}
-        count={refs.stashes.length}
-        collapsed={isCollapsed("stashes")}
-        onToggle={toggle}
-      >
-        {refs.stashes.map((stash) => (
-          <ContextMenu
-            key={stash.reference}
-            testId={`stash-${stash.reference}`}
-            entries={stashEntries(stash.reference)}
-          >
-            <button
-              type="button"
-              className="ref-row"
-              data-testid={`stash-row-${stash.reference}`}
-              title={stash.description}
-              onClick={() => {
-                void runAction(repo.id, { action: "stashPop", stashRef: stash.reference });
-              }}
-            >
-              <span className="ref-marker" />
-              <span className="ref-row__label">{stash.description}</span>
-            </button>
-          </ContextMenu>
-        ))}
-      </Section>
+              <button
+                type="button"
+                className="ref-row"
+                data-testid={`stash-row-${stash.reference}`}
+                title={stash.description}
+                onClick={() => {
+                  void runAction(repo.id, { action: "stashPop", stashRef: stash.reference });
+                }}
+              >
+                <span className="ref-marker" />
+                <span className="ref-row__label">{stash.description}</span>
+              </button>
+            </ContextMenu>
+          ))}
+        </Section>
+      </div>
     </div>
   );
 }

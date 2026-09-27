@@ -90,18 +90,26 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
     }
   };
 
-  if (groups.length === 0) {
-    return (
-      <div className="changes" data-testid="changes-empty">
+  // The total counts every changed path, so a file that is in both groups is
+  // counted once: it is one thing that has two states, not two things.
+  const total = new Set<string>([
+    ...staged.map((file) => file.path),
+    ...unstaged.map((file) => file.path),
+  ]).size;
+
+  return (
+    <div className="changes" data-testid={groups.length ? "changes-panel" : "changes-empty"}>
+      <div className="panel-header panel-header--compact" data-testid="changes-header">
+        <span>{t(translate, "changes-title")}</span>
+        <span className="panel-header__count" data-testid="changes-total">
+          {total}
+        </span>
+      </div>
+      {groups.length === 0 ? (
         <div className="empty-state" style={{ minHeight: 120 }}>
           <span className="empty-state__message">{t(translate, "changes-empty")}</span>
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="changes" data-testid="changes-panel">
+      ) : null}
       {groups.map((group) => {
         const stagedGroup = group.key === "staged";
         const isCollapsed = collapsed.includes(group.key);
