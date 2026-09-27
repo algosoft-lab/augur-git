@@ -1,0 +1,233 @@
+//! Augur Git Tauri application entry point.
+//!
+//! The process can start in three ways: as the desktop application with no
+//! arguments, as the desktop application forwarding repository paths that are
+//! already open in a running instance, or as the `augurgit-tauri` companion
+//! command. All three share one command-line parser and one single-instance
+//! lock, so a second launch never produces a second window.
+
+use tauri::{Emitter, Listener, Manager, RunEvent, WindowEvent};
+
+pub mod commands;
+pub mod events;
+pub mod fonts;
+pub mod git_args;
+pub mod menu;
+pub mod persistence;
+pub mod repo;
+pub mod state;
+
+use augur_core::build_info;
+use augur_core::cli::{self, CliInvocation};
+use augur_core::i18n;
+
+use crate::state::AppState;
+
+/// Build and run the application with the paths a launch requested.
+pub fn run(invocation: CliInvocation, forwarded: bool) {
+    let builder = install_window_hooks(tauri::Builder::default())
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            handle_second_launch(app, &args, &cwd);
+        }))
+        .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(log_plugin())
+        .invoke_handler(tauri::generate_handler![
+            commands::repo::bootstrap,
+            commands::repo::open_repository,
+            commands::repo::close_repository,
+            commands::repo::refresh_repository,
+            commands::repo::set_log_scope,
+            commands::repo::load_more_log_page,
+            commands::repo::select_commit,
+            commands::repo::request_commit_message,
+            commands::repo::load_commit_file_diff,
+            commands::repo::load_working_tree_diff,
+            commands::repo::working_tree_operation,
+            commands::repo::run_action,
+            commands::repo::checkout,
+            commands::repo::start_compare,
+            commands::repo::cancel_compare,
+            commands::repo::export_patch,
+            commands::repo::probe_merge,
+            commands::repo::probe_rebase,
+            commands::repo::read_commit_message,
+            commands::repo::set_graph_history,
+            commands::app::theme_options,
+            commands::app::list_font_families,
+            commands::app::run_cli_installer,
+            commands::app::list_wsl_distros,
+            commands::app::probe_wsl_repository,
+            commands::app::update_settings,
+            commands::app::set_language,
+            commands::app::set_theme,
+            commands::app::set_view,
+            commands::app::set_typography,
+            commands::app::set_commit_action,
+            commands::app::set_diff_layout,
+            commands::app::set_layout,
+            commands::app::set_workspace_tabs,
+            commands::app::set_shortcut,
+            commands::app::validate_shortcut,
+            commands::app::flush_state,
+            commands::app::open_about_window,
+            commands::app::open_compare_window,
+            commands::app::close_compare_window,
+            commands::app::focus_main_window,
+            commands::app::request_open_paths,
+            commands::app::notify,
+            commands::app::repository_summary,
+            commands::app::current_config,
+        ])
+        .setup(move |app| {
+            let handle = app.handle().clone();
+            let pending = invocation.paths.clone();
+
+            let report = persistence::LoadReport::default();
+            app.manage(AppState::new(handle.clone(), report));
+            install_menu_hooks(&handle);
+            if forwarded {
+                // This process already lost the single-instance race; the
+                // plugin forwards the paths and exits without ever building a
+                // window. The handle is dropped on the next line.
+                log::info!("[cli] paths forwarded to the running instance");
+                return Ok(());
+            }
+            if !pending.is_empty() {
+                // Replayed once the webview asks for them; a window that loads
+                // late still receives the request.
+                app.state::<AppState>().queue_paths(pending);
+            }
+            Ok(())
+        })
+        .build(tauri::generate_context!());
+
+    let app = match builder {
+        Ok(app) => app,
+        Err(error) => {
+            log::error!("[startup] failed to build the application: {error}");
+            eprintln!("{}: failed to start: {error}", build_info::APP_NAME);
+            std::process::exit(1);
+        }
+    };
+
+    app.run(|app_handle, event| match event {
+        RunEvent::ExitRequested { .. } | RunEvent::Exit => {
+            if let Some(state) = app_handle.try_state::<AppState>() {
+                state.shutdown();
+            }
+        }
+        RunEvent::WindowEvent {
+            event: WindowEvent::Destroyed,
+            ..
+        } => {}
+        _ => {}
+    });
+}
+
+/// A second launch parsed its own arguments; forward the paths to the running
+/// instance and focus its window.
+fn handle_second_launch(app: &tauri::AppHandle, args: &[String], cwd: &str) {
+    let cwd_path = std::path::Path::new(cwd);
+    let mut requested: Vec<String> = args
+        .iter()
+        .skip(1)
+        .filter(|arg| !arg.starts_with('-'))
+        .cloned()
+        .collect();
+    // A bare `augurgit-tauri` means the directory the user typed it in.
+    if requested.is_empty() {
+        if let Ok(current) = std::fs::canonicalize(cwd_path)
+            && current.is_dir()
+        {
+            requested.push(augur_core::paths::normalize_extended_path(&current).to_string_lossy().into_owned());
+        }
+    }
+    match cli::resolve_forwarded(&requested, cwd_path) {
+        Ok(paths) => {
+            log::info!("[cli] forwarding {} path(s) to the running instance", paths.len());
+            AppState::deliver_open_paths(app, paths);
+        }
+        Err(error) => log::warn!("[cli] forwarded launch rejected: {error}"),
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// Rebuild the native menu when the language or shortcuts change, and forward
+/// activations to the webview.
+fn install_menu_hooks(app: &tauri::AppHandle) {
+    let handle = app.clone();
+    app.on_menu_event(move |app, event| {
+        menu::dispatch(app, event.id().0.as_str());
+    });
+    let handle_for_rebuild = handle.clone();
+    app.listen(events::APP_EVENT, move |event| {
+        if event.payload().to_string().contains("settingsChanged") {
+            rebuild_menu(&handle_for_rebuild);
+        }
+    });
+    rebuild_menu(&handle);
+}
+
+fn rebuild_menu(app: &tauri::AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let persistence = state.persistence();
+    let config = persistence.config();
+    let locale = i18n::resolve(&config.language);
+    let shortcuts = persistence.resolved_shortcuts();
+    menu::install(app, locale, &shortcuts);
+}
+
+/// Write logs to stdout in a debug build and to the platform log directory
+/// always, so a release build still leaves a diagnosable trail.
+fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    use log::LevelFilter;
+    use tauri_plugin_log::{Target, TargetKind};
+
+    tauri_plugin_log::Builder::new()
+        .targets([
+            Target::new(TargetKind::Stdout),
+            Target::new(TargetKind::LogDir { file_name: None }),
+        ])
+        .level(if cfg!(debug_assertions) {
+            LevelFilter::Debug
+        } else {
+            LevelFilter::Info
+        })
+        .build()
+}
+
+/// Tell the webview when a window regains focus so it can refresh the active
+/// repository, and forward dropped folders to the window that received them.
+fn install_window_hooks(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder
+        .on_window_event(|window, event| {
+            if matches!(event, WindowEvent::Focused(true)) {
+                let _ = window.emit(events::WINDOW_FOCUS_EVENT, ());
+            }
+        })
+        .on_webview_event(|webview, event| {
+            if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                let folders: Vec<String> = paths
+                    .iter()
+                    .filter(|path| path.is_dir())
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect();
+                if !folders.is_empty() {
+                    let _ = webview.emit(
+                        events::DROP_EVENT,
+                        events::OpenPathsPayload { paths: folders },
+                    );
+                }
+            }
+        })
+}
