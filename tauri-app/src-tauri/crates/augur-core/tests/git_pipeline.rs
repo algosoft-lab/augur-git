@@ -49,7 +49,7 @@ impl Sandbox {
         ));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).ok()?;
-        let mut sandbox = Sandbox {
+        let sandbox = Sandbox {
             path,
             events: std::sync::mpsc::channel().1,
             handle: None,
@@ -114,11 +114,6 @@ impl Sandbox {
             std::fs::create_dir_all(parent).ok()?;
         }
         std::fs::write(target, contents).ok()
-    }
-
-    /// Wait for the next event, failing the test if none arrives.
-    fn next_event(&self) -> GitEvent {
-        self.wait_for(|event| true).expect("an event arrived")
     }
 
     /// Wait for the first event the predicate accepts, skipping the others.
