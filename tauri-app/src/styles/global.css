@@ -1514,6 +1514,14 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
+/* The panel title the reference sets in its title bar: a step above the
+   picker labels in size and weight, so the row reads as titled content. */
+.compare__title {
+  flex: 0 0 auto;
+  font-size: calc(var(--ui-font-size) * 0.75);
+  font-weight: 600;
+}
+
 .compare__picker {
   display: flex;
   min-width: 240px;

@@ -43,6 +43,8 @@ export interface BootOptions {
   open?: StubRepo[];
   /** Milliseconds the comparison's per-file diffs take to arrive. */
   compareDelay?: number;
+  /** Make every comparison fail as a whole with this detail. */
+  failCompare?: string;
   /**
    * Commands the backend refuses, with the key and detail it refuses them with.
    */
@@ -88,6 +90,7 @@ function optionsFor(options: BootOptions): StubOptions {
   return {
     open: options.open ?? [],
     compareDelay: options.compareDelay,
+    failCompare: options.failCompare,
     refusals: options.refusals,
     workingDiffFailure: options.workingDiffFailure,
     workingDiffDelay: options.workingDiffDelay,

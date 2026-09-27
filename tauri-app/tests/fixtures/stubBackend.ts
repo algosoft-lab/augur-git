@@ -33,6 +33,15 @@ export interface StubOptions {
   compareDelay?: number;
 
   /**
+   * Make every comparison fail as a whole with this detail.
+   *
+   * The real worker answers a comparison whose endpoints do not resolve with
+   * one request-level error and then a finished event, so a test of the
+   * failure path needs the same shape.
+   */
+  failCompare?: string;
+
+  /**
    * Paths the saved workspace lists as open, with no repository behind them.
    *
    * This is the state a window starts in when the backend has no repository for
@@ -665,6 +674,20 @@ function install(
       compareRequest += 1;
       const requestId = compareRequest;
       setTimeout(() => {
+        if (options.failCompare !== undefined) {
+          emit("augur://repo-event", {
+            repoId: 7,
+            type: "branchCompareError",
+            requestId,
+            detail: options.failCompare,
+          });
+          emit("augur://repo-event", {
+            repoId: 7,
+            type: "branchCompareFinished",
+            requestId,
+          });
+          return;
+        }
         emit("augur://repo-event", {
           repoId: 7,
           type: "branchCompareFiles",

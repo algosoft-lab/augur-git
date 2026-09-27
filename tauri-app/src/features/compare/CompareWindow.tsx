@@ -20,6 +20,7 @@ import { useStore, type RepoState } from "../../app/store";
 import { statBlocks, statusKey, statusModifier } from "../diff/fileMeta";
 import { DiffView, type DiffSection } from "../diff/DiffView";
 import { t, ta } from "../../i18n/strings";
+import { isRevisionUnavailable } from "./revisions";
 
 interface Endpoint {
   input: string;
@@ -234,9 +235,27 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
   const canRun = (endpoint: Endpoint) =>
     endpoint.selected !== null || fromManualInput(endpoint.input) !== null;
 
+  /**
+   * A comparison that failed as a whole, before any file could be listed.
+   *
+   * The reference reports this state instead of the empty states, because
+   * "no changes" would be a lie about a request that never got that far.
+   */
+  const requestError = errors[""] ?? null;
+  const emptyMessage = requestError
+    ? t(translate, "branch-compare-error")
+    : loading
+      ? t(translate, "branch-compare-loading")
+      : t(translate, "branch-compare-select-hint");
+
   return (
     <div className="compare" data-testid="compare-window">
       <div className="compare__header" data-tauri-drag-region>
+        {/* The reference titles the panel inside the window, under the native
+            title bar, so the picker row carries a label of its own. */}
+        <span className="compare__title" data-testid="compare-title">
+          {t(translate, "branch-compare-title")}
+        </span>
         <RevisionPicker
           label={t(translate, "branch-compare-base")}
           endpoint={base}
@@ -334,11 +353,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           <div style={{ overflowY: "auto" }}>
             {files.length === 0 ? (
               <EmptyState
-                message={
-                  loading
-                    ? t(translate, "branch-compare-loading")
-                    : t(translate, "branch-compare-select-hint")
-                }
+                message={emptyMessage}
                 testId="compare-files-empty"
               />
             ) : (
@@ -408,12 +423,18 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
                 <Spinner size={11} /> {t(translate, "branch-compare-loading")}
               </span>
             ) : null}
-            {errors[""] ? (
-              <span className="compare__status compare__status--error">
-                {errors[""]}
+            {requestError ? (
+              // The sentence names the failure; Git's own words survive as the
+              // hover text rather than replacing it.
+              <span
+                className="compare__status compare__status--error"
+                data-testid="compare-request-error"
+                title={requestError}
+              >
+                {t(translate, "branch-compare-error")}
               </span>
             ) : null}
-            {finished && files.length === 0 ? (
+            {!requestError && finished && files.length === 0 ? (
               <span className="compare__status">
                 {t(translate, "branch-compare-no-changes")}
               </span>
@@ -456,9 +477,11 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
             showFileHeaders
             header={showAll && sections.length > 0 ? t(translate, "branch-compare-all-files") : undefined}
             emptyMessage={
-              loading
-                ? t(translate, "branch-compare-loading")
-                : t(translate, "branch-compare-select-file")
+              requestError
+                ? t(translate, "branch-compare-error")
+                : loading
+                  ? t(translate, "branch-compare-loading")
+                  : t(translate, "branch-compare-select-file")
             }
             onCopy={
               sections.length
@@ -578,6 +601,7 @@ function RevisionPicker({
   });
   const manual = fromManualInput(query);
   const invalid = query.length > 0 && !manual && !endpoint.selected && filtered.length === 0;
+  const unavailable = isRevisionUnavailable(endpoint.selected, options);
 
   // The list is a popup, so a click elsewhere or an Escape dismisses it.
   useEffect(() => {
@@ -744,6 +768,14 @@ function RevisionPicker({
             {invalid ? (
               <div className="compare__picker-error">
                 {t(translate, "branch-compare-invalid-revision")}
+              </div>
+            ) : null}
+            {unavailable ? (
+              <div
+                className="compare__picker-error"
+                data-testid={`compare-unavailable-${label}`}
+              >
+                {t(translate, "branch-compare-revision-unavailable")}
               </div>
             ) : null}
           </div>

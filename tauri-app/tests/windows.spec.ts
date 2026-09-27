@@ -10,6 +10,14 @@ import { boot, fixtureRepo } from "./harness";
  */
 
 test.describe("comparison window", () => {
+  test("names the panel in its own header", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
+    await expect(page.getByTestId("compare-window")).toBeVisible();
+    await expect(page.getByTestId("compare-title")).toHaveText(
+      "Revision comparison",
+    );
+  });
+
   test("compares two revisions and lists the files", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
     await expect(page.getByTestId("compare-window")).toBeVisible();
@@ -28,6 +36,31 @@ test.describe("comparison window", () => {
     // files it found.
     await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
     await expect(page.getByTestId("compare-file-src/new.rs")).toBeVisible();
+  });
+
+  test("reports a comparison that failed as a whole, not as no changes", async ({
+    page,
+  }) => {
+    await boot(page, {
+      open: [fixtureRepo()],
+      window: "compare",
+      repoId: 7,
+      failCompare: "fatal: bad revision 'refs/heads/gone'",
+    });
+
+    // The sentence names the failure wherever the window would otherwise have
+    // claimed success or invited another choice, and Git's words are not lost.
+    await expect(page.getByTestId("compare-request-error")).toHaveText(
+      "Unable to load revision comparison",
+    );
+    await expect(page.getByTestId("compare-request-error")).toHaveAttribute(
+      "title",
+      "fatal: bad revision 'refs/heads/gone'",
+    );
+    await expect(page.getByTestId("compare-files-empty")).toContainText(
+      "Unable to load revision comparison",
+    );
+    await expect(page.getByText("The selected revisions have no file changes")).toHaveCount(0);
   });
 
   test("shows every changed file at once, and one file on request", async ({
