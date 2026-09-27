@@ -18,6 +18,15 @@ use crate::state::AppState;
 
 type Result<T> = std::result::Result<T, CommandError>;
 
+/// The window title for a key, in the language the settings carry.
+///
+/// Auxiliary windows are created by commands, so their titles resolve at
+/// creation time; a language change afterwards is picked up when the window is
+/// next opened.
+fn resolved_title(language: &LanguagePreference, key: &str) -> String {
+    augur_core::i18n::text(augur_core::i18n::resolve(language), key)
+}
+
 /// The five bundled themes, in settings-list order.
 #[tauri::command]
 pub fn theme_options() -> Vec<ThemePreference> {
@@ -207,7 +216,7 @@ pub fn flush_state(state: State<'_, AppState>) {
 
 /// The About window, opened once and focused on repeat requests.
 #[tauri::command]
-pub fn open_about_window(app: AppHandle) -> Result<()> {
+pub fn open_about_window(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     let label = "about";
     if let Some(window) = app.get_webview_window(label) {
         let _ = window.unminimize();
@@ -215,7 +224,7 @@ pub fn open_about_window(app: AppHandle) -> Result<()> {
         return Ok(());
     }
     WebviewWindowBuilder::new(&app, label, WebviewUrl::App("index.html?window=about".into()))
-        .title("About Augur Git Tauri")
+        .title(resolved_title(&state.settings().config.language, "app-name"))
         .inner_size(400.0, 340.0)
         .min_inner_size(400.0, 340.0)
         .resizable(false)
@@ -228,7 +237,11 @@ pub fn open_about_window(app: AppHandle) -> Result<()> {
 
 /// The standalone comparison window for one repository.
 #[tauri::command]
-pub fn open_compare_window(app: AppHandle, repo_id: u64) -> Result<String> {
+pub fn open_compare_window(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: u64,
+) -> Result<String> {
     let label = format!("compare-{repo_id}");
     if let Some(window) = app.get_webview_window(&label) {
         let _ = window.unminimize();
@@ -237,7 +250,7 @@ pub fn open_compare_window(app: AppHandle, repo_id: u64) -> Result<String> {
     }
     let url = WebviewUrl::App(format!("index.html?window=compare&repo={repo_id}").into());
     let window = WebviewWindowBuilder::new(&app, &label, url)
-        .title("Compare revisions")
+        .title(resolved_title(&state.settings().config.language, "compare-window-title"))
         .inner_size(1280.0, 820.0)
         .min_inner_size(900.0, 560.0)
         .resizable(true)
@@ -323,4 +336,27 @@ pub struct RepoInfo {
 #[tauri::command]
 pub fn current_config(state: State<'_, AppState>) -> AppConfig {
     state.config()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auxiliary_window_titles_come_from_the_catalog() {
+        assert_eq!(
+            resolved_title(&LanguagePreference::English, "compare-window-title"),
+            "Compare revisions"
+        );
+        assert_eq!(
+            resolved_title(&LanguagePreference::SimplifiedChinese, "compare-window-title"),
+            "比较版本"
+        );
+        // The About window is titled as the product, which is what the main
+        // window's own title in tauri.conf.json says.
+        assert_eq!(
+            resolved_title(&LanguagePreference::English, "app-name"),
+            "Augur Git Tauri"
+        );
+    }
 }
