@@ -170,10 +170,25 @@ impl AppState {
         self.with(|inner| std::mem::take(&mut inner.pending_paths))
     }
 
+    /// Whether any path is waiting for the main window to ask for it.
+    pub fn has_pending_paths(&self) -> bool {
+        self.with(|inner| !inner.pending_paths.is_empty())
+    }
+
     /// Send CLI paths to the main window.
+    ///
+    /// Queued as well as emitted, and that is the whole point: a path handed
+    /// over by a second launch can arrive while the window is still booting,
+    /// and an event emitted to a window that has not yet subscribed is dropped
+    /// without a trace. A window that *is* listening receives both, and
+    /// opening a path that is already open selects its tab rather than opening
+    /// a second one, so the duplicate is harmless.
     pub fn deliver_open_paths(app: &AppHandle, paths: Vec<String>) {
         if paths.is_empty() {
             return;
+        }
+        if let Some(state) = app.try_state::<AppState>() {
+            state.queue_paths(paths.clone());
         }
         let payload = OpenPathsPayload { paths };
         let delivered = app
@@ -181,7 +196,7 @@ impl AppState {
             .map(|window| window.emit(OPEN_PATHS_EVENT, payload).is_ok())
             .unwrap_or(false);
         if !delivered {
-            log::warn!("[cli] no main window to receive forwarded paths");
+            log::warn!("[cli] no main window to emit forwarded paths to");
         }
     }
 

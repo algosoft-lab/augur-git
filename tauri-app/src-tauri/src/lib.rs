@@ -79,6 +79,7 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             commands::app::close_compare_window,
             commands::app::focus_main_window,
             commands::app::request_open_paths,
+            commands::app::take_pending_paths,
             commands::app::notify,
             commands::app::repository_summary,
             commands::app::current_config,

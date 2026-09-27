@@ -67,6 +67,7 @@ makes it reusable from a Tauri command.
 npm install          # frontend dependencies
 npm run tauri:dev    # build the CLI companion, then run the app in dev mode
 npm run tauri:build  # produce a platform bundle
+npm run tauri:build -- --bundles app   # one platform's bundle only
 npm run typecheck    # TypeScript, no emit
 npm test             # unit tests for the pure interface logic
 npm run test:e2e     # browser tests for the whole interface
@@ -79,6 +80,14 @@ That script compiles the `augurgit-tauri` companion and copies it to
 `src-tauri/binaries/`, where the Tauri bundler expects a sidecar. A bare
 `cargo build` has no such hook, so `build.rs` writes a clearly labelled
 placeholder instead; the real binary is only ever produced by the npm scripts.
+
+On macOS the `.app` bundle is produced by either form, and the `.dmg` is a
+wrapper around the same `.app`. The wrapper is produced by Tauri's
+`bundle_dmg.sh`, which drives Finder over AppleScript to position the disk-image
+window; that step needs an interactive desktop session, so it fails on a build
+machine or over a remote shell. `--bundles app` produces the installable bundle
+in that case, and the failure is in the window layout rather than in the
+contents.
 
 ## Testing
 

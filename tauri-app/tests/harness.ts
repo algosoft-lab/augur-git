@@ -44,6 +44,11 @@ export interface BootOptions {
   /** Milliseconds the comparison's per-file diffs take to arrive. */
   compareDelay?: number;
   /**
+   * Paths the backend is holding because the window was not listening when they
+   * arrived, which is the state a launch with a path argument produces.
+   */
+  pendingPaths?: string[];
+  /**
    * Paths the saved workspace lists as open with no repository behind them, so
    * this window has to open them.
    */
@@ -68,6 +73,7 @@ function optionsFor(options: BootOptions): StubOptions {
   return {
     open: options.open ?? [],
     compareDelay: options.compareDelay,
+    pendingPaths: options.pendingPaths,
     savedTabs: options.savedTabs,
     available: options.available ?? [fixtureRepo(), secondFixtureRepo()],
     openFailure: options.openFailure,

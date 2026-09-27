@@ -138,7 +138,7 @@ pub fn bootstrap(state: State<'_, AppState>, window: tauri::Window) -> Result<Bo
         build: BuildInfo::current(),
         store_paths: persistence.store_paths(),
         repositories: repository_summaries(&state),
-        has_pending_paths: false,
+        has_pending_paths: state.has_pending_paths(),
     })
 }
 

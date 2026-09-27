@@ -395,8 +395,6 @@ button {
 .title-bar__branch:hover {
   background: var(--list-hover-background);
 }
-  padding: 0 8px;
-}
 
 .sidebar__section-header {
   display: flex;

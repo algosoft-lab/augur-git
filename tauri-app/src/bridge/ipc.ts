@@ -336,6 +336,17 @@ export async function requestOpenPaths(paths: string[]): Promise<void> {
   return invoke<void>("request_open_paths", { paths });
 }
 
+/**
+ * Collect the paths handed over before this window was listening.
+ *
+ * A path from a second launch can arrive while the window is still booting, and
+ * an event emitted to a window that has not yet subscribed is dropped without a
+ * trace, so the backend also holds them until asked.
+ */
+export async function takePendingPaths(): Promise<string[]> {
+  return invoke<string[]>("take_pending_paths");
+}
+
 export async function currentConfig(): Promise<AppConfig> {
   return invoke<AppConfig>("current_config");
 }

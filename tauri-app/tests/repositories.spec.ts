@@ -260,6 +260,32 @@ test.describe("repositories", () => {
     await expect(page.locator(".tab__dot--error")).toHaveCount(1);
   });
 
+  test("collects a path handed over before the window was listening", async ({
+    page,
+  }) => {
+    // Launching the application with a path argument is the case the backend has
+    // to hold: the window does not exist when the path arrives, so there is
+    // nothing to emit it to. Before this the bootstrap always said no and the
+    // queue was never drained, so the argument did nothing at all.
+    await boot(page, { pendingPaths: ["/Users/dev/projects/from-the-command-line"] });
+
+    // Exactly one tab: the collection is drained, so the strict-mode second
+    // initialisation finds nothing rather than opening a second repository.
+    await expect(page.locator(".tab")).toHaveCount(1);
+    await expect(page.locator(".tab__label")).toHaveText(["from-the-command-line"]);
+    await expect(page.getByTestId("repo-7")).toBeVisible();
+
+    // And it was collected rather than delivered, which is the only route that
+    // survives a window that did not exist yet.
+    expect(
+      await page.evaluate(() =>
+        (window as any).__STUB__.log.filter(
+          (entry: any) => entry.cmd === "take_pending_paths",
+        ).length,
+      ),
+    ).toBeGreaterThan(0);
+  });
+
   test("completes a restored tab that has no repository behind it yet", async ({
     page,
   }) => {

@@ -368,6 +368,10 @@ function install(
   }
 
   const handlers: Record<string, (args: any) => unknown> = {
+    // Drained, not read: a second collection while one is in flight must not
+    // hand the same path out twice.
+    take_pending_paths: () => (options.pendingPaths ?? []).splice(0),
+
     bootstrap: () => ({
       window: "main",
       config,
@@ -388,7 +392,7 @@ function install(
         path: repo.path,
         location: repo.location,
       })),
-      has_pending_paths: false,
+      has_pending_paths: (options.pendingPaths ?? []).length > 0,
     }),
 
     current_config: () => config,

@@ -466,6 +466,16 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       }
     }
 
+    // Paths handed over before this window was listening, which the bootstrap
+    // said are waiting. Collected here rather than delivered as an event,
+    // because an event emitted before the subscription exists is lost.
+    if (boot.has_pending_paths) {
+      const handed = await ipc.takePendingPaths();
+      for (const path of handed) {
+        await get().openTab(path, { kind: "local" });
+      }
+    }
+
     // An adopted repository has a worker this window did not start, so nothing
     // will be pushed until it asks. Without this a window that boots while a
     // repository is already open shows it blank forever. Only the repository

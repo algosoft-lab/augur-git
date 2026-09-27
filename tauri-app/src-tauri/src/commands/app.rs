@@ -283,6 +283,15 @@ pub fn request_open_paths(app: AppHandle, paths: Vec<String>) {
     });
 }
 
+/// Collect the repository paths handed over before this window was listening.
+///
+/// Draining rather than reading, so a path that arrives while the collection is
+/// in flight is not handed out twice.
+#[tauri::command]
+pub fn take_pending_paths(state: State<'_, AppState>) -> Vec<String> {
+    state.take_pending_paths()
+}
+
 /// Report a notice to every window, for operations that need no further work.
 #[tauri::command]
 pub fn notify(state: State<'_, AppState>, level: String, message: String) {
