@@ -184,7 +184,7 @@ export function GraphView({ repo }: { repo: RepoState }) {
                   ? t(translate, "commit-search-no-results")
                   : t(translate, "graph-empty")
               }
-              testId="graph-empty"
+              testId={query ? "commit-search-no-results" : "graph-empty"}
             />
           }
           renderRow={(row, index) => {
@@ -415,7 +415,12 @@ function CommitMessageDialog({
         }
       }}
     >
-      <div className="dialog" role="dialog" aria-modal="true">
+      <div
+        className="dialog"
+        role="dialog"
+        aria-modal="true"
+        data-testid="commit-message-dialog"
+      >
         <div className="dialog__title">
           {t(translate, "commit-message-dialog-title")}
         </div>
@@ -429,7 +434,7 @@ function CommitMessageDialog({
                 {full}
               </pre>
               {message.co_authors.length ? (
-                <div>
+                <div data-testid="commit-message-coauthors">
                   <div className="muted">{t(translate, "commit-coauthors")}</div>
                   {message.co_authors.map((author) => (
                     <div key={`${author.name}-${author.email}`}>

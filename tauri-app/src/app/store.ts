@@ -319,6 +319,20 @@ export const useStore = create<AppStore>((set, get) => ({
         await get().openTab(tab.path, tab.location);
       }
     }
+
+    // An adopted repository has a worker this window did not start, so nothing
+    // will be pushed until it asks. Without this a window that boots while a
+    // repository is already open shows it blank forever. Only the repository
+    // this window is about to display is requested; a background tab fills in
+    // when it is selected.
+    if (role === "compare" && compareRepoId !== null && repos[compareRepoId]) {
+      await get().refresh(compareRepoId);
+    } else if (boot.workspace.active_tab) {
+      const active = tabs.find((entry) => entry.key === boot.workspace.active_tab);
+      if (active && active.repoId >= 0) {
+        await get().refresh(active.repoId);
+      }
+    }
   },
 
   setTranslator(locale, catalog) {
@@ -488,8 +502,10 @@ export const useStore = create<AppStore>((set, get) => ({
           selected: { oid, short, subject },
           commitFiles: [],
           commitMergeParent: null,
-          pane: { kind: "none" },
-          commitDocument: null,
+          // Every changed file is shown until one is chosen, matching the
+          // reference application.
+          pane: { kind: "commit", file: null },
+          commitDiffs: {},
         },
       },
     });
@@ -510,7 +526,7 @@ export const useStore = create<AppStore>((set, get) => ({
           commitFiles: [],
           commitMergeParent: null,
           pane: { kind: "none" },
-          commitDocument: null,
+          commitDiffs: {},
         },
       },
     });
@@ -572,10 +588,7 @@ export const useStore = create<AppStore>((set, get) => ({
       return;
     }
     set({
-      repos: {
-        ...get().repos,
-        [repoId]: { ...repo, pane: { kind: "commit", file }, commitDocument: null },
-      },
+      repos: { ...get().repos, [repoId]: { ...repo, pane: { kind: "commit", file } } },
     });
     await ipc.loadCommitFileDiff(repoId, repo.selected.oid, repo.commitMergeParent, file);
   },

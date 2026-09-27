@@ -198,7 +198,7 @@ function FileRow({
   const code = codeFor(file, staged);
   const conflicted = isConflicted(file);
   const untracked = isUntracked(file);
-  const modifier = statusModifier(code, untracked);
+  const modifier = porcelainModifier(code, untracked);
 
   const entries = conflicted
     ? []
@@ -230,7 +230,7 @@ function FileRow({
         title={file.old_path ? `${file.old_path} → ${file.path}` : file.path}
       >
         <span className={`file-row__status status-${modifier}`}>
-          {t(translate, statusKey(code, untracked))}
+          {t(translate, porcelainKey(code, untracked))}
         </span>
         <span className="file-row__name">{file.path}</span>
         {conflicted ? null : (
@@ -250,7 +250,7 @@ function FileRow({
 }
 
 /** Map a porcelain status character to its catalog key. */
-export function statusKey(code: string, untracked: boolean): string {
+export function porcelainKey(code: string, untracked: boolean): string {
   if (untracked) {
     return "status-unknown";
   }
@@ -273,7 +273,7 @@ export function statusKey(code: string, untracked: boolean): string {
 }
 
 /** The CSS colour modifier for a porcelain status character. */
-export function statusModifier(code: string, untracked: boolean): string {
+export function porcelainModifier(code: string, untracked: boolean): string {
   if (untracked) {
     return "unknown";
   }

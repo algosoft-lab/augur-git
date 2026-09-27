@@ -23,10 +23,16 @@ import type {
 
 export type RepoStatus = "loading" | "ready" | "error";
 
-/** What the bottom panel is currently showing. */
+/**
+ * What the bottom panel is currently showing.
+ *
+ * A commit with no chosen file shows every changed file at once, which is what
+ * the reference application does on selection, so `file` is null rather than
+ * the panel starting on a single file.
+ */
 export type DiffPane =
   | { kind: "none" }
-  | { kind: "commit"; file: FileChange }
+  | { kind: "commit"; file: FileChange | null }
   | { kind: "working"; staged: boolean; file: FileStatus };
 
 export interface CommitSelection {
@@ -72,9 +78,16 @@ export interface RepoState {
   commitFiles: FileChange[];
   commitMergeParent: string | null;
   commitMessages: Record<string, CommitMessage>;
-  /** Identity of the file whose diff the bottom panel shows. */
+  /** Which file the bottom panel is focused on, if any. */
   pane: DiffPane;
-  commitDocument: DiffDocument | null;
+  /**
+   * Parsed diffs for the selected commit, keyed by file path.
+   *
+   * Every file of the commit is loaded, because the panel shows them all until
+   * one is chosen. Keying by path rather than holding a single document is what
+   * lets a late answer for one file land without disturbing the others.
+   */
+  commitDiffs: Record<string, DiffDocument>;
   workingDocument: DiffDocument | null;
   workingLoading: boolean;
   workingError: string | null;
@@ -120,7 +133,7 @@ export function emptyRepo(
     commitMergeParent: null,
     commitMessages: {},
     pane: { kind: "none" },
-    commitDocument: null,
+    commitDiffs: {},
     workingDocument: null,
     workingLoading: false,
     workingError: null,
@@ -290,10 +303,20 @@ export function applyRepoEvent(
         commitMessages: { ...state.commitMessages, [event.oid]: event.message },
       };
     case "fileDiff": {
-      if (state.pane.kind !== "commit" || state.pane.file.new_path !== event.file.new_path) {
+      // An answer for a commit that is no longer selected is stale; an answer
+      // for any file of the selected commit is kept, because the panel shows
+      // them all until one is focused.
+      if (state.pane.kind !== "commit") {
         return state;
       }
-      return { ...state, commitDocument: event.document };
+      const path = event.file.new_path;
+      if (state.commitDiffs[path] === event.document) {
+        return state;
+      }
+      return {
+        ...state,
+        commitDiffs: { ...state.commitDiffs, [path]: event.document },
+      };
     }
     case "workingTreeFileDiff": {
       // A late answer for a file the user already moved away from is dropped.

@@ -1,77 +1,115 @@
 /**
  * The diff viewer.
  *
- * Two layouts share one virtualized row list: inline pairs a deleted line with
- * its replacement, side by side aligns the two runs so both panes stay the same
- * height. Character-level ranges produced by the backend are painted as marks
- * inside the line, which is what makes a one-character change visible in a long
- * line.
+ * One or more documents are flattened into a single row list with a file header
+ * between them, which is how the reference application shows every file of a
+ * commit at once. The list is virtualized because a large commit can be tens of
+ * thousands of lines.
  *
- * The backend also returns aligned rows for the side-by-side layout, so the
- * pairing rule is implemented once.
+ * Two layouts share that list: inline pairs a deleted line with its replacement,
+ * side by side aligns the two runs so both panes stay the same height. The
+ * character-level ranges computed by the backend are painted as marks inside the
+ * line, which is what makes a one-character change visible in a long line.
  */
 
 import { useMemo } from "react";
 
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-
 import { EmptyState, Spinner, VirtualList } from "../../components/controls";
-import type { CharRange, DiffDocument, DiffRow } from "../../bridge/types";
+import type { CharRange, DiffPayload, DiffRow } from "../../bridge/types";
 import { useStore } from "../../app/store";
-import { t } from "../../i18n/strings";
 import { tokenize } from "./highlight";
+import { t } from "../../i18n/strings";
 
-const ROW_HEIGHT = 18;
+/** Every row in the viewer is this tall, headers included. */
+export const DIFF_ROW_HEIGHT = 22;
+/** Below this width the all-files view forces the inline layout. */
+export const NARROW_WIDTH = 900;
 
-/** Character ranges the backend computed for a document. */
-export interface InlineRanges {
-  old: CharRange[][];
-  new: CharRange[][];
+/** One document in a multi-document view. */
+export interface DiffSection {
+  path: string;
+  document: DiffPayload;
 }
 
+/** A flattened entry in the virtualized list. */
+type Item =
+  | { kind: "header"; path: string }
+  | { kind: "binary"; path: string }
+  | { kind: "empty"; path: string }
+  | { kind: "row"; document: DiffPayload; row: DiffRow };
+
 export interface DiffViewProps {
-  document: DiffDocument | null;
+  sections: DiffSection[];
   layout: "inline" | "side-by-side";
-  /** Inline ranges, requested lazily for the inline layout. */
-  ranges?: InlineRanges | null;
+  /** Override the layout, used to force inline when the panel is narrow. */
+  forceInline?: boolean;
   loading?: boolean;
   error?: string | null;
   testId?: string;
   emptyMessage?: string;
+  /** Label for the header of a multi-document view. */
+  header?: string;
+  onCopy?: () => void;
+}
+
+/** The two overlapping sheets of the copy icon. */
+function CopyGlyph() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
 }
 
 export function DiffView({
-  document,
+  sections,
   layout,
-  ranges,
+  forceInline = false,
   loading,
   error,
   testId,
   emptyMessage,
+  header,
+  onCopy,
 }: DiffViewProps) {
   const translate = useStore((state) => state.t);
-  const setMessage = useStore((state) => state.setMessage);
+  const effective = forceInline ? "inline" : layout;
 
-  const rows = useMemo<DiffRow[]>(
-    () =>
-      document
-        ? layout === "side-by-side"
-          ? document.aligned_rows
-          : document.rows
-        : [],
-    [document, layout],
-  );
-
-  const copy = () => {
-    if (!document) {
-      return;
+  const items = useMemo<Item[]>(() => {
+    const out: Item[] = [];
+    for (const section of sections) {
+      if (sections.length > 1 || header) {
+        out.push({ kind: "header", path: section.path });
+      }
+      if (section.document.binary) {
+        out.push({ kind: "binary", path: section.path });
+        continue;
+      }
+      const rows =
+        effective === "side-by-side"
+          ? (section.document.aligned_rows ?? section.document.rows)
+          : section.document.rows;
+      if (rows.length === 0) {
+        out.push({ kind: "empty", path: section.path });
+        continue;
+      }
+      for (const row of rows) {
+        out.push({ kind: "row", document: section.document, row });
+      }
     }
-    void writeText(document.copy_text).then(() => {
-      // The status bar belongs to the repository, which the caller knows and
-      // this component does not; the copy itself is what matters here.
-      setMessage(-1, t(translate, "context-copied"), true);
-    });
-  };
+    return out;
+  }, [sections, effective, header]);
 
   if (error) {
     return (
@@ -80,7 +118,7 @@ export function DiffView({
       </div>
     );
   }
-  if (loading) {
+  if (loading && items.length === 0) {
     return (
       <div
         className="diff"
@@ -91,72 +129,101 @@ export function DiffView({
       </div>
     );
   }
-  if (!document) {
+  if (items.length === 0) {
     return (
       <div className="diff" data-testid={testId}>
         <EmptyState
-          icon={undefined}
           message={emptyMessage ?? t(translate, "diff-no-output")}
           testId="diff-empty"
         />
       </div>
     );
   }
-  if (document.binary) {
-    return (
-      <div className="diff" data-testid={testId}>
-        <EmptyState message={t(translate, "bottom-bin")} testId="diff-binary" />
-      </div>
-    );
-  }
 
   return (
     <div className="diff" data-testid={testId}>
-      <div className="bottom__toolbar">
-        <button
-          type="button"
-          className="tool-button tool-button--compact"
-          data-testid="diff-copy"
-          onClick={copy}
-        >
-          {t(translate, "context-copied")}
-        </button>
-      </div>
+      {header ? (
+        <div className="bottom__toolbar">
+          <span className="bottom__toolbar-title">{header}</span>
+          <span className="bottom__toolbar-spacer" />
+          {onCopy ? (
+            <button
+              type="button"
+              className="icon-button"
+              title={t(translate, "diff-copy-tooltip")}
+              aria-label={t(translate, "diff-copy-tooltip")}
+              data-testid="diff-copy"
+              onClick={onCopy}
+            >
+              <CopyGlyph />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <div style={{ flex: 1, minHeight: 0 }}>
         <VirtualList
-          items={rows}
-          rowHeight={ROW_HEIGHT}
+          items={items}
+          rowHeight={DIFF_ROW_HEIGHT}
           testId="diff-rows"
-          className={layout === "side-by-side" ? "diff--split" : "diff--inline"}
-          renderRow={(row) => (
-            <DiffRowView
-              row={row}
-              layout={layout}
-              language={document.language}
-              ranges={ranges}
-            />
-          )}
+          className={effective === "side-by-side" ? "diff--split" : "diff--inline"}
+          renderRow={(item) => <DiffItem item={item} layout={effective} />}
         />
       </div>
     </div>
   );
 }
 
+function DiffItem({
+  item,
+  layout,
+}: {
+  item: Item;
+  layout: "inline" | "side-by-side";
+}) {
+  if (item.kind === "header") {
+    return (
+      <div className="diff__file-header" data-testid="diff-file-header">
+        <span>{item.path}</span>
+      </div>
+    );
+  }
+  if (item.kind === "binary") {
+    return (
+      <div className="diff__note" data-testid="diff-binary">
+        {useStore.getState().t("bottom-bin")}
+      </div>
+    );
+  }
+  if (item.kind === "empty") {
+    return (
+      <div className="diff__note" data-testid="diff-empty-row">
+        {useStore.getState().t("diff-no-output")}
+      </div>
+    );
+  }
+  return <DiffRowView row={item.row} document={item.document} layout={layout} />;
+}
+
 function DiffRowView({
   row,
+  document,
   layout,
-  language,
-  ranges,
 }: {
   row: DiffRow;
+  document: DiffPayload;
   layout: "inline" | "side-by-side";
-  language: string | null;
-  ranges?: InlineRanges | null;
 }) {
+  const ranges = {
+    old: document.inline_old,
+    new: document.inline_new,
+  };
+
   if (row.kind === "hunk") {
     return (
       <div className="diff__row diff__row--hunk" data-testid="diff-hunk">
         <span className="diff__gutter" />
+        <span className="diff__gutter" />
+        <span className="diff__marker" />
         <span className="diff__text">{row.hunk_header}</span>
       </div>
     );
@@ -167,47 +234,65 @@ function DiffRowView({
       <div className="diff__row" data-testid="diff-row">
         <span className="diff__gutter">{row.old_no ?? ""}</span>
         <span
-          className={`diff__text diff__text--del${row.old_text === null ? " is-empty" : ""}`}
+          className={`diff__text diff__text--old${row.old_text === null ? " is-empty" : ""}`}
         >
-          {row.old_text === null ? "" : highlight(row.old_text, language, oldRanges(ranges, row))}
+          {row.old_text === null
+            ? ""
+            : highlight(row.old_text, document.language, oldRanges(ranges, row))}
         </span>
-        <span className="diff__gutter diff__gutter--new">{row.new_no ?? ""}</span>
+        <span className="diff__gutter">{row.new_no ?? ""}</span>
         <span
-          className={`diff__text diff__text--add${row.new_text === null ? " is-empty" : ""}`}
+          className={`diff__text diff__text--new${row.new_text === null ? " is-empty" : ""}`}
         >
-          {row.new_text === null ? "" : highlight(row.new_text, language, newRanges(ranges, row))}
+          {row.new_text === null
+            ? ""
+            : highlight(row.new_text, document.language, newRanges(ranges, row))}
         </span>
       </div>
     );
   }
 
-  const text = row.kind === "add" ? row.new_text : row.old_text;
-  const rangesForLine = row.kind === "add" ? newRanges(ranges, row) : oldRanges(ranges, row);
-  const className =
-    row.kind === "add" ? "diff__row--add" : row.kind === "del" ? "diff__row--del" : "";
+  const newSide = row.kind === "add" || (row.kind === "context" && row.new_text !== null);
+  const text = newSide ? row.new_text : row.old_text;
+  const modifier =
+    row.kind === "add" ? "add" : row.kind === "del" ? "del" : "context";
   return (
-    <div className={`diff__row ${className}`} data-testid="diff-row">
+    <div className={`diff__row diff__row--${modifier}`} data-testid="diff-row">
       <span className="diff__gutter">{row.old_no ?? ""}</span>
-      <span className="diff__gutter diff__gutter--new">{row.new_no ?? ""}</span>
-      <span className="diff__marker">
+      <span className="diff__gutter">{row.new_no ?? ""}</span>
+      <span
+        className={`diff__marker${newSide ? " diff__marker--new" : " diff__marker--old"}`}
+      >
         {row.kind === "add" ? "+" : row.kind === "del" ? "-" : " "}
       </span>
       <span className="diff__text">
-        {text === null || text === undefined ? "" : highlight(text, language, rangesForLine)}
+        {text === null || text === undefined
+          ? ""
+          : highlight(
+              text,
+              document.language,
+              newSide ? newRanges(ranges, row) : oldRanges(ranges, row),
+            )}
       </span>
     </div>
   );
 }
 
-function oldRanges(ranges: InlineRanges | null | undefined, row: DiffRow): CharRange[] | null {
-  if (!ranges || row.old_line_index === null) {
+function oldRanges(
+  ranges: { old: CharRange[][]; new: CharRange[][] },
+  row: DiffRow,
+): CharRange[] | null {
+  if (row.old_line_index === null) {
     return null;
   }
   return ranges.old[row.old_line_index] ?? null;
 }
 
-function newRanges(ranges: InlineRanges | null | undefined, row: DiffRow): CharRange[] | null {
-  if (!ranges || row.new_line_index === null) {
+function newRanges(
+  ranges: { old: CharRange[][]; new: CharRange[][] },
+  row: DiffRow,
+): CharRange[] | null {
+  if (row.new_line_index === null) {
     return null;
   }
   return ranges.new[row.new_line_index] ?? null;
@@ -216,7 +301,7 @@ function newRanges(ranges: InlineRanges | null | undefined, row: DiffRow): CharR
 /**
  * Render one line as highlighted tokens with change ranges marked.
  *
- * The two overlays are combined into a single pass so a mark can wrap a token
+ * The two overlays are combined into one pass so a mark can wrap a token
  * boundary, which is what the reference application does.
  */
 function highlight(
@@ -225,9 +310,10 @@ function highlight(
   ranges: CharRange[] | null,
 ): React.ReactNode {
   const tokens = tokenize(text, language);
-  const segments: { start: number; end: number; kind: string | null; mark: boolean }[] = [];
+  let segments: { start: number; end: number; kind: string | null; mark: boolean }[];
 
   if (tokens) {
+    segments = [];
     let index = 0;
     for (const token of tokens) {
       if (token.start > index) {
@@ -245,11 +331,11 @@ function highlight(
       segments.push({ start: index, end: text.length, kind: null, mark: false });
     }
   } else {
-    segments.push({ start: 0, end: text.length, kind: null, mark: false });
+    segments = [{ start: 0, end: text.length, kind: null, mark: false }];
   }
 
-  // Split segments at change-range boundaries so a mark can be applied to part
-  // of a token.
+  // Split segments at change-range boundaries so a mark can cover part of a
+  // token.
   if (ranges && ranges.length) {
     const refined: typeof segments = [];
     for (const segment of segments) {
@@ -270,28 +356,26 @@ function highlight(
         refined.push({ ...segment, start: cursor, end: segment.end, mark: false });
       }
     }
-    segments.length = 0;
-    segments.push(...refined);
+    segments = refined;
   }
 
   return (
     <>
       {segments.map((segment, index) => {
         const content = text.slice(segment.start, segment.end);
-        const className = [segment.kind, segment.mark ? "is-changed" : ""]
-          .filter(Boolean)
-          .join(" ");
-        if (!className) {
-          return <span key={index}>{content}</span>;
+        if (segment.mark) {
+          return (
+            <mark key={index} className={segment.kind ?? undefined}>
+              {content}
+            </mark>
+          );
         }
-        return segment.mark ? (
-          <mark key={index} className={segment.kind ?? undefined}>
-            {content}
-          </mark>
-        ) : (
-          <span key={index} className={className}>
+        return segment.kind ? (
+          <span key={index} className={segment.kind}>
             {content}
           </span>
+        ) : (
+          <span key={index}>{content}</span>
         );
       })}
     </>

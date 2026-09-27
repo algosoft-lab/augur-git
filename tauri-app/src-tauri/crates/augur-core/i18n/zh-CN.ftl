@@ -561,3 +561,4 @@ err-git = Git 返回了错误。
 err-installer = 无法更新 shell 命令。
 err-invalid-location = 当前系统不支持该仓库位置。
 err-compare = 无法完成比较。
+diff-copy-tooltip = 复制差异

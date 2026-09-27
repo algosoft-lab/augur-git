@@ -1,10 +1,12 @@
-/** Helpers for the changed-file list. */
+/** Helpers for the changed-file lists. */
 
 import type { FileChange, FileChangeStatus } from "../../bridge/types";
 
 /**
- * Split an add/delete count into the five-segment bar the reference
- * application draws. Green is rounded up so any addition is visible.
+ * Split an add/delete count into the five-segment bar.
+ *
+ * Additions are rounded up so that any addition is still visible, which is what
+ * the reference application does.
  */
 export function statBlocks(
   added: number | null,
@@ -21,13 +23,23 @@ export function statBlocks(
   return { added: green, deleted: TOTAL - green };
 }
 
-/** A file with no line counts is treated as binary, matching the parser. */
+/** A file with no line counts is binary, matching the parser. */
 export function isBinary(file: FileChange): boolean {
   return file.added === null || file.deleted === null;
 }
 
-/** The CSS modifier for a change status. */
+/** The catalog key for a change status. */
 export function statusKey(status: FileChangeStatus): string {
+  return `status-${statusModifier(status)}`;
+}
+
+/**
+ * The CSS colour modifier for a change status.
+ *
+ * The name is derived from the status so the two cannot drift apart, which is
+ * what happened when the two mappings were written separately.
+ */
+export function statusModifier(status: FileChangeStatus): string {
   switch (status) {
     case "added":
       return "add";

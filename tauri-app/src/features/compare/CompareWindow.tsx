@@ -15,9 +15,9 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Icon } from "../../components/Icon";
 import { EmptyState, Spinner, TextInput } from "../../components/controls";
 import * as ipc from "../../bridge/ipc";
-import type { CompareRevision, FileChange } from "../../bridge/types";
+import type { CompareRevision, DiffPayload, FileChange } from "../../bridge/types";
 import { useStore, type RepoState } from "../../app/store";
-import { statBlocks, statusKey } from "../diff/fileMeta";
+import { statBlocks, statusKey, statusModifier } from "../diff/fileMeta";
 import { DiffView } from "../diff/DiffView";
 import { t, ta } from "../../i18n/strings";
 
@@ -38,7 +38,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
   const [requestId, setRequestId] = useState(0);
   const [files, setFiles] = useState<FileChange[]>([]);
   const [selected, setSelected] = useState<FileChange | null>(null);
-  const [documents, setDocuments] = useState<Record<string, unknown>>({});
+  const [documents, setDocuments] = useState<Record<string, DiffPayload>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [finished, setFinished] = useState(false);
@@ -293,8 +293,10 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
                       }
                     }}
                   >
-                    <span className={`file-row__status status-${statusKey(file.status)}`}>
-                      {t(translate, statusLabel(file.status))}
+                    <span
+                      className={`file-row__status status-${statusModifier(file.status)}`}
+                    >
+                      {t(translate, statusKey(file.status))}
                     </span>
                     <span className="file-row__name">{file.path}</span>
                     <span className="stat-blocks">
@@ -335,10 +337,8 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
               className="tool-button tool-button--compact"
               data-testid="compare-copy"
               onClick={() => {
-                const document = selected
-                  ? (documents[selected.new_path] as { copy_text?: string } | undefined)
-                  : undefined;
-                if (document?.copy_text) {
+                const document = selected ? documents[selected.new_path] : undefined;
+                if (document) {
                   void writeText(document.copy_text);
                 }
               }}
@@ -347,8 +347,10 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
             </button>
           </div>
           <DiffView
-            document={
-              selected ? ((documents[selected.new_path] ?? null) as never) : null
+            sections={
+              selected && documents[selected.new_path]
+                ? [{ path: selected.new_path, document: documents[selected.new_path]! }]
+                : []
             }
             layout={diffLayout}
             loading={loading && selected === null}
@@ -360,25 +362,6 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
       </div>
     </div>
   );
-}
-
-function statusLabel(status: FileChange["status"]): string {
-  switch (status) {
-    case "added":
-      return "status-add";
-    case "deleted":
-      return "status-del";
-    case "modified":
-      return "status-mod";
-    case "renamed":
-      return "status-ren";
-    case "copied":
-      return "status-cpy";
-    case "unmerged":
-      return "status-conflict";
-    default:
-      return "status-unknown";
-  }
 }
 
 /** Turn typed text into a revision, accepting a 7 to 64 digit object id. */

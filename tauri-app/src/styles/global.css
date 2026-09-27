@@ -265,10 +265,25 @@ button {
   padding: 0 8px;
   background: var(--tab-bar-background);
   border-bottom: 1px solid var(--border);
+  /* The reference has the same button set and simply lets the row run past the
+   * edge. Clipping would strand the last controls where they cannot be reached
+   * at all, so the row scrolls instead and looks unchanged when it fits. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.toolbar > * {
+  flex: 0 0 auto;
 }
 
 .toolbar__spacer {
   flex: 1 1 auto;
+  min-width: 8px;
 }
 
 .count-badge {
@@ -580,6 +595,11 @@ button {
   overflow: hidden;
 }
 
+.bottom__files-scroll {
+  padding: 4px 0;
+  overflow-y: auto;
+}
+
 .file-row {
   display: flex;
   height: 22px;
@@ -599,10 +619,10 @@ button {
 }
 
 .file-row__status {
-  width: 14px;
+  width: 12px;
   flex: 0 0 auto;
-  text-align: center;
   font-family: var(--mono-font-family);
+  font-size: calc(var(--ui-font-size) * 0.6875);
   font-weight: 600;
 }
 
@@ -611,8 +631,6 @@ button {
   flex: 1 1 auto;
   text-overflow: ellipsis;
   white-space: nowrap;
-  direction: rtl;
-  text-align: left;
 }
 
 .file-row__stat {
@@ -653,12 +671,37 @@ button {
 
 .diff__row {
   display: flex;
-  min-height: 18px;
+  min-height: 22px;
   align-items: stretch;
   font-family: var(--mono-font-family);
   font-size: var(--diff-font-size);
-  line-height: 18px;
+  line-height: 22px;
   white-space: pre;
+}
+
+/* A file header inside a multi-document view. */
+.diff__file-header {
+  display: flex;
+  min-width: 100%;
+  height: 22px;
+  align-items: center;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--tab-bar-background);
+  color: var(--muted-foreground);
+  font-family: var(--mono-font-family);
+  font-size: calc(var(--diff-font-size) * 0.9167);
+}
+
+.diff__note {
+  display: flex;
+  min-width: 100%;
+  height: 22px;
+  align-items: center;
+  padding: 0 8px;
+  color: var(--muted-foreground);
+  font-family: var(--mono-font-family);
+  font-size: calc(var(--diff-font-size) * 0.9167);
 }
 
 .diff__row--add {
@@ -675,24 +718,30 @@ button {
 }
 
 .diff__gutter {
+  width: 42px;
   flex: 0 0 auto;
-  width: 44px;
   padding: 0 4px;
-  color: var(--muted-foreground);
+  color: color-mix(in srgb, var(--muted-foreground) 72%, transparent);
+  font-size: calc(var(--diff-font-size) * 0.9167);
   text-align: right;
+  white-space: nowrap;
   user-select: none;
-}
-
-.diff__gutter--new {
-  width: 44px;
 }
 
 .diff__marker {
-  width: 12px;
+  width: 18px;
   flex: 0 0 auto;
-  color: var(--muted-foreground);
+  font-size: calc(var(--diff-font-size) * 0.9167);
   text-align: center;
   user-select: none;
+}
+
+.diff__marker--new {
+  color: var(--base-green);
+}
+
+.diff__marker--old {
+  color: var(--base-red);
 }
 
 .diff__text {
@@ -700,6 +749,21 @@ button {
   min-width: 0;
   padding-right: 8px;
   overflow-wrap: normal;
+}
+
+/* In the side-by-side layout the two halves sit in one row, so each is given
+ * half the width and overflows on its own. */
+.diff--split .diff__row {
+  overflow: hidden;
+}
+
+.diff--split .diff__text {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.diff--split .diff__text::-webkit-scrollbar {
+  display: none;
 }
 
 .diff__text mark {
@@ -1012,7 +1076,6 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  direction: rtl;
 }
 
 /* ===== Settings and About ===== */
@@ -1021,6 +1084,7 @@ button {
   display: flex;
   height: 100%;
   flex-direction: column;
+  background: var(--background);
   overflow: hidden;
 }
 

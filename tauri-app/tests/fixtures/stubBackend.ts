@@ -244,7 +244,7 @@ export function diffPayload(path: string, language: string | null): Record<strin
     // The changed character is the `1` becoming `2`, which is the point of the
     // inline layout.
     inline_old: [[], [], [], []],
-    inline_new: [[], [], [], [{ start: 14, end: 15 }]],
+    inline_new: [[], [{ start: 13, end: 14 }]],
     binary: false,
     copy_text: `diff --git a/${path} b/${path}\n@@ -10,6 +10,7 @@\n-    count += 1;\n+    count += 2;\n`,
   };
@@ -351,7 +351,11 @@ export function catalog(): Record<string, string> {
     "bottom-bin": "Binary file",
     "diff-working-tree-staged": "Staged changes",
     "diff-working-tree-changes": "Working tree changes",
-    "diff-no-output": "Nothing to show",
+    "diff-no-output": "(no output)",
+    "diff-copy-tooltip": "Copy the diff",
+    "diff-all-files": "All changed files",
+    "diff-merge-first-parent": "vs first parent",
+    "bottom-merge-empty": "Merge commit has no changes relative to its first parent",
     "dialog-cancel": "Cancel",
     "dialog-confirm": "Confirm",
     "branch-new-title": "New branch",
@@ -692,6 +696,8 @@ function install(
           new_no: null,
           old_text: null,
           new_text: null,
+          old_line_index: null,
+          new_line_index: null,
           hunk_header: "@@ -10,6 +10,7 @@ fn run()",
         },
         {
@@ -700,6 +706,9 @@ function install(
           new_no: 10,
           old_text: "    let mut count = 0;",
           new_text: "    let mut count = 0;",
+          old_line_index: 0,
+          new_line_index: 0,
+          hunk_header: null,
         },
         {
           kind: "del",
@@ -707,6 +716,9 @@ function install(
           new_no: null,
           old_text: "    count += 1;",
           new_text: null,
+          old_line_index: 1,
+          new_line_index: null,
+          hunk_header: null,
         },
         {
           kind: "add",
@@ -714,6 +726,9 @@ function install(
           new_no: 11,
           old_text: null,
           new_text: "    count += 2;",
+          old_line_index: null,
+          new_line_index: 1,
+          hunk_header: null,
         },
       ],
       aligned_rows: [
@@ -723,6 +738,8 @@ function install(
           new_no: null,
           old_text: null,
           new_text: null,
+          old_line_index: null,
+          new_line_index: null,
           hunk_header: "@@ -10,6 +10,7 @@ fn run()",
         },
         {
@@ -731,6 +748,9 @@ function install(
           new_no: 10,
           old_text: "    let mut count = 0;",
           new_text: "    let mut count = 0;",
+          old_line_index: 0,
+          new_line_index: 0,
+          hunk_header: null,
         },
         {
           kind: "del",
@@ -738,6 +758,9 @@ function install(
           new_no: null,
           old_text: "    count += 1;",
           new_text: null,
+          old_line_index: 1,
+          new_line_index: null,
+          hunk_header: null,
         },
         {
           kind: "add",
@@ -745,12 +768,15 @@ function install(
           new_no: 11,
           old_text: null,
           new_text: "    count += 2;",
+          old_line_index: null,
+          new_line_index: 1,
+          hunk_header: null,
         },
       ],
       old_source: null,
       new_source: null,
       inline_old: [[], [], [], []],
-      inline_new: [[], [], [], [{ start: 14, end: 15 }]],
+      inline_new: [[], [{ start: 13, end: 14 }]],
       binary: false,
       copy_text: "diff --git a/x b/x\\n",
     };

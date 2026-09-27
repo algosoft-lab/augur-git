@@ -562,3 +562,4 @@ err-git = Git reported an error.
 err-installer = The shell command could not be updated.
 err-invalid-location = That repository location is not available on this system.
 err-compare = The comparison could not be completed.
+diff-copy-tooltip = Copy the diff

@@ -1,20 +1,23 @@
 /**
  * The bottom panel: the changed-file list on the left and the diff on the right.
  *
- * The two are split by a ratio the user can drag, and the header names what is
- * displayed so a stale viewer can never be mistaken for current content. The
- * list shows either the files of the selected commit or the working-tree file
- * the changes panel selected.
+ * Selecting a commit shows every file it changed at once, which is what the
+ * reference application does; choosing a file narrows the view to that one. The
+ * header always names what is displayed, so a stale panel cannot be mistaken for
+ * current content.
  */
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { EmptyState, Splitter, Spinner } from "../../components/controls";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+
+import { EmptyState, Splitter } from "../../components/controls";
 import { Icon } from "../../components/Icon";
 import type { FileChange } from "../../bridge/types";
-import { statBlocks, statusKey } from "./fileMeta";
+import * as ipc from "../../bridge/ipc";
+import { statBlocks, statusKey, statusModifier } from "./fileMeta";
 import { useStore, type RepoState } from "../../app/store";
-import { DiffView } from "./DiffView";
+import { DiffView, NARROW_WIDTH, type DiffSection } from "./DiffView";
 import { t } from "../../i18n/strings";
 
 export function BottomPanel({
@@ -28,33 +31,90 @@ export function BottomPanel({
 }) {
   const translate = useStore((state) => state.t);
   const layout = useStore((state) => state.config.view.diff_layout);
+  const ratio = useStore((state) => state.workspace.layout.file_list_ratio);
   const selectCommitFile = useStore((state) => state.selectCommitFile);
   const clearCommit = useStore((state) => state.clearCommit);
   const [collapsed, setCollapsed] = useState(false);
+  const [width, setWidth] = useState(1000);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const requested = useRef(new Set<string>());
 
   const pane = repo.pane;
-  const commitSelected = repo.selected;
-  const files = pane.kind === "commit" ? repo.commitFiles : [];
+  const commit = repo.selected;
+  const showFileList = pane.kind === "commit" && repo.commitFiles.length > 0;
 
-  const header = (() => {
+  // Every file of the selected commit is loaded, because the panel shows them
+  // all. The requested set keeps a re-render from asking for the same file
+  // twice, and it resets when the selection changes.
+  const selectionKey = commit?.oid ?? "";
+  useEffect(() => {
+    requested.current = new Set();
+  }, [selectionKey]);
+  useEffect(() => {
+    if (!commit) {
+      return;
+    }
+    for (const file of repo.commitFiles) {
+      if (repo.commitDiffs[file.new_path] || requested.current.has(file.new_path)) {
+        continue;
+      }
+      requested.current.add(file.new_path);
+      void ipc.loadCommitFileDiff(
+        repo.id,
+        commit.oid,
+        repo.commitMergeParent,
+        file,
+      );
+    }
+  }, [repo.id, commit, repo.commitFiles, repo.commitDiffs]);
+
+  useEffect(() => {
+    const element = bodyRef.current;
+    if (!element) {
+      return;
+    }
+    const observer = new ResizeObserver(() => setWidth(element.clientWidth));
+    observer.observe(element);
+    setWidth(element.clientWidth);
+    return () => observer.disconnect();
+  }, []);
+
+  const sections = useMemo<DiffSection[]>(() => {
+    if (pane.kind === "commit" && pane.file) {
+      const document = repo.commitDiffs[pane.file.new_path];
+      return document ? [{ path: pane.file.new_path, document }] : [];
+    }
+    if (pane.kind === "commit") {
+      return repo.commitFiles
+        .map((file) => {
+          const document = repo.commitDiffs[file.new_path];
+          return document ? { path: file.new_path, document } : null;
+        })
+        .filter((entry): entry is DiffSection => entry !== null);
+    }
+    if (pane.kind === "working" && repo.workingDocument) {
+      return [{ path: pane.file.path, document: repo.workingDocument }];
+    }
+    return [];
+  }, [pane, repo.commitFiles, repo.commitDiffs, repo.workingDocument]);
+
+  const title = (() => {
     if (pane.kind === "working") {
       return t(
         translate,
         pane.staged ? "diff-working-tree-staged" : "diff-working-tree-changes",
       );
     }
-    if (commitSelected) {
-      return commitSelected.subject;
+    if (commit) {
+      return commit.subject;
     }
     return t(translate, "bottom-no-commit");
   })();
 
-  const document =
-    pane.kind === "commit" ? repo.commitDocument : repo.workingDocument;
-  const ranges =
-    document && pane.kind === "commit"
-      ? { old: document.inline_old, new: document.inline_new }
-      : null;
+  // A wide view of many files forces the inline layout, because a side-by-side
+  // layout of every file at once leaves each pane too narrow to read.
+  const multiFile = sections.length > 1;
+  const narrow = width < NARROW_WIDTH;
 
   return (
     <div
@@ -71,15 +131,15 @@ export function BottomPanel({
         >
           <Icon name={collapsed ? "chevron-right" : "chevron-down"} size={11} />
         </button>
-        <span className="bottom__toolbar-title" title={header}>
-          {header}
+        <span className="bottom__toolbar-title" title={title}>
+          {title}
         </span>
         <span className="bottom__toolbar-spacer" />
-        {commitSelected ? (
-          <span className="muted">{commitSelected.short}</span>
+        {repo.commitMergeParent && pane.kind === "commit" ? (
+          <span className="muted">{t(translate, "diff-merge-first-parent")}</span>
         ) : null}
-        {pane.kind === "working" && repo.workingLoading ? <Spinner size={11} /> : null}
-        {commitSelected ? (
+        {commit ? <span className="mono muted">{commit.short}</span> : null}
+        {commit ? (
           <button
             type="button"
             className="tool-button tool-button--compact"
@@ -90,17 +150,17 @@ export function BottomPanel({
           </button>
         ) : null}
       </div>
-      <div className="bottom__body">
-        {collapsed ? null : pane.kind === "commit" ? (
+      <div className="bottom__body" ref={bodyRef}>
+        {collapsed || !showFileList ? null : (
           <>
             <div
               className="bottom__files"
-              style={{ width: "25%", minWidth: 120 }}
+              style={{ width: `${ratio * 100}%` }}
               data-testid="bottom-file-list"
             >
               <FileList
-                files={files}
-                selected={pane.file}
+                files={repo.commitFiles}
+                selected={pane.kind === "commit" ? pane.file : null}
                 onSelect={(file) => {
                   void selectCommitFile(repo.id, file);
                 }}
@@ -111,24 +171,38 @@ export function BottomPanel({
               label="resize file list"
               testId="bottom-file-splitter"
               onDrag={(delta) => {
-                // The panel is measured in pixels, so the ratio is recomputed
-                // from the delta against the current width.
-                onFileListRatioChange(clampRatio(0.25 + delta / 600));
+                const total = Math.max(1, bodyRef.current?.clientWidth ?? 600);
+                onFileListRatioChange(clampRatio(ratio + delta / total));
               }}
             />
           </>
-        ) : null}
+        )}
         <DiffView
-          document={document}
+          sections={sections}
           layout={layout}
-          ranges={ranges}
+          forceInline={narrow}
           loading={pane.kind === "working" ? repo.workingLoading : false}
           error={pane.kind === "working" ? repo.workingError : null}
           testId="diff-view"
+          header={multiFile ? t(translate, "diff-all-files") : undefined}
           emptyMessage={
             pane.kind === "working"
               ? t(translate, "bottom-no-file")
-              : t(translate, "bottom-no-changes")
+              : commit
+                ? t(
+                    translate,
+                    repo.commitMergeParent ? "bottom-merge-empty" : "bottom-no-changes",
+                  )
+                : t(translate, "bottom-no-commit")
+          }
+          onCopy={
+            sections.length
+              ? () => {
+                  void writeText(
+                    sections.map((entry) => entry.document.copy_text).join(""),
+                  );
+                }
+              : undefined
           }
         />
       </div>
@@ -159,29 +233,30 @@ function FileList({
     );
   }
   return (
-    <div style={{ overflowY: "auto", height: "100%" }}>
-      {files.map((file) => {
-        const blocks = statBlocks(file.added, file.deleted);
+    <div className="bottom__files-scroll">
+      {files.map((file, index) => {
         const isSelected = selected?.new_path === file.new_path;
+        const binary = file.added === null || file.deleted === null;
         return (
           <div
-            key={`${file.status}-${file.new_path}`}
+            key={`${file.status}-${file.new_path}-${index}`}
             className={`file-row${isSelected ? " is-selected" : ""}`}
             data-testid={`bottom-file-${file.new_path}`}
-            title={file.path}
+            title={file.old_path ? `${file.old_path} → ${file.new_path}` : file.new_path}
             onClick={() => onSelect(file)}
           >
-            <span className={`file-row__status status-${statusKey(file.status)}`}>
-              {t(translate, fileStatusKey(file.status))}
+            <span
+              className={`file-row__status status-${statusModifier(file.status)}`}
+            >
+              {t(translate, statusKey(file.status))}
             </span>
-            <span className="file-row__name">{file.path}</span>
-            {blocks.added || blocks.deleted ? (
-              <span className="stat-blocks" title={`+${file.added ?? 0} -${file.deleted ?? 0}`}>
-                <span className="stat-blocks__added" style={{ flex: blocks.added }} />
-                <span className="stat-blocks__deleted" style={{ flex: blocks.deleted }} />
+            <span className="file-row__name mono">{file.new_path}</span>
+            {binary ? (
+              <span className="file-row__stat muted">
+                {t(translate, "bottom-bin")}
               </span>
             ) : (
-              <span className="file-row__stat muted">—</span>
+              <StatBar added={file.added ?? 0} deleted={file.deleted ?? 0} />
             )}
           </div>
         );
@@ -190,21 +265,19 @@ function FileList({
   );
 }
 
-function fileStatusKey(status: FileChange["status"]): string {
-  switch (status) {
-    case "added":
-      return "status-add";
-    case "deleted":
-      return "status-del";
-    case "modified":
-      return "status-mod";
-    case "renamed":
-      return "status-ren";
-    case "copied":
-      return "status-cpy";
-    case "unmerged":
-      return "status-conflict";
-    default:
-      return "status-unknown";
+function StatBar({ added, deleted }: { added: number; deleted: number }) {
+  const blocks = statBlocks(added, deleted);
+  if (blocks.added === 0 && blocks.deleted === 0) {
+    return <span className="file-row__stat muted">—</span>;
   }
+  return (
+    <span
+      className="stat-blocks"
+      title={`+${added} -${deleted}`}
+      data-testid={`bottom-stat-${added}-${deleted}`}
+    >
+      <span className="stat-blocks__added" style={{ flex: blocks.added }} />
+      <span className="stat-blocks__deleted" style={{ flex: blocks.deleted }} />
+    </span>
+  );
 }

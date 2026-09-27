@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { statBlocks, isBinary, statusKey } from "./fileMeta";
+import { statBlocks, isBinary, statusKey, statusModifier } from "./fileMeta";
 import type { FileChange } from "../../bridge/types";
 
 function file(patch: Partial<FileChange> = {}): FileChange {
@@ -43,13 +43,28 @@ describe("binary detection", () => {
 });
 
 describe("status keys", () => {
-  it("maps every status to a catalog key", () => {
-    expect(statusKey("added")).toBe("add");
-    expect(statusKey("deleted")).toBe("del");
-    expect(statusKey("modified")).toBe("mod");
-    expect(statusKey("renamed")).toBe("ren");
-    expect(statusKey("copied")).toBe("cpy");
-    expect(statusKey("unmerged")).toBe("conflict");
-    expect(statusKey("unknown")).toBe("unknown");
+  it("maps every status to a colour modifier", () => {
+    expect(statusModifier("added")).toBe("add");
+    expect(statusModifier("deleted")).toBe("del");
+    expect(statusModifier("modified")).toBe("mod");
+    expect(statusModifier("renamed")).toBe("ren");
+    expect(statusModifier("copied")).toBe("cpy");
+    expect(statusModifier("unmerged")).toBe("conflict");
+    expect(statusModifier("unknown")).toBe("unknown");
+  });
+
+  it("derives the catalog key from the modifier so the two cannot drift", () => {
+    for (const status of [
+      "added",
+      "deleted",
+      "modified",
+      "renamed",
+      "copied",
+      "unmerged",
+      "unknown",
+    ] as const) {
+      expect(statusKey(status)).toBe(`status-${statusModifier(status)}`);
+    }
+    expect(statusKey("modified")).toBe("status-mod");
   });
 });
