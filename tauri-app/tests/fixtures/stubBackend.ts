@@ -465,6 +465,37 @@ function install(
     return { graph, labels };
   }
 
+  /**
+   * The two files a comparison reports.
+   *
+   * Defined here rather than shared with the fixture module because this
+   * function is serialised into the page, where module scope does not exist.
+   */
+  function compareFiles(): Record<string, unknown>[] {
+    return [
+      {
+        path: "src/lib.rs",
+        old_path: null,
+        new_path: "src/lib.rs",
+        status: "modified",
+        old_blob: null,
+        new_blob: null,
+        added: 3,
+        deleted: 1,
+      },
+      {
+        path: "src/new.rs",
+        old_path: null,
+        new_path: "src/new.rs",
+        status: "added",
+        old_blob: null,
+        new_blob: null,
+        added: 40,
+        deleted: 0,
+      },
+    ];
+  }
+
   function diffFor(path: string, language: string | null): Record<string, unknown> {
     return {
       path,
@@ -848,28 +879,20 @@ function install(
           repoId: 7,
           type: "branchCompareFiles",
           requestId,
-          files: [
-            {
-              path: "src/lib.rs",
-              old_path: null,
-              new_path: "src/lib.rs",
-              status: "modified",
-              old_blob: null,
-              new_blob: null,
-              added: 3,
-              deleted: 1,
-            },
-            {
-              path: "src/new.rs",
-              old_path: null,
-              new_path: "src/new.rs",
-              status: "added",
-              old_blob: null,
-              new_blob: null,
-              added: 40,
-              deleted: 0,
-            },
-          ],
+          files: compareFiles(),
+        });
+        // The worker asks for each file's diff and answers one event per file,
+        // which is what the aggregate view collects.
+        compareFiles().forEach((file, index) => {
+          setTimeout(() => {
+            emit("augur://repo-event", {
+              repoId: 7,
+              type: "branchCompareFileDiff",
+              requestId,
+              file,
+              document: diffFor(file.new_path, "rust"),
+            });
+          }, 12 + index * 5);
         });
         setTimeout(() => {
           emit("augur://repo-event", {
@@ -877,7 +900,7 @@ function install(
             type: "branchCompareFinished",
             requestId,
           });
-        }, 10);
+        }, 30);
       }, 10);
       return requestId;
     },

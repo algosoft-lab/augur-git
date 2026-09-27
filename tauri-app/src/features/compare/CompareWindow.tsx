@@ -18,7 +18,7 @@ import * as ipc from "../../bridge/ipc";
 import type { CompareRevision, DiffPayload, FileChange } from "../../bridge/types";
 import { useStore, type RepoState } from "../../app/store";
 import { statBlocks, statusKey, statusModifier } from "../diff/fileMeta";
-import { DiffView } from "../diff/DiffView";
+import { DiffView, type DiffSection } from "../diff/DiffView";
 import { t, ta } from "../../i18n/strings";
 
 interface Endpoint {
@@ -35,7 +35,14 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
 
   const [base, setBase] = useState<Endpoint>({ input: "", selected: null });
   const [target, setTarget] = useState<Endpoint>({ input: "", selected: null });
-  const [requestId, setRequestId] = useState(0);
+  /**
+   * The comparison this window is waiting for.
+   *
+   * A ref rather than state: the backend's first answer can arrive before the
+   * `await` that yields the id has committed, and a comparison whose file list
+   * was dropped would sit empty with no way to tell why.
+   */
+  const requestId = useRef(0);
   const [files, setFiles] = useState<FileChange[]>([]);
   const [selected, setSelected] = useState<FileChange | null>(null);
   const [documents, setDocuments] = useState<Record<string, DiffPayload>>({});
@@ -58,7 +65,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
       }
       switch (event.type) {
         case "branchCompareFiles":
-          if (event.requestId !== requestId) {
+          if (event.requestId !== requestId.current) {
             return;
           }
           setFiles(event.files);
@@ -69,7 +76,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           setSelected(null);
           break;
         case "branchCompareFileDiff":
-          if (event.requestId !== requestId) {
+          if (event.requestId !== requestId.current) {
             return;
           }
           setDocuments((current) => ({
@@ -86,7 +93,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           );
           break;
         case "branchCompareError":
-          if (event.requestId !== requestId) {
+          if (event.requestId !== requestId.current) {
             return;
           }
           if (event.file) {
@@ -99,14 +106,14 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           }
           break;
         case "branchCompareFinished":
-          if (event.requestId !== requestId) {
+          if (event.requestId !== requestId.current) {
             return;
           }
           setLoading(false);
           setFinished(true);
           break;
         case "branchComparePatchExported":
-          if (event.requestId !== requestId) {
+          if (event.requestId !== requestId.current) {
             return;
           }
           setExportState(
@@ -116,11 +123,11 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           );
           break;
         case "branchComparePatchError":
-          if (event.requestId !== requestId) {
+          if (event.requestId !== requestId.current) {
             return;
           }
           setExportState(
-            ta(translate, "branch-compare-export-error", { error: event.detail }),
+            ta(translate, "branch-compare-export-error", { detail: event.detail }),
           );
           break;
         default:
@@ -130,7 +137,10 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
       unlisten = stop;
     });
     return () => unlisten?.();
-  }, [repoId, requestId, translate]);
+    // Deliberately not depending on the request id: the handler reads it from
+    // the ref, so re-subscribing on every comparison would leave a window in
+    // which an event arrives with nobody listening.
+  }, [repoId, translate]);
 
   // Close the window's request when it goes away.
   useEffect(() => {
@@ -154,14 +164,22 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
       requested.current.clear();
       setExportState(null);
       const id = await ipc.startCompare(repoId, left, right);
-      setRequestId(id);
+      requestId.current = id;
     },
     [repoId],
   );
 
-  const visibleFiles = useMemo(
-    () => (showAll ? files : files.slice(0, 1)),
-    [files, showAll],
+  // The aggregate row sits above the list rather than replacing it, so choosing
+  // a single file and choosing all of them are the same gesture twice.
+  const sections = useMemo<DiffSection[]>(
+    () =>
+      files
+        .map((file) => {
+          const document = documents[file.new_path];
+          return document ? { path: file.new_path, document } : null;
+        })
+        .filter((entry): entry is DiffSection => entry !== null),
+    [files, documents],
   );
 
   if (repoId === null || !repo) {
@@ -240,7 +258,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
               return;
             }
             const id = await ipc.exportPatch(repoId, left, right, destination);
-            setRequestId(id);
+            requestId.current = id;
             setExportState(t(translate, "branch-compare-export-saving"));
           }}
         >
@@ -253,18 +271,8 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           style={{ width: "25%", minWidth: 140 }}
           data-testid="compare-file-list"
         >
-          <div className="bottom__toolbar">
-            <button
-              type="button"
-              className="tool-button tool-button--compact"
-              data-testid="compare-all-files"
-              onClick={() => setShowAll((value) => !value)}
-            >
-              {t(translate, "branch-compare-all-files")}
-            </button>
-          </div>
           <div style={{ overflowY: "auto" }}>
-            {visibleFiles.length === 0 ? (
+            {files.length === 0 ? (
               <EmptyState
                 message={
                   loading
@@ -274,8 +282,21 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
                 testId="compare-files-empty"
               />
             ) : (
-              visibleFiles.map((file) => {
+              <>
+                <div
+                  className={`file-row${showAll ? " is-selected" : ""}`}
+                  data-testid="compare-all-files"
+                  onClick={() => setShowAll(true)}
+                >
+                  <span className="file-row__status" />
+                  <span className="file-row__name">
+                    {t(translate, "branch-compare-all-files")}
+                  </span>
+                  <span className="file-row__stat muted">{files.length}</span>
+                </div>
+              {files.map((file) => {
                 const blocks = statBlocks(file.added, file.deleted);
+                const error = errors[file.new_path];
                 return (
                   <div
                     key={`${file.status}-${file.new_path}`}
@@ -283,6 +304,9 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
                     data-testid={`compare-file-${file.new_path}`}
                     title={file.path}
                     onClick={() => {
+                      // Choosing a file narrows the view to it, which also turns
+                      // off the aggregate row.
+                      setShowAll(false);
                       setSelected(file);
                       if (repoId !== null) {
                         const left = base.selected ?? fromManualInput(base.input);
@@ -299,13 +323,21 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
                       {t(translate, statusKey(file.status))}
                     </span>
                     <span className="file-row__name">{file.path}</span>
+                    {/* A file that failed to diff looks like one that has simply
+                        not loaded yet unless the reason is in the row. */}
+                    {error ? (
+                      <span className="file-row__stat status-conflict" title={error}>
+                        {error.split("\n")[0]}
+                      </span>
+                    ) : null}
                     <span className="stat-blocks">
                       <span className="stat-blocks__added" style={{ flex: blocks.added }} />
                       <span className="stat-blocks__deleted" style={{ flex: blocks.deleted }} />
                     </span>
                   </div>
                 );
-              })
+              })}
+              </>
             )}
           </div>
         </div>
@@ -347,16 +379,38 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
             </button>
           </div>
           <DiffView
+            // The aggregate row shows every file; choosing a file shows only
+            // that one, which is how the reference narrows the same list.
             sections={
-              selected && documents[selected.new_path]
-                ? [{ path: selected.new_path, document: documents[selected.new_path]! }]
-                : []
+              showAll
+                ? sections
+                : selected && documents[selected.new_path]
+                  ? [{ path: selected.new_path, document: documents[selected.new_path]! }]
+                  : []
             }
             layout={diffLayout}
-            loading={loading && selected === null}
-            error={selected ? (errors[selected.new_path] ?? null) : null}
+            forceInline={sections.length > 1}
+            loading={loading && !finished}
+            error={selected && !showAll ? (errors[selected.new_path] ?? null) : null}
             testId="compare-diff"
-            emptyMessage={t(translate, "branch-compare-select-file")}
+            header={showAll && sections.length > 0 ? t(translate, "branch-compare-all-files") : undefined}
+            emptyMessage={
+              loading
+                ? t(translate, "branch-compare-loading")
+                : t(translate, "branch-compare-select-file")
+            }
+            onCopy={
+              sections.length
+                ? () => {
+                    void writeText(
+                      sections
+                        .map((entry) => `diff -- ${entry.path}
+${entry.document.copy_text}`)
+                        .join(""),
+                    );
+                  }
+                : undefined
+            }
           />
         </div>
       </div>
@@ -496,7 +550,7 @@ function RevisionPicker({
                 }}
               >
                 <Icon name="git-commit-horizontal" size={11} />
-                {t(translate, "branch-compare-use-commit")} {manual.name}
+                {ta(translate, "branch-compare-use-commit", { sha: manual.name })}
               </button>
             ) : null}
             {invalid ? (

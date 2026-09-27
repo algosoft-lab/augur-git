@@ -30,6 +30,33 @@ test.describe("comparison window", () => {
     await expect(page.getByTestId("compare-file-src/new.rs")).toBeVisible();
   });
 
+  test("shows every changed file at once, and one file on request", async ({
+    page,
+  }) => {
+    await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
+
+    await page.getByTestId("compare-toggle-Base").click();
+    await page.getByTestId("compare-option-local-refs/heads/master").click();
+    await page.getByTestId("compare-toggle-Target").click();
+    await page.getByTestId("compare-option-local-refs/heads/feature/tauri").click();
+    await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
+
+    // The aggregate row is chosen by default and both files appear as their own
+    // documents, each under its own path header.
+    await expect(page.getByTestId("compare-all-files")).toHaveClass(/is-selected/);
+    const headers = page.getByTestId("diff-file-header");
+    await expect(headers).toHaveCount(2);
+    await expect(headers.nth(0)).toContainText("src/lib.rs");
+    await expect(headers.nth(1)).toContainText("src/new.rs");
+
+    // Choosing a file narrows the same list to that one.
+    await page.getByTestId("compare-file-src/new.rs").click();
+    await expect(page.getByTestId("compare-all-files")).not.toHaveClass(/is-selected/);
+    await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
+    await expect(page.getByTestId("diff-file-header")).toHaveCount(1);
+    await expect(page.getByTestId("diff-file-header")).toContainText("src/new.rs");
+  });
+
   test("groups the offered revisions by kind", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
 
