@@ -208,6 +208,7 @@ function AppearanceSection({ fonts }: { fonts: string[] }) {
         <span className="settings__label">{t(translate, "ui-font-title")}</span>
         <Select
           searchable
+          searchPlaceholder={t(translate, "font-search-placeholder")}
           value={typography.ui_font_family ?? ""}
           testId="settings-ui-font"
           options={fontOptions}
@@ -220,6 +221,7 @@ function AppearanceSection({ fonts }: { fonts: string[] }) {
         <span className="settings__label">{t(translate, "mono-font-title")}</span>
         <Select
           searchable
+          searchPlaceholder={t(translate, "font-search-placeholder")}
           value={typography.mono_font_family ?? ""}
           testId="settings-mono-font"
           options={fontOptions}

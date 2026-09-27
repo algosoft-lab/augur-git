@@ -258,6 +258,25 @@ test.describe("comparison window", () => {
 });
 
 test.describe("settings", () => {
+  test("marks the current choice in a mode menu", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()] });
+
+    // Commit or amend: opening the menu and reading it has to say which one the
+    // button will act on.
+    await page.getByTestId("commit-mode-trigger").click();
+    const mode = page.getByTestId("commit-mode");
+    await expect(mode.getByTestId("commit-mode-commit").locator(".menu__check")).toBeVisible();
+    await expect(
+      mode.getByTestId("commit-mode-amend").locator(".menu__check"),
+    ).toHaveCount(0);
+    await page.getByTestId("commit-mode-amend").click();
+    await page.getByTestId("commit-mode-trigger").click();
+    await expect(mode.getByTestId("commit-mode-amend").locator(".menu__check")).toBeVisible();
+    await expect(
+      mode.getByTestId("commit-mode-commit").locator(".menu__check"),
+    ).toHaveCount(0);
+  });
+
   test("shows the shipped shortcut binding next to an override", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 

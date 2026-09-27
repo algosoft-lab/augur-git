@@ -311,12 +311,15 @@ export function Select<T extends string | number | boolean>({
   options,
   onChange,
   searchable = false,
+  searchPlaceholder,
   testId,
 }: {
   value: T;
   options: SelectOption<T>[];
   onChange: (value: T) => void;
   searchable?: boolean;
+  /** What the filter field says, since a list of fonts needs saying. */
+  searchPlaceholder?: string;
   testId?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -364,7 +367,8 @@ export function Select<T extends string | number | boolean>({
                 type="text"
                 value={query}
                 autoFocus
-                placeholder=""
+                aria-label={searchPlaceholder}
+                placeholder={searchPlaceholder ?? ""}
                 onChange={(event) => setQuery(event.target.value)}
               />
             </div>
