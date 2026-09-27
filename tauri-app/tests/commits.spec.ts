@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { boot, fixtureRepo, secondFixtureRepo } from "./harness";
+import { boot, fixtureRepo, rightClick, secondFixtureRepo } from "./harness";
 
 /**
  * Selecting a commit and reading its diff.
@@ -160,6 +160,29 @@ test.describe("commit selection", () => {
     await expect(page.getByTestId("bottom-panel")).toContainText("Changes");
   });
 
+  test("copies the commit message to the clipboard", async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()] });
+
+    await rightClick(page, ".graph-row");
+    await page.getByTestId("context-copy-message").click();
+
+    // The worker runs the command so the message is Git's own rendering, and
+    // the result goes to the clipboard rather than the status line.
+    const actions = (await stub.commands()).filter(
+      (entry) => entry.cmd === "run_action",
+    );
+    expect(actions).toHaveLength(1);
+    expect((actions[0]!.args as any).action).toMatchObject({
+      action: "copyCommitMessage",
+    });
+
+    // The stub answers with a failure for this label so the reporting path is
+    // observable; a success would put the message on the clipboard.
+    await expect(page.getByTestId("status-message")).toContainText(
+      "Failed to copy commit message",
+    );
+  });
+
   test("shows the commit message dialog on request", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
@@ -189,6 +212,29 @@ test.describe("commit selection", () => {
 
     await page.getByTestId("commit-message-close").click();
     await expect(page.getByTestId("commit-message-dialog")).toHaveCount(0);
+  });
+
+  test("clears the selection when the filter hides it", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()] });
+
+    await page.locator(".graph-row").first().click();
+    await expect(page.getByTestId("diff-hunk").first()).toBeVisible();
+
+    // A query that matches nothing removes the row the diff belongs to, so the
+    // panel must not keep showing a commit the list no longer contains.
+    await page.getByTestId("commit-search").fill("nothing matches this");
+    await expect(page.getByTestId("commit-search-no-results")).toBeVisible();
+    // The panel stays mounted with its placeholder, as the reference does, but
+    // the diff is gone.
+    await expect(page.getByTestId("diff-hunk")).toHaveCount(0);
+    await expect(page.getByTestId("bottom-panel")).toContainText(
+      "No commit selected",
+    );
+
+    // Restoring the query does not resurrect the selection.
+    await page.getByTestId("commit-search").fill("");
+    await expect(page.locator(".graph-row")).toHaveCount(8);
+    await expect(page.getByTestId("diff-hunk")).toHaveCount(0);
   });
 
   test("names each column in a header that tracks the rows", async ({ page }) => {

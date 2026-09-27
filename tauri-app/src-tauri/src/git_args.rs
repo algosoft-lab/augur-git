@@ -169,7 +169,10 @@ impl GitAction {
             GitAction::StashDrop { stash_ref } => strs(&["stash", "drop", stash_ref]),
             GitAction::ApplyPatch { path } => strs(&["apply", path]),
             GitAction::Checkout { target } => checkout_args(target),
-            GitAction::CreateBranch { name } => strs(&["branch", name]),
+            // `switch -c` creates and checks out, which is what the dialog
+            // promises. Plain `branch` would leave the reader on the old
+            // branch with a new one they are not on.
+            GitAction::CreateBranch { name } => strs(&["switch", "-c", name]),
             GitAction::RenameBranch { old, new } => strs(&["branch", "-m", old, new]),
             GitAction::DeleteBranch { name, force } => {
                 strs(&["branch", if *force { "-D" } else { "-d" }, name])
@@ -186,9 +189,17 @@ impl GitAction {
             GitAction::AbortMerge => strs(&["merge", "--abort"]),
             GitAction::AbortRebase => strs(&["rebase", "--abort"]),
             GitAction::Commit { message, amend } => commit_args(message, *amend),
-            GitAction::CopyCommitMessage { oid } => {
-                strs(&["-C", ".", "show", "-s", "--format=%B", oid])
-            }
+            // The message only, with no diff, notes, colour, or external
+            // diff driver, because it goes straight to the clipboard.
+            GitAction::CopyCommitMessage { oid } => strs(&[
+                "show",
+                "--no-patch",
+                "--format=%B",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-notes",
+                oid,
+            ]),
         })
     }
 }
@@ -344,6 +355,18 @@ mod tests {
                 target: CheckoutTarget::Commit("abc1234".into())
             }),
             ["switch", "--detach", "abc1234"]
+        );
+    }
+
+    #[test]
+    fn creating_a_branch_also_checks_it_out() {
+        // The dialog says "Creates and checks out a new branch", so `branch`
+        // alone would leave the reader on the old branch. `switch -c` does both.
+        assert_eq!(
+            args(GitAction::CreateBranch {
+                name: "feature/tauri".into()
+            }),
+            ["switch", "-c", "feature/tauri"]
         );
     }
 

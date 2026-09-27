@@ -7,6 +7,7 @@
  * others without a second source of truth.
  */
 
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { create } from "zustand";
 
 import * as ipc from "../bridge/ipc";
@@ -524,6 +525,37 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
 
   applyEvent(repoId, event) {
     const state = get();
+    if (event.type === "commandDone" && event.label === "copy-commit-message") {
+      // The operation exists only to produce the message, so it reports
+      // success or failure in its own words rather than "copy-commit-message
+      // finished", and a success goes to the clipboard. The repository is
+      // released here because this branch returns before the reducer runs.
+      const repo = state.repos[repoId];
+      if (repo) {
+        set({
+          repos: {
+            ...state.repos,
+            [repoId]: {
+              ...repo,
+              busy: false,
+              busyVerb: null,
+              message: event.success
+                ? { text: state.t("context-copied-commit-message"), ok: true }
+                : {
+                    text: state
+                      .t("context-copy-commit-message-failed")
+                      .replace("{ $error }", firstLine(event.message)),
+                    ok: false,
+                  },
+            },
+          },
+        });
+      }
+      if (event.success) {
+        void writeText(event.message);
+      }
+      return;
+    }
     const repo = state.repos[repoId];
     if (!repo) {
       // The repository is still being opened. Holding the event is what keeps

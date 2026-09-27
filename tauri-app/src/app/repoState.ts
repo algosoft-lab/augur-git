@@ -162,6 +162,15 @@ export interface FileGroups {
   conflicts: FileStatus[];
 }
 
+/**
+ * Split the working tree into the two groups the panel shows.
+ *
+ * Git reports an unmerged file on both sides, and a file with a staged change
+ * *and* an unstaged one has two separate diffs to view. So the groups are not
+ * exclusive: a file can appear in both, which is what makes the unstaged half of
+ * a partially staged file reachable. Conflicts live in the changes group, where
+ * their status character shows what is wrong with them.
+ */
 export function groupFiles(
   files: FileStatus[],
   showUntracked: boolean,
@@ -170,13 +179,17 @@ export function groupFiles(
   const unstaged: FileStatus[] = [];
   const conflicts: FileStatus[] = [];
   for (const file of files) {
-    if (isConflicted(file)) {
-      conflicts.push(file);
-      continue;
-    }
     if (isStaged(file)) {
       staged.push(file);
-    } else if (showUntracked || !isUntracked(file)) {
+    }
+    if (isConflicted(file)) {
+      conflicts.push(file);
+    }
+    if (
+      isConflicted(file) ||
+      file.worktree !== " " ||
+      (showUntracked && isUntracked(file))
+    ) {
       unstaged.push(file);
     }
   }
@@ -367,9 +380,6 @@ export function applyRepoEvent(
     case "commandStarted":
       return { ...state, busy: true, busyVerb: event.verb, message: null };
     case "commandDone": {
-      if (event.label === "copy-commit-message") {
-        return state;
-      }
       return {
         ...state,
         busy: false,

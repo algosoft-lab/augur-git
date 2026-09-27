@@ -110,6 +110,8 @@ export function fixtureRepo(): StubRepo {
       behind: 1,
       files: [
         { index: "M", worktree: " ", path: "src/main.rs", old_path: null },
+        // Staged and modified again: two diffs, so it belongs in both groups.
+        { index: "M", worktree: "M", path: "src/partial.rs", old_path: null },
         { index: "A", worktree: " ", path: "src/git/worker.rs", old_path: null },
         { index: " ", worktree: "M", path: "src/git/graph.rs", old_path: null },
         { index: " ", worktree: "?", path: "notes.md", old_path: null },
@@ -783,6 +785,7 @@ function install(
           abortRebase: "rebase --abort",
           checkout: "checkout",
           createBranch: "branch",
+          copyCommitMessage: "copy-commit-message",
           renameBranch: "branch -m",
           deleteBranch: "branch -d",
           deleteTag: "tag -d",
@@ -793,6 +796,9 @@ function install(
           applyPatch: "apply",
         }[name] ?? name;
       const bad = failing.has(name);
+      // The clipboard copy is exercised through the clipboard plugin, which the
+      // stub records; the message body is what a success would copy.
+      const succeeded = name === "copyCommitMessage" ? false : !bad;
       setTimeout(() => {
         emit("augur://repo-event", {
           repoId: repo.id,
@@ -805,8 +811,12 @@ function install(
             repoId: repo.id,
             type: "commandDone",
             label,
-            success: !bad,
-            message: bad ? "fatal: could not read from remote" : "",
+            success: succeeded,
+            message: succeeded
+              ? `Add the Tauri command surface\n\nWith a body.\n`
+              : bad
+                ? "fatal: could not read from remote"
+                : "fatal: clipboard unavailable",
           });
         }, 10);
       }, 10);

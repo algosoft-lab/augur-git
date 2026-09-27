@@ -142,6 +142,30 @@ test.describe("repositories", () => {
     await expect(page.getByTestId("tab-bar")).toContainText("augur-git");
   });
 
+  test("lists a partially staged file in both groups", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()] });
+
+    // A file with a staged change and an unstaged one has two different diffs.
+    // Showing it only under Staged would make the unstaged half unreachable.
+    const staged = page.locator('[data-testid="changes-toggle-staged"]');
+    const changes = page.locator('[data-testid="changes-toggle-changes"]');
+    await expect(staged).toBeVisible();
+    await expect(changes).toBeVisible();
+
+    // The row keys include the group, so the two entries are distinct and both
+    // are addressable.
+    await expect(
+      page.getByTestId("changes-file-src/partial.rs"),
+    ).toHaveCount(2);
+
+    // Selecting the unstaged half asks the backend for the working tree, and
+    // selecting the staged half asks for the index.
+    await page.getByTestId("changes-file-src/partial.rs").nth(1).click();
+    await expect(page.getByTestId("bottom-panel")).toContainText("Changes");
+    await page.getByTestId("changes-file-src/partial.rs").nth(0).click();
+    await expect(page.getByTestId("bottom-panel")).toContainText("Staged");
+  });
+
   test("marks a tab that failed to open", async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
     await expect(page.getByTestId("repo-7")).toBeVisible();

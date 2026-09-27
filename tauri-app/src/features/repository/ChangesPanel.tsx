@@ -20,8 +20,8 @@ import type { FileStatus, WorkingTreeAction } from "../../bridge/types";
 import * as ipc from "../../bridge/ipc";
 import {
   codeFor,
+  groupFiles,
   isConflicted,
-  isStaged,
   isUntracked,
   useStore,
   type RepoState,
@@ -44,16 +44,15 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
   const [collapsed, setCollapsed] = useState<string[]>([]);
 
   const busy = repo.busy;
+  // The two groups are not exclusive: a partially staged file appears in both,
+  // because its two diffs are different files as far as Git is concerned.
+  const { staged, unstaged } = groupFiles(repo.files, showUntracked);
   const groups: Group[] = [];
-  const staged = repo.files.filter(isStaged);
-  const changes = repo.files.filter(
-    (file) => !isStaged(file) && (showUntracked || !isUntracked(file)),
-  );
   if (staged.length) {
     groups.push({ key: "staged", titleKey: "section-staged", files: staged });
   }
-  if (changes.length) {
-    groups.push({ key: "changes", titleKey: "section-changes", files: changes });
+  if (unstaged.length) {
+    groups.push({ key: "changes", titleKey: "section-changes", files: unstaged });
   }
 
   const toggle = (key: string) => {

@@ -69,6 +69,17 @@ export function GraphView({ repo }: { repo: RepoState }) {
     [repo.logRows, query, field],
   );
 
+  // A filter that hides the selected commit clears the selection, because the
+  // diff panel would otherwise keep showing a row the list no longer contains.
+  useEffect(() => {
+    if (!repo.selected) {
+      return;
+    }
+    if (!visibleRows.some((row) => row.oid === repo.selected?.oid)) {
+      clearCommit(repo.id);
+    }
+  }, [repo.id, repo.selected, visibleRows]);
+
   useEffect(() => {
     let cancelled = false;
     void ipc
@@ -257,11 +268,16 @@ export function GraphView({ repo }: { repo: RepoState }) {
                   void selectCommit(repo.id, row.oid, row.short, row.subject);
                 }}
                 onHover={(value) => setHovered(value)}
-                onClear={() => clearCommit(repo.id)}
                 onCheckout={() => {
                   void runAction(repo.id, {
                     action: "checkout",
                     target: { kind: "commit", commit: row.oid },
+                  });
+                }}
+                onCopyMessage={() => {
+                  void runAction(repo.id, {
+                    action: "copyCommitMessage",
+                    oid: row.oid,
                   });
                 }}
                 onCopyOid={() => {
@@ -305,9 +321,9 @@ function GraphRowView({
   showsMessage,
   onSelect,
   onHover,
-  onClear,
   onCheckout,
   onCopyOid,
+  onCopyMessage,
   onShowMessage,
   hovered,
 }: {
@@ -321,9 +337,9 @@ function GraphRowView({
   showsMessage: boolean;
   onSelect: () => void;
   onHover: (oid: string | null) => void;
-  onClear: () => void;
   onCheckout: () => void;
   onCopyOid: () => void;
+  onCopyMessage: () => void;
   onShowMessage: () => void;
   hovered: boolean;
 }) {
@@ -347,7 +363,6 @@ function GraphRowView({
     () => relativeTime(row.timestamp, translate),
     [row.timestamp, translate],
   );
-  void onClear;
 
   const entries = [
     {
@@ -362,6 +377,15 @@ function GraphRowView({
       label: t(translate, "context-copy-commit"),
       icon: <Icon name="copy" size={12} />,
       onSelect: onCopyOid,
+    },
+    {
+      id: "copy-message",
+      label: t(translate, "context-copy-commit-message"),
+      icon: <Icon name="copy" size={12} />,
+      disabled: repo.busy,
+      // Goes through the worker rather than the cached message, because the
+      // clipboard wants the message as Git renders it.
+      onSelect: onCopyMessage,
     },
     {
       id: "show-message",
