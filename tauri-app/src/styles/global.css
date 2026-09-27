@@ -355,6 +355,46 @@ button {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  border-radius: 4px;
+}
+
+/* Highlighted for a moment after something outside the panel asked for it, so
+ * a click on the title bar's branch badge visibly lands somewhere. */
+.sidebar__section.is-flashing {
+  animation: sidebar-flash 800ms ease-out;
+}
+
+@keyframes sidebar-flash {
+  0% {
+    background: var(--list-active-background);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar__section.is-flashing {
+    animation: none;
+    background: var(--list-active-background);
+  }
+}
+
+.title-bar__branch {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--input-background, var(--tab-bar-background));
+  color: var(--base-blue);
+  font-size: calc(var(--ui-font-size) * 0.6875);
+}
+
+.title-bar__branch:hover {
+  background: var(--list-hover-background);
+}
   padding: 0 8px;
 }
 
@@ -1077,6 +1117,14 @@ button {
 }
 
 /* ===== Welcome page ===== */
+
+/* The page area below the tab bar, so a start page scrolls like the rest. */
+.app__page {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
 
 .welcome {
   display: flex;

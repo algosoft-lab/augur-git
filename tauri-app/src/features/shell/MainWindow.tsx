@@ -30,6 +30,7 @@ export function MainWindow() {
   const settingsOpen = useStore((state) => state.settingsOpen);
   const notice = useStore((state) => state.notice);
   const openPaths = useStore((state) => state.openPaths);
+  const addStartTab = useStore((state) => state.addStartTab);
   const openOverlay = useStore((state) => state.openOverlay);
   const notify = useStore((state) => state.notify);
   const [wslOpen, setWslOpen] = useState(false);
@@ -55,7 +56,9 @@ export function MainWindow() {
   useEffect(() => {
     const onOpen = () => void pickFolder();
     const onWsl = () => setWslOpen(true);
-    const onNewTab = () => void pickFolder();
+    // A new tab is a start page, not a folder dialog: it shows the recent
+    // repositories and a repository opened into it takes the tab's slot.
+    const onNewTab = () => addStartTab();
     const onInstall = () => void installCli("install");
     const onRemove = () => void installCli("remove");
     window.addEventListener("augur:open-repository", onOpen);
@@ -73,25 +76,35 @@ export function MainWindow() {
   }, []);
 
   const activeTab = tabs.find((tab) => tab.key === activeTabKey) ?? null;
-  const activeRepo = activeTab ? (repos[activeTab.repoId] ?? null) : null;
+  const activeRepo = activeTab && activeTab.repoId !== null
+    ? (repos[activeTab.repoId] ?? null)
+    : null;
 
   return (
     <div className="app">
       <TitleBar
         onOpenRepository={() => void pickFolder()}
         onOpenWslRepository={() => setWslOpen(true)}
-        onNewTab={() => void pickFolder()}
+        onNewTab={addStartTab}
         onInstallCli={() => void installCli("install")}
         onRemoveCli={() => void installCli("remove")}
+        onShowBranches={() => useStore.getState().flashBranches()}
       />
-      <TabBar onNewTab={() => void pickFolder()} />
+      <TabBar onNewTab={addStartTab} />
       {activeRepo ? (
         <RepoTab repo={activeRepo} />
       ) : (
-        <Welcome
-          onOpenRepository={() => void pickFolder()}
-          onOpenWslRepository={() => setWslOpen(true)}
-        />
+        // A start page and a window with no tabs show the same page; the
+        // difference is only that a start page holds a slot for a repository.
+        <div
+          className="app__page"
+          data-testid={activeTab ? "start-page" : "window-welcome"}
+        >
+          <Welcome
+            onOpenRepository={() => void pickFolder()}
+            onOpenWslRepository={() => setWslOpen(true)}
+          />
+        </div>
       )}
       <StatusBar repo={activeRepo} />
       <Overlays

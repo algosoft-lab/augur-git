@@ -49,11 +49,35 @@ export type WindowRole = "main" | "compare" | "about";
 
 /** One entry in the tab bar. */
 export interface TabEntry {
-  /** Repository identity: the path plus its location. */
+  /**
+   * Tab identity.
+   *
+   * A repository tab's key is its path plus location; a start page's is
+   * generated, because it has no repository yet.
+   */
   key: string;
-  repoId: number;
+  /**
+   * The repository behind this tab, or null for a start page.
+   *
+   * A start page is a real tab in the reference: it takes a slot, shows the
+   * recent repositories, and is replaced in place when a repository is opened
+   * into it rather than pushing a second tab.
+   */
+  repoId: number | null;
   path: string;
   location: LocationConfig;
+  /** Start pages are not written to the saved workspace. */
+  persisted: boolean;
+}
+
+/** The key prefix that marks a tab as a start page rather than a repository. */
+const START_PAGE_PREFIX = "start:";
+
+/** A distinct key per start page, so two of them never collide. */
+let startPages = 0;
+function nextStartPage(): string {
+  startPages += 1;
+  return `${START_PAGE_PREFIX}${startPages}`;
 }
 
 /** Overlay dialogs. Only one is ever open. */
@@ -122,6 +146,12 @@ interface AppStore {
   pendingEvents: Record<number, RepoEvent[]>;
 
   settingsOpen: boolean;
+  /**
+   * When the sidebar was last asked to reveal its branches.
+   *
+   * A timestamp rather than a boolean, so two clicks in a row both register.
+   */
+  sidebarFlash: number;
   overlay: Overlay;
   notice: Notice | null;
   /** The About window is a single instance, focused instead of duplicated. */
@@ -150,6 +180,20 @@ interface AppStore {
   openOverlay: (overlay: Overlay) => void;
   closeOverlay: () => void;
   setSettingsOpen: (open: boolean) => void;
+  /**
+   * Ask the sidebar of the active repository to reveal its branch list.
+   *
+   * The section is expanded and highlighted briefly, so the click lands on
+   * something visibly changed rather than on a list that may be collapsed.
+   */
+  flashBranches: () => void;
+  /**
+   * Open a start page as a new tab.
+   *
+   * It shows the recent repositories, and a repository opened into it takes its
+   * slot rather than pushing a second tab.
+   */
+  addStartTab: () => void;
   notify: (notice: Notice | null) => void;
 
   updateLayout: (layout: Partial<LayoutSettings>) => Promise<void>;
@@ -187,6 +231,22 @@ let get: () => AppStore;
 const opening = new Map<string, Promise<void>>();
 
 /**
+ * Write the repository tabs to the saved workspace.
+ *
+ * Start pages are left out: they are a way into a repository, not a repository,
+ * and restoring one on the next launch would show a page the person did not ask
+ * to see.
+ */
+function persistTabs(activeKey: string | null): void {
+  const state = useStore.getState();
+  const saved = state.tabs.filter((tab) => tab.persisted);
+  void ipc.setWorkspaceTabs(
+    saved.map((tab) => ({ path: tab.path, location: tab.location })),
+    activeKey,
+  );
+}
+
+/**
  * Ask the backend for a repository and adopt whatever it sends back.
  *
  * Split out of `openTab` so the caller can register the promise before the first
@@ -204,6 +264,7 @@ async function startOpen(
   } catch (error) {
     const failure = ipc.describeError(error);
     set((state) => ({
+      // The claim is released, because there is no repository to show.
       tabs: state.tabs.filter((tab) => tab.key !== key),
       activeTabKey:
         state.activeTabKey === key
@@ -232,16 +293,12 @@ async function startOpen(
     const { [summary.id]: _drained, ...rest } = get().pendingEvents;
     set({ pendingEvents: rest });
     for (const event of buffered) {
-      useStore.getState().applyEvent(summary.id, event);
+      get().applyEvent(summary.id, event);
     }
   }
-  void ipc.setWorkspaceTabs(
-    useStore
-      .getState()
-      .tabs.map((tab) => ({ path: tab.path, location: tab.location })),
-    key,
-  );
+  persistTabs(key);
 }
+
 
 /**
  * Create a repository's state and fold in any events that arrived first.
@@ -341,6 +398,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
   pendingEvents: {},
 
   settingsOpen: false,
+  sidebarFlash: 0,
   overlay: { kind: "none" },
   notice: null,
   aboutOpen: false,
@@ -378,9 +436,11 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       );
       return {
         key,
-        repoId: existing?.id ?? -1,
+        repoId: existing?.id ?? null,
         path: tab.path,
         location: tab.location,
+        // A restored tab is saved, unlike one that is still being opened.
+        persisted: true,
       };
     });
 
@@ -401,7 +461,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     // Windows opened without a repository argument still need the tab list, so
     // missing sessions are started here.
     for (const tab of tabs) {
-      if (tab.repoId < 0) {
+      if (tab.repoId === null) {
         await get().openTab(tab.path, tab.location);
       }
     }
@@ -415,7 +475,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       await get().refresh(compareRepoId);
     } else if (boot.workspace.active_tab) {
       const active = tabs.find((entry) => entry.key === boot.workspace.active_tab);
-      if (active && active.repoId >= 0) {
+      if (active && active.repoId !== null) {
         await get().refresh(active.repoId);
       }
     }
@@ -429,16 +489,15 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     const target: LocationConfig = location ?? { kind: "local" };
     const key = tabKey(path, target);
     const existing = get().tabs.find((tab) => tab.key === key);
-    if (existing && existing.repoId >= 0) {
+    if (existing && existing.repoId !== null) {
       await get().selectTab(key);
       return;
     }
 
-    // A tab that is present but still carries a claim was adopted from the saved
-    // list, which happens before the window knows which repositories the
-    // backend has open. It has no repository yet, so the claim is completed here
-    // rather than short-circuited, or the tab would sit in its loading state
-    // forever.
+    // A tab that is present but has no repository yet was adopted from the saved
+    // list, which happens before the window knows which repositories the backend
+    // has open. The claim is completed here rather than short-circuited, or the
+    // tab would sit empty forever.
     const inFlight = opening.get(key);
     if (inFlight) {
       // Something else is opening this very repository, so wait for it rather
@@ -451,12 +510,22 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     // The slot is claimed before the request, not after it, so a second drop of
     // the same folder finds the tab already there. The claim is registered
     // synchronously too, so two callers cannot both decide to start.
-    set((state) => ({
-      tabs: existing
-        ? state.tabs
-        : [...state.tabs, { key, repoId: -1, path, location: target }],
-      activeTabKey: key,
-    }));
+    set((state) => {
+      if (state.tabs.some((tab) => tab.key === key)) {
+        return { activeTabKey: key };
+      }
+      // A start page is a slot waiting for a repository, so it is filled rather
+      // than left behind with a second tab beside it.
+      const slot = state.tabs.findIndex((tab) => tab.repoId === null);
+      const claim: TabEntry = { key, repoId: null, path, location: target, persisted: true };
+      const tabs = [...state.tabs];
+      if (slot >= 0) {
+        tabs[slot] = claim;
+      } else {
+        tabs.push(claim);
+      }
+      return { tabs, activeTabKey: key };
+    });
     const pending = startOpen(key, path, target);
     opening.set(key, pending);
     try {
@@ -486,22 +555,22 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       const fallback = tabs[index] ?? tabs[index - 1];
       activeTabKey = fallback?.key ?? null;
     }
-    const repos = { ...state.repos };
-    delete repos[tab.repoId];
-    const pendingEvents = { ...state.pendingEvents };
-    delete pendingEvents[tab.repoId];
-    set({ tabs, activeTabKey, repos, pendingEvents });
-    if (tab.repoId >= 0) {
+    // A start page has no repository behind it, so there is nothing to release.
+    if (tab.repoId !== null) {
+      const repos = { ...state.repos };
+      delete repos[tab.repoId];
+      const pendingEvents = { ...state.pendingEvents };
+      delete pendingEvents[tab.repoId];
+      set({ tabs, activeTabKey, repos, pendingEvents });
       await ipc.closeRepository(tab.repoId);
       await ipc.closeCompareWindow(tab.repoId);
+    } else {
+      set({ tabs, activeTabKey });
     }
-    await ipc.setWorkspaceTabs(
-      tabs.map((entry) => ({ path: entry.path, location: entry.location })),
-      activeTabKey,
-    );
+    persistTabs(activeTabKey);
     if (activeTabKey) {
       const next = get().tabs.find((entry) => entry.key === activeTabKey);
-      if (next) {
+      if (next?.repoId !== null && next?.repoId !== undefined) {
         void get().refresh(next.repoId);
       }
     }
@@ -509,14 +578,27 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
 
   async selectTab(key) {
     set({ activeTabKey: key });
-    await ipc.setWorkspaceTabs(
-      get().tabs.map((tab) => ({ path: tab.path, location: tab.location })),
-      key,
-    );
+    persistTabs(key);
     const tab = get().tabs.find((entry) => entry.key === key);
-    if (tab) {
+    if (tab && tab.repoId !== null) {
       void get().refresh(tab.repoId);
     }
+  },
+
+  /**
+   * Open a start page as a new tab.
+   *
+   * The only tab kind that is not a repository.
+   *
+   * It shows the recent repositories, and a repository opened into it takes its
+   * slot rather than pushing a second tab, which is what the reference does.
+   */
+  addStartTab() {
+    const key = `${START_PAGE_PREFIX}${nextStartPage()}`;
+    set((state) => ({
+      tabs: [...state.tabs, { key, repoId: null, path: "", location: { kind: "local" }, persisted: false }],
+      activeTabKey: key,
+    }));
   },
 
   setActiveRepo(repoId) {
@@ -754,6 +836,10 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     set({ settingsOpen: open });
   },
 
+  flashBranches() {
+    set({ sidebarFlash: Date.now() });
+  },
+
   notify(notice) {
     set({ notice });
   },
@@ -807,19 +893,16 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
 
 /** The repository backing the active tab, if any. */
 export function activeRepo(state: AppStore): RepoState | null {
-  if (!state.activeTabKey) {
-    return null;
-  }
-  const tab = state.tabs.find((entry) => entry.key === state.activeTabKey);
-  if (!tab) {
+  return state.activeTabKey ? tabRepo(state, state.activeTabKey) : null;
+}
+
+/** The repository behind a tab, or null for a start page. */
+export function tabRepo(state: AppStore, key: string): RepoState | null {
+  const tab = state.tabs.find((entry) => entry.key === key);
+  if (!tab || tab.repoId === null) {
     return null;
   }
   return state.repos[tab.repoId] ?? null;
-}
-
-export function tabRepo(state: AppStore, key: string): RepoState | null {
-  const tab = state.tabs.find((entry) => entry.key === key);
-  return tab ? (state.repos[tab.repoId] ?? null) : null;
 }
 
 /** Compare revision argument for a checkout-style ref. */

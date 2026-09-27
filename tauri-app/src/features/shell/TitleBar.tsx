@@ -21,16 +21,27 @@ export function TitleBar({
   onNewTab,
   onInstallCli,
   onRemoveCli,
+  onShowBranches,
 }: {
   onOpenRepository: () => void;
   onOpenWslRepository: () => void;
   onNewTab: () => void;
   onInstallCli: () => void;
   onRemoveCli: () => void;
+  /** Reveal the branch list in the sidebar of the active repository. */
+  onShowBranches: () => void;
 }) {
   const translate = useStore((state) => state.t);
   const build = useStore((state) => state.build);
   const recent = useStore((state) => state.config.recent_repos);
+  const activeTabKey = useStore((state) => state.activeTabKey);
+  const tabs = useStore((state) => state.tabs);
+  const repos = useStore((state) => state.repos);
+  const branch = (() => {
+    const tab = tabs.find((entry) => entry.key === activeTabKey);
+    const repo = tab && tab.repoId !== null ? repos[tab.repoId] : undefined;
+    return repo?.branch || null;
+  })();
   const openTab = useStore((state) => state.openTab);
   const setSettingsOpen = useStore((state) => state.setSettingsOpen);
 
@@ -148,6 +159,20 @@ export function TitleBar({
           {t(translate, "menu-help")}
         </button>
       </Menu>
+      {/* The branch of the active repository, which is also the way back to the
+          branch list: clicking it expands that section and highlights it. */}
+      {branch ? (
+        <button
+          type="button"
+          className="title-bar__branch"
+          data-testid="title-branch"
+          title={branch}
+          onClick={onShowBranches}
+        >
+          <Icon name="git-branch" size={12} />
+          <span>{branch}</span>
+        </button>
+      ) : null}
       <div className="title-bar__drag" data-tauri-drag-region />
       <div className="title-bar__brand">
         <img src="/logo.svg" alt="" />

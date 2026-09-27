@@ -106,8 +106,10 @@ test.describe("repositories", () => {
     await expect(page.getByTestId("repo-7")).toBeVisible();
     await expect(page.getByTestId("branch-master")).toBeVisible();
 
-    // A second tab must not reuse the first one's status.
+    // A second tab comes from the start page, which offers the next repository.
     await page.getByTestId("tab-new").click();
+    await expect(page.getByTestId("start-page")).toBeVisible();
+    await page.getByTestId("welcome-open").click();
     await expect(page.getByTestId("repo-9")).toBeVisible();
     await expect(page.getByTestId("branch-trunk")).toBeVisible();
     await expect(page.getByTestId("branch-master")).toHaveCount(0);
@@ -164,6 +166,59 @@ test.describe("repositories", () => {
     await expect(page.getByTestId("bottom-panel")).toContainText("Changes");
     await page.getByTestId("changes-file-src/partial.rs").nth(0).click();
     await expect(page.getByTestId("bottom-panel")).toContainText("Staged");
+  });
+
+  test("opens a new tab as a start page that a repository replaces", async ({
+    page,
+  }) => {
+    await boot(page);
+
+    // The start page is a tab, not a folder dialog.
+    await page.getByTestId("tab-new").click();
+    await expect(page.locator(".tab")).toHaveCount(1);
+    await expect(page.locator(".tab__label")).toHaveText(["New Tab"]);
+    await expect(page.getByTestId("start-page")).toBeVisible();
+
+    // Opening a repository into it fills the slot rather than pushing a second
+    // tab, so the tab count does not grow.
+    await page.getByTestId("welcome-open").click();
+    await expect(page.getByTestId("repo-7")).toBeVisible();
+    await expect(page.locator(".tab")).toHaveCount(1);
+    await expect(page.locator(".tab__label")).toHaveText(["augur-git"]);
+
+    // A start page is not written to the saved workspace, so the reload that
+    // follows does not bring it back.
+    const commands = await page.evaluate(() =>
+      (window as any).__STUB__.log.filter(
+        (entry: any) => entry.cmd === "set_workspace_tabs",
+      ),
+    );
+    const last = (commands as { args: { tabs: { path: string }[] }[] }[]).at(-1);
+    expect(last?.args.tabs.map((tab) => tab.path)).not.toContain("");
+  });
+
+  test("shows the active branch in the title bar and reveals it on click", async ({
+    page,
+  }) => {
+    await boot(page, { open: [fixtureRepo()] });
+
+    const badge = page.getByTestId("title-branch");
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveText("master");
+
+    // With the section collapsed, the click still has to land somewhere
+    // visible, so it expands and highlights the branch list.
+    await page.getByTestId("sidebar-toggle-branches").click();
+    await expect(page.getByTestId("branch-master")).toHaveCount(0);
+    await badge.click();
+    await expect(page.getByTestId("branch-master")).toBeVisible();
+    await expect(page.getByTestId("sidebar-branches")).toHaveClass(/is-flashing/);
+
+    // A second repository switches which branch is shown.
+    await page.getByTestId("tab-new").click();
+    await page.getByTestId("welcome-open").click();
+    await expect(page.getByTestId("repo-9")).toBeVisible();
+    await expect(badge).toHaveText("trunk");
   });
 
   test("marks a tab that failed to open", async ({ page }) => {

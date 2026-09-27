@@ -21,12 +21,15 @@ export function TabBar({ onNewTab }: { onNewTab: () => void }) {
   return (
     <div className="tab-bar" role="tablist" data-testid="tab-bar">
       {tabs.map((tab) => {
-        const repo = repos[tab.repoId];
+        const repo = tab.repoId === null ? undefined : repos[tab.repoId];
         const state = repo?.status ?? "loading";
+        // A start page has no repository, so it is named for what it offers.
         const label =
-          tab.location.kind === "wsl"
-            ? `${tab.location.distro} · ${basename(tab.path)}`
-            : basename(tab.path);
+          tab.repoId === null
+            ? t(translate, "tab-new")
+            : tab.location.kind === "wsl"
+              ? `${tab.location.distro} · ${basename(tab.path)}`
+              : basename(tab.path);
         return (
           <div
             key={tab.key}
@@ -44,7 +47,7 @@ export function TabBar({ onNewTab }: { onNewTab: () => void }) {
                 void closeTab(tab.key);
               }
             }}
-            title={tab.path}
+            title={tab.repoId === null ? t(translate, "tab-new") : tab.path}
           >
             <span className={`tab__dot tab__dot--${state}`} />
             <span className="tab__label">{label}</span>

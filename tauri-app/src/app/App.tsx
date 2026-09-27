@@ -245,7 +245,7 @@ function onWindowFocus(): void {
     return;
   }
   const tab = state.tabs.find((entry) => entry.key === state.activeTabKey);
-  if (tab) {
+  if (tab && tab.repoId !== null) {
     void state.refresh(tab.repoId);
   }
 }

@@ -19,7 +19,7 @@ export function Welcome({
     typeof navigator !== "undefined" && /Win/i.test(navigator.platform);
 
   return (
-    <div className="welcome" data-testid="welcome">
+    <div className="welcome" data-testid="welcome" data-page="welcome">
       <div className="welcome__brand">
         <img src="/logo.svg" alt="" />
         <div>
