@@ -9,7 +9,6 @@
 
 import { useStore } from "../../app/store";
 import { t, ta } from "../../i18n/strings";
-import logoUrl from "../../../public/logo.svg";
 
 export function AboutWindow() {
   const translate = useStore((state) => state.t);
@@ -22,7 +21,7 @@ export function AboutWindow() {
         {t(translate, "about-title")}
       </div>
       <div className="about" data-testid="about">
-        <img className="about__logo" src={logoUrl} alt="" />
+        <img className="about__logo" src="/logo.svg" alt="" />
         <div className="about__name">{build?.name ?? "Augur Git Tauri"}</div>
         <div className="about__tagline">{t(translate, "about-tagline")}</div>
         <dl className="about__rows">

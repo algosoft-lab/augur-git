@@ -110,6 +110,18 @@ interface AppStore {
   repos: Record<number, RepoState>;
   tabs: TabEntry[];
   activeTabKey: string | null;
+  /**
+   * Events for a repository that is not in `repos` yet.
+   *
+   * The backend starts a worker thread as part of `open_repository`, and its
+   * first snapshot can reach the webview before the command's own reply does.
+   * Tauri makes no ordering promise between an event and a reply, so those
+   * events are held here and applied the moment the repository is adopted. The
+   * cap keeps a repository that is never adopted from growing this without
+   * bound; only the newest events matter, since a later snapshot supersedes an
+   * earlier one.
+   */
+  pendingEvents: Record<number, RepoEvent[]>;
 
   settingsOpen: boolean;
   overlay: Overlay;
@@ -159,6 +171,30 @@ const DEFAULT_LAYOUT: LayoutSettings = {
   diff_height: null,
   file_list_ratio: 0.25,
 };
+
+/** Ceiling on the buffered events kept for a repository that never appears. */
+const PENDING_EVENT_LIMIT = 256;
+
+/**
+ * Create a repository's state and fold in any events that arrived first.
+ *
+ * The buffered events are replayed in order, so a repository that is adopted
+ * late still ends up with the same state as one adopted immediately.
+ */
+function adopt(
+  state: AppStore,
+  id: number,
+  path: string,
+  location: LocationConfig,
+): RepoState {
+  let repo = emptyRepo(id, path, location);
+  for (const event of state.pendingEvents[id] ?? []) {
+    repo = applyRepoEvent(repo, event, state.t, (key, detail) =>
+      renderGitError(state.t, key, detail),
+    );
+  }
+  return repo;
+}
 
 function systemLanguage(): string {
   return typeof navigator === "undefined" ? "en-US" : navigator.language;
@@ -229,6 +265,7 @@ export const useStore = create<AppStore>((set, get) => ({
   repos: {},
   tabs: [],
   activeTabKey: null,
+  pendingEvents: {},
 
   settingsOpen: false,
   overlay: { kind: "none" },
@@ -252,9 +289,14 @@ export const useStore = create<AppStore>((set, get) => ({
 
     // Every already-open repository is re-adopted so a reloaded window
     // resubscribes to a worker it does not own.
+    const staged = useStore.getState();
     const repos: Record<number, RepoState> = {};
     for (const summary of boot.repositories) {
-      repos[summary.id] = emptyRepo(summary.id, summary.path, summary.location);
+      repos[summary.id] = adopt(staged, summary.id, summary.path, summary.location);
+    }
+    const { pendingEvents } = staged;
+    for (const summary of boot.repositories) {
+      delete pendingEvents[summary.id];
     }
     const tabs: TabEntry[] = boot.workspace.open_tabs.map((tab) => {
       const key = tabKey(tab.path, tab.location);
@@ -302,11 +344,19 @@ export const useStore = create<AppStore>((set, get) => ({
     set((state) => ({
       repos: {
         ...state.repos,
-        [summary.id]: emptyRepo(summary.id, summary.path, summary.location),
+        [summary.id]: adopt(state, summary.id, summary.path, summary.location),
       },
       tabs: [...state.tabs, { key, repoId: summary.id, path, location: target }],
       activeTabKey: key,
     }));
+    const pending = get().pendingEvents[summary.id];
+    if (pending) {
+      const { [summary.id]: _drained, ...rest } = get().pendingEvents;
+      set({ pendingEvents: rest });
+      for (const event of pending) {
+        get().applyEvent(summary.id, event);
+      }
+    }
     void ipc.setWorkspaceTabs(
       get().tabs.map((tab) => ({ path: tab.path, location: tab.location })),
       key,
@@ -334,7 +384,9 @@ export const useStore = create<AppStore>((set, get) => ({
     }
     const repos = { ...state.repos };
     delete repos[tab.repoId];
-    set({ tabs, activeTabKey, repos });
+    const pendingEvents = { ...state.pendingEvents };
+    delete pendingEvents[tab.repoId];
+    set({ tabs, activeTabKey, repos, pendingEvents });
     if (tab.repoId >= 0) {
       await ipc.closeRepository(tab.repoId);
       await ipc.closeCompareWindow(tab.repoId);
@@ -371,6 +423,16 @@ export const useStore = create<AppStore>((set, get) => ({
     const state = get();
     const repo = state.repos[repoId];
     if (!repo) {
+      // The repository is still being opened. Holding the event is what keeps
+      // the first status from being lost to the race between the command reply
+      // and the worker's first snapshot.
+      const queue = state.pendingEvents[repoId] ?? [];
+      set({
+        pendingEvents: {
+          ...state.pendingEvents,
+          [repoId]: [...queue, event].slice(-PENDING_EVENT_LIMIT),
+        },
+      });
       return;
     }
     const t = state.t;

@@ -7,7 +7,7 @@ version = "0.1.0"
 description = "Augur Git Tauri desktop application"
 authors = ["Lionel Fung", "Li Haozhe"]
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.90"
 license = "MIT"
 default-run = "augur-git-tauri"
 
@@ -28,7 +28,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 augur-core = { path = "crates/augur-core" }
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2" }
 tauri-plugin-store = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-dialog = "2"

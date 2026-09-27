@@ -95,13 +95,6 @@ export function App() {
         await store.initialize(target.role, target.compareRepoId);
         if (!cancelled) {
           applyThemeFromState();
-          // The main window shows itself once the first paint is ready, which
-          // avoids a flash of an unstyled window.
-          if (target.role === "main") {
-            const window = await import("@tauri-apps/api/window");
-            const current = window.getCurrentWindow();
-            await current.show();
-          }
         }
       } catch (error) {
         if (!cancelled) {

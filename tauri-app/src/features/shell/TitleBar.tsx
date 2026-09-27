@@ -11,7 +11,6 @@ import * as ipc from "../../bridge/ipc";
 import { Menu, type MenuItemSpec } from "../../components/controls";
 import { useStore } from "../../app/store";
 import { t } from "../../i18n/strings";
-import logoUrl from "../../../public/logo.svg";
 
 const IS_MACOS =
   typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
@@ -151,7 +150,7 @@ export function TitleBar({
       </Menu>
       <div className="title-bar__drag" data-tauri-drag-region />
       <div className="title-bar__brand">
-        <img src={logoUrl} alt="" />
+        <img src="/logo.svg" alt="" />
         <span>{build?.name ?? "Augur Git Tauri"}</span>
       </div>
     </div>

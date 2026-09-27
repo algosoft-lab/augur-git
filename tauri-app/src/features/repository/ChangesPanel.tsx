@@ -1,9 +1,15 @@
 /**
- * The working-tree panel: staged, unstaged, and conflicted files.
+ * The working-tree panel: the staged group and the changes group.
  *
- * Files are grouped the way Git reports them, and each group can be staged,
- * unstaged, or discarded as a whole. Row actions are revealed on hover, and a
- * discard always goes through the confirmation overlay because it destroys work.
+ * Git reports an unmerged file on both sides, so the reference application
+ * keeps it in the unstaged group and lets the row's status character show the
+ * conflict. That is reproduced here: two groups, not three, with the conflicts
+ * counted as changes.
+ *
+ * Row actions are revealed on hover. Discarding is gated while conflicts exist,
+ * because a restore during an unresolved merge would destroy the work that the
+ * merge is waiting on, and a discard always goes through a confirmation because
+ * it destroys work.
  */
 
 import { useState } from "react";
@@ -23,37 +29,31 @@ import {
 import { t } from "../../i18n/strings";
 
 interface Group {
-  key: "staged" | "unstaged" | "conflicts";
+  key: "staged" | "changes";
+  /** The catalog key for the header, which the reference names explicitly. */
+  titleKey: string;
   files: FileStatus[];
 }
 
 export function ChangesPanel({ repo }: { repo: RepoState }) {
   const translate = useStore((state) => state.t);
   const showUntracked = useStore((state) => state.config.view.show_untracked);
-  const pane = repo.pane;
   const selectWorkingFile = useStore((state) => state.selectWorkingFile);
   const openOverlay = useStore((state) => state.openOverlay);
   const setMessage = useStore((state) => state.setMessage);
   const [collapsed, setCollapsed] = useState<string[]>([]);
 
-  const blocked = repo.busy;
+  const busy = repo.busy;
   const groups: Group[] = [];
-  const conflicts = repo.files.filter((file) => isConflicted(file));
-  const staged = repo.files.filter((file) => isStaged(file));
-  const unstaged = repo.files.filter(
-    (file) =>
-      !isConflicted(file) &&
-      !isStaged(file) &&
-      (showUntracked || !isUntracked(file)),
+  const staged = repo.files.filter(isStaged);
+  const changes = repo.files.filter(
+    (file) => !isStaged(file) && (showUntracked || !isUntracked(file)),
   );
-  if (conflicts.length) {
-    groups.push({ key: "conflicts", files: conflicts });
-  }
   if (staged.length) {
-    groups.push({ key: "staged", files: staged });
+    groups.push({ key: "staged", titleKey: "section-staged", files: staged });
   }
-  if (unstaged.length) {
-    groups.push({ key: "unstaged", files: unstaged });
+  if (changes.length) {
+    groups.push({ key: "changes", titleKey: "section-changes", files: changes });
   }
 
   const toggle = (key: string) => {
@@ -64,18 +64,21 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
     );
   };
 
-  const operate = async (action: WorkingTreeAction, files: FileStatus[], all: boolean) => {
-    if (blocked || files.length === 0) {
+  const operate = async (
+    action: WorkingTreeAction,
+    files: FileStatus[],
+    all: boolean,
+  ) => {
+    if (busy || files.length === 0) {
       return;
     }
     if (action === "discard") {
       const tracked = files.filter((file) => !isUntracked(file)).length;
-      const untracked = files.length - tracked;
       openOverlay({
         kind: "discard",
         scope: { kind: "workingTree", staged: false, all },
         trackedCount: tracked,
-        untrackedCount: untracked,
+        untrackedCount: files.length - tracked,
       });
       return;
     }
@@ -88,7 +91,7 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
     }
   };
 
-  if (repo.files.length === 0) {
+  if (groups.length === 0) {
     return (
       <div className="changes" data-testid="changes-empty">
         <div className="empty-state" style={{ minHeight: 120 }}>
@@ -101,15 +104,15 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
   return (
     <div className="changes" data-testid="changes-panel">
       {groups.map((group) => {
-        const isCollapsed = collapsed.includes(group.key);
         const stagedGroup = group.key === "staged";
+        const isCollapsed = collapsed.includes(group.key);
         return (
           <div key={group.key}>
-            <div className="changes__section-header changes__row-group">
+            <div className="changes__row-group changes__section-header">
               <button
                 type="button"
                 className="changes__section-header"
-                style={{ flex: 1 }}
+                style={{ flex: "1 1 auto" }}
                 aria-expanded={!isCollapsed}
                 onClick={() => toggle(group.key)}
                 data-testid={`changes-toggle-${group.key}`}
@@ -119,7 +122,7 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
                   size={12}
                 />
                 <span className="changes__section-title">
-                  {t(translate, `section-${group.key === "conflicts" ? "changes" : group.key}`)}
+                  {t(translate, group.titleKey)}
                 </span>
                 <span className="changes__section-count">{group.files.length}</span>
               </button>
@@ -127,7 +130,7 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
                 <IconButton
                   icon={<Icon name="minus" size={12} />}
                   tooltip={t(translate, "changes-unstage-all")}
-                  disabled={blocked || group.files.length === 0}
+                  disabled={busy}
                   onClick={() => void operate("unstage", group.files, true)}
                   testId="changes-unstage-all"
                 />
@@ -136,18 +139,14 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
                   <IconButton
                     icon={<Icon name="undo" size={12} />}
                     tooltip={t(translate, "changes-discard-all")}
-                    disabled={
-                      blocked || group.files.length === 0 || repo.hasConflicts
-                    }
+                    disabled={busy || repo.hasConflicts}
                     onClick={() => void operate("discard", group.files, true)}
                     testId="changes-discard-all"
                   />
                   <IconButton
                     icon={<Icon name="plus" size={12} />}
                     tooltip={t(translate, "changes-stage-all")}
-                    disabled={
-                      blocked || group.files.length === 0 || repo.hasConflicts
-                    }
+                    disabled={busy || repo.hasConflicts}
                     onClick={() => void operate("stage", group.files, true)}
                     testId="changes-stage-all"
                   />
@@ -163,9 +162,9 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
                     file={file}
                     staged={stagedGroup}
                     selected={
-                      pane.kind === "working" &&
-                      pane.staged === stagedGroup &&
-                      pane.file.path === file.path
+                      repo.pane.kind === "working" &&
+                      repo.pane.staged === stagedGroup &&
+                      repo.pane.file.path === file.path
                     }
                     onSelect={() => {
                       void selectWorkingFile(repo.id, stagedGroup, file);
@@ -199,9 +198,7 @@ function FileRow({
   const code = codeFor(file, staged);
   const conflicted = isConflicted(file);
   const untracked = isUntracked(file);
-  const label = conflicted
-    ? t(translate, "status-conflict")
-    : t(translate, statusKey(code, untracked));
+  const modifier = statusModifier(code, untracked);
 
   const entries = conflicted
     ? []
@@ -232,29 +229,27 @@ function FileRow({
         onClick={onSelect}
         title={file.old_path ? `${file.old_path} → ${file.path}` : file.path}
       >
-        <span className={`file-row__status status-${statusKey(code, untracked)}`}>
-          {label}
+        <span className={`file-row__status status-${modifier}`}>
+          {t(translate, statusKey(code, untracked))}
         </span>
         <span className="file-row__name">{file.path}</span>
-        <IconButton
-          icon={
-            staged || conflicted ? (
-              <Icon name="minus" size={12} />
-            ) : (
-              <Icon name="plus" size={12} />
-            )
-          }
-          tooltip={staged ? t(translate, "changes-unstage") : t(translate, "changes-stage")}
-          disabled={repo.busy || (conflicted && false)}
-          onClick={() => onOperate(staged ? "unstage" : "stage")}
-          testId={`changes-toggle-${file.path}`}
-        />
+        {conflicted ? null : (
+          <IconButton
+            icon={
+              staged ? <Icon name="minus" size={12} /> : <Icon name="plus" size={12} />
+            }
+            tooltip={staged ? t(translate, "changes-unstage") : t(translate, "changes-stage")}
+            disabled={repo.busy}
+            onClick={() => onOperate(staged ? "unstage" : "stage")}
+            testId={`changes-toggle-${file.path}`}
+          />
+        )}
       </div>
     </ContextMenu>
   );
 }
 
-/** Map a porcelain status character to its i18n key. */
+/** Map a porcelain status character to its catalog key. */
 export function statusKey(code: string, untracked: boolean): string {
   if (untracked) {
     return "status-unknown";
@@ -272,9 +267,30 @@ export function statusKey(code: string, untracked: boolean): string {
       return "status-cpy";
     case "U":
       return "status-conflict";
-    case "?":
-      return "status-unknown";
     default:
       return "status-unknown";
+  }
+}
+
+/** The CSS colour modifier for a porcelain status character. */
+export function statusModifier(code: string, untracked: boolean): string {
+  if (untracked) {
+    return "unknown";
+  }
+  switch (code) {
+    case "A":
+      return "add";
+    case "D":
+      return "del";
+    case "M":
+      return "mod";
+    case "R":
+      return "ren";
+    case "C":
+      return "cpy";
+    case "U":
+      return "conflict";
+    default:
+      return "unknown";
   }
 }

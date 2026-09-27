@@ -87,10 +87,16 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
         .setup(move |app| {
             let handle = app.handle().clone();
             let pending = invocation.paths.clone();
+            log::info!("[startup] setup entered with {} path(s)", pending.len());
 
             let report = persistence::LoadReport::default();
             app.manage(AppState::new(handle.clone(), report));
+            log::info!(
+                "[startup] state ready; store files: {:?}",
+                app.state::<AppState>().persistence().store_paths()
+            );
             install_menu_hooks(&handle);
+            log::info!("[startup] hooks installed");
             if forwarded {
                 // This process already lost the single-instance race; the
                 // plugin forwards the paths and exits without ever building a

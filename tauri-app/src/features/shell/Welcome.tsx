@@ -3,7 +3,6 @@
 import { Icon } from "../../components/Icon";
 import { useStore } from "../../app/store";
 import { t } from "../../i18n/strings";
-import logoUrl from "../../../public/logo.svg";
 
 export function Welcome({
   onOpenRepository,
@@ -22,7 +21,7 @@ export function Welcome({
   return (
     <div className="welcome" data-testid="welcome">
       <div className="welcome__brand">
-        <img src={logoUrl} alt="" />
+        <img src="/logo.svg" alt="" />
         <div>
           <div className="welcome__title">{build?.name ?? "Augur Git Tauri"}</div>
           <div className="welcome__tagline">{t(translate, "app-tagline")}</div>

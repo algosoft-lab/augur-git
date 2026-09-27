@@ -125,6 +125,11 @@ impl Persistence {
             }
         };
 
+        log::info!(
+            "[store] loaded {} and {}",
+            SETTINGS_FILE,
+            WORKSPACE_FILE
+        );
         (
             Self {
                 settings: Mutex::new(settings),

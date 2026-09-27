@@ -3,12 +3,11 @@
  *
  * The editor sits at the top of the right panel so staging and committing stay
  * one continuous flow. Enter submits, Shift+Enter inserts a newline, and the
- * action split button persists the chosen default.
+ * square split button to its right chooses between a new commit and an amend,
+ * which is then the default for the session.
  */
 
 import { useState } from "react";
-
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 import { Icon } from "../../components/Icon";
 import { Menu, TextArea, type MenuItemSpec } from "../../components/controls";
@@ -19,13 +18,13 @@ import { t } from "../../i18n/strings";
 export function CommitPanel({ repo }: { repo: RepoState }) {
   const translate = useStore((state) => state.t);
   const preference = useStore((state) => state.config.view.commit_action);
-  const setCommitAction = useStore((state) => state.setView);
+  const setView = useStore((state) => state.setView);
   const runAction = useStore((state) => state.runAction);
-  const setMessage = useStore((state) => state.setMessage);
   const [message, setMessageText] = useState("");
 
-  const hasStaged = repo.files.some((file) => file.index !== " " && file.index !== "?");
-  const hasChanges = repo.files.length > 0;
+  // Amending rewrites the previous commit, so either kind of staged change is
+  // enough; a plain commit needs something staged.
+  const hasStaged = repo.files.some(isStagedFile);
   const canCommit = !repo.busy && hasStaged && message.trim().length > 0;
 
   const submit = () => {
@@ -45,14 +44,14 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
       id: "commit",
       label: t(translate, "commit-action-commit"),
       onSelect: () => {
-        void setCommitAction({ commit_action: "commit" });
+        void setView({ commit_action: "commit" });
       },
     },
     {
       id: "amend",
       label: t(translate, "commit-action-amend"),
       onSelect: () => {
-        void setCommitAction({ commit_action: "amend" });
+        void setView({ commit_action: "amend" });
       },
     },
   ];
@@ -73,25 +72,29 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
           onChange={setMessageText}
           placeholder={t(translate, "commit-placeholder")}
           disabled={repo.busy}
+          minRows={2}
+          maxRows={5}
           onSubmit={submit}
+          onEscape={() => setMessageText("")}
           testId="commit-message"
         />
         <div className="commit-panel__actions">
           <button
             type="button"
             className="tool-button tool-button--primary"
-            style={{ flex: 1, justifyContent: "center" }}
+            style={{ flex: "1 1 auto", justifyContent: "center" }}
             disabled={!canCommit}
             data-testid="commit-submit"
             onClick={submit}
           >
             {label}
           </button>
+          {/* A one-pixel divider keeps the split button reading as one control. */}
+          <div className="commit-panel__divider" />
           <Menu items={actionItems} testId="commit-mode" align="end">
             <button
               type="button"
-              className="tool-button tool-button--primary"
-              style={{ width: 26, justifyContent: "center" }}
+              className="tool-button tool-button--primary commit-panel__mode"
               disabled={repo.busy}
               data-testid="commit-mode-trigger"
               aria-label={t(translate, "commit-action-amend")}
@@ -100,36 +103,16 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
             </button>
           </Menu>
         </div>
-        {repo.hasConflicts ? (
-          <div className="muted" style={{ fontSize: "0.7em" }}>
-            {t(translate, "changes-action-conflict")}
-          </div>
-        ) : null}
-        {!hasChanges ? null : (
-          <button
-            type="button"
-            className="tool-button tool-button--compact"
-            style={{ alignSelf: "flex-start" }}
-            data-testid="commit-copy-commands"
-            onClick={() => {
-              // Copy the staged file list so a reviewer can paste it elsewhere.
-              const lines = repo.files
-                .filter((file) => file.index !== " " && file.index !== "?")
-                .map((file) => file.path);
-              void writeText(lines.join("\n")).then(() => {
-                setMessage(repo.id, t(translate, "context-copied"), true);
-              });
-            }}
-          >
-            <Icon name="copy" size={11} /> {t(translate, "context-copied")}
-          </button>
-        )}
       </div>
     </div>
   );
 }
 
-/** Exposed so the settings page can offer the same two choices. */
+function isStagedFile(file: RepoState["files"][number]): boolean {
+  return file.index !== " " && file.index !== "?";
+}
+
+/** The two choices the split button offers, also used by the settings page. */
 export const COMMIT_ACTIONS: { value: CommitActionPreference; key: string }[] = [
   { value: "commit", key: "commit-action-commit" },
   { value: "amend", key: "commit-action-amend" },

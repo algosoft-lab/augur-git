@@ -10,7 +10,6 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
-    "macOSPrivateApi": true,
     "withGlobalTauri": false,
     "windows": [
       {
@@ -23,14 +22,14 @@
         "minHeight": 480,
         "resizable": true,
         "fullscreen": false,
-        "visible": false,
+        "visible": true,
+        "dragDropEnabled": true,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true,
-        "dragDropEnabled": true
+        "hiddenTitle": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1420"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
     }
   },
   "bundle": {
@@ -48,13 +47,18 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/augurgit-tauri"],
+    "externalBin": [
+      "binaries/augurgit-tauri"
+    ],
     "macOS": {
       "minimumSystemVersion": "10.15"
     },
     "linux": {
       "deb": {
-        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ]
       }
     }
   }
