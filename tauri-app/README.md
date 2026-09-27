@@ -95,8 +95,9 @@ too, which a test of a parser alone cannot do. Each one returns early when `git`
 is not on the path.
 
 **Frontend unit tests** cover the parts of the interface with no window: commit
-search, branch-name validation, porcelain status classification, the stat bar,
-remote-branch grouping, catalog lookup, the theme writer, and the syntax
+search, branch-name validation, the WSL path check, porcelain status
+classification, the stat bar, remote-branch grouping, catalog lookup, the theme
+writer, the graph geometry, the node-colour contrast rule, and the syntax
 tokenizer.
 
 **Browser tests** drive the real interface. The webview is ordinary web code,
@@ -104,9 +105,11 @@ so `tests/fixtures/stubBackend.ts` installs a stub Tauri runtime before the
 application loads and the whole thing runs in Chromium. That means the tests
 exercise the real components, the real store, and the real event reducers; only
 the boundary is replaced. The stub serves fixture repositories with a linear
-history and a merge, untracked and conflicted files, several refs, and a diff
-whose character-level ranges exercise inline highlighting, and it records every
-command so a test can assert that a guard really did prevent one.
+history and a merge, untracked and conflicted files, a partially staged file,
+several refs, and a diff whose character-level ranges exercise inline
+highlighting, and it records every command so a test can assert that a guard
+really did prevent one. Its runtime lives in its own module because it is
+serialised into the page, where the vocabulary and the fixture data are not.
 
 The stub's translation catalog is read from the real `en-US.ftl` rather than
 restated. That is deliberate: an early version of these tests carried its own
