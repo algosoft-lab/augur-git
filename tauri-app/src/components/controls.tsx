@@ -142,6 +142,12 @@ export interface TextInputProps {
   monospace?: boolean;
   onSubmit?: () => void;
   onEscape?: () => void;
+  /**
+   * The Up and Down arrows, for a control that opens a list. `preventDefault` is
+   * applied so the caret does not jump, which is what makes the list usable from
+   * the keyboard alone.
+   */
+  onArrow?: (direction: "up" | "down") => void;
   testId?: string;
   prefix?: ReactNode;
   cleanable?: boolean;
@@ -158,6 +164,7 @@ export function TextInput({
   monospace,
   onSubmit,
   onEscape,
+  onArrow,
   testId,
   prefix,
   cleanable,
@@ -188,6 +195,9 @@ export function TextInput({
             event.preventDefault();
             event.stopPropagation();
             onEscape();
+          } else if (onArrow && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+            event.preventDefault();
+            onArrow(event.key === "ArrowDown" ? "down" : "up");
           }
         }}
       />
@@ -215,6 +225,12 @@ export interface TextAreaProps {
   maxRows?: number;
   onSubmit?: () => void;
   onEscape?: () => void;
+  /**
+   * The Up and Down arrows, for a control that opens a list. `preventDefault` is
+   * applied so the caret does not jump, which is what makes the list usable from
+   * the keyboard alone.
+   */
+  onArrow?: (direction: "up" | "down") => void;
   testId?: string;
 }
 

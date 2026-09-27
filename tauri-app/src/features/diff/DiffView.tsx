@@ -47,8 +47,16 @@ export interface DiffViewProps {
   error?: string | null;
   testId?: string;
   emptyMessage?: string;
-  /** Label for the header of a multi-document view. */
+  /** Title of the toolbar above a multi-document view. */
   header?: string;
+  /**
+   * Whether each document gets its own path header.
+   *
+   * The comparison window always shows them, even for one file, because its
+   * file list is a selection over a set rather than a navigation between
+   * documents.
+   */
+  showFileHeaders?: boolean;
   onCopy?: () => void;
 }
 
@@ -81,15 +89,17 @@ export function DiffView({
   testId,
   emptyMessage,
   header,
+  showFileHeaders = false,
   onCopy,
 }: DiffViewProps) {
   const translate = useStore((state) => state.t);
   const effective = forceInline ? "inline" : layout;
 
+  const withHeaders = showFileHeaders || sections.length > 1;
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     for (const section of sections) {
-      if (sections.length > 1 || header) {
+      if (withHeaders) {
         out.push({ kind: "header", path: section.path });
       }
       if (section.document.binary) {
@@ -109,7 +119,7 @@ export function DiffView({
       }
     }
     return out;
-  }, [sections, effective, header]);
+  }, [sections, effective, withHeaders]);
 
   if (error) {
     return (

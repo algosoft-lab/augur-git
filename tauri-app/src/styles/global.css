@@ -1427,6 +1427,13 @@ button {
   flex: 1 1 auto;
 }
 
+/* The entry the keyboard is on. The same tint as a hover, so the pointer and
+ * the keyboard agree about where the selection is. */
+.compare__picker-option.is-highlighted,
+.compare__picker-option:hover {
+  background: var(--list-active-background);
+}
+
 .compare__picker-options {
   position: absolute;
   z-index: 40;
@@ -1440,6 +1447,13 @@ button {
   border-radius: 6px;
   background: var(--background);
   box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+}
+
+/* The entry the keyboard is on. The same tint as a hover, so the pointer and
+ * the keyboard agree about where the selection is. */
+.compare__picker-option.is-highlighted,
+.compare__picker-option:hover {
+  background: var(--list-active-background);
 }
 
 .compare__picker-option {
@@ -1456,6 +1470,13 @@ button {
   font-size: calc(var(--ui-font-size) * 0.7);
   text-align: left;
   cursor: pointer;
+}
+
+/* The entry the keyboard is on. The same tint as a hover, so the pointer and
+ * the keyboard agree about where the selection is. */
+.compare__picker-option.is-highlighted,
+.compare__picker-option:hover {
+  background: var(--list-active-background);
 }
 
 .compare__picker-option:hover {

@@ -57,14 +57,68 @@ test.describe("comparison window", () => {
     await expect(page.getByTestId("diff-file-header")).toContainText("src/new.rs");
   });
 
-  test("groups the offered revisions by kind", async ({ page }) => {
+  test("groups the offered revisions by kind, each named by its kind", async ({
+    page,
+  }) => {
     await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
 
+    await page.getByTestId("compare-input-Base").fill("");
     await page.getByTestId("compare-toggle-Base").click();
     const picker = page.locator(".compare__picker-options");
     await expect(picker).toContainText("Branches");
     await expect(picker).toContainText("remote");
     await expect(picker).toContainText("Tags");
+
+    // Every entry says what kind of thing it is, so a remote branch and a local
+    // one are distinguishable and a commit carries its subject.
+    const options = page.locator(".compare__picker-option");
+    await expect(options.nth(0)).toHaveText("local · master");
+    await expect(options.nth(2)).toHaveText("remote · origin/master");
+    await expect(options.nth(3)).toHaveText("tag · v1.1.0");
+    await expect(options.nth(4)).toContainText(
+      "commit · 13c6ef3 · Add the Tauri command surface",
+    );
+  });
+
+  test("picks a revision with the keyboard alone", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
+
+    const input = page.getByTestId("compare-input-Base");
+    await input.fill("");
+
+    // An arrow opens the list and moves the highlight, so nothing needs the
+    // pointer to reach a revision.
+    await input.press("ArrowDown");
+    await expect(page.locator(".compare__picker-options")).toBeVisible();
+    await expect(
+      page.getByTestId("compare-option-local-refs/heads/feature/tauri"),
+    ).toHaveClass(/is-highlighted/);
+    await input.press("ArrowDown");
+    await expect(
+      page.getByTestId("compare-option-remote-refs/remotes/origin/master"),
+    ).toHaveClass(/is-highlighted/);
+    await input.press("ArrowUp");
+    await expect(
+      page.getByTestId("compare-option-local-refs/heads/feature/tauri"),
+    ).toHaveClass(/is-highlighted/);
+    await input.press("ArrowUp");
+    await expect(
+      page.getByTestId("compare-option-local-refs/heads/master"),
+    ).toHaveClass(/is-highlighted/);
+
+    // Up from the first entry wraps to the last, and down from the last wraps
+    // back, so there is no dead end in either direction.
+    const options = page.locator(".compare__picker-option");
+    const last = await options.count();
+    await input.press("ArrowUp");
+    await expect(options.nth(last - 1)).toHaveClass(/is-highlighted/);
+    await input.press("ArrowDown");
+    await expect(options.nth(0)).toHaveClass(/is-highlighted/);
+
+    // Enter takes the highlighted entry, and the list closes behind it.
+    await input.press("Enter");
+    await expect(page.locator(".compare__picker-options")).toHaveCount(0);
+    await expect(input).toHaveValue("master");
   });
 
   test("filters the offered revisions as the user types", async ({ page }) => {
@@ -98,6 +152,17 @@ test.describe("comparison window", () => {
     page,
   }) => {
     await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
+    // The window runs one comparison as soon as it opens, so the count is taken
+    // from there rather than from zero.
+    const countComparisons = () =>
+      page.evaluate(
+        () =>
+          (window as any).__STUB__.log.filter(
+            (entry: any) => entry.cmd === "start_compare",
+          ).length,
+      );
+    await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
+    const before = await countComparisons();
 
     await page.getByTestId("compare-toggle-Base").click();
     await page.getByTestId("compare-option-local-refs/heads/master").click();
@@ -113,14 +178,10 @@ test.describe("comparison window", () => {
     await page.getByTestId("compare-toggle-Target").click();
     await page.getByTestId("compare-option-remote-refs/remotes/origin/master").click();
 
-    // The file list is replaced, not appended to.
+    // The file list is replaced, not appended to, and the three picks after the
+    // automatic one each started exactly one comparison.
     await expect(page.getByTestId("compare-file-src/lib.rs")).toHaveCount(1);
-    const compares = (await page.evaluate(() =>
-      (window as any).__STUB__.log.filter(
-        (entry: any) => entry.cmd === "start_compare",
-      ).length,
-    )) as number;
-    expect(compares).toBe(2);
+    expect(await countComparisons()).toBe(before + 3);
   });
 
   test("reports a repository that is no longer open", async ({ page }) => {

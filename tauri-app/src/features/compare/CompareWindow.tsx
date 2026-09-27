@@ -190,6 +190,47 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
     );
   }
 
+  // The reference pre-selects the current branch as the base and the first
+  // other revision as the target, so the window opens with something to read.
+  const preset = useRef(false);
+  useEffect(() => {
+    if (preset.current || repoId === null || !repo) {
+      return;
+    }
+    const values = repo.refs.comparison_revisions;
+    const current = values.find(
+      (option) => option.kind === "local" && option.name === repo.branch,
+    );
+    const other =
+      values.find((option) => option.full_name !== current?.full_name) ?? values[0];
+    if (!current || !other) {
+      return;
+    }
+    preset.current = true;
+    setBase({ input: current.name, selected: current });
+    setTarget({ input: other.name, selected: other });
+    void run({ input: current.name, selected: current }, { input: other.name, selected: other });
+  }, [repoId, repo, run]);
+
+  const subjects = useMemo(
+    () => new Map(repo.logRows.map((row) => [row.oid, row.subject])),
+    [repo.logRows],
+  );
+
+  // The reference offers the loaded commits alongside the refs, with the recent
+  // ones first, so a comparison does not have to be between named branches.
+  const offered = useMemo<CompareRevision[]>(
+    () => [
+      ...repo.refs.comparison_revisions,
+      ...repo.logRows.map<CompareRevision>((row) => ({
+        name: row.short,
+        full_name: row.oid,
+        kind: "commit",
+      })),
+    ],
+    [repo.refs.comparison_revisions, repo.logRows],
+  );
+
   const canRun = (endpoint: Endpoint) =>
     endpoint.selected !== null || fromManualInput(endpoint.input) !== null;
 
@@ -199,7 +240,8 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
         <RevisionPicker
           label={t(translate, "branch-compare-base")}
           endpoint={base}
-          options={repo.refs.comparison_revisions}
+          options={offered}
+          subjects={subjects}
           onChange={(next) => {
             setBase(next);
             void run(next, target);
@@ -223,7 +265,8 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
         <RevisionPicker
           label={t(translate, "branch-compare-target")}
           endpoint={target}
-          options={repo.refs.comparison_revisions}
+          options={offered}
+          subjects={subjects}
           onChange={(next) => {
             setTarget(next);
             void run(base, next);
@@ -236,7 +279,9 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           data-testid="compare-run"
           onClick={() => void run(base, target)}
         >
-          {t(translate, "branch-compare-run")}
+          {finished
+            ? t(translate, "branch-compare-refresh")
+            : t(translate, "branch-compare-run")}
         </button>
         <button
           type="button"
@@ -393,6 +438,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
             loading={loading && !finished}
             error={selected && !showAll ? (errors[selected.new_path] ?? null) : null}
             testId="compare-diff"
+            showFileHeaders
             header={showAll && sections.length > 0 ? t(translate, "branch-compare-all-files") : undefined}
             emptyMessage={
               loading
@@ -418,6 +464,35 @@ ${entry.document.copy_text}`)
   );
 }
 
+/** The catalog key naming a revision's kind. */
+function kindKey(kind: CompareRevision["kind"]): string {
+  switch (kind) {
+    case "local":
+      return "branch-compare-local";
+    case "remote":
+      return "branch-compare-remote";
+    case "tag":
+      return "branch-compare-tag";
+    default:
+      return "branch-compare-commit";
+  }
+}
+
+/**
+ * The suggestion label the reference builds: a kind prefix, the name, and the
+ * commit subject when there is one, so a commit is recognisable in the list.
+ */
+function optionLabel(
+  option: CompareRevision,
+  subject: string | undefined,
+  translate: (key: string) => string,
+): string {
+  const prefix = translate(kindKey(option.kind));
+  return subject
+    ? `${prefix} · ${option.name} · ${subject}`
+    : `${prefix} · ${option.name}`;
+}
+
 /** Turn typed text into a revision, accepting a 7 to 64 digit object id. */
 function fromManualInput(input: string): CompareRevision | null {
   const text = input.trim();
@@ -434,15 +509,20 @@ function RevisionPicker({
   label,
   endpoint,
   options,
+  subjects,
   onChange,
 }: {
   label: string;
   endpoint: Endpoint;
   options: CompareRevision[];
+  /** Commit subjects by object id, so a commit is recognisable in the list. */
+  subjects: Map<string, string>;
   onChange: (next: Endpoint) => void;
 }) {
+  const subjectFor = (option: CompareRevision) => subjects.get(option.full_name);
   const translate = useStore((state) => state.t);
   const [open, setOpen] = useState(false);
+  const [highlighted, setHighlighted] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const query = endpoint.input;
   const filtered = options.filter((option) => {
@@ -468,21 +548,56 @@ function RevisionPicker({
         setOpen(false);
       }
     };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    };
     document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
     };
   }, [open]);
 
+  // The highlight follows what is typed, so it is never past the end.
+  useEffect(() => {
+    setHighlighted(0);
+  }, [query]);
+
+  /**
+   * The picker's own keys.
+   *
+   * On the root rather than on the document, so the behaviour is the same
+   * whether or not the list is open when the key is pressed, and so it cannot
+   * run twice for one keystroke.
+   */
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Escape") {
+      setOpen(false);
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      // Prevented so the caret does not jump to the ends of the field.
+      event.preventDefault();
+      setOpen(true);
+      setHighlighted((current) => {
+        if (filtered.length === 0) {
+          return 0;
+        }
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        return (current + step + filtered.length) % filtered.length;
+      });
+      return;
+    }
+    // Enter takes the highlighted entry, which is why a list opened with the
+    // arrows is usable without ever touching the pointer.
+    if (event.key === "Enter") {
+      const choice = filtered[highlighted];
+      if (choice) {
+        event.preventDefault();
+        onChange({ input: choice.name, selected: choice });
+        setOpen(false);
+      }
+    }
+  };
+
   return (
-    <div className="compare__picker" ref={rootRef}>
+    <div className="compare__picker" ref={rootRef} onKeyDown={onKeyDown}>
       <span className="compare__picker-label">{label}</span>
       <div className="compare__picker-input">
         <TextInput
@@ -492,7 +607,6 @@ function RevisionPicker({
           testId={`compare-input-${label}`}
           onChange={(value) => onChange({ input: value, selected: null })}
           onSubmit={() => setOpen(true)}
-          onEscape={() => setOpen(false)}
           placeholder={t(translate, "branch-compare-revision-placeholder")}
         />
         {open ? (
@@ -525,15 +639,24 @@ function RevisionPicker({
                     <button
                       key={option.full_name}
                       type="button"
-                      className="compare__picker-option"
+                      className={`compare__picker-option${
+                        filtered[highlighted] === option ? " is-highlighted" : ""
+                      }`}
                       data-testid={`compare-option-${option.kind}-${option.full_name}`}
                       onClick={() => {
                         onChange({ input: option.name, selected: option });
                         setOpen(false);
                       }}
                     >
-                      <Icon name="git-branch" size={11} />
-                      {option.name}
+                      <Icon
+                        name={
+                          option.kind === "commit"
+                            ? "git-commit-horizontal"
+                            : "git-branch"
+                        }
+                        size={11}
+                      />
+                      {optionLabel(option, subjectFor(option), translate)}
                     </button>
                   ))}
                 </div>
