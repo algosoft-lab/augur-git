@@ -44,18 +44,7 @@ export function MainWindow() {
   const installCli = async (operation: "install" | "remove") => {
     try {
       const report: ChangeReport = await ipc.runCliInstaller(operation);
-      openOverlay({
-        kind: "cliReport",
-        operation,
-        report: {
-          operation: report.operation,
-          entries: report.results.map((entry) => ({
-            path: entry.path,
-            outcome: entry.outcome,
-          })),
-          fallbackBinary: report.fallback_binary,
-        },
-      });
+      openOverlay({ kind: "cliReport", report });
     } catch (error) {
       const failure = ipc.describeError(error);
       notify({ level: "error", message: `${failure.key}: ${failure.detail}` });

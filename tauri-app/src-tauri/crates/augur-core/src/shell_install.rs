@@ -41,13 +41,20 @@ pub enum Operation {
 }
 
 /// Result of touching one configuration file.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+// Not Copy: a failure carries the reason, which the report shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Outcome {
+    /// The block was added, or its path was updated.
     Updated,
+    /// The block was already present with the current content.
     Unchanged,
+    /// The block was removed.
+    Removed,
+    /// No block was present, so a removal had nothing to do.
     NotInstalled,
-    Failed,
+    /// The file could not be changed, with the reason.
+    Failed(String),
 }
 
 /// One shell configuration file the installer knows how to touch.
@@ -282,7 +289,7 @@ fn apply(target: &RcTarget, binary: &Path, operation: Operation) -> TargetResult
             );
             return TargetResult {
                 path: target.path.clone(),
-                outcome: Outcome::Failed,
+                outcome: Outcome::Failed(error.to_string()),
             };
         }
     };
@@ -298,21 +305,27 @@ fn apply(target: &RcTarget, binary: &Path, operation: Operation) -> TargetResult
             log::warn!("[cli_install] {}: {error}", target.path.display());
             return TargetResult {
                 path: target.path.clone(),
-                outcome: Outcome::Failed,
+                outcome: Outcome::Failed(error),
             };
         }
     };
 
+    // A removal reports its own outcome, so the dialog can say "removed" rather
+    // than "added", which is what a shared `Updated` would produce.
     let outcome = if updated == existing {
         match operation {
             Operation::Install => Outcome::Unchanged,
             Operation::Remove => Outcome::NotInstalled,
         }
     } else {
-        Outcome::Updated
+        match operation {
+            Operation::Install => Outcome::Updated,
+            Operation::Remove => Outcome::Removed,
+        }
     };
+    let changed = matches!(outcome, Outcome::Updated | Outcome::Removed);
 
-    if outcome == Outcome::Updated {
+    if changed {
         if let Some(parent) = target.path.parent() {
             if let Err(error) = std::fs::create_dir_all(parent) {
                 log::warn!(
@@ -321,7 +334,7 @@ fn apply(target: &RcTarget, binary: &Path, operation: Operation) -> TargetResult
                 );
                 return TargetResult {
                     path: target.path.clone(),
-                    outcome: Outcome::Failed,
+                    outcome: Outcome::Failed(error.to_string()),
                 };
             }
         }
@@ -329,7 +342,7 @@ fn apply(target: &RcTarget, binary: &Path, operation: Operation) -> TargetResult
             log::warn!("[cli_install] failed to write {}: {error}", target.path.display());
             return TargetResult {
                 path: target.path.clone(),
-                outcome: Outcome::Failed,
+                outcome: Outcome::Failed(error.to_string()),
             };
         }
     }
@@ -439,6 +452,83 @@ mod tests {
         assert!(block.contains(r"'/apps/it'\''s here/bin'"));
         let fish = build_block(ShellKind::Fish, Path::new(r"C:\Program Files\app"));
         assert!(fish.contains(r"'C:\\Program Files\\app'"));
+    }
+
+    /// A target inside a throwaway directory, removed when it goes out of scope.
+    struct TempTarget(Option<RcTarget>);
+
+    impl TempTarget {
+        fn new(name: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "augur-cli-{}-{name}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("temp dir");
+            TempTarget(Some(RcTarget {
+                kind: ShellKind::Posix,
+                path: path.join("rc"),
+                create: true,
+            }))
+        }
+
+        fn rc(&self) -> &Path {
+            &self.0.as_ref().expect("live").path
+        }
+    }
+
+    impl Drop for TempTarget {
+        fn drop(&mut self) {
+            if let Some(target) = self.0.take() {
+                if let Some(parent) = target.path.parent() {
+                    let _ = std::fs::remove_dir_all(parent);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_install_and_a_removal_report_different_outcomes() {
+        // The report is read by a person, so "added" and "removed" must be
+        // distinguishable. Sharing one outcome makes a removal read as an
+        // install, which is the opposite of what happened.
+        let target = TempTarget::new("round-trip");
+        let binary = Path::new("/apps/augur-git-tauri");
+
+        let installed = apply(target.0.as_ref().expect("live"), binary, Operation::Install);
+        assert_eq!(installed.outcome, Outcome::Updated);
+        assert!(target.rc().exists());
+
+        // Installing again changes nothing.
+        let again = apply(target.0.as_ref().expect("live"), binary, Operation::Install);
+        assert_eq!(again.outcome, Outcome::Unchanged);
+
+        let removed = apply(target.0.as_ref().expect("live"), binary, Operation::Remove);
+        assert_eq!(removed.outcome, Outcome::Removed);
+        let text = std::fs::read_to_string(target.rc()).expect("rc");
+        assert!(!text.contains(COMMAND_NAME));
+
+        // Removing again has nothing to do.
+        let nothing =
+            apply(target.0.as_ref().expect("live"), binary, Operation::Remove);
+        assert_eq!(nothing.outcome, Outcome::NotInstalled);
+    }
+
+    #[test]
+    fn a_failure_carries_the_reason() {
+        // "Failed" without a reason sends the reader to a log to find out which
+        // file could not be written and why.
+        let target = RcTarget {
+            kind: ShellKind::Posix,
+            // A path whose parent is a file, so creating the directory fails.
+            path: PathBuf::from("/dev/null/impossible/rc"),
+            create: true,
+        };
+        let result = apply(&target, Path::new("/apps/augur-git-tauri"), Operation::Install);
+        match result.outcome {
+            Outcome::Failed(reason) => assert!(!reason.is_empty(), "a reason is carried"),
+            other => panic!("expected a failure, got {other:?}"),
+        }
     }
 
     #[test]

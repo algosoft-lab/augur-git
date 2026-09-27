@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 /**
  * A stub Tauri runtime for browser tests.
  *
@@ -250,284 +252,44 @@ export function diffPayload(path: string, language: string | null): Record<strin
   };
 }
 
-/** The translation catalog the stub serves, covering every key the tests read. */
-export function catalog(): Record<string, string> {
-  return {
-    "app-name": "Augur Git Tauri",
-    "app-tagline": "Desktop Git client",
-    "welcome-open": "Open",
-    "welcome-open-wsl": "Open from WSL",
-    "welcome-drop-hint": "or drop a repository folder here",
-    "recent-repos": "Recent repositories",
-    "no-repo-open": "No repository open",
-    "status-scanning": "Scanning…",
-    "command-success": "{ $label } finished",
-    "command-failed": "{ $label } failed: { $error }",
-    "tab-new": "New tab",
-    "tab-close": "Close tab",
-    "notice-dismiss": "Dismiss",
-    "menu-open": "Main menu",
-    "menu-edit": "Edit",
-    "menu-help": "Help",
-    "menu-open-repository": "Open repository…",
-    "menu-open-wsl-repository": "Open WSL repository…",
-    "menu-new-tab": "New tab",
-    "menu-settings": "Settings",
-    "menu-about": "About",
-    "menu-quit": "Quit",
-    "menu-install-cli": "Install shell command",
-    "menu-remove-cli": "Remove shell command",
-    "menu-recent-repositories": "Recent repositories",
-    "menu-no-recent-repositories": "No recent repositories",
-    "toolbar-branch": "Branch",
-    "toolbar-fetch": "Fetch",
-    "toolbar-pull-merge": "Pull",
-    "toolbar-pull-rebase": "Rebase pull",
-    "toolbar-push": "Push",
-    "toolbar-push-force": "Force push",
-    "toolbar-compare": "Compare",
-    "toolbar-refresh": "Refresh",
-    "toolbar-settings": "Settings",
-    "menu-branch-new": "New branch…",
-    "menu-branch-rename": "Rename branch…",
-    "menu-stash": "Stash changes…",
-    "menu-stash-pop": "Pop stash",
-    "menu-stash-drop": "Drop stash",
-    "menu-merge": "Merge into current…",
-    "menu-merge-no-ff": "Merge (no fast forward)…",
-    "menu-rebase": "Rebase onto…",
-    "menu-apply-patch": "Apply patch…",
-    "sidebar-repo": "Repository sidebar",
-    "section-branches": "Branches",
-    "section-remote-branches": "Remote branches",
-    "section-tags": "Tags",
-    "section-stashes": "Stashes",
-    "section-staged": "Staged",
-    "section-changes": "Changes",
-    "context-checkout": "Checkout",
-    "context-copy-branch": "Copy branch name",
-    "context-copy-tag": "Copy tag name",
-    "context-copy-commit": "Copy commit id",
-    "context-show-commit-message": "Show full message",
-    "context-rename": "Rename…",
-    "context-delete": "Delete…",
-    "context-merge-into-current": "Merge into current…",
-    "context-copied": "Copied",
-    "commit-search-placeholder": "Search commits",
-    "commit-search-subject": "Subject",
-    "commit-search-full-message": "Full message",
-    "commit-search-results": "{ $matches } of { $total }",
-    "commit-search-no-results": "No matching commit",
-    "graph-empty": "No commits yet",
-    "col-graph": "Graph",
-    "col-hash": "Hash",
-    "col-message": "Message",
-    "col-author": "Author",
-    "col-date": "Date",
-    "commit-message-dialog-title": "Commit message",
-    "commit-message-loading": "Loading…",
-    "commit-message-preview": "Commit message preview",
-    "commit-coauthors": "Co-authors",
-    "commit-title": "Commit",
-    "commit-placeholder": "Commit message",
-    "commit-btn": "Commit",
-    "commit-amend-btn": "Amend",
-    "commit-action-commit": "Commit",
-    "commit-action-amend": "Amend last",
-    "changes-title": "Changes",
-    "changes-empty": "No local changes",
-    "changes-stage": "Stage",
-    "changes-unstage": "Unstage",
-    "changes-discard": "Discard",
-    "changes-stage-all": "Stage all",
-    "changes-unstage-all": "Unstage all",
-    "changes-discard-all": "Discard all",
-    "changes-action-conflict": "Resolve the conflicts first",
-    "status-add": "A",
-    "status-del": "D",
-    "status-mod": "M",
-    "status-ren": "R",
-    "status-cpy": "C",
-    "status-conflict": "U",
-    "status-unknown": "?",
-    "bottom-no-commit": "Select a commit",
-    "bottom-no-changes": "This commit changed no files",
-    "bottom-no-file": "Select a file",
-    "bottom-bin": "Binary file",
-    "diff-working-tree-staged": "Staged changes",
-    "diff-working-tree-changes": "Working tree changes",
-    "diff-no-output": "(no output)",
-    "diff-copy-tooltip": "Copy the diff",
-    "diff-all-files": "All changed files",
-    "diff-merge-first-parent": "vs first parent",
-    "bottom-merge-empty": "Merge commit has no changes relative to its first parent",
-    "dialog-cancel": "Cancel",
-    "dialog-confirm": "Confirm",
-    "branch-new-title": "New branch",
-    "branch-rename-title": "Rename branch",
-    "branch-name-label": "Branch name",
-    "branch-name-invalid": "That is not a valid branch name",
-    "branch-name-exists": "{ $name } already exists",
-    "branch-new-hint": "Created from { $branch }",
-    "branch-rename-hint": "Renaming { $branch }",
-    "rename-remote-branch-title": "Rename remote branch",
-    "rename-remote-branch-hint": "{ $remote } / { $branch }",
-    "merge-title": "Merge into { $branch }",
-    "merge-source-label": "Source",
-    "merge-no-ff-label": "Create a merge commit even when fast-forward is possible",
-    "merge-already-up-to-date": "Already up to date",
-    "merge-conflict-title": "Merge conflicts",
-    "merge-conflict-warning": "{ $source } did not merge cleanly.",
-    "merge-abort": "Abort the merge",
-    "rebase-title": "Rebase { $branch }",
-    "rebase-warning": "Rebasing { $branch } rewrites its history.",
-    "rebase-conflict-title": "Rebase stopped on conflicts",
-    "rebase-conflict-warning": "The rebase paused. Resolve the conflicts, then continue.",
-    "rebase-abort": "Abort the rebase",
-    "rebase-error-close": "Close",
-    "rebase-preflight-operation-in-progress": "Another Git operation is already in progress",
-    "rebase-preflight-dirty": "Commit or stash the working tree changes first",
-    "stash-title": "Stash changes",
-    "stash-message-label": "Message",
-    "stash-hint": "{ $count } files will be stashed",
-    "stash-drop-title": "Drop stash",
-    "stash-drop-warning": "{ $reference } will be removed. This cannot be undone.",
-    "delete-branch-title": "Delete branch",
-    "delete-tag-title": "Delete tag",
-    "delete-branch-warning": "{ $name } will be deleted from this repository.",
-    "delete-tag-warning": "{ $name } will be deleted from this repository.",
-    "delete-force-label": "Force delete even if not fully merged",
-    "delete-remote-branch-title": "Delete remote branch",
-    "delete-remote-branch-warning": "{ $remote }/{ $branch } will be deleted on the remote.",
-    "push-force-title": "Force push",
-    "push-force-warning": "Force pushing replaces the remote history. Commits on the remote that are not on this branch are lost.",
-    "push-force-cancel": "Cancel",
-    "push-force-confirm": "Force push",
-    "push-upstream-title": "Publish branch",
-    "push-upstream-warning": "{ $branch } has no upstream. Publishing sets it to { $remote }.",
-    "push-upstream-cancel": "Cancel",
-    "push-upstream-confirm": "Publish",
-    "discard-title": "Discard changes",
-    "discard-file-warning": "This file will be restored from HEAD.",
-    "discard-all-warning": "These files will be restored from HEAD. Uncommitted work is lost.",
-    "discard-untracked-file-warning": "This untracked file will be deleted. It cannot be recovered.",
-    "discard-cancel": "Cancel",
-    "discard-confirm": "Discard",
-    "cli-dialog-title": "Shell command",
-    "cli-install-updated": "Updated",
-    "cli-install-unchanged": "Already current",
-    "cli-install-failed": "Failed",
-    "cli-remove-notinstalled": "Not installed",
-    "cli-install-none": "No shell profile was changed",
-    "cli-remove-none": "Nothing to remove",
-    "cli-install-hint": "Restart your shell to pick up the change.",
-    "cli-binary-fallback": "The real binary could not be resolved; the path was written instead.",
-    "wsl-open-title": "Open a WSL repository",
-    "wsl-distro-label": "Distribution",
-    "wsl-path-label": "Path",
-    "wsl-no-distros": "No distribution found",
-    "wsl-refresh-distros": "Refresh",
-    "wsl-path-hint": "The Linux path must be absolute, for example /home/dev/repo",
-    "wsl-path-not-absolute": "The path must start with /",
-    "wsl-checking": "Checking…",
-    "wsl-check-ok": "A Git repository",
-    "wsl-open-confirm": "Open",
-    "settings-title": "Settings",
-    "settings-close": "Close",
-    "settings-general": "General",
-    "settings-appearance": "Appearance",
-    "settings-layout": "Layout",
-    "settings-shortcuts": "Shortcuts",
-    "settings-description": "Preferences are saved as you change them.",
-    "language-title": "Language",
-    "language-system": "System default",
-    "language-chinese": "简体中文",
-    "language-english": "English",
-    "auto-refresh-on-focus-title": "Refresh on window focus",
-    "setting-enabled": "Enabled",
-    "setting-disabled": "Disabled",
-    "settings-store-location": "Stored in",
-    "theme-title": "Theme",
-    "theme-github-dark": "GitHub Dark",
-    "theme-catppuccin-latte": "Catppuccin Latte",
-    "theme-catppuccin-frappe": "Catppuccin Frappé",
-    "theme-catppuccin-macchiato": "Catppuccin Macchiato",
-    "theme-catppuccin-mocha": "Catppuccin Mocha",
-    "font-system-default": "System default",
-    "ui-font-title": "Interface font",
-    "mono-font-title": "Monospace font",
-    "ui-font-size-title": "Interface text size",
-    "ui-font-size-description": "Applies to labels, menus, and the status bar.",
-    "diff-font-size-title": "Diff text size",
-    "diff-font-size-description": "Applies to the diff viewer only.",
-    "diff-layout-title": "Diff layout",
-    "diff-layout-side-by-side": "Side by side",
-    "diff-layout-inline": "Inline",
-    "graph-history-title": "History shown",
-    "graph-history-all": "All branches",
-    "graph-history-current": "Current branch only",
-    "graph-history-description": "The current-branch scope limits the graph to the checked-out branch and its upstream.",
-    "layout-persistence-description": "Pane sizes are saved when you drag them.",
-    "shortcut-edit-description": "Enter a combination such as CmdOrCtrl+Shift+Q, then press Enter.",
-    "shortcut-app-quit": "Quit",
-    "shortcut-reset": "Reset",
-    "shortcut-invalid-combo": "That is not a valid combination",
-    "shortcut-app-quit-reset": "Reset to default",
-    "about-title": "About",
-    "about-tagline": "Desktop Git client",
-    "about-author": "Author",
-    "about-version": "Version",
-    "about-commit": "Commit",
-    "app-identifier": "Identifier",
-    "cli-command": "Command",
-    "app-data-dir": "Data location",
-    "about-platform": "Platform",
-    "about-cli-hint": "Run { $command } in a terminal to open the current directory.",
-    "compare-window-title": "Compare revisions",
-    "branch-compare-base": "Base",
-    "branch-compare-target": "Compare",
-    "branch-compare-run": "Compare",
-    "branch-compare-export-patch": "Export patch",
-    "branch-compare-export-saving": "Writing the patch…",
-    "branch-compare-export-success": "Patch written to { $path }",
-    "branch-compare-export-error": "Could not write the patch: { $error }",
-    "branch-compare-all-files": "Show all files",
-    "branch-compare-loading": "Comparing…",
-    "branch-compare-select-hint": "Choose two revisions to compare",
-    "branch-compare-select-file": "Choose a file to see its diff",
-    "branch-compare-no-changes": "The revisions are identical",
-    "branch-compare-revision-placeholder": "Branch, tag, or commit",
-    "branch-compare-no-matches": "No match",
-    "branch-compare-branches": "Branches",
-    "branch-compare-remote": "Remote",
-    "branch-compare-tags": "Tags",
-    "branch-compare-commits": "Commits",
-    "branch-compare-use-commit": "Use commit",
-    "branch-compare-invalid-revision": "That is not a branch, tag, or commit",
-    "rel-now": "just now",
-    "rel-min": "{ $n }m",
-    "rel-hour": "{ $n }h",
-    "rel-day": "{ $n }d",
-    "rel-week": "{ $n }w",
-    "rel-month": "{ $n }mo",
-    "rel-year": "{ $n }y",
-    "branch-selected": "Branch: { $name }",
-    "err-unknown": "An unexpected error occurred.",
-    "err-repo-closed": "This repository tab is no longer open.",
-    "err-no-files": "Select at least one file first.",
-    "err-git-run": "Failed to run git: { $detail }",
-    "err-not-a-repo": "Not a Git repository: { $detail }",
-    "err-path-not-exist": "Path not found: { $detail }",
-    "err-wsl-unsupported": "WSL repositories require Windows: { $detail }",
-    "patch-apply-success": "Patch applied",
-    "patch-apply-failed": "Could not apply the patch",
-  };
+/**
+ * The translation catalog the stub serves.
+ *
+ * Read from the real English catalog rather than restated here, so a string
+ * cannot drift between the application and the tests that assert on it. A test
+ * that needs a value the catalog does not define adds it through
+ * {@link catalogOverrides}.
+ */
+export function catalog(overrides: Record<string, string> = {}): Record<string, string> {
+  const file = readFileSync(
+    new URL(
+      "../../src-tauri/crates/augur-core/i18n/en-US.ftl",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const entries: Record<string, string> = {};
+  for (const line of file.split("\n")) {
+    const match = /^([a-z0-9-]+) = (.*)$/.exec(line.trim());
+    if (match) {
+      entries[match[1]!] = match[2]!;
+    }
+  }
+  return { ...entries, ...overrides };
 }
 
 /** The stub's mutable state, so a test can steer it. */
 export interface StubOptions {
   /** Repositories the bootstrap reports as already open. */
   open: StubRepo[];
+  /**
+   * Paths the saved workspace lists as open, with no repository behind them.
+   *
+   * This is the state a window starts in when the backend has no repository for
+   * a tab the previous session left behind, so every restored tab has to be
+   * opened by this window.
+   */
+  savedTabs?: string[];
   /** Repositories handed out by `open_repository`, in order. */
   available: StubRepo[];
   /** Fail `open_repository` with this key instead of succeeding. */
@@ -547,9 +309,12 @@ export const DEFAULT_OPTIONS: StubOptions = {
 };
 
 /** The script injected into the page before the application loads. */
-export function stubSource(options: StubOptions): string {
+export function stubSource(
+  options: StubOptions,
+  overrides: Record<string, string> = {},
+): string {
   return `(${install.toString()})(${JSON.stringify(options)}, ${JSON.stringify(
-    catalog(),
+    catalog(overrides),
   )});`;
 }
 
@@ -557,6 +322,7 @@ function install(
   options: {
     open: StubRepo[];
     available: StubRepo[];
+    savedTabs?: string[];
     openFailure?: { key: string; detail: string };
     failingActions?: string[];
     probeMerge?: Record<string, unknown>;
@@ -596,12 +362,13 @@ function install(
     ],
   };
 
+  const savedTabs = options.savedTabs ?? [];
   const workspace = {
     schema_version: 1,
-    open_tabs: options.open.map((repo) => ({
-      path: repo.path,
-      location: repo.location,
-    })),
+    open_tabs: [
+      ...options.open.map((repo) => ({ path: repo.path, location: repo.location })),
+      ...savedTabs.map((path) => ({ path, location: { kind: "local" } })),
+    ],
     active_tab: options.open[0]?.path ?? null,
     layout: {
       sidebar_width: 250,
@@ -1116,12 +883,24 @@ function install(
       "catppuccin-macchiato",
       "catppuccin-mocha",
     ],
+    // The shape is the backend's: the operation, one entry per configuration
+    // file, and a failure carrying the reason.
     run_cli_installer: (args: any) => ({
       operation: args.operation,
-      results: [
-        { path: "~/.zshrc", outcome: "updated" },
-        { path: "~/.config/fish/config.fish", outcome: "unchanged" },
-      ],
+      results:
+        args.operation === "install"
+          ? [
+              { path: "~/.zshrc", outcome: { updated: null } },
+              { path: "~/.config/fish/config.fish", outcome: { unchanged: null } },
+              {
+                path: "~/.bash_profile",
+                outcome: { failed: "Permission denied" },
+              },
+            ]
+          : [
+              { path: "~/.zshrc", outcome: { removed: null } },
+              { path: "~/.config/fish/config.fish", outcome: { notInstalled: null } },
+            ],
       fallback_binary: false,
     }),
     list_wsl_distros: () => ["Ubuntu", "Debian"],

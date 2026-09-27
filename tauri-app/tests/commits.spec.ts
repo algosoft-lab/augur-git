@@ -139,7 +139,7 @@ test.describe("commit selection", () => {
     await page.getByTestId("bottom-clear-commit").click();
 
     await expect(page.getByTestId("bottom-file-src/lib.rs")).toHaveCount(0);
-    await expect(page.getByTestId("bottom-panel")).toContainText("Select a commit");
+    await expect(page.getByTestId("bottom-panel")).toContainText("No commit selected");
   });
 
   test("loads a working-tree diff and says which side it is", async ({ page }) => {
@@ -147,7 +147,7 @@ test.describe("commit selection", () => {
 
     await page.getByTestId("changes-file-src/main.rs").click();
 
-    await expect(page.getByTestId("bottom-panel")).toContainText("Staged changes");
+    await expect(page.getByTestId("bottom-panel")).toContainText("Staged");
     await expect(page.getByTestId("diff-hunk")).toBeVisible();
     await expect(page.getByTestId("diff-view")).toContainText("count += 2");
   });
@@ -157,7 +157,7 @@ test.describe("commit selection", () => {
 
     await page.getByTestId("changes-file-src/git/graph.rs").click();
 
-    await expect(page.getByTestId("bottom-panel")).toContainText("Working tree changes");
+    await expect(page.getByTestId("bottom-panel")).toContainText("Changes");
   });
 
   test("shows the commit message dialog on request", async ({ page }) => {
@@ -181,7 +181,7 @@ test.describe("commit selection", () => {
     // The co-author trailer is part of the message and is listed separately
     // from the body.
     await expect(page.getByTestId("commit-message-coauthors")).toContainText(
-      "Co-authors",
+      "Co-authored-by",
     );
     await expect(page.getByTestId("commit-message-coauthors")).toContainText(
       "ada@example.com",
@@ -254,7 +254,7 @@ test.describe("commit selection", () => {
     await expect(page.locator(".graph-row")).toHaveCount(0);
 
     await page.getByTestId("commit-search").fill("readme");
-    await expect(page.getByTestId("commit-search-results")).toContainText("1 of 1");
+    await expect(page.getByTestId("commit-search-results")).toContainText("1 / 1");
     await expect(page.locator(".graph-row")).toHaveCount(1);
   });
 });

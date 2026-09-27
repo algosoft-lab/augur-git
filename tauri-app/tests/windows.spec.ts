@@ -20,7 +20,7 @@ test.describe("comparison window", () => {
     await expect(page.getByTestId("compare-option-local-refs/heads/master")).toBeVisible();
     await page.getByTestId("compare-option-local-refs/heads/master").click();
 
-    await page.getByTestId("compare-toggle-Compare").click();
+    await page.getByTestId("compare-toggle-Target").click();
     await expect(page.getByTestId("compare-option-local-refs/heads/feature/tauri")).toBeVisible();
     await page.getByTestId("compare-option-local-refs/heads/feature/tauri").click();
 
@@ -36,7 +36,7 @@ test.describe("comparison window", () => {
     await page.getByTestId("compare-toggle-Base").click();
     const picker = page.locator(".compare__picker-options");
     await expect(picker).toContainText("Branches");
-    await expect(picker).toContainText("Remote");
+    await expect(picker).toContainText("remote");
     await expect(picker).toContainText("Tags");
   });
 
@@ -74,7 +74,7 @@ test.describe("comparison window", () => {
 
     await page.getByTestId("compare-toggle-Base").click();
     await page.getByTestId("compare-option-local-refs/heads/master").click();
-    await page.getByTestId("compare-toggle-Compare").click();
+    await page.getByTestId("compare-toggle-Target").click();
     await page.getByTestId("compare-option-local-refs/heads/feature/tauri").click();
     await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
 
@@ -82,8 +82,8 @@ test.describe("comparison window", () => {
     // treats the new request id as the current generation, so the first one's
     // remaining answers are dropped rather than appended. The picker filters by
     // what is already chosen, so it is cleared first.
-    await page.getByTestId("compare-input-Compare").fill("");
-    await page.getByTestId("compare-toggle-Compare").click();
+    await page.getByTestId("compare-input-Target").fill("");
+    await page.getByTestId("compare-toggle-Target").click();
     await page.getByTestId("compare-option-remote-refs/remotes/origin/master").click();
 
     // The file list is replaced, not appended to.
@@ -135,7 +135,7 @@ test.describe("settings", () => {
     await page.getByTestId("settings-diff-layout").click();
     await page.getByTestId("select-option-inline").click();
     await page.getByTestId("settings-graph-history").click();
-    await page.getByTestId("select-option-current-branch-only").click();
+    await page.getByTestId("select-option-current-branch-and-upstream").click();
 
     const commands = await stub.commands();
     expect(
@@ -223,7 +223,9 @@ test.describe("the in-window menu", () => {
     expect((await stub.commandNames()).filter((c) => c === "open_repository")).toHaveLength(1);
   });
 
-  test("reports the shell installer outcome", async ({ page }) => {
+  test("reports an install per file, with the reason for a failure", async ({
+    page,
+  }) => {
     await boot(page);
     await page.getByTestId("menu-file-trigger").click();
     await page.getByTestId("menu-file-install-cli").click();
@@ -231,9 +233,25 @@ test.describe("the in-window menu", () => {
     const report = page.getByTestId("cli-report-dialog");
     await expect(report).toBeVisible();
     await expect(report).toContainText("~/.zshrc");
-    await expect(report).toContainText("Updated");
-    await expect(report).toContainText("Already current");
-    await expect(report).toContainText("Restart your shell");
+    await expect(report).toContainText("Added the augurgit command to");
+    await expect(report).toContainText("Already installed and up to date in");
+    // A failure is only useful with its reason.
+    await expect(report).toContainText("Permission denied");
+    // The shell needs restarting before the change takes effect.
+    await expect(report).toContainText("Open a new terminal (or reload your shell configuration) to use it.");
+  });
+
+  test("reports a removal as removed, not added", async ({ page }) => {
+    await boot(page);
+    await page.getByTestId("menu-file-trigger").click();
+    await page.getByTestId("menu-file-remove-cli").click();
+
+    // Reusing the install wording after a removal would tell the person the
+    // command was added when the opposite happened.
+    const report = page.getByTestId("cli-report-dialog");
+    await expect(report).toContainText("Removed the augurgit command from");
+    await expect(report).not.toContainText("Added the augurgit command to");
+    await expect(report).toContainText("Not installed in");
   });
 
   test("lists the recent repositories", async ({ page }) => {

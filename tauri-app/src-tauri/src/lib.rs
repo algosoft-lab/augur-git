@@ -33,7 +33,6 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_opener::init())
         .plugin(log_plugin())
         .invoke_handler(tauri::generate_handler![
             commands::repo::bootstrap,

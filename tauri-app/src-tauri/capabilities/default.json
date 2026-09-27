@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for the main window and the auxiliary compare and About windows. The application never loads remote content and exposes no shell or process plugin, so the frontend can only reach the application's own commands plus the dialog, clipboard, store, and window-state helpers it needs.",
+  "description": "Capabilities for the main window and the auxiliary compare and About windows. The application never loads remote content and exposes no shell or process plugin, so the frontend can only reach the application's own commands plus the two dialogs and the clipboard it actually calls. The store and window-state plugins are driven from Rust, so they need no frontend permission.",
   "windows": ["main", "compare-*", "about"],
   "permissions": [
     "core:default",
@@ -12,12 +12,7 @@
     "core:event:default",
     "dialog:allow-open",
     "dialog:allow-save",
-    "dialog:allow-message",
-    "dialog:allow-confirm",
     "clipboard-manager:allow-write-text",
-    "clipboard-manager:allow-read-text",
-    "store:default",
-    "window-state:default",
-    "opener:allow-reveal-item-in-dir"
+    "clipboard-manager:allow-read-text"
   ]
 }

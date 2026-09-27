@@ -433,6 +433,18 @@ export interface ChangeReport {
 }
 
 export type Operation = "install" | "remove";
-export type Outcome = "updated" | "unchanged" | "notInstalled" | "failed";
+
+/**
+ * What happened to one shell configuration file.
+ *
+ * A unit variant arrives as an object with a null payload and a failure as an
+ * object carrying the reason, because serde tags an enum externally.
+ */
+export type Outcome =
+  | { updated: null }
+  | { unchanged: null }
+  | { removed: null }
+  | { notInstalled: null }
+  | { failed: string };
 
 export type ThemeTokens = Record<string, string>;

@@ -10,7 +10,7 @@ use augur_core::config::{
 };
 use augur_core::git::{GitError, GitRepo};
 use augur_core::keymap;
-use augur_core::shell_install::{self, ChangeReport, Operation, Outcome};
+use augur_core::shell_install::{self, ChangeReport, Operation};
 
 use crate::commands::repo::CommandError;
 use crate::events::{AppEvent, OpenPathsPayload, OPEN_PATHS_EVENT};
@@ -39,6 +39,11 @@ pub enum CliOperation {
 }
 
 /// Install or remove the `augurgit-tauri` shell command.
+///
+/// The core report is returned unchanged. It already serialises, and re-shaping
+/// it here would be a second place to lose information: a successful removal
+/// collapsed into the same outcome as an install, and a failure lost the reason
+/// that makes it actionable.
 #[tauri::command]
 pub async fn run_cli_installer(operation: CliOperation) -> Result<ChangeReport> {
     let operation = match operation {
@@ -303,45 +308,6 @@ pub struct RepoInfo {
     pub id: u64,
     pub path: String,
     pub location: LocationConfig,
-}
-
-/// Install or remove the shell command, mapping a report into display data.
-#[derive(Clone, Debug, Serialize)]
-pub struct CliReport {
-    pub operation: String,
-    pub entries: Vec<CliReportEntry>,
-    pub fallback_binary: bool,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct CliReportEntry {
-    pub path: String,
-    pub outcome: String,
-}
-
-impl From<ChangeReport> for CliReport {
-    fn from(report: ChangeReport) -> Self {
-        Self {
-            operation: match report.operation {
-                Operation::Install => "install".to_string(),
-                Operation::Remove => "remove".to_string(),
-            },
-            entries: report
-                .results
-                .into_iter()
-                .map(|result| CliReportEntry {
-                    path: result.path.to_string_lossy().into_owned(),
-                    outcome: match result.outcome {
-                        Outcome::Updated => "updated".to_string(),
-                        Outcome::Unchanged => "unchanged".to_string(),
-                        Outcome::NotInstalled => "notInstalled".to_string(),
-                        Outcome::Failed => "failed".to_string(),
-                    },
-                })
-                .collect(),
-            fallback_binary: report.fallback_binary,
-        }
-    }
 }
 
 /// The current preferences, for windows that opened after a settings change.

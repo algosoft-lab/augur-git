@@ -41,6 +41,11 @@ declare global {
 export interface BootOptions {
   /** Repositories the bootstrap reports as open. */
   open?: StubRepo[];
+  /**
+   * Paths the saved workspace lists as open with no repository behind them, so
+   * this window has to open them.
+   */
+  savedTabs?: string[];
   /** The pool `open_repository` hands out. */
   available?: StubRepo[];
   /** Reject `open_repository` with this error. */
@@ -60,6 +65,7 @@ export interface BootOptions {
 function optionsFor(options: BootOptions): StubOptions {
   return {
     open: options.open ?? [],
+    savedTabs: options.savedTabs,
     available: options.available ?? [fixtureRepo(), secondFixtureRepo()],
     openFailure: options.openFailure,
     failingActions: options.failingActions,

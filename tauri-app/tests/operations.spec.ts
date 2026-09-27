@@ -147,14 +147,14 @@ test.describe("branch dialogs", () => {
     // An existing local branch.
     await input.fill("master");
     await expect(page.getByTestId("branch-name-error")).toContainText(
-      "master already exists",
+      "Branch \"master\" already exists.",
     );
     await expect(confirm).toBeDisabled();
 
     // Invalid ref syntax.
     await input.fill("bad..name");
     await expect(page.getByTestId("branch-name-error")).toContainText(
-      "not a valid branch name",
+      "Invalid branch name",
     );
     await expect(confirm).toBeDisabled();
 
@@ -370,13 +370,10 @@ test.describe("discarding changes", () => {
 });
 
 test.describe("merge and rebase", () => {
-  test("refuses a merge that would be a no-op", async ({ page }) => {
-    await openRepository(page);
-
-    // The fixture's conflicts block the merge in the interface, so the probe
-    // path is reached through a repository that has none.
-    // The probe reports that the branch is already contained in HEAD, so the
-    // merge would be a no-op.
+  test("runs a merge that Git reports as already up to date", async ({ page }) => {
+    // The reference does not special-case a no-op merge: it runs it, and Git
+    // answers "Already up to date". That is a success, not a refusal, so the
+    // merge is still sent and still reported as finished.
     await boot(page, { open: [cleanRepo()], probeMerge: { already_merged: true } });
     await expect(page.getByTestId("repo-7")).toBeVisible();
 
@@ -385,9 +382,9 @@ test.describe("merge and rebase", () => {
     await expect(page.getByTestId("merge-dialog")).toBeVisible();
     await page.getByTestId("merge-dialog-confirm").click();
 
-    await expect(page.getByTestId("status-message")).toContainText(
-      "Already up to date",
-    );
+    // The dialog closed and the merge was sent under the reference's label.
+    await expect(page.getByTestId("merge-dialog")).toHaveCount(0);
+    await expect(page.getByTestId("status-message")).toContainText("merge");
   });
 
   test("offers the source branch and the no-ff option", async ({ page }) => {
@@ -424,7 +421,7 @@ test.describe("merge and rebase", () => {
     await page.getByTestId("rebase-dialog-confirm").click();
 
     await expect(page.getByTestId("status-message")).toContainText(
-      "Commit or stash the working tree changes first",
+      "Rebase requires a clean working tree",
     );
   });
 
@@ -440,7 +437,7 @@ test.describe("merge and rebase", () => {
     await page.getByTestId("rebase-dialog-confirm").click();
 
     await expect(page.getByTestId("status-message")).toContainText(
-      "Another Git operation is already in progress",
+      "Rebase was not started because another Git operation is in progress.",
     );
   });
 });

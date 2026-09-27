@@ -13,6 +13,7 @@ import * as ipc from "../bridge/ipc";
 import type {
   AppConfig,
   BuildInfo,
+  ChangeReport,
   CheckoutTarget,
   CompareRevisionArg,
   DiffLayoutPreference,
@@ -76,17 +77,13 @@ export type Overlay =
     }
   | { kind: "mergeConflict"; source: string; detail: string }
   | { kind: "mergeError"; label: string; detail: string }
-  | { kind: "rebaseConflict"; detail: string }
+  | { kind: "rebaseConflict"; detail: string; source?: string }
   | { kind: "rebaseError"; label: string; detail: string }
-  | { kind: "cliReport"; operation: "install" | "remove"; report: CliReport }
+  | { kind: "cliReport"; report: CliReport }
   | { kind: "wslOpen"; distros: string[]; loading: boolean };
 
-/** The shell-installer report, pre-formatted for display. */
-export interface CliReport {
-  operation: "install" | "remove";
-  entries: { path: string; outcome: string }[];
-  fallbackBinary: boolean;
-}
+/** The shell installer's per-file report, as the backend serialises it. */
+type CliReport = ChangeReport;
 
 /** A transient message shown in the status bar of the main window. */
 export interface Notice {
@@ -175,6 +172,76 @@ const DEFAULT_LAYOUT: LayoutSettings = {
 /** Ceiling on the buffered events kept for a repository that never appears. */
 const PENDING_EVENT_LIMIT = 256;
 
+/** The live store accessors, assigned when the store is created. */
+let set: (partial: Partial<AppStore> | ((state: AppStore) => Partial<AppStore>)) => void;
+let get: () => AppStore;
+
+/**
+ * Opens currently in flight, keyed by tab key.
+ *
+ * Deliberately outside the reactive state: it is bookkeeping for concurrent
+ * callers, not something a render depends on, and putting it in the store would
+ * make every observer re-render when a repository finishes opening.
+ */
+const opening = new Map<string, Promise<void>>();
+
+/**
+ * Ask the backend for a repository and adopt whatever it sends back.
+ *
+ * Split out of `openTab` so the caller can register the promise before the first
+ * await. A failure is reported as a notice and releases the tab's claim, because
+ * there is no repository to show.
+ */
+async function startOpen(
+  key: string,
+  path: string,
+  location: LocationConfig,
+): Promise<void> {
+  let summary: RepoSummary;
+  try {
+    summary = await ipc.openRepository(path, location);
+  } catch (error) {
+    const failure = ipc.describeError(error);
+    set((state) => ({
+      tabs: state.tabs.filter((tab) => tab.key !== key),
+      activeTabKey:
+        state.activeTabKey === key
+          ? (state.tabs.find((tab) => tab.key !== key)?.key ?? null)
+          : state.activeTabKey,
+      notice: {
+        level: "error",
+        message: renderGitError(state.t, failure.key, failure.detail),
+      },
+    }));
+    return;
+  }
+  set((state) => ({
+    repos: {
+      ...state.repos,
+      [summary.id]: adopt(state, summary.id, summary.path, summary.location),
+    },
+    tabs: state.tabs.map((tab) =>
+      tab.key === key ? { ...tab, repoId: summary.id } : tab,
+    ),
+  }));
+  // Events that arrived before the repository was known are applied now, so a
+  // late adoption is indistinguishable from an early one.
+  const buffered = get().pendingEvents[summary.id];
+  if (buffered) {
+    const { [summary.id]: _drained, ...rest } = get().pendingEvents;
+    set({ pendingEvents: rest });
+    for (const event of buffered) {
+      useStore.getState().applyEvent(summary.id, event);
+    }
+  }
+  void ipc.setWorkspaceTabs(
+    useStore
+      .getState()
+      .tabs.map((tab) => ({ path: tab.path, location: tab.location })),
+    key,
+  );
+}
+
 /**
  * Create a repository's state and fold in any events that arrived first.
  *
@@ -225,7 +292,12 @@ export function renderGitError(
   return template.replace(/\{\s*\$detail\s*\}/g, trimmed);
 }
 
-export const useStore = create<AppStore>((set, get) => ({
+export const useStore = create<AppStore>((storeSet, storeGet) => {
+  // Kept at module scope so a helper outside the store object can read and
+  // write the same state, rather than reaching back through the hook.
+  set = storeSet;
+  get = storeGet;
+  return {
   ready: false,
   role: "main",
   compareRepoId: null,
@@ -356,57 +428,42 @@ export const useStore = create<AppStore>((set, get) => ({
     const target: LocationConfig = location ?? { kind: "local" };
     const key = tabKey(path, target);
     const existing = get().tabs.find((tab) => tab.key === key);
-    if (existing) {
+    if (existing && existing.repoId >= 0) {
       await get().selectTab(key);
       return;
     }
 
-    // The slot is claimed before the request, not after it. Two drops of the
-    // same folder, or a drop racing a menu item, would otherwise both pass the
-    // check above and open the repository twice. The tab appears immediately in
-    // its loading state, which is also what the user expects to see.
-    set((state) => ({
-      tabs: [...state.tabs, { key, repoId: -1, path, location: target }],
-      activeTabKey: key,
-    }));
-
-    let summary: RepoSummary;
-    try {
-      summary = await ipc.openRepository(path, target);
-    } catch (error) {
-      const failure = ipc.describeError(error);
-      set((state) => ({
-        // The claim is released, because there is no repository to show.
-        tabs: state.tabs.filter((tab) => tab.key !== key),
-        activeTabKey:
-          state.activeTabKey === key
-            ? (state.tabs.find((tab) => tab.key !== key)?.key ?? null)
-            : state.activeTabKey,
-        notice: { level: "error", message: renderGitError(state.t, failure.key, failure.detail) },
-      }));
+    // A tab that is present but still carries a claim was adopted from the saved
+    // list, which happens before the window knows which repositories the
+    // backend has open. It has no repository yet, so the claim is completed here
+    // rather than short-circuited, or the tab would sit in its loading state
+    // forever.
+    const inFlight = opening.get(key);
+    if (inFlight) {
+      // Something else is opening this very repository, so wait for it rather
+      // than starting a second worker for the same path.
+      await inFlight;
+      await get().selectTab(key);
       return;
     }
+
+    // The slot is claimed before the request, not after it, so a second drop of
+    // the same folder finds the tab already there. The claim is registered
+    // synchronously too, so two callers cannot both decide to start.
     set((state) => ({
-      repos: {
-        ...state.repos,
-        [summary.id]: adopt(state, summary.id, summary.path, summary.location),
-      },
-      tabs: state.tabs.map((tab) =>
-        tab.key === key ? { ...tab, repoId: summary.id } : tab,
-      ),
+      tabs: existing
+        ? state.tabs
+        : [...state.tabs, { key, repoId: -1, path, location: target }],
+      activeTabKey: key,
     }));
-    const pending = get().pendingEvents[summary.id];
-    if (pending) {
-      const { [summary.id]: _drained, ...rest } = get().pendingEvents;
-      set({ pendingEvents: rest });
-      for (const event of pending) {
-        get().applyEvent(summary.id, event);
-      }
+    const pending = startOpen(key, path, target);
+    opening.set(key, pending);
+    try {
+      await pending;
+    } finally {
+      opening.delete(key);
     }
-    void ipc.setWorkspaceTabs(
-      get().tabs.map((tab) => ({ path: tab.path, location: tab.location })),
-      key,
-    );
+    await get().selectTab(key);
   },
 
   async openPaths(paths) {
@@ -713,7 +770,8 @@ export const useStore = create<AppStore>((set, get) => ({
     const shortcuts = await ipc.setShortcut(command, keys);
     set({ shortcuts });
   },
-}));
+  };
+});
 
 /** The repository backing the active tab, if any. */
 export function activeRepo(state: AppStore): RepoState | null {

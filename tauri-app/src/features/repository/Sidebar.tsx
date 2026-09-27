@@ -67,7 +67,7 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
 
   const copy = (value: string) => {
     void writeText(value).then(() => {
-      setMessage(repo.id, t(translate, "context-copied"), true);
+      setMessage(repo.id, ta(translate, "context-copied", { name: value }), true);
     });
   };
 

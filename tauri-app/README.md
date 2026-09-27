@@ -108,6 +108,13 @@ history and a merge, untracked and conflicted files, several refs, and a diff
 whose character-level ranges exercise inline highlighting, and it records every
 command so a test can assert that a guard really did prevent one.
 
+The stub's translation catalog is read from the real `en-US.ftl` rather than
+restated. That is deliberate: an early version of these tests carried its own
+copy of the strings, and every string it had invented turned into an assertion
+that the interface was wrong. Reading the catalog makes that class of mistake
+impossible, and it is why the tests now assert wording like `Branch "master"
+already exists.` rather than a paraphrase.
+
 This layer is worth its cost. It found a race that unit tests cannot see: the
 backend starts a worker thread inside `open_repository`, and Tauri makes no
 ordering promise between an event and the command's own reply, so the first

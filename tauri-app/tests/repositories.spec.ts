@@ -158,6 +158,21 @@ test.describe("repositories", () => {
     await expect(page.locator(".tab__dot--error")).toHaveCount(1);
   });
 
+  test("completes a restored tab that has no repository behind it yet", async ({
+    page,
+  }) => {
+    // The saved tab list is adopted before the window knows which repositories
+    // the backend has open, so every restored tab starts as a claim. A claim
+    // that is short-circuited instead of completed leaves the tab in its
+    // loading state forever, with the welcome page showing behind it.
+    await boot(page, { savedTabs: ["/Users/dev/projects/augur-git"] });
+
+    await expect(page.getByTestId("repo-7")).toBeVisible();
+    await expect(page.getByTestId("branch-master")).toBeVisible();
+    await expect(page.locator(".tab")).toHaveCount(1);
+    await expect(page.getByTestId("welcome")).toHaveCount(0);
+  });
+
   test("opens one tab when the same folder arrives twice", async ({ page }) => {
     // Two drops in quick succession, or a drop racing a menu item, both reach
     // the tab list before either has finished opening. The claim is taken

@@ -266,7 +266,11 @@ export function GraphView({ repo }: { repo: RepoState }) {
                 }}
                 onCopyOid={() => {
                   void writeText(row.oid).then(() => {
-                    setMessage(repo.id, t(translate, "context-copied"), true);
+                    setMessage(
+                      repo.id,
+                      ta(translate, "context-copied", { name: row.short }),
+                      true,
+                    );
                   });
                 }}
                 onShowMessage={() => {

@@ -347,8 +347,23 @@ export function applyRepoEvent(
         workingDocument: null,
       };
     }
-    case "workingTreeOperationFinished":
-      return { ...state, busy: false };
+    case "workingTreeOperationFinished": {
+      // Staging, unstaging, and discarding each say so, because the change is
+      // otherwise silent: the file moves between groups and nothing on screen
+      // says why. A failure names Git's own explanation.
+      const scope = event.scope;
+      const key = workingTreeResultKey(event.action, scope, event.success);
+      return {
+        ...state,
+        busy: false,
+        message: {
+          text: event.success
+            ? label(key)
+            : label(key).replace("{ $error }", firstLine(event.detail)),
+          ok: event.success,
+        },
+      };
+    }
     case "commandStarted":
       return { ...state, busy: true, busyVerb: event.verb, message: null };
     case "commandDone": {
@@ -401,12 +416,20 @@ export function firstLine(text: string): string {
 }
 
 /** Localized i18n key describing a completed working-tree operation. */
+/**
+ * The catalog key reporting a working-tree operation's outcome.
+ *
+ * A failure has one shared key carrying Git's explanation, because the useful
+ * information is the reason rather than which of the six operations failed.
+ */
 export function workingTreeResultKey(
   action: "stage" | "unstage" | "discard",
   scope: "file" | "all",
   success: boolean,
 ): string {
-  const suffix = success ? "success" : "failed";
-  const group = scope === "all" ? "all" : "";
-  return `changes-${action}${group ? `-${group}` : ""}-${suffix}`;
+  if (!success) {
+    return "changes-operation-failed";
+  }
+  const group = scope === "all" ? "-all" : "";
+  return `changes-${action}${group}-success`;
 }
