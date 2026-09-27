@@ -697,6 +697,73 @@ button {
   flex: 0 0 auto;
 }
 
+/*
+ * The hover preview, floating above the row. 360 pixels wide and capped at 320
+ * tall, as in the reference, so a long body scrolls rather than covering the
+ * list it is previewing.
+ */
+.commit-preview {
+  position: absolute;
+  z-index: 60;
+  top: 100%;
+  left: 0;
+  display: flex;
+  width: 360px;
+  max-height: 320px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  box-shadow: 0 8px 24px #00000047;
+  font-size: calc(var(--ui-font-size) * 0.7);
+  overflow-y: auto;
+}
+
+.commit-preview__label {
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.625);
+}
+
+.commit-preview__ident {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.commit-preview__hash {
+  padding: 1px 8px;
+  border-radius: 4px;
+  background: var(--input-border);
+  color: var(--accent-background);
+  font-size: calc(var(--ui-font-size) * 0.6875);
+}
+
+.commit-preview__subject {
+  font-size: calc(var(--ui-font-size) * 0.8125);
+  color: var(--foreground);
+}
+
+.commit-preview__body {
+  margin: 0;
+  font-family: var(--mono-font-family);
+  font-size: calc(var(--ui-font-size) * 0.75);
+  white-space: pre-wrap;
+}
+
+.commit-preview__authors {
+  display: flex;
+  flex-direction: column;
+  font-size: calc(var(--ui-font-size) * 0.6875);
+}
+
+.commit-preview__meta {
+  display: flex;
+  gap: 12px;
+  font-size: calc(var(--ui-font-size) * 0.6875);
+}
+
 .bottom__toolbar {
   display: flex;
   height: 28px;

@@ -183,6 +183,41 @@ test.describe("commit selection", () => {
     );
   });
 
+  test("previews a commit on the first hover, and asks for its message", async ({
+    page,
+  }) => {
+    const stub = await boot(page, { open: [fixtureRepo()] });
+
+    // The first hover asks the backend, rather than waiting for a visit that
+    // already cached the message.
+    await page.locator(".graph-row").first().hover();
+    const preview = page.getByTestId("commit-preview");
+    await expect(preview).toBeVisible();
+    expect(
+      await stub.commands().then((all) =>
+        all.filter((entry) => entry.cmd === "request_commit_message"),
+      ),
+    ).not.toHaveLength(0);
+
+    // The preview identifies the commit before it shows anything else: a body
+    // of text with no hash and no decorations is not identifiable.
+    await expect(preview.getByTestId("commit-preview-label")).toHaveText(
+      "Commit message",
+    );
+    await expect(preview.locator(".commit-preview__hash")).toHaveText("13c6ef3");
+    await expect(preview.locator(".commit-preview__subject")).toHaveText(
+      "Add the Tauri command surface",
+    );
+    await expect(preview.locator(".commit-preview__meta")).toContainText(
+      "Author Lihao",
+    );
+    await expect(preview.locator(".commit-preview__meta")).toContainText("Date ");
+
+    // The preview goes away with the hover.
+    await page.locator(".graph__search").hover();
+    await expect(preview).toHaveCount(0);
+  });
+
   test("shows the commit message dialog on request", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
@@ -196,11 +231,19 @@ test.describe("commit selection", () => {
     await expect(page.getByTestId("context-show-message")).toBeVisible();
     await page.getByTestId("context-show-message").click();
 
-    await expect(page.getByTestId("commit-message-dialog")).toBeVisible();
+    const dialog = page.getByTestId("commit-message-dialog");
+    await expect(dialog).toBeVisible();
     // The message is fetched on demand and rendered in full.
     await expect(page.getByTestId("commit-message-body")).toContainText(
       "Add the Tauri command surface",
     );
+    // The dialog identifies the commit by hash and names its author and date,
+    // which the collapsed row cannot show.
+    await expect(dialog.locator(".commit-preview__hash")).toHaveText("13c6ef3");
+    await expect(page.getByTestId("commit-message-author")).toHaveText(
+      "Author Lihao",
+    );
+    await expect(page.getByTestId("commit-message-date")).toContainText("Date ");
     // The co-author trailer is part of the message and is listed separately
     // from the body.
     await expect(page.getByTestId("commit-message-coauthors")).toContainText(

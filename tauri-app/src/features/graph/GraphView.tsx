@@ -476,38 +476,84 @@ function GraphRowView({
           {relative}
         </span>
       </div>
-      {hovered && repo.commitMessages[row.oid] ? (
-        <CommitHoverPreview row={row} message={repo.commitMessages[row.oid]!} />
+      {hovered ? (
+        <CommitHoverPreview
+          row={row}
+          message={repo.commitMessages[row.oid]}
+          onRequest={() => {
+            void ipc.requestCommitMessage(repo.id, row.oid);
+          }}
+        />
       ) : null}
     </ContextMenu>
   );
 }
 
+/**
+ * The preview shown while a row is hovered.
+ *
+ * It appears on the first hover rather than the second: the hover is what asks
+ * the backend for the message, and until it arrives the preview says it is
+ * loading rather than showing nothing at all.
+ */
 function CommitHoverPreview({
   row,
   message,
+  onRequest,
 }: {
   row: LogRow;
-  message: NonNullable<RepoState["commitMessages"][string]>;
+  message: NonNullable<RepoState["commitMessages"][string]> | undefined;
+  onRequest: () => void;
 }) {
   const translate = useStore((state) => state.t);
-  if (!message.body && message.co_authors.length === 0) {
-    return null;
-  }
+  useEffect(() => {
+    if (!message) {
+      onRequest();
+    }
+  }, [message, onRequest]);
+
   return (
     <div className="commit-preview" data-testid="commit-preview">
-      {message.body ? <pre className="commit-preview__body">{message.body}</pre> : null}
-      {message.co_authors.length ? (
-        <div className="commit-preview__authors">
-          {message.co_authors.map((author) => (
-            <span key={`${author.name}-${author.email}`}>
-              {author.email ? `${author.name} <${author.email}>` : author.name}
-            </span>
-          ))}
+      <div className="commit-preview__label" data-testid="commit-preview-label">
+        {t(translate, "commit-message-preview")}
+      </div>
+      <div className="commit-preview__ident">
+        <span className="commit-preview__hash mono">{row.short}</span>
+        {row.decorations ? (
+          <span className="muted" title={row.decorations}>
+            {row.decorations}
+          </span>
+        ) : null}
+      </div>
+      <div className="commit-preview__subject">{row.subject}</div>
+      {message ? (
+        <>
+          {message.body ? (
+            <pre className="commit-preview__body" data-testid="commit-preview-body">
+              {message.body}
+            </pre>
+          ) : null}
+          {message.co_authors.length ? (
+            <div className="commit-preview__authors">
+              {message.co_authors.map((author) => (
+                <span key={`${author.name}-${author.email}`}>
+                  {author.email ? `${author.name} <${author.email}>` : author.name}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <div className="muted" data-testid="commit-preview-loading">
+          {t(translate, "commit-message-loading")}
         </div>
-      ) : null}
-      <div className="muted">{row.date}</div>
-      <div className="sr-only">{t(translate, "commit-message-preview")}</div>
+      )}
+      <div className="commit-preview__meta">
+        <span className="muted">
+          {ta(translate, "commit-author", { author: row.author })}
+        </span>
+        <span className="muted">{ta(translate, "commit-date", { date: row.date })}</span>
+      </div>
     </div>
   );
 }
@@ -549,11 +595,20 @@ function CommitMessageDialog({
           {t(translate, "commit-message-dialog-title")}
         </div>
         <div className="dialog__body">
+          {/* The hash and the decorations come first, as in the reference: they
+              identify the commit, and a body of text without them is not
+              identifiable. */}
+          <div className="commit-preview__ident">
+            <span className="commit-preview__hash mono">{row.short}</span>
+            {row.decorations ? (
+              <span className="muted" title={row.decorations}>
+                {row.decorations}
+              </span>
+            ) : null}
+          </div>
           {message ? (
             <>
-              <div className="muted">
-                {row.short} · {row.author} · {row.date}
-              </div>
+              <div className="commit-preview__subject">{row.subject}</div>
               <pre className="commit-preview__body" data-testid="commit-message-body">
                 {full}
               </pre>
@@ -567,9 +622,19 @@ function CommitMessageDialog({
                   ))}
                 </div>
               ) : null}
+              <div className="commit-preview__meta">
+                <span className="muted" data-testid="commit-message-author">
+                  {ta(translate, "commit-author", { author: row.author })}
+                </span>
+                <span className="muted" data-testid="commit-message-date">
+                  {ta(translate, "commit-date", { date: row.date })}
+                </span>
+              </div>
             </>
           ) : (
-            <div className="muted">{t(translate, "commit-message-loading")}</div>
+            <div className="muted" data-testid="commit-message-loading">
+              {t(translate, "commit-message-loading")}
+            </div>
           )}
         </div>
         <div className="dialog__footer">
