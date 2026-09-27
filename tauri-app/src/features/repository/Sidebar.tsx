@@ -73,7 +73,7 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
 
   const branchEntries = (name: string, isHead: boolean): ContextMenuEntry[] => [
     {
-      id: `checkout-${name}`,
+      id: "checkout",
       label: t(translate, "context-checkout"),
       icon: <Icon name="git-branch" size={12} />,
       disabled: blocked || isHead,
@@ -85,13 +85,13 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
       },
     },
     {
-      id: `copy-${name}`,
+      id: "copy-branch",
       label: t(translate, "context-copy-branch"),
       icon: <Icon name="copy" size={12} />,
       onSelect: () => copy(name),
     },
     {
-      id: `rename-${name}`,
+      id: "rename",
       label: t(translate, "context-rename"),
       icon: <Icon name="pencil" size={12} />,
       disabled: blocked,
@@ -99,14 +99,14 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
       onSelect: () => openOverlay({ kind: "renameBranch", old: name }),
     },
     {
-      id: `delete-${name}`,
+      id: "delete",
       label: t(translate, "context-delete"),
       icon: <Icon name="trash-2" size={12} />,
       disabled: blocked || isHead,
       onSelect: () => openOverlay({ kind: "deleteRef", name, isTag: false }),
     },
     {
-      id: `merge-${name}`,
+      id: "merge-into-current",
       label: t(translate, "context-merge-into-current"),
       icon: <Icon name="git-merge" size={12} />,
       disabled: blocked || isHead,
@@ -117,7 +117,7 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
 
   const tagEntries = (name: string): ContextMenuEntry[] => [
     {
-      id: `checkout-tag-${name}`,
+      id: "checkout",
       label: t(translate, "context-checkout"),
       icon: <Icon name="git-branch" size={12} />,
       disabled: blocked,
@@ -126,13 +126,13 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
       },
     },
     {
-      id: `copy-tag-${name}`,
+      id: "copy-tag",
       label: t(translate, "context-copy-tag"),
       icon: <Icon name="copy" size={12} />,
       onSelect: () => copy(name),
     },
     {
-      id: `delete-tag-${name}`,
+      id: "delete",
       label: t(translate, "context-delete"),
       icon: <Icon name="trash-2" size={12} />,
       disabled: blocked,
@@ -143,7 +143,7 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
 
   const remoteEntries = (remote: string, branch: string): ContextMenuEntry[] => [
     {
-      id: `checkout-remote-${remote}-${branch}`,
+      id: "checkout",
       label: t(translate, "context-checkout"),
       icon: <Icon name="git-branch" size={12} />,
       disabled: blocked,
@@ -155,13 +155,13 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
       },
     },
     {
-      id: `copy-remote-${remote}-${branch}`,
+      id: "copy-branch",
       label: t(translate, "context-copy-branch"),
       icon: <Icon name="copy" size={12} />,
       onSelect: () => copy(`${remote}/${branch}`),
     },
     {
-      id: `rename-remote-${remote}-${branch}`,
+      id: "rename",
       label: t(translate, "context-rename"),
       icon: <Icon name="pencil" size={12} />,
       disabled: blocked,
@@ -169,7 +169,7 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
       onSelect: () => openOverlay({ kind: "renameRemoteBranch", remote, old: branch }),
     },
     {
-      id: `delete-remote-${remote}-${branch}`,
+      id: "delete",
       label: t(translate, "context-delete"),
       icon: <Icon name="trash-2" size={12} />,
       disabled: blocked,
@@ -179,7 +179,7 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
 
   const stashEntries = (reference: string): ContextMenuEntry[] => [
     {
-      id: `stash-pop-${reference}`,
+      id: "pop",
       label: t(translate, "menu-stash-pop"),
       icon: <Icon name="archive-restore" size={12} />,
       disabled: blocked,
@@ -188,7 +188,7 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
       },
     },
     {
-      id: `stash-drop-${reference}`,
+      id: "drop",
       label: t(translate, "menu-stash-drop"),
       icon: <Icon name="trash-2" size={12} />,
       disabled: blocked,

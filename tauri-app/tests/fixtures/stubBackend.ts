@@ -529,6 +529,10 @@ export interface StubOptions {
   openFailure?: { key: string; detail: string };
   /** Reject `run_action` for these action names. */
   failingActions?: string[];
+  /** Overrides for the merge preflight probe. */
+  probeMerge?: Record<string, unknown>;
+  /** Overrides for the rebase preflight probe. */
+  probeRebase?: Record<string, unknown>;
 }
 
 export const DEFAULT_OPTIONS: StubOptions = {
@@ -550,6 +554,8 @@ function install(
     available: StubRepo[];
     openFailure?: { key: string; detail: string };
     failingActions?: string[];
+    probeMerge?: Record<string, unknown>;
+    probeRebase?: Record<string, unknown>;
   },
   catalog: Record<string, string>,
 ): void {
@@ -1008,19 +1014,21 @@ function install(
       return null;
     },
 
-    probe_merge: (args: any) => ({
-      head: args.repoId ? "abc" : null,
+    probe_merge: () => ({
+      head: "abc1234",
       merge_head: null,
       rebase_in_progress: false,
       has_changes: false,
       has_conflicts: false,
       already_merged: false,
+      ...(options.probeMerge ?? {}),
     }),
 
     probe_rebase: () => ({
       other_operation_in_progress: false,
       rebase_in_progress: false,
       has_changes: false,
+      ...(options.probeRebase ?? {}),
     }),
 
     start_compare: () => {

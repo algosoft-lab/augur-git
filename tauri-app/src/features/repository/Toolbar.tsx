@@ -46,6 +46,7 @@ export function Toolbar({ repo }: { repo: RepoState }) {
       label: t(translate, "menu-stash"),
       icon: <Icon name="archive" />,
       disabled: repo.stashableCount === 0,
+      separatorBefore: true,
       onSelect: () => openOverlay({ kind: "stash" }),
     },
     {

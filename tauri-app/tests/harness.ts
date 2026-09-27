@@ -47,6 +47,10 @@ export interface BootOptions {
   openFailure?: { key: string; detail: string };
   /** Reject these `run_action` operations, so the failure path is exercised. */
   failingActions?: string[];
+  /** Overrides for the merge preflight probe. */
+  probeMerge?: Record<string, unknown>;
+  /** Overrides for the rebase preflight probe. */
+  probeRebase?: Record<string, unknown>;
   /** Window role, from the same query parameter the backend uses. */
   window?: "main" | "compare" | "about";
   /** Repository id passed to a compare window. */
@@ -59,6 +63,8 @@ function optionsFor(options: BootOptions): StubOptions {
     available: options.available ?? [fixtureRepo(), secondFixtureRepo()],
     openFailure: options.openFailure,
     failingActions: options.failingActions,
+    probeMerge: options.probeMerge,
+    probeRebase: options.probeRebase,
   };
 }
 
@@ -97,6 +103,27 @@ export async function boot(
       await page.evaluate((id) => window.__STUB__.announce(id), repoId);
     },
   };
+}
+
+/**
+ * Right-click an element.
+ *
+ * Playwright's `click({ button: "right" })` does not always make Chromium
+ * synthesize `contextmenu`, so the mouse is driven directly at the element's
+ * centre, which is what a person does.
+ */
+export async function rightClick(
+  page: Page,
+  selector: string,
+  index = 0,
+): Promise<void> {
+  const box = await page.locator(selector).nth(index).boundingBox();
+  if (!box) {
+    throw new Error(`no box for ${selector}`);
+  }
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, {
+    button: "right",
+  });
 }
 
 /** The default boot, which is most tests. */
