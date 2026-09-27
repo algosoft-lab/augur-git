@@ -14,271 +14,11 @@ import { readFileSync } from "node:fs";
  * character-level ranges exercise inline highlighting.
  */
 
-/** One repository the stub backend pretends to have open. */
-export interface StubRepo {
-  id: number;
-  path: string;
-  location: { kind: "local" } | { kind: "wsl"; distro: string };
-  status: {
-    branch: string;
-    head: string | null;
-    upstream: string | null;
-    ahead: number;
-    behind: number;
-    files: StubFile[];
-    branches: { name: string; is_head: boolean }[];
-  };
-  refs: StubRefs;
-  rows: StubLogRow[];
-}
+import { fixtureRepo, secondFixtureRepo } from "./stubData";
+import type { StubLogRow, StubRepo } from "./stubTypes";
 
-export interface StubFile {
-  index: string;
-  worktree: string;
-  path: string;
-  old_path: string | null;
-}
-
-export interface StubRefs {
-  remotes: string[];
-  remote_branches: string[];
-  tags: string[];
-  stashes: { reference: string; description: string }[];
-  comparison_revisions: {
-    name: string;
-    full_name: string;
-    kind: "local" | "remote" | "tag" | "commit";
-  }[];
-}
-
-export interface StubLogRow {
-  oid: string;
-  short: string;
-  author: string;
-  date: string;
-  timestamp: number;
-  subject: string;
-  message: string;
-  decorations: string;
-  parents: string[];
-}
-
-/** A distinct, deterministic object id for a fixture commit. */
-const oid = (seed: number) => {
-  const head = (0x9e3779b1 * (seed + 1)).toString(16).padStart(8, "0");
-  return (head + seed.toString(16).padStart(4, "0")).padEnd(40, "0").slice(0, 40);
-};
-
-function logRow(
-  seed: number,
-  subject: string,
-  author: string,
-  minutesAgo: number,
-  parents: number[],
-  decorations: string,
-  body = "",
-): StubLogRow {
-  return {
-    oid: oid(seed),
-    short: oid(seed).slice(0, 7),
-    author,
-    date: "2026-09-27 10:00",
-    timestamp: Math.floor(Date.now() / 1000) - minutesAgo * 60,
-    subject,
-    message: body ? `${subject}\n\n${body}` : subject,
-    decorations,
-    parents: parents.map(oid),
-  };
-}
-
-/**
- * The fixture repository.
- *
- * The topology is a trunk with one side branch merged back in, so the graph
- * layout has a lane change, a merge node, and three parents to lay out.
- */
-export function fixtureRepo(): StubRepo {
-  return {
-    id: 7,
-    path: "/Users/dev/projects/augur-git",
-    location: { kind: "local" },
-    status: {
-      branch: "master",
-      head: oid(1),
-      upstream: "origin/master",
-      ahead: 2,
-      behind: 1,
-      files: [
-        { index: "M", worktree: " ", path: "src/main.rs", old_path: null },
-        // Staged and modified again: two diffs, so it belongs in both groups.
-        { index: "M", worktree: "M", path: "src/partial.rs", old_path: null },
-        { index: "A", worktree: " ", path: "src/git/worker.rs", old_path: null },
-        { index: " ", worktree: "M", path: "src/git/graph.rs", old_path: null },
-        { index: " ", worktree: "?", path: "notes.md", old_path: null },
-        { index: "R", worktree: "R", path: "src/old.rs", old_path: "src/new.rs" },
-        {
-          index: "U",
-          worktree: "U",
-          path: "src/conflict.rs",
-          old_path: null,
-        },
-      ],
-      branches: [
-        { name: "master", is_head: true },
-        { name: "feature/tauri", is_head: false },
-        { name: "release", is_head: false },
-      ],
-    },
-    refs: {
-      remotes: ["origin"],
-      remote_branches: ["origin/master", "origin/feature/tauri"],
-      tags: ["v1.0.0", "v1.1.0"],
-      stashes: [{ reference: "stash@{0}", description: "WIP on master: 9ab1c2d" }],
-      comparison_revisions: [
-        { name: "master", full_name: "refs/heads/master", kind: "local" },
-        {
-          name: "feature/tauri",
-          full_name: "refs/heads/feature/tauri",
-          kind: "local",
-        },
-        { name: "origin/master", full_name: "refs/remotes/origin/master", kind: "remote" },
-        { name: "v1.1.0", full_name: "refs/tags/v1.1.0", kind: "tag" },
-      ],
-    },
-    rows: [
-      logRow(1, "Add the Tauri command surface", "Lihao", 12, [2, 3], "HEAD -> master, origin/master, tag: v1.1.0"),
-      logRow(4, "Extract the domain crate", "Lihao", 90, [5], "feature/tauri"),
-      logRow(2, "Add the event protocol", "Ada", 240, [6], ""),
-      logRow(3, "Widen the log page size", "Ada", 300, [6], ""),
-      logRow(5, "Start the core extraction", "Lihao", 1500, [7], ""),
-      logRow(6, "Introduce the snapshot store", "Grace", 2600, [8], ""),
-      logRow(7, "Bootstrap the project", "Grace", 5000, [8], ""),
-      logRow(8, "First commit", "Grace", 9000, [], ""),
-    ],
-  };
-}
-
-/** A second repository, used to prove the tab list keeps state per tab. */
-export function secondFixtureRepo(): StubRepo {
-  const repo = fixtureRepo();
-  return {
-    ...repo,
-    id: 9,
-    path: "/Users/dev/projects/other-app",
-    status: {
-      ...repo.status,
-      branch: "trunk",
-      head: oid(11),
-      upstream: null,
-      ahead: 0,
-      behind: 0,
-      files: [{ index: " ", worktree: "M", path: "README.md", old_path: null }],
-      branches: [{ name: "trunk", is_head: true }],
-    },
-    rows: [logRow(11, "Update the readme", "Ada", 30, [12], "HEAD -> trunk")],
-  };
-}
-
-/** The file list of the newest commit, so the commit panel has content. */
-export function commitFiles(): Record<string, unknown>[] {
-  return [
-    {
-      path: "src/lib.rs",
-      old_path: null,
-      new_path: "src/lib.rs",
-      status: "modified",
-      old_blob: null,
-      new_blob: null,
-      added: 4,
-      deleted: 1,
-    },
-    {
-      path: "src/commands/repo.rs",
-      old_path: null,
-      new_path: "src/commands/repo.rs",
-      status: "added",
-      old_blob: null,
-      new_blob: null,
-      added: 120,
-      deleted: 0,
-    },
-  ];
-}
-
-/** A diff payload with a hunk, an addition, a deletion, and an inline range. */
-export function diffPayload(path: string, language: string | null): Record<string, unknown> {
-  const rows = [
-    {
-      kind: "hunk",
-      old_no: null,
-      new_no: null,
-      old_text: null,
-      new_text: null,
-      hunk_header: "@@ -10,6 +10,7 @@ fn run()",
-    },
-    {
-      kind: "context",
-      old_no: 10,
-      new_no: 10,
-      old_text: "    let mut count = 0;",
-      new_text: "    let mut count = 0;",
-    },
-    {
-      kind: "del",
-      old_no: 11,
-      new_no: null,
-      old_text: "    count += 1;",
-      new_text: null,
-    },
-    {
-      kind: "add",
-      old_no: null,
-      new_no: 11,
-      old_text: null,
-      new_text: "    count += 2;",
-    },
-  ];
-  return {
-    path,
-    language,
-    rows,
-    aligned_rows: rows,
-    old_source: null,
-    new_source: null,
-    // The changed character is the `1` becoming `2`, which is the point of the
-    // inline layout.
-    inline_old: [[], [], [], []],
-    inline_new: [[], [{ start: 13, end: 14 }]],
-    binary: false,
-    copy_text: `diff --git a/${path} b/${path}\n@@ -10,6 +10,7 @@\n-    count += 1;\n+    count += 2;\n`,
-  };
-}
-
-/**
- * The translation catalog the stub serves.
- *
- * Read from the real English catalog rather than restated here, so a string
- * cannot drift between the application and the tests that assert on it. A test
- * that needs a value the catalog does not define adds it through
- * {@link catalogOverrides}.
- */
-export function catalog(overrides: Record<string, string> = {}): Record<string, string> {
-  const file = readFileSync(
-    new URL(
-      "../../src-tauri/crates/augur-core/i18n/en-US.ftl",
-      import.meta.url,
-    ),
-    "utf8",
-  );
-  const entries: Record<string, string> = {};
-  for (const line of file.split("\n")) {
-    const match = /^([a-z0-9-]+) = (.*)$/.exec(line.trim());
-    if (match) {
-      entries[match[1]!] = match[2]!;
-    }
-  }
-  return { ...entries, ...overrides };
-}
+export type { StubFile, StubRefs, StubRepo, StubStatus } from "./stubTypes";
+export { commitFiles, diffPayload, fixtureRepo, secondFixtureRepo } from "./stubData";
 
 /** The stub's mutable state, so a test can steer it. */
 export interface StubOptions {
@@ -317,6 +57,32 @@ export const DEFAULT_OPTIONS: StubOptions = {
   available: [fixtureRepo(), secondFixtureRepo()],
   failingActions: [],
 };
+
+/**
+ * The translation catalog the stub serves.
+ *
+ * Read from the real English catalog rather than restated here, so a string
+ * cannot drift between the application and the tests that assert on it. A test
+ * that needs a value the catalog does not define adds it through
+ * {@link catalogOverrides}.
+ */
+export function catalog(overrides: Record<string, string> = {}): Record<string, string> {
+  const file = readFileSync(
+    new URL(
+      "../../src-tauri/crates/augur-core/i18n/en-US.ftl",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const entries: Record<string, string> = {};
+  for (const line of file.split("\n")) {
+    const match = /^([a-z0-9-]+) = (.*)$/.exec(line.trim());
+    if (match) {
+      entries[match[1]!] = match[2]!;
+    }
+  }
+  return { ...entries, ...overrides };
+}
 
 /** The script injected into the page before the application loads. */
 export function stubSource(

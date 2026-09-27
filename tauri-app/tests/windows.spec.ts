@@ -263,14 +263,16 @@ test.describe("settings", () => {
 
     // Commit or amend: opening the menu and reading it has to say which one the
     // button will act on.
-    await page.getByTestId("commit-mode-trigger").click();
+    // The menu wraps its trigger, so the wrapper and the button share the id.
+    const trigger = page.locator("button[data-testid='commit-mode-trigger']");
+    await trigger.click();
     const mode = page.getByTestId("commit-mode");
     await expect(mode.getByTestId("commit-mode-commit").locator(".menu__check")).toBeVisible();
     await expect(
       mode.getByTestId("commit-mode-amend").locator(".menu__check"),
     ).toHaveCount(0);
     await page.getByTestId("commit-mode-amend").click();
-    await page.getByTestId("commit-mode-trigger").click();
+    await trigger.click();
     await expect(mode.getByTestId("commit-mode-amend").locator(".menu__check")).toBeVisible();
     await expect(
       mode.getByTestId("commit-mode-commit").locator(".menu__check"),
