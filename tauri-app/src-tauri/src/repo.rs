@@ -277,7 +277,7 @@ fn convert(repo_id: u64, event: GitEvent) -> Option<RepoEventEnvelope> {
             RepoEvent::FileDiff {
                 oid,
                 file,
-                document: DiffDocument::from_patch(label, &patch, old_source, new_source),
+                document: DiffDocument::from_patch(label, &patch, old_source, new_source).into(),
             }
         }
         E::WorkingTreeFileDiff {
@@ -291,7 +291,7 @@ fn convert(repo_id: u64, event: GitEvent) -> Option<RepoEventEnvelope> {
             request_id,
             kind,
             file: file.clone(),
-            document: DiffDocument::from_patch(file.path.clone(), &patch, old_source, new_source),
+            document: DiffDocument::from_patch(file.path.clone(), &patch, old_source, new_source).into(),
         },
         E::WorkingTreeFileDiffError {
             request_id,
@@ -318,7 +318,7 @@ fn convert(repo_id: u64, event: GitEvent) -> Option<RepoEventEnvelope> {
             RepoEvent::BranchCompareFileDiff {
                 request_id,
                 file,
-                document: DiffDocument::from_patch(label, &patch, old_source, new_source),
+                document: DiffDocument::from_patch(label, &patch, old_source, new_source).into(),
             }
         }
         E::BranchCompareError {

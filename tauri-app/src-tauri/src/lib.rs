@@ -56,6 +56,8 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             commands::repo::probe_rebase,
             commands::repo::read_commit_message,
             commands::repo::set_graph_history,
+            commands::repo::graph_layout,
+            commands::repo::column_visibility,
             commands::app::theme_options,
             commands::app::list_font_families,
             commands::app::run_cli_installer,

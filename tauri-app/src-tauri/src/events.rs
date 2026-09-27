@@ -5,6 +5,7 @@
 //! newest one it asked for, so switching files or comparison endpoints quickly
 //! can never show a stale diff.
 
+use std::ops::Range;
 use std::path::PathBuf;
 
 use serde::Serialize;
@@ -28,6 +29,51 @@ pub const MENU_EVENT: &str = "augur://menu";
 pub const WINDOW_FOCUS_EVENT: &str = "augur://window-focus";
 /// Event name used when a repository folder is dropped onto a window.
 pub const DROP_EVENT: &str = "augur://drop-paths";
+
+/// A parsed single-file diff, prepared for the viewer.
+///
+/// The rows the inline layout draws and the aligned rows the side-by-side layout
+/// draws are both sent, because the pairing rule is implemented once in the core
+/// crate and the webview only has to choose which list to mount. The
+/// character-level ranges are sent with the same reasoning: computing them here
+/// keeps one implementation and avoids a second round trip per file.
+#[derive(Clone, Debug, Serialize)]
+pub struct DiffPayload {
+    pub path: String,
+    pub language: Option<String>,
+    pub rows: Vec<augur_core::diff::DiffRow>,
+    pub aligned_rows: Vec<augur_core::diff::DiffRow>,
+    pub old_source: Option<augur_core::diff::SourceText>,
+    pub new_source: Option<augur_core::diff::SourceText>,
+    /// Ranges into the old source, per line, for inline highlighting.
+    pub inline_old: Vec<Vec<Range<usize>>>,
+    /// Ranges into the new source, per line, for inline highlighting.
+    pub inline_new: Vec<Vec<Range<usize>>>,
+    pub binary: bool,
+    /// Unified text for the clipboard.
+    pub copy_text: String,
+}
+
+impl From<DiffDocument> for DiffPayload {
+    fn from(document: DiffDocument) -> Self {
+        // The derived values are read before the fields are moved out.
+        let ranges = augur_core::diff::inline::inline_ranges(&document);
+        let aligned_rows = document.aligned_rows();
+        let copy_text = document.copy_text();
+        Self {
+            path: document.path,
+            language: document.language,
+            rows: document.rows,
+            aligned_rows,
+            old_source: document.old_source,
+            new_source: document.new_source,
+            inline_old: ranges.old,
+            inline_new: ranges.new,
+            binary: document.binary,
+            copy_text,
+        }
+    }
+}
 
 /// One repository event, already resolved to plain data.
 #[derive(Clone, Debug, Serialize)]
@@ -63,13 +109,13 @@ pub enum RepoEvent {
     FileDiff {
         oid: String,
         file: FileChange,
-        document: DiffDocument,
+        document: DiffPayload,
     },
     WorkingTreeFileDiff {
         request_id: u64,
         kind: WorkingTreeDiffKind,
         file: FileStatus,
-        document: DiffDocument,
+        document: DiffPayload,
     },
     WorkingTreeFileDiffError {
         request_id: u64,

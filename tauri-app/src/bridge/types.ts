@@ -214,14 +214,31 @@ export interface DiffRow {
   hunk_header: string | null;
 }
 
-export interface DiffDocument {
+/** A half-open byte range inside one line. */
+export type CharRange = { start: number; end: number };
+
+/**
+ * A parsed single-file diff.
+ *
+ * Both row lists are sent because the pairing rule lives in the core crate; the
+ * viewer only chooses which one to mount. The character ranges arrive with it
+ * so inline highlighting needs no second round trip.
+ */
+export interface DiffPayload {
   path: string;
   language: string | null;
   rows: DiffRow[];
+  aligned_rows: DiffRow[];
   old_source: SourceText | null;
   new_source: SourceText | null;
+  inline_old: CharRange[][];
+  inline_new: CharRange[][];
   binary: boolean;
+  copy_text: string;
 }
+
+/** The fields the viewer needs, named for the component that consumes them. */
+export type DiffDocument = DiffPayload;
 
 export type WorkingTreeDiffKind = "staged" | "unstaged";
 export type WorkingTreeAction = "stage" | "unstage" | "discard";

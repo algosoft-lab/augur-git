@@ -23,11 +23,14 @@ import type {
   FileChange,
   FileStatus,
   GitAction,
+  GraphRow,
   LayoutSettings,
   LanguagePreference,
   LocationConfig,
+  LogRow,
   MergeProbe,
   OpenTabConfig,
+  RefLabel,
   RebaseProbe,
   RepoEventEnvelope,
   RepoSummary,
@@ -193,6 +196,24 @@ export async function readCommitMessage(
   oid: string,
 ): Promise<CommitMessage> {
   return invoke<CommitMessage>("read_commit_message", { repoId, oid });
+}
+
+export interface GraphLayout {
+  graph: GraphRow[];
+  labels: Record<string, RefLabel[]>;
+}
+
+/**
+ * Lane layout and ref labels for the commits the webview is about to draw.
+ *
+ * The layout stays in the backend so it is the same algorithm the reference
+ * application uses rather than a second implementation that could drift.
+ */
+export async function graphLayout(
+  rows: LogRow[],
+  remoteNames: string[],
+): Promise<GraphLayout> {
+  return invoke<GraphLayout>("graph_layout", { rows, remoteNames });
 }
 
 export async function listFontFamilies(): Promise<string[]> {

@@ -481,6 +481,45 @@ where
         .map_err(|error| CommandError::new("err-git", error))
 }
 
+/// Lane layout and ref labels for one page of commits.
+///
+/// The layout stays in Rust so it is literally the same algorithm the
+/// reference application draws with, rather than a second implementation that
+/// could drift. A page is 500 commits, so one call per page is negligible.
+#[tauri::command]
+pub fn graph_layout(
+    rows: Vec<augur_core::graph::LogRow>,
+    remote_names: Vec<String>,
+) -> GraphLayout {
+    let graph = augur_core::graph::compute_graph(&rows);
+    let labels = rows
+        .iter()
+        .map(|row| {
+            (
+                row.oid.clone(),
+                augur_core::graph::parse_ref_labels(&row.decorations, &remote_names),
+            )
+        })
+        .collect();
+    GraphLayout { graph, labels }
+}
+
+/// Lane layout plus the ref decoration of every commit.
+#[derive(Clone, Debug, Serialize)]
+pub struct GraphLayout {
+    pub graph: Vec<augur_core::graph::GraphRow>,
+    pub labels: std::collections::HashMap<String, Vec<augur_core::graph::RefLabel>>,
+}
+
+/// Whether the author and message columns fit the available width.
+///
+/// The thresholds are the same constants the Rust layout uses, so the webview
+/// and the reference application reveal columns at the same width.
+#[tauri::command]
+pub fn column_visibility(total_width: f32, tree_width: f32) -> (bool, bool) {
+    augur_core::graph::column_visibility(total_width, tree_width)
+}
+
 /// Set the history scope preference and tell the caller whether the loaded
 /// graph must be reloaded.
 #[tauri::command]

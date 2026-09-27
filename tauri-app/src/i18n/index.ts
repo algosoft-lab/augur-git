@@ -14,15 +14,17 @@ export type Catalog = Record<string, string>;
 
 const PLACEHOLDER = /\{\s*\$([a-zA-Z0-9_]+)\s*\}/g;
 
-/** Build a lookup function for one locale. */
+/**
+ * Build a lookup function.
+ *
+ * The catalog arrives already merged with its English fallbacks, so a lookup
+ * either finds a string or returns the key.
+ */
 export function createTranslator(
-  locale: string,
-  catalogs: Record<string, Catalog>,
+  catalog: Catalog,
 ): (key: string, args?: Record<string, string | number>) => string {
-  const active = catalogs[locale] ?? {};
-  const fallback = catalogs["en-US"] ?? {};
   return (key, args) => {
-    const template = active[key] ?? fallback[key] ?? key;
+    const template = catalog[key] ?? key;
     if (!args) {
       return template;
     }
