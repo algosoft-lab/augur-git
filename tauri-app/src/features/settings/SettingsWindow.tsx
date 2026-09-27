@@ -65,7 +65,17 @@ export function SettingsWindow() {
   }, []);
 
   return (
-    <div className="overlay" data-testid="settings-overlay">
+    <div
+      className="overlay"
+      data-testid="settings-overlay"
+      // A click outside closes the surface, as it does in the reference: the
+      // settings are a detour, not a place to dwell.
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          setSettingsOpen(false);
+        }
+      }}
+    >
       <div className="window-page settings" style={{ width: 620, height: 460 }}>
         <div className="window-page__title">
           {t(translate, "settings-title")}
@@ -386,6 +396,11 @@ function ShortcutsSection() {
             >
               {t(translate, "shortcut-reset")}
             </button>
+            {/* The shipped binding, so an override is a choice rather than a
+                guess at what it replaced. */}
+            <span className="settings__hint" data-testid={`shortcut-default-${command}`}>
+              {ta(translate, "shortcut-default-hint", { keys: defaultKeys(command) })}
+            </span>
           </div>
         );
       })}

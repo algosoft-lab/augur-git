@@ -380,6 +380,25 @@ export function applyRepoEvent(
     case "commandStarted":
       return { ...state, busy: true, busyVerb: event.verb, message: null };
     case "commandDone": {
+      // Applying a patch says what it did to the tree, which "apply finished"
+      // does not: the result is an unstaged change either way, and the reader
+      // needs to know which files to look at.
+      if (event.label === "apply") {
+        return {
+          ...state,
+          busy: false,
+          busyVerb: null,
+          message: {
+            text: event.success
+              ? label("patch-apply-success")
+              : label("patch-apply-failed").replace(
+                  "{ $error }",
+                  firstLine(event.message),
+                ),
+            ok: event.success,
+          },
+        };
+      }
       return {
         ...state,
         busy: false,

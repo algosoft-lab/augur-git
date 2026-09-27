@@ -214,6 +214,53 @@ test.describe("commit selection", () => {
     await expect(page.getByTestId("commit-message-dialog")).toHaveCount(0);
   });
 
+  test("copies a commit's diff from the button and the keyboard", async ({
+    page,
+  }) => {
+    const stub = await boot(page, { open: [fixtureRepo()] });
+    await page.locator(".graph-row").first().click();
+    await page.getByTestId("diff-hunk").first().waitFor();
+
+    // The commit's totals are in the header, so the size of the change is
+    // readable without summing the file list.
+    await expect(page.getByTestId("bottom-commit-stat-added")).toHaveText("+124");
+    await expect(page.getByTestId("bottom-commit-stat-deleted")).toHaveText("-1");
+
+    // A copy is available even for a single file, because a pasted hunk with no
+    // file in it cannot be pasted anywhere useful.
+    await expect(page.getByTestId("bottom-copy-diff")).toBeVisible();
+    await page.getByTestId("bottom-copy-diff").click();
+    const writes = async () =>
+      page.evaluate(() =>
+        (window as any).__STUB__.log.filter((entry: any) => entry.cmd === "plugin:clipboard-manager|write_text"),
+      );
+    await expect.poll(async () => (await writes()).length).toBeGreaterThan(0);
+    const copied = String((await writes()).at(-1)!.args.text);
+    // Every document names its own file, in whatever order the commit lists
+    // them.
+    expect(copied).toMatch(/^diff -- src\//m);
+    expect(copied.split("diff -- ").length - 1).toBe(2);
+
+    // The same gesture from the keyboard.
+    const before = (await writes()).length;
+    await page.getByTestId("diff-view").click();
+    await page.keyboard.press("Meta+c");
+    await expect.poll(async () => (await writes()).length).toBeGreaterThan(before);
+  });
+
+  test("names the file and offers a copy in the working-tree view", async ({
+    page,
+  }) => {
+    await boot(page, { open: [fixtureRepo()] });
+
+    await page.getByTestId("changes-file-src/main.rs").first().click();
+    await page.getByTestId("diff-hunk").first().waitFor();
+
+    // The working-tree view has no commit to name, so it names the file.
+    await expect(page.getByTestId("bottom-working-path")).toHaveText("src/main.rs");
+    await expect(page.getByTestId("bottom-copy-diff")).toBeVisible();
+  });
+
   test("clears the selection when the filter hides it", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 

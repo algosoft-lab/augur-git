@@ -130,13 +130,27 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
       disabled: blocked || isHead,
       onSelect: () => openOverlay({ kind: "deleteRef", name, isTag: false }),
     },
+    // Merging a branch into the current one is immediate here: the branch is
+    // already named, so there is nothing to ask about. The dialog the toolbar
+    // opens is for choosing the source.
     {
       id: "merge-into-current",
       label: t(translate, "context-merge-into-current"),
       icon: <Icon name="git-merge" size={12} />,
       disabled: blocked || isHead,
       separatorBefore: true,
-      onSelect: () => openOverlay({ kind: "merge", noFf: false }),
+      onSelect: () => {
+        void runAction(repo.id, { action: "merge", source: name, noFf: false });
+      },
+    },
+    {
+      id: "merge-no-ff-into-current",
+      label: t(translate, "context-merge-no-ff-into-current"),
+      icon: <Icon name="git-merge" size={12} />,
+      disabled: blocked || isHead,
+      onSelect: () => {
+        void runAction(repo.id, { action: "merge", source: name, noFf: true });
+      },
     },
   ];
 

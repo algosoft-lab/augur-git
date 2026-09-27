@@ -132,6 +132,23 @@ test.describe("comparison window", () => {
     await expect(picker).not.toContainText("origin/master");
   });
 
+  test("closes the settings surface on a click outside", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()] });
+
+    await page.getByTestId("toolbar-settings").click();
+    await expect(page.getByTestId("settings-overlay")).toBeVisible();
+    // A click on the page behind it closes the surface: the settings are a
+    // detour, not a place to dwell.
+    await page.getByTestId("settings-overlay").click({ position: { x: 5, y: 5 } });
+    await expect(page.getByTestId("settings-overlay")).toHaveCount(0);
+
+    // A click inside it does not.
+    await page.getByTestId("toolbar-settings").click();
+    await expect(page.getByTestId("settings-overlay")).toBeVisible();
+    await page.getByTestId("settings-close").click({ trial: true });
+    await expect(page.getByTestId("settings-overlay")).toBeVisible();
+  });
+
   test("accepts a typed object id", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
 
@@ -191,6 +208,19 @@ test.describe("comparison window", () => {
 });
 
 test.describe("settings", () => {
+  test("shows the shipped shortcut binding next to an override", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()] });
+
+    await page.getByTestId("toolbar-settings").click();
+    await page.getByTestId("settings-nav-shortcuts").click();
+
+    // The default is shown so an override reads as a choice rather than a guess
+    // at what it replaced.
+    await expect(page.getByTestId("shortcut-default-app.quit")).toContainText(
+      "Default: CmdOrCtrl+Q",
+    );
+  });
+
   test("changes the theme and the fonts", async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
 

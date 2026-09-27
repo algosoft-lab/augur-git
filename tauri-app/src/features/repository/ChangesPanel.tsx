@@ -207,26 +207,26 @@ function FileRow({
   const untracked = isUntracked(file);
   const modifier = porcelainModifier(code, untracked);
 
-  const entries = conflicted
-    ? []
-    : [
-        {
-          id: "toggle-stage",
-          label: staged
-            ? t(translate, "changes-unstage")
-            : t(translate, "changes-stage"),
-          icon: <Icon name={staged ? "minus" : "plus"} size={12} />,
-          disabled: repo.busy,
-          onSelect: () => onOperate(staged ? "unstage" : "stage"),
-        },
-        {
-          id: "discard",
-          label: t(translate, "changes-discard"),
-          icon: <Icon name="undo" size={12} />,
-          disabled: repo.busy || repo.hasConflicts,
-          onSelect: () => onOperate("discard"),
-        },
-      ];
+  // A conflicted file keeps its actions, disabled and explained, rather than
+  // losing them. An entry that has vanished says nothing about why the operation
+  // is impossible, which is the one thing worth saying about a conflict.
+  const blocked = t(translate, "changes-action-conflict");
+  const entries = [
+    {
+      id: "toggle-stage",
+      label: staged ? t(translate, "changes-unstage") : t(translate, "changes-stage"),
+      icon: <Icon name={staged ? "minus" : "plus"} size={12} />,
+      disabled: repo.busy || conflicted,
+      onSelect: () => onOperate(staged ? "unstage" : "stage"),
+    },
+    {
+      id: "discard",
+      label: t(translate, "changes-discard"),
+      icon: <Icon name="undo" size={12} />,
+      disabled: repo.busy || repo.hasConflicts || conflicted,
+      onSelect: () => onOperate("discard"),
+    },
+  ];
 
   return (
     <ContextMenu testId={`changes-row-${file.path}`} entries={entries}>
@@ -240,17 +240,19 @@ function FileRow({
           {t(translate, porcelainKey(code, untracked))}
         </span>
         <span className="file-row__name">{file.path}</span>
-        {conflicted ? null : (
-          <IconButton
-            icon={
-              staged ? <Icon name="minus" size={12} /> : <Icon name="plus" size={12} />
-            }
-            tooltip={staged ? t(translate, "changes-unstage") : t(translate, "changes-stage")}
-            disabled={repo.busy}
-            onClick={() => onOperate(staged ? "unstage" : "stage")}
-            testId={`changes-toggle-${file.path}`}
-          />
-        )}
+        <IconButton
+          icon={staged ? <Icon name="minus" size={12} /> : <Icon name="plus" size={12} />}
+          tooltip={
+            conflicted
+              ? blocked
+              : staged
+                ? t(translate, "changes-unstage")
+                : t(translate, "changes-stage")
+          }
+          disabled={repo.busy || conflicted}
+          onClick={() => onOperate(staged ? "unstage" : "stage")}
+          testId={`changes-toggle-${file.path}`}
+        />
       </div>
     </ContextMenu>
   );

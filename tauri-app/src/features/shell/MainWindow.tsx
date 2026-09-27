@@ -36,7 +36,11 @@ export function MainWindow() {
   const [wslOpen, setWslOpen] = useState(false);
 
   const pickFolder = async () => {
-    const selected = await open({ directory: true, multiple: false });
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: t(translate, "repo-folder-prompt"),
+    });
     if (typeof selected === "string") {
       await openPaths([selected]);
     }

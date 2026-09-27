@@ -173,7 +173,9 @@ export function Toolbar({ repo }: { repo: RepoState }) {
       <ToolButton
         label={t(translate, "toolbar-refresh")}
         icon={<Icon name="refresh-cw" />}
-        disabled={repo.busy}
+        // Deliberately not disabled while busy, as in the reference: a refresh is
+        // a read, and refusing it mid-operation is a worse answer than a
+        // snapshot that arrives slightly out of date.
         testId="toolbar-refresh"
         onClick={() => void refresh(repo.id)}
       />
@@ -215,7 +217,12 @@ function defaultPushRemote(remotes: string[]): string {
 
 /** Ask for a patch file and apply it. Plain `git apply` is atomic. */
 async function pickAndApplyPatch(repoId: number): Promise<void> {
-  const selected = await open({ multiple: false, directory: false, filters: [{ name: "Patch", extensions: ["patch", "diff"] }] });
+  const selected = await open({
+    multiple: false,
+    directory: false,
+    title: useStore.getState().t("menu-apply-patch-prompt"),
+    filters: [{ name: "Patch", extensions: ["patch", "diff"] }],
+  });
   if (typeof selected !== "string") {
     return;
   }

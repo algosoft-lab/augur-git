@@ -13,7 +13,7 @@ test.describe("repositories", () => {
     await boot(page);
     await expect(page.getByTestId("welcome")).toBeVisible();
     await expect(page.getByTestId("welcome-open")).toBeVisible();
-    await expect(page.getByTestId("status-bar")).toContainText("No repository open");
+    await expect(page.getByTestId("status-bar")).toContainText("No repository selected");
     // The status bar reports the absence of a repository rather than leaving the
     // row empty.
     await expect(page.getByTestId("tab-new")).toBeVisible();
@@ -142,6 +142,29 @@ test.describe("repositories", () => {
     // The window adopts the saved tab list rather than showing the welcome page.
     await expect(page.getByTestId("repo-7")).toBeVisible();
     await expect(page.getByTestId("tab-bar")).toContainText("augur-git");
+  });
+
+  test("keeps a conflicted file's actions, disabled and explained", async ({
+    page,
+  }) => {
+    await boot(page, { open: [fixtureRepo()] });
+
+    // The row is present but its actions are not: a conflict has to be resolved
+    // before a file can be staged or discarded, and the row says so rather than
+    // leaving the person to wonder why the buttons are gone.
+    const conflicted = page.getByTestId("changes-file-src/conflict.rs");
+    await expect(conflicted).toBeVisible();
+    const toggle = page.getByTestId("changes-toggle-src/conflict.rs");
+    await expect(toggle).toBeDisabled();
+    await expect(toggle).toHaveAttribute(
+      "title",
+      "Unavailable for conflicted files",
+    );
+
+    // The same in the context menu, which keeps the entries and disables them.
+    await rightClick(page, '[data-testid="changes-row-src/conflict.rs"]');
+    await expect(page.getByTestId("context-toggle-stage")).toBeDisabled();
+    await expect(page.getByTestId("context-discard")).toBeDisabled();
   });
 
   test("lists a partially staged file in both groups", async ({ page }) => {

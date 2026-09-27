@@ -116,6 +116,51 @@ export function BottomPanel({
   const multiFile = sections.length > 1;
   const narrow = width < NARROW_WIDTH;
 
+  // The commit's own totals, so the size of the change is readable without
+  // summing the file list.
+  const commitTotals =
+    pane.kind === "commit" && repo.commitFiles.length
+      ? repo.commitFiles.reduce(
+          (sum, file) => ({
+            added: sum.added + (file.added ?? 0),
+            deleted: sum.deleted + (file.deleted ?? 0),
+          }),
+          { added: 0, deleted: 0 },
+        )
+      : null;
+
+  /**
+   * Put the diff on the clipboard.
+   *
+   * Each document is prefixed with the header `git diff` would print, so a
+   * pasted hunk says which file it came from. The single-file case gets it too,
+   * because a copied hunk with no file in it cannot be pasted anywhere useful.
+   */
+  const copyDiff = () => {
+    if (!sections.length) {
+      return;
+    }
+    void writeText(
+      sections.map((entry) => `diff -- ${entry.path}\n${entry.document.copy_text}`).join(""),
+    );
+  };
+
+  // The reference binds the secondary modifier with `c` in the diff area, which
+  // is the gesture people reach for.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "c" &&
+        sections.length > 0
+      ) {
+        copyDiff();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [sections, repo.id]);
+
   return (
     <div
       className={`bottom${height !== null ? " bottom--fixed" : ""}`}
@@ -139,6 +184,37 @@ export function BottomPanel({
           <span className="muted">{t(translate, "diff-merge-first-parent")}</span>
         ) : null}
         {commit ? <span className="mono muted">{commit.short}</span> : null}
+        {/* The commit's own totals, so the size of the change is readable
+            without summing the file list. */}
+        {pane.kind === "commit" && commitTotals ? (
+          <StatBar
+            added={commitTotals.added}
+            deleted={commitTotals.deleted}
+            testId="bottom-commit-stat"
+          />
+        ) : null}
+        {/* The working-tree view has no commit, so it names the file and offers
+            the copy, as the reference does. */}
+        {pane.kind === "working" && pane.file ? (
+          <span
+            className="bottom__toolbar-title mono"
+            data-testid="bottom-working-path"
+            title={pane.file.path}
+          >
+            {pane.file.path}
+          </span>
+        ) : null}
+        {sections.length ? (
+          <button
+            type="button"
+            className="tool-button tool-button--compact"
+            data-testid="bottom-copy-diff"
+            title={t(translate, "diff-copy")}
+            onClick={copyDiff}
+          >
+            <Icon name="copy" size={12} />
+          </button>
+        ) : null}
         {commit ? (
           <button
             type="button"
@@ -195,15 +271,7 @@ export function BottomPanel({
                   )
                 : t(translate, "bottom-no-commit")
           }
-          onCopy={
-            sections.length
-              ? () => {
-                  void writeText(
-                    sections.map((entry) => entry.document.copy_text).join(""),
-                  );
-                }
-              : undefined
-          }
+          onCopy={sections.length ? copyDiff : undefined}
         />
       </div>
     </div>
@@ -265,19 +333,41 @@ function FileList({
   );
 }
 
-function StatBar({ added, deleted }: { added: number; deleted: number }) {
+/**
+ * The five-block addition and deletion bar.
+ *
+ * The numbers are shown, not just the blocks: the blocks say the ratio and the
+ * numbers say the size, and a bar alone cannot say whether a change is three
+ * lines or three hundred.
+ */
+function StatBar({
+  added,
+  deleted,
+  testId,
+}: {
+  added: number;
+  deleted: number;
+  testId?: string;
+}) {
   const blocks = statBlocks(added, deleted);
   if (blocks.added === 0 && blocks.deleted === 0) {
     return <span className="file-row__stat muted">—</span>;
   }
   return (
-    <span
-      className="stat-blocks"
-      title={`+${added} -${deleted}`}
-      data-testid={`bottom-stat-${added}-${deleted}`}
-    >
-      <span className="stat-blocks__added" style={{ flex: blocks.added }} />
-      <span className="stat-blocks__deleted" style={{ flex: blocks.deleted }} />
+    <span className="stat-bar" data-testid={testId}>
+      <span className="stat-bar__added" data-testid={testId ? `${testId}-added` : undefined}>
+        +{added}
+      </span>
+      <span
+        className="stat-bar__deleted"
+        data-testid={testId ? `${testId}-deleted` : undefined}
+      >
+        -{deleted}
+      </span>
+      <span className="stat-blocks">
+        <span className="stat-blocks__added" style={{ flex: blocks.added }} />
+        <span className="stat-blocks__deleted" style={{ flex: blocks.deleted }} />
+      </span>
     </span>
   );
 }

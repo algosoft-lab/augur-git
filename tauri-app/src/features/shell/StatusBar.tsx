@@ -34,7 +34,7 @@ export function StatusBar({ repo }: { repo: RepoState | null }) {
   return (
     <div className="status-bar" data-testid="status-bar">
       <div className="status-bar__path" title={repo?.path ?? ""}>
-        {repo?.path ?? t(translate, "no-repo-open")}
+        {repo?.path ?? t(translate, "status-no-repo-selected")}
       </div>
       <div className="status-bar__right">
         {message ? (
