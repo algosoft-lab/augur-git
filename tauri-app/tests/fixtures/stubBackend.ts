@@ -67,6 +67,12 @@ export interface StubOptions {
   probeMerge?: Record<string, unknown>;
   /** Overrides for the rebase preflight probe. */
   probeRebase?: Record<string, unknown>;
+  /** How long `run_action` takes to answer, so the busy state is observable. */
+  actionDelay?: number;
+  /** How long `open_repository` takes, and its snapshot 1.5s after it. */
+  openDelay?: number;
+  /** How long the WSL distribution list takes to arrive. */
+  wslDelay?: number;
 }
 
 export const DEFAULT_OPTIONS: StubOptions = {
@@ -420,10 +426,26 @@ function install(
         return Promise.reject(failure);
       }
       const known = options.available.find((repo) => repo.path === args.path);
+      // A slow open separates the command's reply from the first snapshot, the
+      // way the real backend can, which is the window the scanning state lives
+      // in.
+      const adopt = (repo: StubRepo) => {
+        options.open.push(repo);
+        if (options.openDelay) {
+          // Long enough that a test can observe the interface's scanning
+          // state before the snapshot lands.
+          setTimeout(() => announce(repo), 1500);
+        } else {
+          announce(repo);
+        }
+        return { id: repo.id, path: repo.path, location: repo.location };
+      };
+      const settle = <T,>(value: T): T | Promise<T> =>
+        options.openDelay
+          ? new Promise<T>((resolve) => setTimeout(() => resolve(value), options.openDelay))
+          : value;
       if (known) {
-        options.open.push(known);
-        announce(known);
-        return { id: known.id, path: known.path, location: known.location };
+        return settle(adopt(known));
       }
       // An unknown path still opens, because the real backend only fails when
       // the path is not a repository.
@@ -433,9 +455,7 @@ function install(
         location: args.location ?? { kind: "local" },
       } as StubRepo;
       opened += 1;
-      options.open.push(repo);
-      announce(repo);
-      return { id: repo.id, path: repo.path, location: repo.location };
+      return settle(adopt(repo));
     },
 
     close_repository: (args: any) => {
@@ -449,7 +469,13 @@ function install(
     refresh_repository: (args: any) => {
       const repo = options.open.find((item) => item.id === args.repoId);
       if (repo) {
-        announce(repo);
+        // A slow open delays every snapshot, not just the first, so a refresh
+        // that races the opening cannot end the scanning state early.
+        if (options.openDelay) {
+          setTimeout(() => announce(repo), 1500);
+        } else {
+          announce(repo);
+        }
       }
       return null;
     },
@@ -629,28 +655,35 @@ function install(
       // The clipboard copy is exercised through the clipboard plugin, which the
       // stub records; the message body is what a success would copy.
       const succeeded = name === "copyCommitMessage" ? false : !bad;
-      setTimeout(() => {
-        emit("augur://repo-event", {
-          repoId: repo.id,
-          type: "commandStarted",
-          label,
-          verb: "Working",
-        });
+      const answer = () => {
         setTimeout(() => {
           emit("augur://repo-event", {
             repoId: repo.id,
-            type: "commandDone",
+            type: "commandStarted",
             label,
-            success: succeeded,
-            message: succeeded
-              ? `Add the Tauri command surface\n\nWith a body.\n`
-              : bad
-                ? "fatal: could not read from remote"
-                : "fatal: clipboard unavailable",
+            verb: "Working",
           });
+          setTimeout(() => {
+            emit("augur://repo-event", {
+              repoId: repo.id,
+              type: "commandDone",
+              label,
+              success: succeeded,
+              message: succeeded
+                ? `Add the Tauri command surface\n\nWith a body.\n`
+                : bad
+                  ? "fatal: could not read from remote"
+                  : "fatal: clipboard unavailable",
+            });
+          }, 10);
         }, 10);
-      }, 10);
-      return null;
+        return null;
+      };
+      // A slow answer holds the interface's busy flag for the delay, which is
+      // the window a test of the busy state needs.
+      return options.actionDelay
+        ? new Promise((resolve) => setTimeout(() => resolve(answer()), options.actionDelay))
+        : answer();
     },
 
     probe_merge: () => ({
@@ -750,7 +783,10 @@ function install(
             ],
       fallback_binary: false,
     }),
-    list_wsl_distros: () => ["Ubuntu", "Debian"],
+    list_wsl_distros: () =>
+      options.wslDelay
+        ? new Promise((resolve) => setTimeout(() => resolve(["Ubuntu", "Debian"]), options.wslDelay))
+        : ["Ubuntu", "Debian"],
     probe_wsl_repository: () => null,
 
     set_language: (args: any) => {

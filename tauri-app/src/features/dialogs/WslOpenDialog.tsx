@@ -203,7 +203,13 @@ export function WslOpenDialog({
               {t(translate, "wsl-distro-label")}
             </span>
             {loading ? (
-              <Spinner size={13} />
+              <span
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                data-testid="wsl-loading-distros"
+              >
+                <Spinner size={13} />
+                {t(translate, "wsl-loading-distros")}
+              </span>
             ) : distros.length === 0 ? (
               <span className="muted" data-testid="wsl-no-distros">
                 {t(translate, "wsl-no-distros")}

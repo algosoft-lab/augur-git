@@ -32,7 +32,6 @@ async function openRepository(page: import("@playwright/test").Page) {
   await expect(page.getByTestId("repo-7")).toBeVisible();
   return stub;
 }
-
 /**
  * The fixture without its unmerged file.
  *
@@ -55,6 +54,43 @@ test.describe("toolbar operations", () => {
     // argv: the frontend never sees argv.
     await expect(page.getByTestId("status-message")).toContainText(
       LABELS.fetch ?? "",
+    );
+  });
+
+  test("says the toolbar is working while an operation runs", async ({
+    page,
+  }) => {
+    await boot(page, { open: [fixtureRepo()], actionDelay: 250 });
+    await expect(page.getByTestId("repo-7")).toBeVisible();
+
+    await page.getByTestId("toolbar-fetch").click();
+
+    // A bare spinner does not say what is holding the interface, so the busy
+    // marker carries a word.
+    await expect(page.getByTestId("toolbar-busy")).toHaveText("Working…");
+
+    // The operation still finishes and reports its label.
+    await expect(page.getByTestId("toolbar-busy")).toHaveCount(0);
+    await expect(page.getByTestId("status-message")).toContainText(
+      LABELS.fetch ?? "",
+    );
+  });
+
+  test("reports a rebase the preflight refused to start", async ({ page }) => {
+    // An unresolved merge blocks the integration actions, so the clean fixture
+    // is the one that can reach the button.
+    await boot(page, {
+      open: [cleanRepo()],
+      refusals: {
+        probe_rebase: { key: "err-git-run", detail: "fatal: cannot rebase here" },
+      },
+    });
+    await expect(page.getByTestId("repo-7")).toBeVisible();
+
+    await page.getByTestId("toolbar-pull-rebase").click();
+
+    await expect(page.getByTestId("status-message")).toHaveText(
+      "Rebase was not started: fatal: cannot rebase here",
     );
   });
 
@@ -127,6 +163,17 @@ test.describe("toolbar operations", () => {
     await expect(page.getByTestId("wsl-check-failed")).toHaveText(
       "Git is not available inside the WSL distribution: bash: git: command not found",
     );
+  });
+
+  test("says the distribution list is loading", async ({ page }) => {
+    await boot(page, { windows: true, wslDelay: 300 });
+
+    await page.getByTestId("welcome-open-wsl").click();
+    await expect(page.getByTestId("wsl-loading-distros")).toHaveText("Loading…");
+
+    // The list replaces the loading text once it arrives.
+    await expect(page.getByTestId("wsl-distro")).toBeVisible();
+    await expect(page.getByTestId("wsl-loading-distros")).toHaveCount(0);
   });
 
   test("a WSL path reason is a whole sentence with nothing to add", async ({

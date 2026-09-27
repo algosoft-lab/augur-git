@@ -80,6 +80,12 @@ export interface BootOptions {
   probeMerge?: Record<string, unknown>;
   /** Overrides for the rebase preflight probe. */
   probeRebase?: Record<string, unknown>;
+  /** How long `run_action` takes to answer, so the busy state is observable. */
+  actionDelay?: number;
+  /** How long `open_repository` takes, and its snapshot 1.5s after it. */
+  openDelay?: number;
+  /** How long the WSL distribution list takes to arrive. */
+  wslDelay?: number;
   /** Window role, from the same query parameter the backend uses. */
   window?: "main" | "compare" | "about";
   /** Repository id passed to a compare window. */
@@ -101,6 +107,9 @@ function optionsFor(options: BootOptions): StubOptions {
     failingActions: options.failingActions,
     probeMerge: options.probeMerge,
     probeRebase: options.probeRebase,
+    actionDelay: options.actionDelay,
+    openDelay: options.openDelay,
+    wslDelay: options.wslDelay,
   };
 }
 

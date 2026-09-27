@@ -13,7 +13,8 @@ import { Icon, type IconName } from "../../components/Icon";
 import { Menu, Spinner, ToolButton, type MenuItemSpec } from "../../components/controls";
 import * as ipc from "../../bridge/ipc";
 import { hasLocalBranches, useStore, type RepoState } from "../../app/store";
-import { t } from "../../i18n/strings";
+import { firstLine } from "../../app/repoState";
+import { t, ta } from "../../i18n/strings";
 
 export function Toolbar({ repo }: { repo: RepoState }) {
   const translate = useStore((state) => state.t);
@@ -169,7 +170,12 @@ export function Toolbar({ repo }: { repo: RepoState }) {
         {repo.behind}
       </span>
       <div className="toolbar__spacer" />
-      {repo.busy ? <Spinner /> : null}
+      {repo.busy ? (
+        <span className="toolbar__busy" data-testid="toolbar-busy">
+          <Spinner />
+          {t(translate, "toolbar-busy")}
+        </span>
+      ) : null}
       <ToolButton
         label={t(translate, "toolbar-refresh")}
         icon={<Icon name="refresh-cw" />}
@@ -245,8 +251,21 @@ export async function preflightRebase(
   let probe;
   try {
     probe = await ipc.probeRebase(repo.id, source);
-  } catch {
-    // The repository closed while the probe ran; the tab is already gone.
+  } catch (error) {
+    // A closed repository has nowhere to report to; anything else is a
+    // preflight failure, which the reference names with Git's own first line
+    // and a sentence that says the rebase never started.
+    if (!useStore.getState().repos[repo.id]) {
+      return;
+    }
+    const failure = ipc.describeError(error);
+    store.setMessage(
+      repo.id,
+      ta(store.t, "rebase-preflight-failed", {
+        error: firstLine(failure.detail),
+      }),
+      false,
+    );
     return;
   }
   if (probe.other_operation_in_progress || probe.rebase_in_progress) {

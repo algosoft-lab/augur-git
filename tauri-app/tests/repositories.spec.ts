@@ -1,4 +1,4 @@
-import { boot, expect, fixtureRepo, rightClick, test } from "./harness";
+import { boot, expect, fixtureRepo, rightClick, secondFixtureRepo, test } from "./harness";
 
 /**
  * Opening and closing repositories.
@@ -133,6 +133,36 @@ test.describe("repositories", () => {
     expect(
       commands.some((entry) => entry.cmd === "close_repository" && entry.args.repoId === 7),
     ).toBe(true);
+  });
+
+  test("hints what the tab close button does", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()] });
+
+    const close = page.getByTestId("tab-close-/Users/dev/projects/augur-git");
+    await expect(close).toHaveAttribute("title", "Close this repository tab");
+    await expect(close).toHaveAttribute("aria-label", "Close tab");
+  });
+
+  test("names the repository it is scanning while the first snapshot is in flight", async ({
+    page,
+  }) => {
+    // Opening from the welcome page with a slow backend separates the command's
+    // reply from the first snapshot, which is the window in which the interface
+    // can only say it is scanning.
+    await boot(page, {
+      available: [secondFixtureRepo()],
+      openDelay: 60,
+    });
+
+    await page.getByTestId("welcome-open").click();
+    await expect(page.getByTestId("repo-9")).toBeVisible();
+    await expect(page.getByTestId("status-bar")).toContainText(
+      "Scanning @ other-app",
+    );
+
+    // The snapshot ends the scanning state.
+    await expect(page.getByTestId("branch-trunk")).toBeVisible();
+    await expect(page.getByTestId("status-bar")).not.toContainText("Scanning @");
   });
 
   test("restores the tabs the workspace was saved with", async ({ page }) => {

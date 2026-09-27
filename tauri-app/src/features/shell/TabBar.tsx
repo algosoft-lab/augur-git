@@ -54,7 +54,9 @@ export function TabBar({ onNewTab }: { onNewTab: () => void }) {
             <button
               type="button"
               className="tab__close"
-              title={t(translate, "tab-close")}
+              // The hover hint says what the button does to this tab; the
+              // accessible name stays the short label.
+              title={t(translate, "tab-close-hint")}
               aria-label={t(translate, "tab-close")}
               data-testid={`tab-close-${tab.key}`}
               onClick={(event) => {

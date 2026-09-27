@@ -286,6 +286,14 @@ button {
   min-width: 8px;
 }
 
+.toolbar__busy {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-foreground);
+}
+
 .count-badge {
   display: inline-flex;
   height: 20px;
