@@ -180,6 +180,49 @@ export function GraphView({ repo }: { repo: RepoState }) {
           </span>
         ) : null}
       </div>
+      {/* The header uses the same widths as the rows, so a label always sits
+          over the column it names, and it hides the same columns. */}
+      <div className="graph-header" data-testid="graph-header">
+        <div
+          className="graph-header__graph"
+          style={{ width: laneWidth }}
+          data-testid="graph-header-graph"
+        >
+          {t(translate, "col-graph")}
+        </div>
+        <div
+          className="graph-header__label"
+          style={{ width: 60 }}
+          data-testid="graph-header-hash"
+        >
+          <span className="graph-header__divider" />
+          {t(translate, "col-hash")}
+        </div>
+        {showsMessage ? (
+          <div className="graph-header__message" data-testid="graph-header-message">
+            <span className="graph-header__divider" />
+            {t(translate, "col-message")}
+          </div>
+        ) : null}
+        {showsAuthor ? (
+          <div
+            className="graph-header__label"
+            style={{ width: 140 }}
+            data-testid="graph-header-author"
+          >
+            <span className="graph-header__divider" />
+            {t(translate, "col-author")}
+          </div>
+        ) : null}
+        <div
+          className="graph-header__label"
+          style={{ width: 120 }}
+          data-testid="graph-header-date"
+        >
+          <span className="graph-header__divider" />
+          {t(translate, "col-date")}
+        </div>
+      </div>
       <div className="graph__rows" ref={containerRef}>
         <VirtualList
           items={visibleRows}

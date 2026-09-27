@@ -470,6 +470,47 @@ button {
   background: var(--list-active-background);
 }
 
+.graph-header {
+  display: flex;
+  height: 26px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding-right: 8px;
+  background: var(--tab-bar-background);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.6875);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.graph-header__label {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+/* A hairline in the gap to the left of each column, which disappears with the
+ * column it belongs to. */
+.graph-header__divider {
+  position: absolute;
+  left: -4px;
+  top: 6px;
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+}
+
+.graph-header__graph {
+  flex: 0 0 auto;
+  padding-left: 4px;
+}
+
+.graph-header__message {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .graph-row__lanes {
   flex: 0 0 auto;
 }
@@ -527,22 +568,26 @@ button {
 }
 
 .ref-label--head {
-  border-color: var(--base-blue);
-  color: var(--base-blue);
+  border-color: color-mix(in srgb, var(--base-red) 35%, transparent);
+  background: color-mix(in srgb, var(--base-red) 14%, transparent);
+  color: var(--base-red);
 }
 
 .ref-label--localBranch {
-  border-color: var(--base-green);
-  color: var(--base-green);
+  border-color: color-mix(in srgb, var(--base-blue) 35%, transparent);
+  background: color-mix(in srgb, var(--base-blue) 14%, transparent);
+  color: var(--base-blue);
 }
 
 .ref-label--remoteBranch {
-  border-color: var(--muted-foreground);
-  color: var(--muted-foreground);
+  border-color: color-mix(in srgb, var(--base-green) 35%, transparent);
+  background: color-mix(in srgb, var(--base-green) 14%, transparent);
+  color: var(--base-green);
 }
 
 .ref-label--tag {
-  border-color: var(--warning-background);
+  border-color: color-mix(in srgb, var(--warning-background) 35%, transparent);
+  background: color-mix(in srgb, var(--warning-background) 14%, transparent);
   color: var(--warning-background);
 }
 

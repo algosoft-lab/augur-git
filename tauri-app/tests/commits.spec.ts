@@ -191,6 +191,28 @@ test.describe("commit selection", () => {
     await expect(page.getByTestId("commit-message-dialog")).toHaveCount(0);
   });
 
+  test("names each column in a header that tracks the rows", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()] });
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    // The header uses the same widths as the rows, so a label always sits over
+    // the column it names.
+    for (const column of ["graph", "hash", "message", "author", "date"]) {
+      await expect(page.getByTestId(`graph-header-${column}`)).toBeVisible();
+    }
+    await expect(page.getByTestId("graph-header-hash")).toHaveText("Hash");
+
+    // Narrowing removes the author label and then the message label, in step
+    // with the columns themselves.
+    await page.setViewportSize({ width: 1000, height: 800 });
+    await expect(page.getByTestId("graph-header-author")).toHaveCount(0);
+    await expect(page.getByTestId("graph-header-message")).toBeVisible();
+    await page.setViewportSize({ width: 800, height: 800 });
+    await expect(page.getByTestId("graph-header-message")).toHaveCount(0);
+    // The date's threshold already accounts for it, so it never goes away.
+    await expect(page.getByTestId("graph-header-date")).toBeVisible();
+  });
+
   test("hides the author and then the message when the window narrows", async ({
     page,
   }) => {
