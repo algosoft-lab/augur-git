@@ -13,12 +13,12 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
-    "test:all": "npm run typecheck && npm run test && npm run test:e2e",
+    "test:all": "bun run typecheck && bun run test && bun run test:e2e",
     "tauri": "tauri",
-    "tauri:dev": "node scripts/sidecar.mjs && tauri dev",
-    "tauri:build": "node scripts/sidecar.mjs && tauri build",
+    "tauri:dev": "bun scripts/sidecar.mjs && tauri dev",
+    "tauri:build": "bun scripts/sidecar.mjs && tauri build",
     "cli:build": "cargo build --release --bin augurgit-tauri --manifest-path src-tauri/Cargo.toml",
-    "sidecar": "node scripts/sidecar.mjs"
+    "sidecar": "bun scripts/sidecar.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.0",

@@ -57,29 +57,29 @@ makes it reusable from a Tauri command.
 ## Requirements
 
 - Rust 1.90 or newer (the workspace uses edition 2024)
-- Node.js 20 or newer
+- Bun 1.2 or newer as the package manager and script runner
 - The platform webview development packages, listed in
   `src-tauri/Cargo.toml` and the Tauri prerequisites
 
 ## Commands
 
 ```bash
-npm install          # frontend dependencies
-npm run tauri:dev    # build the CLI companion, then run the app in dev mode
-npm run tauri:build  # produce a platform bundle
-npm run tauri:build -- --bundles app   # one platform's bundle only
-npm run typecheck    # TypeScript, no emit
-npm test             # unit tests for the pure interface logic
-npm run test:e2e     # browser tests for the whole interface
-npm run test:all     # all three, in order
+bun install          # frontend dependencies
+bun run tauri:dev    # build the CLI companion, then run the app in dev mode
+bun run tauri:build  # produce a platform bundle
+bun run tauri:build -- --bundles app   # one platform's bundle only
+bun run typecheck    # TypeScript, no emit
+bun test             # unit tests for the pure interface logic
+bun run test:e2e     # browser tests for the whole interface
+bun run test:all     # all three, in order
 cargo test --manifest-path src-tauri/Cargo.toml   # Rust unit tests
 ```
 
-`npm run tauri:dev` and `npm run tauri:build` run `scripts/sidecar.mjs` first.
+`bun run tauri:dev` and `bun run tauri:build` run `scripts/sidecar.mjs` first.
 That script compiles the `augurgit-tauri` companion and copies it to
 `src-tauri/binaries/`, where the Tauri bundler expects a sidecar. A bare
 `cargo build` has no such hook, so `build.rs` writes a clearly labelled
-placeholder instead; the real binary is only ever produced by the npm scripts.
+placeholder instead; the real binary is only ever produced by the bun scripts.
 
 On macOS the `.app` bundle is produced by either form, and the `.dmg` is a
 wrapper around the same `.app`. The wrapper is produced by Tauri's

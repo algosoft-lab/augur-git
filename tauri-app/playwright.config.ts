@@ -30,7 +30,7 @@ export default defineConfig({
     // Bound to IPv4 explicitly: the dev server otherwise listens on whatever
     // `localhost` resolves to first, which is not always the loopback address
     // the test runner polls.
-    command: "npm run dev -- --port 1420 --strictPort --host 127.0.0.1",
+    command: "bun run dev --port 1420 --strictPort --host 127.0.0.1",
     url: "http://127.0.0.1:1420",
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
