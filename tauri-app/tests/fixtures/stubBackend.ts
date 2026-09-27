@@ -970,6 +970,25 @@ function install(
 
     graph_layout: (args: any) => graphLayout(args.rows),
 
+    // The same constants as the Rust layout, so the columns appear at the same
+    // widths the real backend uses.
+    column_visibility: (args: any) => {
+      const hash = 60;
+      const author = 140;
+      const date = 120;
+      const messageMin = 120;
+      const gap = 8;
+      const padRight = 8;
+      return {
+        author:
+          args.totalWidth >=
+          args.treeWidth + hash + author + date + 4 * gap + padRight + messageMin,
+        message:
+          args.totalWidth >=
+          args.treeWidth + hash + date + 3 * gap + padRight + messageMin,
+      };
+    },
+
     run_action: (args: any) => {
       const repo = options.open.find((item) => item.id === args.repoId);
       if (!repo) {

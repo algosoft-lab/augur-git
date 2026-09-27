@@ -191,6 +191,38 @@ test.describe("commit selection", () => {
     await expect(page.getByTestId("commit-message-dialog")).toHaveCount(0);
   });
 
+  test("hides the author and then the message when the window narrows", async ({
+    page,
+  }) => {
+    await boot(page, { open: [secondFixtureRepo()] });
+
+    // The lane area is 12 + 24 * lanes + 8, and the two columns need their own
+    // widths on top of the message minimum. The thresholds are the backend's,
+    // so this asserts the whole column rule rather than a duplicated formula.
+    const thresholds = await page.evaluate(() =>
+      (window as any).__STUB__.log
+        .filter((entry: any) => entry.cmd === "column_visibility")
+        .map((entry: any) => entry.args),
+    );
+    expect((thresholds as unknown[]).length).toBeGreaterThan(0);
+
+    // At the default width both optional columns are present.
+    await expect(page.locator(".graph-row__author").first()).toBeVisible();
+    await expect(page.locator(".graph-row__subject").first()).toBeVisible();
+
+    // The author goes first, because its threshold is the higher of the two.
+    await page.setViewportSize({ width: 1000, height: 800 });
+    await expect(page.locator(".graph-row__author")).toHaveCount(0);
+    await expect(page.locator(".graph-row__subject").first()).toBeVisible();
+
+    // The subject goes next. The date and the hash stay: the threshold for the
+    // subject already accounts for the date, and the hash identifies the row.
+    await page.setViewportSize({ width: 800, height: 800 });
+    await expect(page.locator(".graph-row__subject")).toHaveCount(0);
+    await expect(page.locator(".graph-row__date").first()).toBeVisible();
+    await expect(page.locator(".graph-row__hash").first()).toBeVisible();
+  });
+
   test("filters the graph by commit message", async ({ page }) => {
     await boot(page, { open: [secondFixtureRepo()] });
     await expect(page.locator(".graph-row")).toHaveCount(1);

@@ -513,11 +513,22 @@ pub struct GraphLayout {
 
 /// Whether the author and message columns fit the available width.
 ///
-/// The thresholds are the same constants the Rust layout uses, so the webview
-/// and the reference application reveal columns at the same width.
+/// The thresholds live in one place, so the webview reveals columns at exactly
+/// the width the reference application does. The frontend asks rather than
+/// recomputing, which is what keeps the two definitions from drifting.
 #[tauri::command]
-pub fn column_visibility(total_width: f32, tree_width: f32) -> (bool, bool) {
-    augur_core::graph::column_visibility(total_width, tree_width)
+pub fn column_visibility(total_width: f32, tree_width: f32) -> ColumnVisibility {
+    let (author, message) = augur_core::graph::column_visibility(total_width, tree_width);
+    ColumnVisibility { author, message }
+}
+
+/// Which of the two optional commit-list columns fit.
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct ColumnVisibility {
+    /// The author column is wide enough to read.
+    pub author: bool,
+    /// The message column is wide enough to read.
+    pub message: bool,
 }
 
 /// Set the history scope preference and tell the caller whether the loaded

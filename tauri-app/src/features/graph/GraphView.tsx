@@ -27,17 +27,22 @@ import type {
 import { useStore, type RepoState } from "../../app/store";
 import { LANE_COLORS } from "../../styles/themes";
 import { t, ta } from "../../i18n/strings";
-import { GraphSvg, ROW_HEIGHT, type LaneGeometry } from "./GraphSvg";
+import {
+  COL_WIDTH,
+  GRAPH_LEFT_PAD,
+  GraphSvg,
+  ROW_HEIGHT,
+  type LaneGeometry,
+} from "./GraphSvg";
 import { filterCommits, type CommitSearchField } from "./commitSearch";
 
 /** Rows from the end of the list that trigger the next page request. */
 const LOAD_AHEAD_ROWS = 30;
-const HASH_COL_WIDTH = 60;
-const AUTHOR_COL_WIDTH = 140;
-const DATE_COL_WIDTH = 120;
-const MESSAGE_MIN_WIDTH = 120;
-const COL_GAP = 8;
-const ROW_PAD_RIGHT = 8;
+
+/** Width of the lane area for a graph with this many lanes. */
+export function laneAreaWidth(laneCount: number): number {
+  return GRAPH_LEFT_PAD + laneCount * COL_WIDTH + 8;
+}
 
 export function GraphView({ repo }: { repo: RepoState }) {
   const translate = useStore((state) => state.t);
@@ -108,9 +113,14 @@ export function GraphView({ repo }: { repo: RepoState }) {
     void ipc.loadMoreLogPage(repo.id);
   };
 
-  const treeWidth = 12 + (maxLanes(layout.graph) + 1) * 24 + 8;
-  const showsAuthor = width >= treeWidth + HASH_COL_WIDTH + AUTHOR_COL_WIDTH + DATE_COL_WIDTH + 4 * COL_GAP + ROW_PAD_RIGHT + MESSAGE_MIN_WIDTH;
-  const showsMessage = width >= treeWidth + HASH_COL_WIDTH + DATE_COL_WIDTH + 3 * COL_GAP + ROW_PAD_RIGHT + MESSAGE_MIN_WIDTH;
+  // The thresholds belong to the backend, so a column appears at exactly the
+  // width it does in the reference application. The answer is only needed when
+  // the width or the lane count actually changes.
+  const lanes = maxLanes(layout.graph);
+  const laneWidth = laneAreaWidth(lanes);
+  const columns = useColumnVisibility(width, laneWidth);
+  const showsAuthor = columns.author;
+  const showsMessage = columns.message;
 
   const fieldItems = [
     {
@@ -196,7 +206,7 @@ export function GraphView({ repo }: { repo: RepoState }) {
                 row={row}
                 graphRow={graphRow}
                 labels={layout.labels[row.oid] ?? []}
-                laneWidth={treeWidth}
+                laneWidth={laneWidth}
                 selected={selected}
                 showsAuthor={showsAuthor}
                 showsMessage={showsMessage}
@@ -330,26 +340,36 @@ function GraphRowView({
           <span className="graph-row__lanes" style={{ width: laneWidth }} />
         )}
         <span className="graph-row__hash">{row.short}</span>
+        {/*
+         * The order matters: the subject takes the remaining space, the ref
+         * chips follow it, and the author and date are fixed at the right. The
+         * date is always shown, because the threshold for the message column
+         * already accounts for it.
+         */}
+        {showsMessage ? (
+          <span className="graph-row__subject" title={row.subject}>
+            {row.subject}
+          </span>
+        ) : null}
+        {labels.length ? (
+          <span className="graph-row__chips">
+            {labels.map((label) => (
+              <span
+                key={`${label.kind}-${label.name}`}
+                className={`ref-label ref-label--${label.kind}`}
+              >
+                {label.name}
+              </span>
+            ))}
+          </span>
+        ) : null}
         {showsAuthor ? (
           <span className="graph-row__author" title={row.author}>
             {row.author}
           </span>
         ) : null}
-        {showsMessage ? (
-          <span className="graph-row__date" title={row.date}>
-            {relative}
-          </span>
-        ) : null}
-        <span className="graph-row__message">
-          <span className="graph-row__subject">{row.subject}</span>
-          {labels.map((label) => (
-            <span
-              key={`${label.kind}-${label.name}`}
-              className={`ref-label ref-label--${label.kind}`}
-            >
-              {label.name}
-            </span>
-          ))}
+        <span className="graph-row__date" title={row.date}>
+          {relative}
         </span>
       </div>
       {hovered && repo.commitMessages[row.oid] ? (
@@ -463,8 +483,9 @@ function CommitMessageDialog({
   );
 }
 
-function maxLanes(rows: GraphRow[]): number {
-  let max = 0;
+/** The widest lane count in the layout, one lane when the graph is empty. */
+export function maxLanes(rows: GraphRow[]): number {
+  let max = 1;
   for (const row of rows) {
     if (row.lane_count > max) {
       max = row.lane_count;
@@ -473,12 +494,47 @@ function maxLanes(rows: GraphRow[]): number {
   return max;
 }
 
-/** Relative time, using the same thresholds and keys as the reference app. */
+/**
+ * Ask the backend which columns fit, once per distinct measurement.
+ *
+ * The first answer is the pessimistic one so a narrow window does not briefly
+ * render columns it has no room for.
+ */
+function useColumnVisibility(
+  totalWidth: number,
+  laneWidth: number,
+): { author: boolean; message: boolean } {
+  const [visibility, setVisibility] = useState({ author: false, message: false });
+  useEffect(() => {
+    let cancelled = false;
+    void ipc
+      .columnVisibility(totalWidth, laneWidth)
+      .then((result) => {
+        if (!cancelled) {
+          setVisibility(result);
+        }
+      })
+      .catch(() => {
+        // The repository closed while the answer was in flight.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [totalWidth, laneWidth]);
+  return visibility;
+}
+
+/**
+ * Relative time, using the same thresholds and keys as the reference app.
+ *
+ * The reference in Unix seconds, as a parameter rather than a clock read, so a
+ * test can state the expected answer instead of freezing the clock.
+ */
 export function relativeTime(
   timestamp: number,
   translate: (key: string, args?: Record<string, string | number>) => string,
+  now: number = Math.floor(Date.now() / 1000),
 ): string {
-  const now = Math.floor(Date.now() / 1000);
   const minutes = Math.max(0, Math.floor((now - timestamp) / 60));
   if (minutes < 1) {
     return translate("rel-now");

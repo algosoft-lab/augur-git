@@ -30,6 +30,7 @@ import type {
   LogRow,
   MergeProbe,
   OpenTabConfig,
+  ColumnVisibility,
   RefLabel,
   RebaseProbe,
   RepoEventEnvelope,
@@ -214,6 +215,22 @@ export async function graphLayout(
   remoteNames: string[],
 ): Promise<GraphLayout> {
   return invoke<GraphLayout>("graph_layout", { rows, remoteNames });
+}
+
+/**
+ * Ask which commit-list columns fit.
+ *
+ * The thresholds are the backend's, so a column appears at exactly the width it
+ * does in the reference application.
+ */
+export async function columnVisibility(
+  totalWidth: number,
+  treeWidth: number,
+): Promise<ColumnVisibility> {
+  return invoke<ColumnVisibility>("column_visibility", {
+    totalWidth,
+    treeWidth,
+  });
 }
 
 export async function listFontFamilies(): Promise<string[]> {

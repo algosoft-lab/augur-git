@@ -379,6 +379,12 @@ export interface RepoSummary {
   location: LocationConfig;
 }
 
+/** Which optional commit-list columns fit the available width. */
+export interface ColumnVisibility {
+  author: boolean;
+  message: boolean;
+}
+
 export interface Bootstrap {
   window: string;
   config: AppConfig;

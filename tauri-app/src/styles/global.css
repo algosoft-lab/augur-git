@@ -477,7 +477,7 @@ button {
 .graph-row__hash {
   flex: 0 0 auto;
   width: 60px;
-  color: var(--muted-foreground);
+  color: var(--base-blue);
   font-family: var(--mono-font-family);
   font-size: calc(var(--ui-font-size) * 0.6875);
 }
@@ -499,15 +499,16 @@ button {
   white-space: nowrap;
 }
 
-.graph-row__message {
+.graph-row__chips {
   display: flex;
-  min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .graph-row__subject {
+  min-width: 0;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -515,10 +516,9 @@ button {
 
 .ref-label {
   display: inline-flex;
-  height: 16px;
   flex: 0 0 auto;
   align-items: center;
-  padding: 0 4px;
+  padding: 1px 5px;
   border: 1px solid var(--border);
   border-radius: 3px;
   font-size: calc(var(--ui-font-size) * 0.625);
@@ -569,6 +569,8 @@ button {
   padding: 0 8px;
   background: var(--tab-bar-background);
   border-bottom: 1px solid var(--border);
+  /* The row is a fixed height, so nothing in it may wrap onto a second line. */
+  white-space: nowrap;
   font-size: calc(var(--ui-font-size) * 0.6875);
 }
 
