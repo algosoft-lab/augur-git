@@ -230,7 +230,25 @@ state, and terminal transcripts are not persisted across application restarts.
 
 Building requires a recent stable Rust toolchain (edition 2024).
 
+## A second application: Augur Git Tauri
+
+The [`tauri-app/`](tauri-app/README.md) directory holds a second, independent
+desktop Git client, built with Tauri 2, React, and Vite. It is a separate
+product from the GPUI application this README describes: a different name and
+desktop binary (`augur-git-tauri`), a different shell command
+(`augurgit-tauri`), a different bundle identifier (`com.augur.git.tauri`),
+and its own configuration directory. The two can be installed and run side by
+side, and neither reads or writes the other's files.
+
+Its goal is feature parity with the GPUI application built
+`--no-default-features`: no coding-agent integration, no embedded terminal,
+and no Lua extension runtime. Its requirements, commands, and architecture
+are documented in [`tauri-app/README.md`](tauri-app/README.md).
+
 ## Getting started
+
+Everything in this section builds the GPUI application. The Tauri application
+in `tauri-app/` is built and run with its own commands; see its README.
 
 1. Install a stable Rust toolchain via [rustup](https://rustup.rs).
 2. Make sure `git` is available on `PATH`.
