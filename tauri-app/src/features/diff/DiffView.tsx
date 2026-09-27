@@ -45,6 +45,15 @@ export interface DiffViewProps {
   forceInline?: boolean;
   loading?: boolean;
   error?: string | null;
+  /**
+   * What to say while loading, and above an error.
+   *
+   * Passed in rather than hardcoded, because the panel and the comparison window
+   * load the same way but mean different things by it, and a spinner with no
+   * label reads as a frozen view.
+   */
+  loadingMessage?: string;
+  errorLabel?: string;
   testId?: string;
   emptyMessage?: string;
   /** Title of the toolbar above a multi-document view. */
@@ -86,6 +95,8 @@ export function DiffView({
   forceInline = false,
   loading,
   error,
+  loadingMessage,
+  errorLabel,
   testId,
   emptyMessage,
   header,
@@ -123,7 +134,19 @@ export function DiffView({
 
   if (error) {
     return (
-      <div className="diff" data-testid={testId}>
+      <div
+        className="diff"
+        data-testid={testId}
+        style={{ alignItems: "center", justifyContent: "center" }}
+      >
+        {/* A heading and a reason, as the reference splits them: the heading
+            says what failed and the reason says why, and Git's own words are
+            only useful once the reader knows which step they belong to. */}
+        {errorLabel ? (
+          <div className="diff-state-label" data-testid="diff-error-label">
+            {errorLabel}
+          </div>
+        ) : null}
         <EmptyState message={error} testId="diff-error" />
       </div>
     );
@@ -136,6 +159,11 @@ export function DiffView({
         style={{ alignItems: "center", justifyContent: "center" }}
       >
         <Spinner size={16} />
+        {loadingMessage ? (
+          <div className="muted" data-testid="diff-loading-label">
+            {loadingMessage}
+          </div>
+        ) : null}
       </div>
     );
   }

@@ -40,7 +40,6 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
   const showUntracked = useStore((state) => state.config.view.show_untracked);
   const selectWorkingFile = useStore((state) => state.selectWorkingFile);
   const openOverlay = useStore((state) => state.openOverlay);
-  const setMessage = useStore((state) => state.setMessage);
   const [collapsed, setCollapsed] = useState<string[]>([]);
 
   const busy = repo.busy;
@@ -86,7 +85,9 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
       useStore.getState().setBusy(repo.id, true);
       void requestId;
     } catch (error) {
-      setMessage(repo.id, ipc.describeError(error).detail, false);
+      // Localized, not the raw detail: a refused command has a sentence written
+      // for it, and the detail is only half of that sentence.
+      useStore.getState().reportError(repo.id, error);
     }
   };
 

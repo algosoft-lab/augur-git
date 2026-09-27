@@ -477,8 +477,14 @@ where
 {
     tauri::async_runtime::spawn_blocking(body)
         .await
+        // The blocking pool itself failed, which is not Git's fault and has no
+        // detail worth showing.
         .map_err(|error| CommandError::new("err-worker", error.to_string()))?
-        .map_err(|error| CommandError::new("err-git", error))
+        // Git ran and said no. `err-git-run` carries the detail, and Git's own
+        // explanation is the only useful thing in the message; `err-git` has no
+        // placeholder, so using it would print a fixed sentence and throw the
+        // reason away.
+        .map_err(|detail| CommandError::new("err-git-run", detail))
 }
 
 /// Lane layout and ref labels for one page of commits.
@@ -540,4 +546,96 @@ pub fn set_graph_history(
 ) -> Result<()> {
     state.update_settings(|settings| settings.config.view.graph_history = preference);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use super::*;
+
+    /// Every `.rs` file under `src-tauri/src`, since a key can be produced by
+    /// any command and the point of the check is that none of them is a typo.
+    fn command_sources() -> Vec<PathBuf> {
+        fn walk(directory: &Path, found: &mut Vec<PathBuf>) {
+            let mut entries: Vec<PathBuf> = std::fs::read_dir(directory)
+                .expect("src-tauri/src is readable")
+                .map(|entry| entry.expect("a directory entry").path())
+                .collect();
+            entries.sort();
+            for path in entries {
+                if path.is_dir() {
+                    walk(&path, found);
+                } else if path.extension().is_some_and(|extension| extension == "rs") {
+                    found.push(path);
+                }
+            }
+        }
+        let mut found = Vec::new();
+        walk(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut found);
+        assert!(!found.is_empty(), "no command sources were found");
+        found
+    }
+
+    /// The first string literal of every `CommandError::new(...)` call.
+    ///
+    /// Parsed rather than listed, because a hand-written list of the same keys
+    /// would drift from the code it is supposed to check, and a drifted list
+    /// still passes. Each file is cut at its test module, which is where this
+    /// scanner's own `CommandError::new("` literals live.
+    fn produced_keys() -> Vec<String> {
+        const MARKER: &str = "CommandError::new(";
+        let mut keys = Vec::new();
+        for path in command_sources() {
+            let text = std::fs::read_to_string(&path).expect("a readable source file");
+            let text = text.split("#[cfg(test)]").next().unwrap_or(text.as_str());
+            let mut rest = text;
+            while let Some(at) = rest.find(MARKER) {
+                rest = &rest[at + MARKER.len()..];
+                let Some(open) = rest.find('"') else {
+                    break;
+                };
+                rest = &rest[open + 1..];
+                let Some(close) = rest.find('"') else {
+                    break;
+                };
+                keys.push(rest[..close].to_string());
+                rest = &rest[close + 1..];
+            }
+        }
+        keys.sort();
+        keys.dedup();
+        keys
+    }
+
+    #[test]
+    fn every_error_key_a_command_can_produce_exists_in_the_catalog() {
+        let catalog = augur_core::i18n::catalog(augur_core::i18n::Locale::English);
+        let keys = produced_keys();
+        assert!(
+            keys.len() > 5,
+            "the scan found almost nothing, so it is not looking at the right code"
+        );
+        let missing: Vec<&String> = keys
+            .iter()
+            .filter(|key| !catalog.contains_key(key.as_str()))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "these keys are not in en-US.ftl, so the webview would print the key itself: {missing:?}"
+        );
+    }
+
+    #[test]
+    fn a_git_failure_keeps_gits_own_explanation() {
+        // The key has to carry the detail, or the one message worth reading is
+        // thrown away in favour of a fixed sentence.
+        let error = CommandError::new("err-git-run", "fatal: not a git repository");
+        let rendered = augur_core::i18n::text_args(
+            augur_core::i18n::Locale::English,
+            &error.key,
+            &[("detail", error.detail.as_str())],
+        );
+        assert!(rendered.contains("fatal: not a git repository"), "{rendered}");
+    }
 }

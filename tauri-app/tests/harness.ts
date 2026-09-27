@@ -44,6 +44,21 @@ export interface BootOptions {
   /** Milliseconds the comparison's per-file diffs take to arrive. */
   compareDelay?: number;
   /**
+   * Commands the backend refuses, with the key and detail it refuses them with.
+   */
+  refusals?: Record<string, { key: string; detail: string }>;
+  /** Make every working-tree file diff fail with this detail. */
+  workingDiffFailure?: string;
+  /** How long a working-tree file diff takes to arrive. */
+  workingDiffDelay?: number;
+  /**
+   * Report the browser as Windows, so the platform-only entry points render.
+   *
+   * `navigator.platform` is the only thing the interface asks, so overriding it
+   * is enough to reach a Windows-only surface from a Chromium test on macOS.
+   */
+  windows?: boolean;
+  /**
    * Paths the backend is holding because the window was not listening when they
    * arrived, which is the state a launch with a path argument produces.
    */
@@ -73,6 +88,9 @@ function optionsFor(options: BootOptions): StubOptions {
   return {
     open: options.open ?? [],
     compareDelay: options.compareDelay,
+    refusals: options.refusals,
+    workingDiffFailure: options.workingDiffFailure,
+    workingDiffDelay: options.workingDiffDelay,
     pendingPaths: options.pendingPaths,
     savedTabs: options.savedTabs,
     available: options.available ?? [fixtureRepo(), secondFixtureRepo()],
@@ -92,6 +110,14 @@ export async function boot(
   const params = new URLSearchParams({ window: role });
   if (role === "compare" && options.repoId !== undefined) {
     params.set("repo", String(options.repoId));
+  }
+  if (options.windows) {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "platform", {
+        value: "Win32",
+        configurable: true,
+      });
+    });
   }
   await page.addInitScript(stubSource(optionsFor(options)));
   await page.goto(`/?${params.toString()}`);

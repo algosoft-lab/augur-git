@@ -46,6 +46,14 @@ export interface StubOptions {
   openFailure?: { key: string; detail: string };
   /** Reject `run_action` for these action names. */
   failingActions?: string[];
+  /**
+   * Commands the backend refuses, with the key and detail it refuses them with.
+   *
+   * Separate from `failingActions`, which makes a command *run* and report a
+   * failure; this one makes it refuse, which is the path that has to localize
+   * the key rather than paste the detail.
+   */
+  refusals?: Record<string, { key: string; detail: string }>;
   /** Overrides for the merge preflight probe. */
   probeMerge?: Record<string, unknown>;
   /** Overrides for the rebase preflight probe. */
@@ -110,6 +118,7 @@ function install(
   const log: { cmd: string; args: unknown }[] = [];
   const failure = options.openFailure ?? null;
   const failing = new Set(options.failingActions ?? []);
+  const refusals = options.refusals ?? {};
   let opened = 0;
   let requestCounter = 0;
   let compareRequest = 0;
@@ -516,19 +525,22 @@ function install(
       if (!repo) {
         return requestId;
       }
+      const failDetail = options.workingDiffFailure ?? null;
+      const delay = options.workingDiffDelay ?? 30;
       const document = diffFor(args.file.path, "rust");
       // A short delay makes the loading state observable, which is the point of
       // testing it in a browser.
       setTimeout(() => {
         emit("augur://repo-event", {
           repoId: repo.id,
-          type: "workingTreeFileDiff",
+          type: failDetail ? "workingTreeFileDiffError" : "workingTreeFileDiff",
           requestId,
           kind: args.kind,
           file: args.file,
-          document,
+          detail: failDetail ?? "",
+          document: failDetail ? undefined : document,
         });
-      }, 30);
+      }, failDetail ? Math.max(delay, 400) : delay);
       return requestId;
     },
 
@@ -834,6 +846,14 @@ function install(
     },
     async invoke(cmd: string, args: any = {}): Promise<unknown> {
       log.push({ cmd, args });
+      // A refusal configured for this command, so a test can assert on how the
+      // interface renders a keyed failure rather than only that a bare one
+      // arrives. Resolved before the handlers, because the point of it is that
+      // the command never runs.
+      const refused = refusals[cmd];
+      if (refused) {
+        return Promise.reject(refused);
+      }
       if (cmd in handlers) {
         return handlers[cmd]!(args);
       }

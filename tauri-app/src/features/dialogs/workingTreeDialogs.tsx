@@ -211,9 +211,7 @@ export function DiscardDialog({
                 useStore.getState().setBusy(repoId, true);
                 closeOverlay();
               } catch (error) {
-                useStore
-                  .getState()
-                  .setMessage(repoId, ipc.describeError(error).detail, false);
+                useStore.getState().reportError(repoId, error);
                 setBusy(false);
               }
             }}

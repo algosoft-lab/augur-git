@@ -12,14 +12,23 @@ import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../../components/Icon";
 import { DialogCard, Spinner, TextInput } from "../../components/controls";
 import * as ipc from "../../bridge/ipc";
-import { useStore } from "../../app/store";
+import { renderGitError, useStore } from "../../app/store";
 import { t } from "../../i18n/strings";
 
+/**
+ * Why the current distribution and path cannot be opened.
+ *
+ * A key and a detail rather than a finished sentence, because the two kinds of
+ * failure are not the same shape. A `wsl-path-*` reason is a complete sentence
+ * with nothing to add, and a probe failure is a sentence with Git's own words
+ * substituted into it. Rendering at the point of display keeps that distinction
+ * in one place instead of deciding it twice.
+ */
 type Validation =
   | { kind: "idle" }
   | { kind: "checking" }
   | { kind: "ok" }
-  | { kind: "failed"; detail: string };
+  | { kind: "failed"; key: string; detail: string };
 
 /** Split a pasted `\\wsl$\Distro\path` into its two halves. */
 export function splitUncPath(
@@ -76,7 +85,10 @@ export function WslOpenDialog({
   const [distro, setDistro] = useState<string | null>(null);
   const [path, setPath] = useState("");
   const [validation, setValidation] = useState<Validation>({ kind: "idle" });
-  const [error, setError] = useState<string | null>(null);
+  // A key and a detail, for the same reason as the probe's validation: the
+  // backend has a sentence for "this is not a Windows build" and the raw
+  // transport error does not say it.
+  const [error, setError] = useState<{ key: string; detail: string } | null>(null);
 
   const loadDistros = useCallback(async () => {
     setLoading(true);
@@ -85,7 +97,7 @@ export function WslOpenDialog({
       setDistros(names);
       setDistro((current) => current ?? names[0] ?? null);
     } catch (failure) {
-      setError(ipc.describeError(failure).detail);
+      setError(ipc.describeError(failure));
     } finally {
       setLoading(false);
     }
@@ -115,7 +127,7 @@ export function WslOpenDialog({
     // about the path.
     const reason = validateLinuxPath(path);
     if (reason) {
-      setValidation({ kind: "failed", detail: t(translate, `wsl-path-${reason}`) });
+      setValidation({ kind: "failed", key: `wsl-path-${reason}`, detail: "" });
       return;
     }
     let cancelled = false;
@@ -130,9 +142,15 @@ export function WslOpenDialog({
         })
         .catch((failure) => {
           if (!cancelled) {
+            // The backend distinguishes a missing distribution, a distribution
+            // without Git, a path that is not a repository, and a path that does
+            // not exist. Showing the raw detail collapsed all four into the same
+            // unreadable line.
+            const error = ipc.describeError(failure);
             setValidation({
               kind: "failed",
-              detail: ipc.describeError(failure).detail,
+              key: error.key,
+              detail: error.detail,
             });
           }
         });
@@ -164,7 +182,7 @@ export function WslOpenDialog({
     if (validation.kind === "failed") {
       return (
         <span className="status-conflict" data-testid="wsl-check-failed">
-          {validation.detail}
+          {renderGitError(translate, validation.key, validation.detail)}
         </span>
       );
     }
@@ -234,7 +252,11 @@ export function WslOpenDialog({
             />
           </div>
           {status}
-          {error ? <div className="status-conflict">{error}</div> : null}
+          {error ? (
+            <div className="status-conflict" data-testid="wsl-load-error">
+              {renderGitError(translate, error.key, error.detail)}
+            </div>
+          ) : null}
           {/* A hint, not a setting: it is drawn as a permanently ticked box,
               which reads as something that is on and cannot be turned off. */}
           <div className="settings__hint" data-testid="wsl-path-hint">

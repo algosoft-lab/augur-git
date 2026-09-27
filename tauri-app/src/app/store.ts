@@ -170,6 +170,14 @@ interface AppStore {
   refresh: (repoId: number) => Promise<void>;
   setBusy: (repoId: number, busy: boolean) => void;
   setMessage: (repoId: number, text: string, ok: boolean | null) => void;
+  /**
+   * Turn a rejected command into the repository's status message.
+   *
+   * One place, so that every call site localizes the backend's key instead of
+   * pasting its raw detail: `err-repo-closed` has a sentence written for it, and
+   * showing the detail alone means showing "repository 7 is no longer open".
+   */
+  reportError: (repoId: number, error: unknown) => string;
   selectCommit: (repoId: number, oid: string, short: string, subject: string) => Promise<void>;
   clearCommit: (repoId: number) => void;
   selectWorkingFile: (repoId: number, staged: boolean, file: FileStatus) => Promise<void>;
@@ -702,6 +710,13 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     set({ repos: { ...get().repos, [repoId]: { ...repo, message: { text, ok } } } });
   },
 
+  reportError(repoId, error) {
+    const failure = ipc.describeError(error);
+    const text = renderGitError(get().t, failure.key, failure.detail);
+    get().setMessage(repoId, text, false);
+    return text;
+  },
+
   async selectCommit(repoId, oid, short, subject) {
     const repo = get().repos[repoId];
     if (!repo) {
@@ -828,9 +843,8 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     try {
       await ipc.runAction(repoId, action);
     } catch (error) {
-      const failure = ipc.describeError(error);
       get().setBusy(repoId, false);
-      get().setMessage(repoId, renderGitError(get().t, failure.key, failure.detail), false);
+      get().reportError(repoId, error);
     }
   },
 

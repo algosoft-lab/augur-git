@@ -58,8 +58,7 @@ export function MergeDialog({ noFf }: { noFf: boolean }) {
       closeOverlay();
       void runAction(repoId, { action: "merge", source, noFf: withNoFf });
     } catch (error) {
-      const failure = ipc.describeError(error);
-      useStore.getState().setMessage(repoId, failure.detail, false);
+      useStore.getState().reportError(repoId, error);
       setBusy(false);
     }
   };

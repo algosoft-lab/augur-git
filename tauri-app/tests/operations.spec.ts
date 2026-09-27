@@ -105,6 +105,107 @@ test.describe("toolbar operations", () => {
     await expect(page.getByTestId("changes-unstage-all")).toBeEnabled();
   });
 
+  test("tells the four WSL failures apart", async ({ page }) => {
+    // The backend distinguishes a missing distribution, a distribution without
+    // Git, a path that is not a repository, and a path that does not exist. The
+    // dialog showed the raw detail for all four, which is a line of transport
+    // text with nothing in it saying which of the four had happened.
+    await boot(page, {
+      windows: true,
+      refusals: {
+        probe_wsl_repository: {
+          key: "err-wsl-git-missing",
+          detail: "bash: git: command not found",
+        },
+      },
+    });
+
+    await page.getByTestId("welcome-open-wsl").click();
+    await expect(page.getByTestId("wsl-dialog")).toBeVisible();
+
+    await page.getByTestId("wsl-path").fill("/home/dev/repo");
+    await expect(page.getByTestId("wsl-check-failed")).toHaveText(
+      "Git is not available inside the WSL distribution: bash: git: command not found",
+    );
+  });
+
+  test("a WSL path reason is a whole sentence with nothing to add", async ({
+    page,
+  }) => {
+    await boot(page, { windows: true });
+
+    await page.getByTestId("welcome-open-wsl").click();
+    await page.getByTestId("wsl-path").fill("home/dev/repo");
+
+    // The reason keys have no `{ $detail }`, so rendering must not append the
+    // empty detail and produce a sentence with a stray colon.
+    await expect(page.getByTestId("wsl-check-failed")).toHaveText(
+      "Enter an absolute Linux path starting with /",
+    );
+  });
+
+  test("names the working-tree diff's loading and failure states", async ({
+    page,
+  }) => {
+    // The loading state only exists while the diff is in flight, so the diff has
+    // to be slow for it to be observable at all.
+    await boot(page, { open: [fixtureRepo()], workingDiffDelay: 600 });
+
+    // A bare spinner and a bare error both read as a broken panel, so the
+    // reference names both and so does this.
+    await page.getByTestId("changes-file-src/main.rs").first().click();
+    await expect(page.getByTestId("diff-loading-label")).toHaveText(
+      "Loading working-tree diff\u2026",
+    );
+    await page.getByTestId("diff-hunk").first().waitFor();
+    await expect(page.getByTestId("diff-loading-label")).toHaveCount(0);
+  });
+
+  test("puts a heading above a failed working-tree diff's reason", async ({
+    page,
+  }) => {
+    await boot(page, {
+      open: [fixtureRepo()],
+      workingDiffFailure: "fatal: unable to read the working tree",
+    });
+
+    await page.getByTestId("changes-file-src/main.rs").first().click();
+    // The heading says what failed; Git's own words say why. Without the
+    // heading the reason has no subject.
+    await expect(page.getByTestId("diff-error-label")).toHaveText(
+      "Unable to load working-tree diff",
+    );
+    await expect(page.getByTestId("diff-error")).toContainText(
+      "fatal: unable to read the working tree",
+    );
+  });
+
+  test("localizes a refused command rather than pasting its detail", async ({
+    page,
+  }) => {
+    // A refusal carries a catalog key and a detail, and only the key is written
+    // for a reader. The interface showed the detail alone, so a Git failure
+    // arrived as a bare `fatal:` line with nothing saying what it was a failure
+    // of.
+    await boot(page, {
+      open: [fixtureRepo()],
+      refusals: {
+        working_tree_operation: {
+          key: "err-git-run",
+          detail: "fatal: pathspec did not match any files",
+        },
+      },
+    });
+
+    await page.getByTestId("changes-file-src/main.rs").first().click();
+    await page.getByTestId("changes-toggle-src/main.rs").first().click();
+
+    // The key's own sentence, with Git's words inside it.
+    await expect(page.getByTestId("status-message")).toHaveText(
+      "Failed to run git: fatal: pathspec did not match any files",
+    );
+  });
+
   test("reports a failed operation without losing the repository", async ({
     page,
   }) => {

@@ -864,6 +864,12 @@ button {
   color: var(--base-red);
 }
 
+/* The heading above a failed diff's reason, so the reason has a subject. */
+.diff-state-label {
+  color: var(--base-red);
+  font-size: calc(var(--ui-font-size) * 0.6875);
+}
+
 .stat-blocks {
   display: inline-flex;
   width: 34px;

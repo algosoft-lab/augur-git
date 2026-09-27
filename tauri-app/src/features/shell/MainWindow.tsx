@@ -12,7 +12,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 import * as ipc from "../../bridge/ipc";
 import type { ChangeReport } from "../../bridge/types";
-import { useStore } from "../../app/store";
+import { renderGitError, useStore } from "../../app/store";
 import { TabBar } from "./TabBar";
 import { TitleBar } from "./TitleBar";
 import { StatusBar } from "./StatusBar";
@@ -51,8 +51,14 @@ export function MainWindow() {
       const report: ChangeReport = await ipc.runCliInstaller(operation);
       openOverlay({ kind: "cliReport", report });
     } catch (error) {
+      // Localized, like everywhere else. Pasting the key produced a notice
+      // reading `err-installer: ...`, which says what the key is called and
+      // nothing about what happened.
       const failure = ipc.describeError(error);
-      notify({ level: "error", message: `${failure.key}: ${failure.detail}` });
+      notify({
+        level: "error",
+        message: renderGitError(translate, failure.key, failure.detail),
+      });
     }
   };
 

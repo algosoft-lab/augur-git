@@ -259,6 +259,16 @@ export function BottomPanel({
           forceInline={narrow}
           loading={pane.kind === "working" ? repo.workingLoading : false}
           error={pane.kind === "working" ? repo.workingError : null}
+          // A bare spinner and a bare error both read as a broken panel; the
+          // reference names both states.
+          loadingMessage={
+            pane.kind === "working"
+              ? t(translate, "diff-working-tree-loading")
+              : undefined
+          }
+          errorLabel={
+            pane.kind === "working" ? t(translate, "diff-working-tree-error") : undefined
+          }
           testId="diff-view"
           header={multiFile ? t(translate, "diff-all-files") : undefined}
           emptyMessage={
