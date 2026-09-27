@@ -310,7 +310,20 @@ export const useStore = create<AppStore>((set, get) => ({
         location: tab.location,
       };
     });
-    set({ repos, tabs, activeTabKey: boot.workspace.active_tab, ready: true });
+
+    // A path handed over by the command line can arrive before the bootstrap
+    // response, and that tab must survive: replacing the list with the saved one
+    // would drop it and then reopen the same repository as a second tab.
+    for (const open of staged.tabs) {
+      if (!tabs.some((tab) => tab.key === open.key)) {
+        tabs.push(open);
+      }
+    }
+    const activeTabKey =
+      boot.workspace.active_tab && tabs.some((tab) => tab.key === boot.workspace.active_tab)
+        ? boot.workspace.active_tab
+        : (staged.activeTabKey ?? tabs[0]?.key ?? null);
+    set({ repos, tabs, activeTabKey, ready: true });
 
     // Windows opened without a repository argument still need the tab list, so
     // missing sessions are started here.
@@ -347,12 +360,30 @@ export const useStore = create<AppStore>((set, get) => ({
       await get().selectTab(key);
       return;
     }
+
+    // The slot is claimed before the request, not after it. Two drops of the
+    // same folder, or a drop racing a menu item, would otherwise both pass the
+    // check above and open the repository twice. The tab appears immediately in
+    // its loading state, which is also what the user expects to see.
+    set((state) => ({
+      tabs: [...state.tabs, { key, repoId: -1, path, location: target }],
+      activeTabKey: key,
+    }));
+
     let summary: RepoSummary;
     try {
       summary = await ipc.openRepository(path, target);
     } catch (error) {
       const failure = ipc.describeError(error);
-      set({ notice: { level: "error", message: renderGitError(get().t, failure.key, failure.detail) } });
+      set((state) => ({
+        // The claim is released, because there is no repository to show.
+        tabs: state.tabs.filter((tab) => tab.key !== key),
+        activeTabKey:
+          state.activeTabKey === key
+            ? (state.tabs.find((tab) => tab.key !== key)?.key ?? null)
+            : state.activeTabKey,
+        notice: { level: "error", message: renderGitError(state.t, failure.key, failure.detail) },
+      }));
       return;
     }
     set((state) => ({
@@ -360,8 +391,9 @@ export const useStore = create<AppStore>((set, get) => ({
         ...state.repos,
         [summary.id]: adopt(state, summary.id, summary.path, summary.location),
       },
-      tabs: [...state.tabs, { key, repoId: summary.id, path, location: target }],
-      activeTabKey: key,
+      tabs: state.tabs.map((tab) =>
+        tab.key === key ? { ...tab, repoId: summary.id } : tab,
+      ),
     }));
     const pending = get().pendingEvents[summary.id];
     if (pending) {

@@ -88,6 +88,12 @@ Three layers, each covering what the others cannot.
 parsers, commit-graph layout, diff parsing, and the read-only probes. They need
 no window and no repository.
 
+**Rust pipeline tests** create a throwaway repository, drive the real `git`
+binary through the real worker, and assert on the events that reach the
+interface. They reach no private parser, so a wrong argument vector fails them
+too, which a test of a parser alone cannot do. Each one returns early when `git`
+is not on the path.
+
 **Frontend unit tests** cover the parts of the interface with no window: commit
 search, branch-name validation, porcelain status classification, the stat bar,
 remote-branch grouping, catalog lookup, the theme writer, and the syntax

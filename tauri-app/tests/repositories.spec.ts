@@ -158,6 +158,42 @@ test.describe("repositories", () => {
     await expect(page.locator(".tab__dot--error")).toHaveCount(1);
   });
 
+  test("opens one tab when the same folder arrives twice", async ({ page }) => {
+    // Two drops in quick succession, or a drop racing a menu item, both reach
+    // the tab list before either has finished opening. The claim is taken
+    // before the request, so the second one finds the tab already there.
+    await boot(page);
+    await page.evaluate(() => {
+      const stub = (window as any).__STUB__;
+      stub.emit("augur://open-paths", { paths: ["/Users/dev/projects/other-app"] });
+      stub.emit("augur://drop-paths", { paths: ["/Users/dev/projects/other-app"] });
+    });
+    await expect(page.getByTestId("repo-9")).toBeVisible();
+    await expect(page.locator(".tab")).toHaveCount(1);
+    const opens = await page.evaluate(
+      () =>
+        (window as any).__STUB__.log.filter(
+          (entry: any) => entry.cmd === "open_repository",
+        ).length,
+    );
+    expect(opens).toBe(1);
+  });
+
+  test("keeps a tab opened alongside the saved tab list", async ({ page }) => {
+    // The command line hands its paths to the window that owns the tab list, so
+    // one can arrive before the bootstrap response. Adopting the saved list
+    // must not discard it, and the two repositories stay separate tabs.
+    await boot(page, { open: [fixtureRepo()] });
+    await page.evaluate(() => {
+      (window as any).__STUB__.emit("augur://open-paths", {
+        paths: ["/Users/dev/projects/other-app"],
+      });
+    });
+    await expect(page.getByTestId("repo-9")).toBeVisible();
+    await expect(page.locator(".tab")).toHaveCount(2);
+    await expect(page.locator(".tab__label")).toHaveText(["augur-git", "other-app"]);
+  });
+
   test("keeps the first snapshot that arrives before the command reply", async ({
     page,
   }) => {

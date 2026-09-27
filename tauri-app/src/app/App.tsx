@@ -14,6 +14,7 @@ import { CompareWindow } from "../features/compare/CompareWindow";
 import { MainWindow } from "../features/shell/MainWindow";
 import { applyTheme } from "../styles/themes";
 import { useStore, type WindowRole } from "./store";
+import { DEFAULT_THEME, DEFAULT_TYPOGRAPHY } from "../styles/themes";
 
 interface WindowTarget {
   role: WindowRole;
@@ -42,6 +43,12 @@ export function App() {
   const theme = useStore((state) => state.config.theme);
   const typography = useStore((state) => state.config.typography);
   const [fatal, setFatal] = useState<string | null>(null);
+
+  // The document is styled before anything is fetched, so a failure during
+  // start-up is a readable message rather than an unstyled white page.
+  useEffect(() => {
+    applyTheme(document.documentElement, DEFAULT_THEME, DEFAULT_TYPOGRAPHY);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,8 +104,11 @@ export function App() {
           applyThemeFromState();
         }
       } catch (error) {
+        // The log plugin does not capture the webview console, so a start-up
+        // failure is reported through the interface as well.
+        console.error("[boot] start-up failed", error);
         if (!cancelled) {
-          setFatal(error instanceof Error ? error.message : String(error));
+          setFatal(describeFailure(error));
         }
       }
     };
@@ -123,8 +133,11 @@ export function App() {
   if (fatal) {
     return (
       <div className="app">
-        <div className="empty-state">
-          <span className="empty-state__message">{fatal}</span>
+        <div className="fatal">
+          <div className="fatal__title">The application could not start</div>
+          <pre className="fatal__detail" data-testid="fatal">
+            {fatal}
+          </pre>
         </div>
       </div>
     );
@@ -141,6 +154,25 @@ export function App() {
     return <CompareWindow repoId={target.compareRepoId} />;
   }
   return <MainWindow />;
+}
+
+/** Turn any thrown value into something worth reading on screen. */
+function describeFailure(error: unknown): string {
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    const parts = Object.entries(record)
+      .filter(([, value]) => typeof value === "string" || typeof value === "number")
+      .map(([key, value]) => `${key}: ${value}`);
+    if (parts.length) {
+      return parts.join("\n");
+    }
+    try {
+      return JSON.stringify(record, null, 2);
+    } catch {
+      // A value that cannot be serialized still has a string form.
+    }
+  }
+  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
 
 /** Write the active theme and typography onto the document root. */

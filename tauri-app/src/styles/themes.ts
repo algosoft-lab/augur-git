@@ -182,6 +182,17 @@ export function applyTheme(
   root.style.colorScheme = definition.mode;
 }
 
+/** The theme used before the preferences have been read. */
+export const DEFAULT_THEME: ThemePreference = "catppuccin-mocha";
+
+/** The typography used before the preferences have been read. */
+export const DEFAULT_TYPOGRAPHY = {
+  uiFontFamily: null,
+  monoFontFamily: null,
+  uiFontSize: 16,
+  diffFontSize: 16,
+};
+
 /** The ten lane colors the commit graph cycles through. */
 export const LANE_COLORS = [
   "var(--base-blue)",
