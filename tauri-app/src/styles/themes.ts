@@ -146,9 +146,14 @@ export const THEMES: Record<ThemePreference, ThemeDefinition> = {
   }
 }
 
-/** CSS variable name for one catalog key, e.g. `tab_bar.background`. */
+/**
+ * CSS variable name for one catalog key.
+ *
+ * The catalog spells nesting with a dot and words with an underscore, while the
+ * stylesheets address everything with dashes, so both separators are folded.
+ */
 export function cssVariable(key: string): string {
-  return `--${key.replace(/[.\s]/g, "-")}`;
+  return `--${key.replace(/[._\s]/g, "-")}`;
 }
 
 /**

@@ -1,10 +1,10 @@
 import { defineConfig } from "vitest/config";
 
-// The unit tests cover the pure helpers, so they run in a plain Node
-// environment with no webview and no Tauri runtime.
+// The unit tests cover the pure helpers plus the theme writer, which touches
+// the document, so the default environment is jsdom.
 export default defineConfig({
   test: {
-    environment: "node",
+    environment: "jsdom",
     include: ["src/**/*.test.ts"],
   },
 });

@@ -190,6 +190,7 @@ const ALIASES: Record<string, keyof typeof RULES> = {
   h: "c",
   hpp: "c",
   cpp: "c",
+  sh: "shell",
   bash: "shell",
   zsh: "shell",
   fish: "shell",
@@ -229,7 +230,14 @@ export function grammarFor(language: string | null): Rule[] | null {
   if (!language) {
     return null;
   }
-  const key = ALIASES[language] ?? language;
+  // An alias may point at another alias, so resolution follows the chain and
+  // stops on a cycle.
+  const seen = new Set<string>();
+  let key = language;
+  while (!RULES[key] && ALIASES[key] && !seen.has(key)) {
+    seen.add(key);
+    key = ALIASES[key]!;
+  }
   return RULES[key] ?? null;
 }
 
