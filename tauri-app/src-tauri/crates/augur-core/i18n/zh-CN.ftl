@@ -1,5 +1,8 @@
 # Augur Git 简体中文（zh-CN）翻译
 # 格式：key = value，一行一条；{ $name } 为占位符（src/core/i18n.rs::text_args 替换）。
+#
+# 与参考词条有意不同的两处，原因相同：本产品没有 agent 功能，且 shell 命令名不同。
+# 详见 en-US.ftl 顶部的说明。
 
 # ===== 应用 / Welcome =====
 app-tagline = 桌面 Git 客户端

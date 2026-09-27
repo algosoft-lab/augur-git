@@ -1,6 +1,15 @@
 # Augur Git English (en-US) translations
 # Format: key = value, one per line; { $name } placeholders are
 # substituted by src/core/i18n.rs::text_args.
+#
+# Two values differ from the reference catalog on purpose, and both are because
+# this product has no agent feature and a different shell command:
+#
+#   rebase-preflight-dirty  The reference says "Rebase by AI", because an agent
+#                           is the only actor in a build that has one. Here the
+#                           message has to stand on its own.
+#   cli-dialog-title        This product installs `augurgit-tauri`, and the two
+#                           installers must never be mistaken for each other.
 
 # ===== App / Welcome =====
 app-tagline = Desktop Git client
