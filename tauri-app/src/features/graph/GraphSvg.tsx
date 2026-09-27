@@ -72,6 +72,17 @@ export function GraphSvg({ geometry, laneColors, width }: GraphSvgProps) {
     });
   }
 
+  // The stub entering the node from above, when the lane reaches this commit
+  // from the row above rather than from the left. Without it the node floats
+  // free of the pipe that leads to it.
+  if (geometry.hasIncoming) {
+    paths.push({
+      d: `M ${nodeX} 0 L ${nodeX} ${midY - NODE_RADIUS}`,
+      color,
+      width: STROKE_WIDTH,
+    });
+  }
+
   // Lanes that converge on this commit's node.
   for (const lane of nodeInputLanes) {
     if (lane === nodeLane) {
@@ -88,7 +99,13 @@ export function GraphSvg({ geometry, laneColors, width }: GraphSvgProps) {
       laneColors[(outputColors[lane] ?? geometry.colorIndex) % laneColors.length] ??
       "currentColor";
     if (lane === nodeLane) {
-      paths.push({ d: `M ${nodeX} ${midY} L ${nodeX} ${ROW_HEIGHT}`, color: laneColor, width: STROKE_WIDTH });
+      // The stub leaving the node downwards. The node's own stroke would stop
+      // short of the row below, leaving a visible gap.
+      paths.push({
+        d: `M ${nodeX} ${midY + NODE_RADIUS} L ${nodeX} ${ROW_HEIGHT}`,
+        color: laneColor,
+        width: STROKE_WIDTH,
+      });
     } else {
       paths.push({ d: route(nodeX, x, midY), color: laneColor, width: STROKE_WIDTH });
     }
@@ -112,18 +129,25 @@ export function GraphSvg({ geometry, laneColors, width }: GraphSvgProps) {
           strokeLinecap="round"
         />
       ))}
-      {geometry.hasIncoming ? null : null}
+      {/*
+       * HEAD is a filled disc and every other commit a ring, so the tip of the
+       * history is findable in a column of nodes without reading a single label.
+       */}
       <circle
         cx={nodeX}
         cy={midY}
-        r={NODE_RADIUS - STROKE_WIDTH}
-        fill="var(--background)"
+        r={NODE_RADIUS}
+        fill={geometry.isHead ? color : "var(--background)"}
         stroke={color}
         strokeWidth={STROKE_WIDTH}
       />
-      {geometry.isHead ? <circle cx={nodeX} cy={midY} r={4.5} fill={color} /> : null}
     </svg>
   );
+}
+
+/** The first two characters of an author name, as the reference shows them. */
+export function authorInitials(author: string): string {
+  return [...author].slice(0, 2).join("");
 }
 
 /** A rounded orthogonal route from `fromX` to `toX` at `midY`. */
