@@ -100,7 +100,6 @@ extensions-status-run-completed = Run { $run_id } completed
 extensions-status-run-failed = Run { $run_id } failed: { $error }
 
 # ===== Tab bar / Status bar =====
-no-repo-open = No repository open
 status-scanning = Scanning…
 status-no-repo-selected = No repository selected
 status-scanning-at = Scanning @ { $repo }
@@ -143,10 +142,6 @@ toolbar-settings = Settings
 toolbar-busy = Working…
 
 # ===== Agent lifecycle =====
-workspace-close-title = Stop active operations?
-workspace-close-warning = { $count } background operation(s) are still running. Closing Augur Git will terminate them.
-workspace-close-cancel = Keep open
-workspace-close-confirm = Stop and close
 
 # ===== Commit graph =====
 graph-empty = No commits
@@ -557,7 +552,6 @@ about-platform = Platform
 settings-store-location = Stored in
 tab-close = Close tab
 tab-close-hint = Close this repository tab
-shortcut-app-quit-reset = Reset to default
 notice-dismiss = Dismiss
 err-repo-closed = This repository tab is no longer open.
 err-invalid-action = This operation cannot be run with the values provided.
@@ -567,8 +561,5 @@ err-invalid-shortcut = That is not a valid key combination.
 err-unknown-command = That command cannot be remapped.
 err-window = The window could not be opened.
 err-worker = A background task failed to start.
-err-git = Git reported an error.
 err-installer = The shell command could not be updated.
-err-invalid-location = That repository location is not available on this system.
-err-compare = The comparison could not be completed.
 diff-copy-tooltip = Copy the diff

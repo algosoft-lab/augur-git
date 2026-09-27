@@ -166,4 +166,33 @@ mod tests {
         assert_eq!(exported.get("toolbar-refresh").map(String::as_str), Some("刷新"));
         assert_eq!(exported.len(), translations(Locale::English).len());
     }
+
+    #[test]
+    fn deliberately_removed_keys_stay_removed() {
+        // Keys dropped from this catalog on purpose, each for a recorded
+        // reason: `no-repo-open` was superseded by `status-no-repo-selected`;
+        // `err-git` by `err-git-run`; `err-invalid-location`, `err-compare`,
+        // and `shortcut-app-quit-reset` never had a producer here; and the
+        // `workspace-close-*` card only ever renders in the reference's agent
+        // build, which this product has no counterpart of. Re-adding one of
+        // these should come with a use, not by accident.
+        for key in [
+            "no-repo-open",
+            "err-git",
+            "err-invalid-location",
+            "err-compare",
+            "shortcut-app-quit-reset",
+            "workspace-close-title",
+            "workspace-close-warning",
+            "workspace-close-cancel",
+            "workspace-close-confirm",
+        ] {
+            assert_eq!(text(Locale::English, key), key, "key {key} is back");
+            assert_eq!(
+                text(Locale::SimplifiedChinese, key),
+                key,
+                "key {key} is back"
+            );
+        }
+    }
 }

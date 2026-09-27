@@ -93,7 +93,6 @@ extensions-status-run-completed = 运行 { $run_id } 已完成
 extensions-status-run-failed = 运行 { $run_id } 失败：{ $error }
 
 # ===== Tab 栏 / 状态栏 =====
-no-repo-open = 未打开仓库
 status-scanning = 扫描中…
 status-no-repo-selected = 未选择仓库
 status-scanning-at = 扫描中 @ { $repo }
@@ -136,10 +135,6 @@ toolbar-settings = 设置
 toolbar-busy = 操作中…
 
 # ===== Agent lifecycle =====
-workspace-close-title = 停止正在运行的操作？
-workspace-close-warning = 当前仍有 { $count } 个后台操作运行中。关闭 Augur Git 将终止这些操作。
-workspace-close-cancel = 保持打开
-workspace-close-confirm = 停止并关闭
 
 # ===== 提交图 =====
 graph-empty = 暂无提交
@@ -550,7 +545,6 @@ about-platform = 平台
 settings-store-location = 存储位置
 tab-close = 关闭标签页
 tab-close-hint = 关闭此仓库标签页
-shortcut-app-quit-reset = 恢复默认
 notice-dismiss = 忽略
 err-repo-closed = 此仓库标签页已关闭。
 err-invalid-action = 当前参数无法执行该操作。
@@ -560,8 +554,5 @@ err-invalid-shortcut = 这不是有效的快捷键组合。
 err-unknown-command = 该命令无法重新绑定。
 err-window = 无法打开该窗口。
 err-worker = 后台任务启动失败。
-err-git = Git 返回了错误。
 err-installer = 无法更新 shell 命令。
-err-invalid-location = 当前系统不支持该仓库位置。
-err-compare = 无法完成比较。
 diff-copy-tooltip = 复制差异
