@@ -39,10 +39,13 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
     setMessageText("");
   };
 
+  // The menu offers two modes, so it marks the one in effect: opening it and
+  // reading it should say what the button will do.
   const actionItems: MenuItemSpec[] = [
     {
       id: "commit",
       label: t(translate, "commit-action-commit"),
+      checked: preference === "commit",
       onSelect: () => {
         void setView({ commit_action: "commit" });
       },
@@ -50,6 +53,7 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
     {
       id: "amend",
       label: t(translate, "commit-action-amend"),
+      checked: preference === "amend",
       onSelect: () => {
         void setView({ commit_action: "amend" });
       },

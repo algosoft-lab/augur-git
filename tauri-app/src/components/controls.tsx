@@ -16,6 +16,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { Icon } from "./Icon";
 import "./controls.css";
 
 export type ButtonVariant = "ghost" | "primary" | "danger";
@@ -424,6 +425,13 @@ export interface MenuItemSpec {
   icon?: ReactNode;
   disabled?: boolean;
   danger?: boolean;
+  /**
+   * Whether this item is the current choice of a set.
+   *
+   * A menu that offers two modes has to say which one is in effect; without the
+   * mark, opening the menu and reading it tells you nothing about the setting.
+   */
+  checked?: boolean;
   separatorBefore?: boolean;
   onSelect?: () => void;
 }
@@ -504,6 +512,9 @@ export function Menu({ items, align = "start", testId, children }: MenuProps) {
               >
                 {item.icon ? <span className="menu__icon">{item.icon}</span> : null}
                 <span>{item.label}</span>
+                {item.checked ? (
+                  <Icon name="check" size={12} className="menu__check" />
+                ) : null}
               </button>
             </div>
           ))}

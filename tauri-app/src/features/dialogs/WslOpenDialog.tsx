@@ -10,10 +10,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Icon } from "../../components/Icon";
-import { Checkbox, DialogCard, Spinner, TextInput } from "../../components/controls";
+import { DialogCard, Spinner, TextInput } from "../../components/controls";
 import * as ipc from "../../bridge/ipc";
 import { useStore } from "../../app/store";
-import { t, ta } from "../../i18n/strings";
+import { t } from "../../i18n/strings";
 
 type Validation =
   | { kind: "idle" }
@@ -32,6 +32,30 @@ export function splitUncPath(
   const distro = match[1] ?? "";
   const rest = match[2] ?? "";
   return distro && rest ? { distro, path: `/${rest.replace(/\\/g, "/")}` } : null;
+}
+
+/**
+ * Check a typed repository path, and say why it is unusable.
+ *
+ * The reasons are the reference's, and the catalog keys are built from them, so
+ * a new reason is a new string rather than a new branch of prose. The control
+ * character check matters because `wsl.exe --exec` takes the path as an
+ * argument: a newline in it would split the command.
+ */
+export function validateLinuxPath(input: string): string | null {
+  const value = input.trim();
+  if (value.length === 0) {
+    return "empty";
+  }
+  // `--exec` performs no shell expansion, so `~` and relative paths cannot be
+  // resolved.
+  if (!value.startsWith("/")) {
+    return "not-absolute";
+  }
+  if ([...value].some((character) => character < " " || character === "")) {
+    return "control-characters";
+  }
+  return null;
 }
 
 /** Whether a value looks like an absolute Linux path. */
@@ -86,8 +110,12 @@ export function WslOpenDialog({
       setValidation({ kind: "idle" });
       return;
     }
-    if (!isAbsoluteLinuxPath(path)) {
-      setValidation({ kind: "failed", detail: t(translate, "wsl-path-not-absolute") });
+    // Checked before the probe, because a probe of a path that cannot be passed
+    // to `wsl.exe` would fail with a message about the command rather than
+    // about the path.
+    const reason = validateLinuxPath(path);
+    if (reason) {
+      setValidation({ kind: "failed", detail: t(translate, `wsl-path-${reason}`) });
       return;
     }
     let cancelled = false;
@@ -207,12 +235,11 @@ export function WslOpenDialog({
           </div>
           {status}
           {error ? <div className="status-conflict">{error}</div> : null}
-          <Checkbox
-            checked={true}
-            disabled
-            onChange={() => undefined}
-            label={ta(translate, "wsl-path-hint", { path: "" })}
-          />
+          {/* A hint, not a setting: it is drawn as a permanently ticked box,
+              which reads as something that is on and cannot be turned off. */}
+          <div className="settings__hint" data-testid="wsl-path-hint">
+            {t(translate, "wsl-path-hint")}
+          </div>
         </>
       }
       footer={

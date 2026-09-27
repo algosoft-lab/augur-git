@@ -139,15 +139,19 @@ export function GraphView({ repo }: { repo: RepoState }) {
   const showsAuthor = columns.author;
   const showsMessage = columns.message;
 
+  // Marked rather than implied by the trigger's own label, so the list says
+  // what the search is matching on rather than only what it is called.
   const fieldItems = [
     {
       id: "subject",
       label: t(translate, "commit-search-subject"),
+      checked: field === "subject",
       onSelect: () => setField("subject"),
     },
     {
       id: "full",
       label: t(translate, "commit-search-full-message"),
+      checked: field === "full",
       onSelect: () => setField("full"),
     },
   ];

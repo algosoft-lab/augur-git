@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 export type IconName =
   | "archive"
   | "archive-restore"
+  | "check"
   | "chevron-down"
   | "chevron-right"
   | "copy"
@@ -45,6 +46,7 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="m9 14 3-3 3 3" />
     </>
   ),
+  check: <path d="M20 6 9 17l-5-5" />,
   "chevron-down": <path d="m6 9 6 6 6-6" />,
   "chevron-right": <path d="m9 6 6 6-6 6" />,
   copy: (
