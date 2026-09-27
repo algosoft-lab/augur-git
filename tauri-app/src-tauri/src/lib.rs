@@ -218,10 +218,25 @@ fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 /// repository, and forward dropped folders to the window that received them.
 fn install_window_hooks(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder
-        .on_window_event(|window, event| {
-            if matches!(event, WindowEvent::Focused(true)) {
+        .on_window_event(|window, event| match event {
+            WindowEvent::Focused(true) => {
                 let _ = window.emit(events::WINDOW_FOCUS_EVENT, ());
             }
+            // A destroyed webview never runs its own cleanup, so a comparison
+            // started by it would keep running and keep parsing diffs for
+            // nobody. Cancelling here is the only place that still knows which
+            // repository the window belonged to.
+            WindowEvent::Destroyed => {
+                if let Some(repo_id) = window
+                    .label()
+                    .strip_prefix("compare-")
+                    .and_then(|rest| rest.parse::<u64>().ok())
+                    && let Some(state) = window.app_handle().try_state::<AppState>()
+                {
+                    state.with_repo(repo_id, |session| session.cancel_compare());
+                }
+            }
+            _ => {}
         })
         .on_webview_event(|webview, event| {
             if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {

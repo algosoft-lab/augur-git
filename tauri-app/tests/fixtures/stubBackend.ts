@@ -818,15 +818,23 @@ function install(
       if (failure) {
         return Promise.reject(failure);
       }
-      const repo = options.available[opened] ?? options.available[0];
+      const known = options.available.find((repo) => repo.path === args.path);
+      if (known) {
+        options.open.push(known);
+        announce(known);
+        return { id: known.id, path: known.path, location: known.location };
+      }
+      // An unknown path still opens, because the real backend only fails when
+      // the path is not a repository.
+      const repo = {
+        ...(options.available[opened] ?? options.available[0]),
+        path: args.path,
+        location: args.location ?? { kind: "local" },
+      } as StubRepo;
       opened += 1;
       options.open.push(repo);
       announce(repo);
-      return {
-        id: repo.id,
-        path: repo.path,
-        location: repo.location,
-      };
+      return { id: repo.id, path: repo.path, location: repo.location };
     },
 
     close_repository: (args: any) => {

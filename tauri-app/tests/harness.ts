@@ -80,9 +80,15 @@ export async function boot(
   }
   await page.addInitScript(stubSource(optionsFor(options)));
   await page.goto(`/?${params.toString()}`);
-  // The welcome page is the last thing to appear, so waiting for it means the
-  // store has finished booting.
-  await page.waitForSelector('[data-testid="welcome"], [data-testid="graph"]');
+  // Each window surfaces a different root, so the wait matches the role: seeing
+  // it means the store has finished booting.
+  const root =
+    role === "compare"
+      ? '[data-testid="compare-window"], .empty-state'
+      : role === "about"
+        ? '[data-testid="about"]'
+        : '[data-testid="welcome"], [data-testid="graph"]';
+  await page.waitForSelector(root);
   return {
     async commands() {
       return page.evaluate(() => window.__STUB__.log);

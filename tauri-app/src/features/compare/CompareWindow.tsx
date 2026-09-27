@@ -389,6 +389,7 @@ function RevisionPicker({
 }) {
   const translate = useStore((state) => state.t);
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const query = endpoint.input;
   const filtered = options.filter((option) => {
     if (!query) {
@@ -403,8 +404,31 @@ function RevisionPicker({
   const manual = fromManualInput(query);
   const invalid = query.length > 0 && !manual && !endpoint.selected && filtered.length === 0;
 
+  // The list is a popup, so a click elsewhere or an Escape dismisses it.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onPointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
   return (
-    <div className="compare__picker">
+    <div className="compare__picker" ref={rootRef}>
       <span className="compare__picker-label">{label}</span>
       <div className="compare__picker-input">
         <TextInput
@@ -414,6 +438,7 @@ function RevisionPicker({
           testId={`compare-input-${label}`}
           onChange={(value) => onChange({ input: value, selected: null })}
           onSubmit={() => setOpen(true)}
+          onEscape={() => setOpen(false)}
           placeholder={t(translate, "branch-compare-revision-placeholder")}
         />
         {open ? (
@@ -447,7 +472,7 @@ function RevisionPicker({
                       key={option.full_name}
                       type="button"
                       className="compare__picker-option"
-                      data-testid={`compare-option-${option.full_name}`}
+                      data-testid={`compare-option-${option.kind}-${option.full_name}`}
                       onClick={() => {
                         onChange({ input: option.name, selected: option });
                         setOpen(false);

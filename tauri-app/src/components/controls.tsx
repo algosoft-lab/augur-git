@@ -278,6 +278,11 @@ export function Checkbox({ checked, onChange, label, disabled, testId }: Checkbo
   );
 }
 
+/** A stable test id for an option, derived from its visible label. */
+function slug(label: string): string {
+  return label.trim().toLowerCase().replace(/\s+/g, "-");
+}
+
 export interface SelectOption<T> {
   value: T;
   label: string;
@@ -352,6 +357,7 @@ export function Select<T extends string | number | boolean>({
               key={String(option.value)}
               type="button"
               role="option"
+              data-testid={`select-option-${slug(option.label)}`}
               aria-selected={option.value === value}
               className={`select__option${option.value === value ? " is-selected" : ""}`}
               onClick={() => {

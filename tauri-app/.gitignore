@@ -15,9 +15,13 @@ dist-ssr/
 # build script writes when running plain `cargo build` lands here.
 /src-tauri/binaries/
 
-# Test and coverage output
+# Test output
 coverage/
 *.lcov
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 
 # Editor and OS noise
 .DS_Store

@@ -56,7 +56,7 @@ makes it reusable from a Tauri command.
 
 ## Requirements
 
-- Rust 1.85 or newer (the workspace uses edition 2024)
+- Rust 1.90 or newer (the workspace uses edition 2024)
 - Node.js 20 or newer
 - The platform webview development packages, listed in
   `src-tauri/Cargo.toml` and the Tauri prerequisites
@@ -68,7 +68,9 @@ npm install          # frontend dependencies
 npm run tauri:dev    # build the CLI companion, then run the app in dev mode
 npm run tauri:build  # produce a platform bundle
 npm run typecheck    # TypeScript, no emit
-npm test             # frontend unit tests
+npm test             # unit tests for the pure interface logic
+npm run test:e2e     # browser tests for the whole interface
+npm run test:all     # all three, in order
 cargo test --manifest-path src-tauri/Cargo.toml   # Rust unit tests
 ```
 
@@ -77,6 +79,35 @@ That script compiles the `augurgit-tauri` companion and copies it to
 `src-tauri/binaries/`, where the Tauri bundler expects a sidecar. A bare
 `cargo build` has no such hook, so `build.rs` writes a clearly labelled
 placeholder instead; the real binary is only ever produced by the npm scripts.
+
+## Testing
+
+Three layers, each covering what the others cannot.
+
+**Rust unit tests** cover the domain crate: argument construction, output
+parsers, commit-graph layout, diff parsing, and the read-only probes. They need
+no window and no repository.
+
+**Frontend unit tests** cover the parts of the interface with no window: commit
+search, branch-name validation, porcelain status classification, the stat bar,
+remote-branch grouping, catalog lookup, the theme writer, and the syntax
+tokenizer.
+
+**Browser tests** drive the real interface. The webview is ordinary web code,
+so `tests/fixtures/stubBackend.ts` installs a stub Tauri runtime before the
+application loads and the whole thing runs in Chromium. That means the tests
+exercise the real components, the real store, and the real event reducers; only
+the boundary is replaced. The stub serves fixture repositories with a linear
+history and a merge, untracked and conflicted files, several refs, and a diff
+whose character-level ranges exercise inline highlighting, and it records every
+command so a test can assert that a guard really did prevent one.
+
+This layer is worth its cost. It found a race that unit tests cannot see: the
+backend starts a worker thread inside `open_repository`, and Tauri makes no
+ordering promise between an event and the command's own reply, so the first
+status snapshot could arrive before the webview knew the repository existed. It
+also found two functions with the same name and different meanings, a path
+rendered right to left, and controls clipped out of reach.
 
 ## Architecture notes
 
