@@ -93,7 +93,6 @@ extensions-status-run-completed = 运行 { $run_id } 已完成
 extensions-status-run-failed = 运行 { $run_id } 失败：{ $error }
 
 # ===== Tab 栏 / 状态栏 =====
-status-scanning = 扫描中…
 status-no-repo-selected = 未选择仓库
 status-scanning-at = 扫描中 @ { $repo }
 

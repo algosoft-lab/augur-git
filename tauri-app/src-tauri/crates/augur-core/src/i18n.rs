@@ -171,7 +171,8 @@ mod tests {
     fn deliberately_removed_keys_stay_removed() {
         // Keys dropped from this catalog on purpose, each for a recorded
         // reason: `no-repo-open` was superseded by `status-no-repo-selected`;
-        // `err-git` by `err-git-run`; `err-invalid-location`, `err-compare`,
+        // `err-git` by `err-git-run`; `status-scanning` by
+        // `status-scanning-at`, which names the repository; `err-invalid-location`, `err-compare`,
         // and `shortcut-app-quit-reset` never had a producer here; and the
         // `workspace-close-*` card only ever renders in the reference's agent
         // build, which this product has no counterpart of. Re-adding one of
@@ -182,6 +183,7 @@ mod tests {
             "err-invalid-location",
             "err-compare",
             "shortcut-app-quit-reset",
+            "status-scanning",
             "workspace-close-title",
             "workspace-close-warning",
             "workspace-close-cancel",

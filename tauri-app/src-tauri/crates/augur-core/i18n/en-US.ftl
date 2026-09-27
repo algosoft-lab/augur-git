@@ -100,7 +100,6 @@ extensions-status-run-completed = Run { $run_id } completed
 extensions-status-run-failed = Run { $run_id } failed: { $error }
 
 # ===== Tab bar / Status bar =====
-status-scanning = Scanning…
 status-no-repo-selected = No repository selected
 status-scanning-at = Scanning @ { $repo }
 
