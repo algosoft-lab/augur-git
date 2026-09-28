@@ -1,4 +1,4 @@
-name: Build and publish packages
+name: Build and publish GPUI packages
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: packaging-${{ github.ref }}
+  group: gpui-packaging-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -17,6 +17,10 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+
+defaults:
+  run:
+    working-directory: gpui-app
 
 jobs:
   checks:
@@ -47,10 +51,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ matrix.variant }}-${{ hashFiles('**/Cargo.lock') }}
+            gpui-app/target
+          key: ${{ runner.os }}-${{ runner.arch }}-gpui-cargo-${{ matrix.variant }}-${{ hashFiles('gpui-app/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-
+            ${{ runner.os }}-${{ runner.arch }}-gpui-cargo-
 
       - name: Check build
         run: cargo check --all-targets ${{ matrix.cargo-flags }}
@@ -93,10 +97,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ matrix.variant }}-${{ hashFiles('**/Cargo.lock') }}
+            gpui-app/target
+          key: ${{ runner.os }}-${{ runner.arch }}-gpui-cargo-${{ matrix.variant }}-${{ hashFiles('gpui-app/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-
+            ${{ runner.os }}-${{ runner.arch }}-gpui-cargo-
 
       - name: Build Windows installer
         run: uv run packaging/build-windows.py ${{ matrix.cargo-flags }}
@@ -113,7 +117,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: augur-git-windows-x86-64${{ matrix.variant == 'no-ai' && '-no-ai' || '' }}
-          path: packaging/out/*.exe
+          path: gpui-app/packaging/out/*.exe
           if-no-files-found: error
 
   macos:
@@ -154,10 +158,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ matrix.variant }}-${{ hashFiles('**/Cargo.lock') }}
+            gpui-app/target
+          key: ${{ runner.os }}-${{ runner.arch }}-gpui-cargo-${{ matrix.variant }}-${{ hashFiles('gpui-app/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-
+            ${{ runner.os }}-${{ runner.arch }}-gpui-cargo-
 
       - name: Build macOS app and DMG
         run: uv run packaging/build-mac-app.py ${{ matrix.cargo-flags }}
@@ -171,7 +175,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: augur-git-macos-arm64${{ matrix.variant == 'no-ai' && '-no-ai' || '' }}
-          path: packaging/out/
+          path: gpui-app/packaging/out/
           if-no-files-found: error
 
   linux:
@@ -214,10 +218,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ matrix.variant }}-${{ hashFiles('**/Cargo.lock') }}
+            gpui-app/target
+          key: ${{ runner.os }}-${{ runner.arch }}-gpui-cargo-${{ matrix.variant }}-${{ hashFiles('gpui-app/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-
+            ${{ runner.os }}-${{ runner.arch }}-gpui-cargo-
 
       - name: Build AppImage
         run: uv run packaging/build-appimage.py ${{ matrix.cargo-flags }}
@@ -229,11 +233,11 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: augur-git-linux-x86-64-appimage${{ matrix.variant == 'no-ai' && '-no-ai' || '' }}
-          path: packaging/out/*.AppImage
+          path: gpui-app/packaging/out/*.AppImage
           if-no-files-found: error
 
   release:
-    name: Publish nightly release
+    name: Publish GPUI nightly release
     if: github.ref == 'refs/heads/publish'
     needs:
       - windows
@@ -281,6 +285,7 @@ jobs:
           path: staging/linux-no-ai
 
       - name: Prepare release assets
+        working-directory: .
         shell: bash
         run: |
           set -euo pipefail
@@ -305,6 +310,7 @@ jobs:
           cp -- staging/linux-no-ai/*.AppImage release-assets/augur-git-linux-x86-64-no-ai.AppImage
 
       - name: Update nightly tag
+        working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -326,6 +332,7 @@ jobs:
           fi
 
       - name: Replace nightly release assets
+        working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}

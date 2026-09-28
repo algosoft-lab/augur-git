@@ -40,7 +40,7 @@
     "shortDescription": "Review-first desktop Git client",
     "longDescription": "Augur Git Tauri is a local-first, review-first desktop Git client. It turns local repository changes into clear, navigable diffs so a human can understand, select, and approve what becomes part of the project's history.",
     "copyright": "Copyright (c) Augur Git contributors",
-    "licenseFile": "../../LICENSE",
+    "licenseFile": "../LICENSE",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

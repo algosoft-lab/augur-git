@@ -1,7 +1,7 @@
 # Packaging
 
 These scripts create native distribution artifacts for Windows, macOS, and
-Linux. Run them from the repository root with `uv`. Each script builds the
+Linux. Run them from the `gpui-app/` directory with `uv`. Each script builds the
 release executables with `cargo build --release --bins` first, so no separate
 build step is needed.
 

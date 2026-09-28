@@ -8,7 +8,7 @@ description = "Augur Git Tauri desktop application"
 authors = ["Lionel Fung", "Li Haozhe"]
 edition = "2024"
 rust-version = "1.90"
-license = "MIT"
+license = "Apache-2.0"
 default-run = "augur-git-tauri"
 
 [lib]

@@ -1,9 +1,8 @@
 //! Durable application state.
 //!
 //! Two documents live in the Tauri store plugin, which resolves them under
-//! this application's own data directory. Because the bundle identifier
-//! differs from the GPUI application, neither product can read or overwrite
-//! the other's files.
+//! this application's own data directory. This application owns and interprets
+//! only the documents stored under its own bundle identity.
 //!
 //! The store plugin already debounces writes, so every mutation is applied
 //! immediately and the plugin decides when to hit the disk. [`Persistence::flush`]

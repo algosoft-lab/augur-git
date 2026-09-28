@@ -2,6 +2,7 @@
   "name": "augur-git-tauri",
   "private": true,
   "version": "0.1.0",
+  "license": "Apache-2.0",
   "type": "module",
   "description": "Review-first desktop Git client built with Tauri, React, and Vite",
   "scripts": {

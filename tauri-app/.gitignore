@@ -6,8 +6,7 @@ dist/
 dist-ssr/
 *.local
 
-# Rust build output. The Tauri CLI builds the Rust workspace under src-tauri,
-# so the root /target rule does not cover it.
+# Rust build output for this application's independent Rust workspace.
 /src-tauri/target/
 /src-tauri/gen/
 

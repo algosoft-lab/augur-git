@@ -1,5 +1,5 @@
-name: Install Linux build dependencies
-description: Install the apt packages needed to compile and package the app on Ubuntu runners.
+name: Install GPUI Linux build dependencies
+description: Install the apt packages needed to compile and package GPUI on Ubuntu runners.
 
 runs:
   using: composite

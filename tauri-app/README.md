@@ -1,26 +1,17 @@
 # Augur Git Tauri
 
-A second, independent desktop Git client for this repository, built with
-Tauri 2, React, and Vite. It is a separate product from the GPUI application in
-the repository root: different name, different bundle identifier, different
-configuration directory, and a different shell command. Both can be installed
-and run side by side.
+The primary Augur Git application, built with Tauri 2, React, and Vite. This is
+an independently maintained application with its own frontend, Rust workspace,
+assets, dependency manifests and lock files, build configuration, bundle
+identity, and runtime settings.
 
-Its goal is feature parity with the GPUI application built
-`--no-default-features`. The coding-agent integration, the embedded terminal,
-and the Lua extension runtime are intentionally out of scope.
-
-| | GPUI application | This application |
-|---|---|---|
-| Product name | Augur Git | Augur Git Tauri |
-| Bundle identifier | `com.augur.git` | `com.augur.git.tauri` |
-| Desktop binary | `augur-git` | `augur-git-tauri` |
-| Shell command | `augurgit` | `augurgit-tauri` |
-| Settings | `augur-git/config.json` etc. | Tauri app data dir, `settings.json` and `workspace.json` |
-
-Because the identifiers differ, neither application can read, write, or migrate
-the other's files. There is no configuration import: each product starts from
-its own defaults.
+The GPUI application in `gpui-app/` is a separate implementation. The two
+applications share no source files, assets, dependency manifests or lock files,
+build configuration, or runtime settings. Each resolves dependencies from its
+own manifests. Their configuration formats are incompatible; this application
+does not read, import, migrate, or write GPUI settings. It can be installed
+alongside the GPUI application because it has its own bundle and command
+identities.
 
 ## Layout
 
@@ -49,10 +40,9 @@ tauri-app/
       state.rs               # application-wide state
 ```
 
-`augur-core` is a decoupled copy of the GPUI application's domain layer: Git
-argument construction, output parsers, commit-graph layout, diff parsing, and
-the read-only state probes. It contains no user-interface code, which is what
-makes it reusable from a Tauri command.
+`augur-core` is this application's platform-independent domain crate. It owns
+the Git argument construction, output parsers, commit-graph layout, diff
+parsing, and read-only state probes used by the Tauri backend.
 
 ## Requirements
 
@@ -69,11 +59,13 @@ bun run tauri:dev    # build the CLI companion, then run the app in dev mode
 bun run tauri:build  # produce a platform bundle
 bun run tauri:build -- --bundles app   # one platform's bundle only
 bun run typecheck    # TypeScript, no emit
-bun test             # unit tests for the pure interface logic
+bun run test         # unit tests for the pure interface logic
 bun run test:e2e     # browser tests for the whole interface
 bun run test:all     # all three, in order
 cargo test --manifest-path src-tauri/Cargo.toml   # Rust unit tests
 ```
+
+Run these commands from the `tauri-app/` directory.
 
 `bun run tauri:dev` and `bun run tauri:build` run `scripts/sidecar.mjs` first.
 That script compiles the `augurgit-tauri` companion and copies it to
@@ -172,3 +164,8 @@ this application's data directory:
 
 Logs are written to the platform log directory. The About window reports the
 resolved store paths.
+
+## License
+
+This application is licensed under the [Apache License 2.0](LICENSE). The
+license file is included here so the application can be packaged independently.

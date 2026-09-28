@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Lionel Fung", "Li Haozhe"]
 edition = "2024"
 description = "Git GUI client built with GPUI"
+license = "Apache-2.0"
 
 [lib]
 name = "augur_git"

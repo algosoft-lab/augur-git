@@ -1,14 +1,9 @@
 //! Platform-independent Git domain logic for Augur Git Tauri.
 //!
-//! This crate is a decoupled copy of the pure domain layer of the GPUI
-//! application. It contains no user-interface code: every module here either
-//! builds Git arguments, parses Git output, or validates persisted data. The
-//! Tauri backend owns the application state and the webview owns rendering.
-//!
-//! The two applications are intentionally independent products. Nothing in
-//! this crate reads or writes the GPUI application's configuration, and the
-//! persisted schemas carry their own version markers so neither application
-//! can interpret the other's files.
+//! This standalone crate contains no user-interface code: its modules build
+//! Git arguments, parse Git output, and validate this application's persisted
+//! data. The Tauri backend owns application state and the webview owns
+//! rendering.
 
 pub mod build_info;
 pub mod cli;

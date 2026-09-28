@@ -1,8 +1,7 @@
 //! Persisted application settings and workspace state.
 //!
-//! The GPUI application keeps one `config.json` plus a `ui-state.json`. This
-//! application splits the same information into two documents so each has a
-//! single clear owner:
+//! This application stores user preferences and workspace state in separate
+//! documents, each with a single clear owner:
 //!
 //! - [`AppConfig`] is small user preference state. It is written on every
 //!   settings change.
@@ -111,8 +110,7 @@ pub enum GraphHistoryPreference {
 
 impl Default for GraphHistoryPreference {
     fn default() -> Self {
-        // Match the GPUI application: show all branches, including
-        // remote-tracking divergence.
+        // Include remote-tracking branches and their divergence by default.
         Self::AllBranches
     }
 }

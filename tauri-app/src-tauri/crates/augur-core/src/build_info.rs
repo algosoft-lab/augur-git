@@ -10,8 +10,8 @@ pub const APP_NAME: &str = "Augur Git Tauri";
 pub const APP_BINARY: &str = "augur-git-tauri";
 /// Command the shell installer exposes to users.
 pub const CLI_COMMAND_NAME: &str = "augurgit-tauri";
-/// Bundle and application identifier. Must differ from the GPUI application
-/// (`com.augur.git`) so both products can be installed side by side.
+/// Bundle and application identifier used for this application's identity and
+/// platform data directory.
 pub const APP_IDENTIFIER: &str = "com.augur.git.tauri";
 
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -42,9 +42,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn identity_is_distinct_from_the_gpui_application() {
-        assert_ne!(APP_IDENTIFIER, "com.augur.git");
-        assert_ne!(CLI_COMMAND_NAME, "augurgit");
+    fn identity_uses_the_tauri_product_namespace() {
+        assert_eq!(APP_IDENTIFIER, "com.augur.git.tauri");
+        assert_eq!(CLI_COMMAND_NAME, "augurgit-tauri");
     }
 
     #[test]

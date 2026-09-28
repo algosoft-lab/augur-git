@@ -1,0 +1,171 @@
+name: Build Tauri application
+
+on:
+  push:
+    branches:
+      - build
+      - publish
+  workflow_dispatch:
+
+concurrency:
+  group: tauri-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: Tauri tests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            pkg-config \
+            wget
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install frontend dependencies
+        working-directory: tauri-app
+        run: bun ci
+
+      - name: Type-check frontend
+        working-directory: tauri-app
+        run: bun run typecheck
+
+      - name: Test frontend
+        working-directory: tauri-app
+        run: bun run test
+
+      - name: Install Chromium for browser tests
+        working-directory: tauri-app
+        run: bunx playwright install --with-deps chromium
+
+      - name: Test browser workflows
+        working-directory: tauri-app
+        run: bun run test:e2e
+
+      - name: Test Rust workspace
+        working-directory: tauri-app
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  build-linux:
+    name: Linux Debian package
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            pkg-config \
+            wget
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install frontend dependencies
+        working-directory: tauri-app
+        run: bun ci
+
+      - name: Build Debian package
+        working-directory: tauri-app
+        run: bun run tauri:build -- --bundles deb
+
+      - name: Upload Debian package
+        uses: actions/upload-artifact@v7
+        with:
+          name: augur-git-tauri-linux-deb
+          path: tauri-app/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+
+  build-windows:
+    name: Windows NSIS installer
+    runs-on: windows-2025
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install frontend dependencies
+        working-directory: tauri-app
+        run: bun ci
+
+      - name: Build NSIS installer
+        working-directory: tauri-app
+        run: bun run tauri:build -- --bundles nsis
+
+      - name: Upload NSIS installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: augur-git-tauri-windows-nsis
+          path: tauri-app/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+  build-macos:
+    name: macOS application bundle
+    runs-on: macos-15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install frontend dependencies
+        working-directory: tauri-app
+        run: bun ci
+
+      - name: Build macOS application
+        working-directory: tauri-app
+        run: bun run tauri:build -- --bundles app
+
+      - name: Upload macOS application
+        uses: actions/upload-artifact@v7
+        with:
+          name: augur-git-tauri-macos-app
+          path: tauri-app/src-tauri/target/release/bundle/macos/*.app
+          if-no-files-found: error

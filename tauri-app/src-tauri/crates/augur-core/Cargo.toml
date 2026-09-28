@@ -3,7 +3,7 @@ name = "augur-core"
 version = "0.1.0"
 edition = "2024"
 description = "Platform-independent Git domain logic for Augur Git Tauri"
-license = "MIT"
+license = "Apache-2.0"
 publish = false
 
 [lib]

@@ -1,8 +1,7 @@
 //! Build-time metadata and the Windows executable icon.
 //!
 //! `assets/algogit.ico` is generated from `assets/algogit.svg` at multiple
-//! sizes (16/24/32/48/64/128/256). The regeneration command is documented in
-//! AGENTS.md.
+//! sizes (16/24/32/48/64/128/256).
 
 use std::{
     fs,
@@ -79,14 +78,16 @@ fn watch_git_metadata() {
 }
 
 fn resolve_git_dir(manifest_dir: &Path) -> Option<PathBuf> {
-    let dot_git = manifest_dir.join(".git");
-    if dot_git.is_dir() {
-        return Some(dot_git);
+    let output = Command::new("git")
+        .current_dir(manifest_dir)
+        .args(["rev-parse", "--git-dir"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
     }
 
-    let git_file = fs::read_to_string(dot_git).ok()?;
-    let git_dir = git_file.strip_prefix("gitdir:")?.trim();
-    let git_dir = PathBuf::from(git_dir);
+    let git_dir = PathBuf::from(String::from_utf8(output.stdout).ok()?.trim());
     if git_dir.is_absolute() {
         Some(git_dir)
     } else {

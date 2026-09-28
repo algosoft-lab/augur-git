@@ -7,8 +7,8 @@
 //! exact; every other byte of the file is preserved. Both operations are
 //! user-initiated from the File menu and report per-file results.
 //!
-//! The marker text and command name intentionally differ from the GPUI
-//! application so the two installers never touch each other's block.
+//! The marker text uniquely identifies this installer's block so updates and
+//! removals leave unrelated shell configuration intact.
 
 use std::path::{Path, PathBuf};
 
