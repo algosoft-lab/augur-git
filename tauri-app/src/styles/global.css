@@ -246,6 +246,10 @@ button {
   background: var(--warning-background);
 }
 
+.tab__dot--ready {
+  background: var(--base-green);
+}
+
 .tab__dot--error {
   background: var(--base-red);
 }
