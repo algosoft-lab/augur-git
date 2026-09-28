@@ -210,7 +210,11 @@ button {
   border: none;
   border-right: 1px solid var(--border);
   border-radius: 10px;
-  background: transparent;
+  background: color-mix(
+    in srgb,
+    var(--background) 55%,
+    var(--title-bar-background)
+  );
   color: var(--muted-foreground);
   font: inherit;
   font-size: calc(var(--ui-font-size) * 0.75);
@@ -219,7 +223,7 @@ button {
 }
 
 .tab.is-active {
-  background: var(--background);
+  background: var(--list-active-background);
   color: var(--foreground);
 }
 
