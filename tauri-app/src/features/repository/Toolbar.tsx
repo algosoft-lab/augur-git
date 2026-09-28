@@ -114,7 +114,7 @@ export function Toolbar({ repo }: { repo: RepoState }) {
       />
       <ToolButton
         label={t(translate, 'toolbar-pull')}
-        icon={<Icon name={pullAction === 'rebase' ? 'git-commit-horizontal' : 'chevron-down'} />}
+        icon={<Icon name="download" />}
         disabled={!pull}
         testId="toolbar-pull"
         onClick={() => {
@@ -127,7 +127,7 @@ export function Toolbar({ repo }: { repo: RepoState }) {
       />
       <ToolButton
         label={t(translate, 'toolbar-push')}
-        icon={<Icon name="chevron-down" className="icon-rotate" />}
+        icon={<Icon name="upload" />}
         disabled={!network}
         testId="toolbar-push"
         onClick={() => {
@@ -160,7 +160,7 @@ export function Toolbar({ repo }: { repo: RepoState }) {
         }}
       />
       <span className="count-badge count-badge--ahead" title="ahead">
-        <Icon name="chevron-down" size={10} className="icon-rotate-180" />
+        <Icon name="chevron-up" size={10} />
         {repo.ahead}
       </span>
       <span className="count-badge count-badge--behind" title="behind">

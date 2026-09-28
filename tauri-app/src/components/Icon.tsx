@@ -8,6 +8,7 @@ export type IconName =
   | 'check'
   | 'chevron-down'
   | 'chevron-right'
+  | 'chevron-up'
   | 'copy'
   | 'download'
   | 'file'
@@ -50,6 +51,7 @@ const PATHS: Record<IconName, ReactNode> = {
   check: <path d="M20 6 9 17l-5-5" />,
   'chevron-down': <path d="m6 9 6 6 6-6" />,
   'chevron-right': <path d="m9 6 6 6-6 6" />,
+  'chevron-up': <path d="m6 15 6-6 6 6" />,
   copy: (
     <>
       <rect x="9" y="9" width="12" height="12" rx="2" />
