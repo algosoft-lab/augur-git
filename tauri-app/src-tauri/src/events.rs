@@ -25,8 +25,6 @@ pub const APP_EVENT: &str = "augur://app-event";
 pub const OPEN_PATHS_EVENT: &str = "augur://open-paths";
 /// Event name used when a native menu item is activated.
 pub const MENU_EVENT: &str = "augur://menu";
-/// Event name used to tell a window it regained focus.
-pub const WINDOW_FOCUS_EVENT: &str = "augur://window-focus";
 /// Event name used when a repository folder is dropped onto a window.
 pub const DROP_EVENT: &str = "augur://drop-paths";
 

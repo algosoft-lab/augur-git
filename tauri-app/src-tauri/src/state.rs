@@ -5,6 +5,7 @@
 //! receives events carrying the repository id they belong to.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter, Manager};
@@ -14,6 +15,7 @@ use augur_core::config::{
 };
 use augur_core::git::{GitError, GitRepo, LogScope};
 
+use crate::auto_refresh::{AutoRefreshController, RefreshTarget};
 use crate::events::{OPEN_PATHS_EVENT, OpenPathsPayload};
 use crate::persistence::{LoadReport, Persistence, SettingsDocument};
 use crate::repo::RepoSession;
@@ -27,16 +29,21 @@ struct Inner {
     /// Repository paths a launch asked for, waiting for the webview to
     /// subscribe. A window that loads late still receives them.
     pending_paths: Vec<String>,
+    auto_refresh_target: Option<u64>,
+    auto_refresh_generation: u64,
 }
 
 /// Shared application state.
 pub struct AppState {
     inner: Mutex<Inner>,
+    auto_refresh: AutoRefreshController,
+    focused: AtomicBool,
 }
 
 impl AppState {
     pub fn new(app: AppHandle, report: LoadReport) -> Self {
         let (persistence, load_warnings) = Persistence::load(app);
+        let auto_refresh_enabled = persistence.config().view.auto_refresh;
         for warning in load_warnings.warnings.into_iter().chain(report.warnings) {
             log::warn!("[store] {warning}");
         }
@@ -46,7 +53,11 @@ impl AppState {
                 repos: HashMap::new(),
                 next_repo_id: 1,
                 pending_paths: Vec::new(),
+                auto_refresh_target: None,
+                auto_refresh_generation: 0,
             }),
+            auto_refresh: AutoRefreshController::new(auto_refresh_enabled),
+            focused: AtomicBool::new(false),
         }
     }
 
@@ -75,6 +86,48 @@ impl AppState {
 
     pub fn update_settings(&self, mutate: impl FnOnce(&mut SettingsDocument)) {
         self.persistence().update_settings(mutate);
+        self.auto_refresh
+            .set_enabled(self.persistence().config().view.auto_refresh);
+    }
+
+    /// Select the only repository eligible for ongoing automatic refresh.
+    pub fn set_auto_refresh_target(
+        &self,
+        repo_id: Option<u64>,
+        generation: u64,
+    ) -> Result<(), String> {
+        let target = self.with(|inner| -> Result<Option<Option<RefreshTarget>>, String> {
+            if generation <= inner.auto_refresh_generation {
+                return Ok(None);
+            }
+            let target = repo_id
+                .map(|id| {
+                    inner
+                        .repos
+                        .get(&id)
+                        .map(|session| RefreshTarget {
+                            id,
+                            repo: session.repo().clone(),
+                            handle: session.handle().clone(),
+                        })
+                        .ok_or_else(|| format!("repository {id} is no longer open"))
+                })
+                .transpose()?;
+            inner.auto_refresh_generation = generation;
+            inner.auto_refresh_target = repo_id;
+            Ok(Some(target))
+        })?;
+        if let Some(target) = target {
+            self.auto_refresh.set_target(target);
+        }
+        Ok(())
+    }
+
+    /// Pause or resume the monitor with the main window's native focus state.
+    pub fn set_main_window_focused(&self, focused: bool) {
+        if self.focused.swap(focused, Ordering::AcqRel) != focused {
+            self.auto_refresh.set_focused(focused);
+        }
     }
 
     pub fn update_workspace(&self, mutate: impl FnOnce(&mut WorkspaceState)) {
@@ -138,12 +191,20 @@ impl AppState {
 
     /// Stop a repository's worker and forget it.
     pub fn close_repository(&self, repo_id: u64) {
-        self.with(|inner| {
+        let was_target = self.with(|inner| {
+            let was_target = inner.auto_refresh_target == Some(repo_id);
+            if was_target {
+                inner.auto_refresh_target = None;
+            }
             if let Some(session) = inner.repos.remove(&repo_id) {
                 session.close();
                 log::info!("[repo] closed repository {repo_id}");
             }
+            was_target
         });
+        if was_target {
+            self.auto_refresh.set_target(None);
+        }
     }
 
     /// Borrow a repository session for one operation.
@@ -207,6 +268,7 @@ impl AppState {
 
     /// Persist the final snapshot and stop every worker.
     pub fn shutdown(&self) {
+        self.auto_refresh.shutdown();
         let sessions: Vec<RepoSession> =
             self.with(|inner| inner.repos.drain().map(|(_, session)| session).collect());
         for session in sessions {

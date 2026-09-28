@@ -57,7 +57,7 @@ export interface ViewSettings {
   auto_follow: boolean;
   diff_layout: DiffLayoutPreference;
   graph_history: GraphHistoryPreference;
-  auto_refresh_on_focus: boolean;
+  auto_refresh: boolean;
   commit_action: CommitActionPreference;
   pull_action: PullActionPreference;
 }

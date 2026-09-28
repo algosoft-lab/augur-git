@@ -336,7 +336,6 @@ language-title = 界面语言
 language-system = 跟随系统
 language-chinese = 简体中文
 language-english = English
-auto-refresh-on-focus-title = 窗口聚焦时刷新
 setting-enabled = 启用
 setting-disabled = 禁用
 settings-close = 关闭

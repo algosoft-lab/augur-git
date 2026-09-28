@@ -151,6 +151,35 @@ test.describe('repositories', () => {
     await expect(page.getByTestId('branch-master')).toBeVisible();
   });
 
+  test('sends only the selected repository to the automatic refresh monitor', async ({ page }) => {
+    const first = fixtureRepo();
+    const second = secondFixtureRepo();
+    await boot(page, {
+      open: [first, second],
+      savedTabs: [first.path, second.path],
+      savedActiveTab: first.path
+    });
+
+    await expect.poll(async () =>
+      page.evaluate(() => {
+        const entries = (window as any).__STUB__.log.filter(
+          (entry: any) => entry.cmd === 'set_auto_refresh_target'
+        );
+        return entries.at(-1)?.args.repoId;
+      })
+    ).toBe(first.id);
+
+    await page.locator('.tab').nth(1).click();
+    await expect.poll(async () =>
+      page.evaluate(() => {
+        const entries = (window as any).__STUB__.log.filter(
+          (entry: any) => entry.cmd === 'set_auto_refresh_target'
+        );
+        return entries.at(-1)?.args.repoId;
+      })
+    ).toBe(second.id);
+  });
+
   test('closing the last tab returns to the welcome page', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
 
@@ -241,6 +270,31 @@ test.describe('repositories', () => {
     await expect(page.getByTestId('bottom-panel')).toContainText('Changes');
     await page.getByTestId('changes-file-src/partial.rs').nth(0).click();
     await expect(page.getByTestId('bottom-panel')).toContainText('Staged');
+  });
+
+  test('refreshes an open working diff only while its repository tab is selected', async ({ page }) => {
+    const first = fixtureRepo();
+    const second = secondFixtureRepo();
+    const stub = await boot(page, {
+      open: [first, second],
+      savedTabs: [first.path, second.path],
+      savedActiveTab: first.path
+    });
+
+    await page.getByTestId('changes-file-src/main.rs').click();
+    await expect(page.getByTestId('bottom-panel')).toBeVisible();
+    const workingDiffCalls = async () =>
+      (await stub.commands()).filter((entry) => entry.cmd === 'load_working_tree_diff').length;
+    await expect.poll(workingDiffCalls).toBe(1);
+
+    await stub.emit('augur://repo-event', { repoId: first.id, type: 'status', ...first.status });
+    await expect.poll(workingDiffCalls).toBe(2);
+
+    await page.locator('.tab').nth(1).click();
+    await expect(page.getByTestId('repo-9')).toBeVisible();
+    await stub.emit('augur://repo-event', { repoId: first.id, type: 'status', ...first.status });
+    await page.waitForTimeout(100);
+    expect(await workingDiffCalls()).toBe(2);
   });
 
   test('opens a new tab as a start page that a repository replaces', async ({ page }) => {

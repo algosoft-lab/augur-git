@@ -108,12 +108,6 @@ export function App() {
             void handleMenuAction(id);
           })
         );
-        await subscribe(
-          ipc.onWindowFocus(() => {
-            onWindowFocus();
-          })
-        );
-
         await store.initialize(target.role, target.compareRepoId);
         if (!cancelled) {
           applyThemeFromState();
@@ -253,47 +247,5 @@ async function handleMenuAction(id: string): Promise<void> {
       break;
     default:
       break;
-  }
-}
-
-/** Two seconds, the same interval the reference uses. */
-const FOCUS_REFRESH_COOLDOWN_MS = 2000;
-
-/**
- * Whether a focus at `now` should refresh, given the last time one did.
- *
- * A cooldown, because the activation delivered right after the window is created
- * would otherwise refresh while the initial load is still in flight, and
- * because alt-tabbing back and forth should not spawn a repository read per
- * switch.
- */
-export function shouldRefreshOnFocus(
-  last: number | null,
-  now: number,
-  cooldown = FOCUS_REFRESH_COOLDOWN_MS
-): boolean {
-  return last === null || now - last >= cooldown;
-}
-
-/** The last focus-triggered refresh, in milliseconds. */
-let lastFocusRefresh: number | null = null;
-
-/** Refresh the active repository when the window regains focus. */
-function onWindowFocus(): void {
-  const state = useStore.getState();
-  if (!state.config.view.auto_refresh_on_focus) {
-    return;
-  }
-  if (state.role !== 'main' || !state.activeTabKey) {
-    return;
-  }
-  const now = Date.now();
-  if (!shouldRefreshOnFocus(lastFocusRefresh, now)) {
-    return;
-  }
-  lastFocusRefresh = now;
-  const tab = state.tabs.find((entry) => entry.key === state.activeTabKey);
-  if (tab && tab.repoId !== null) {
-    void state.refresh(tab.repoId);
   }
 }

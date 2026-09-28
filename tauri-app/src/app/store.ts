@@ -169,6 +169,7 @@ interface AppStore {
 
   applyEvent: (repoId: number, event: RepoEvent) => void;
   refresh: (repoId: number) => Promise<void>;
+  refreshWorkingDiff: (repoId: number) => Promise<void>;
   setBusy: (repoId: number, busy: boolean) => void;
   setMessage: (repoId: number, text: string, ok: boolean | null) => void;
   /**
@@ -590,7 +591,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
         auto_follow: true,
         diff_layout: 'side-by-side',
         graph_history: 'all-branches',
-        auto_refresh_on_focus: true,
+        auto_refresh: true,
         commit_action: 'commit',
         pull_action: 'merge'
       },
@@ -821,6 +822,9 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       if (next !== repo) {
         set({ repos: { ...state.repos, [repoId]: next } });
       }
+      if (event.type === 'status') {
+        void get().refreshWorkingDiff(repoId);
+      }
       // A failed integration command may have stopped on conflicts; the probe
       // runs after the reducer so the status text is never delayed by it.
       if (event.type === 'commandDone' && !event.success) {
@@ -838,6 +842,75 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       } catch {
         // A repository that closed while the request was in flight is not an error
         // worth surfacing; the tab is already gone.
+      }
+    },
+
+    async refreshWorkingDiff(repoId) {
+      const state = get();
+      const activeTab = state.tabs.find((tab) => tab.key === state.activeTabKey);
+      const repo = state.repos[repoId];
+      if (
+        !repo ||
+        activeTab?.repoId !== repoId ||
+        repo.pane.kind !== 'working'
+      ) {
+        return;
+      }
+
+      const pane = repo.pane;
+      const file = repo.files.find(
+        (entry) => entry.path === pane.file.path || entry.old_path === pane.file.path
+      );
+      if (!file) {
+        set({
+          repos: {
+            ...get().repos,
+            [repoId]: {
+              ...repo,
+              workingRequest: repo.workingRequest + 1,
+              pane: { kind: 'none' },
+              workingDocument: null,
+              workingLoading: false,
+              workingError: null
+            }
+          }
+        });
+        return;
+      }
+
+      const requestId = repo.workingRequest + 1;
+      set({
+        repos: {
+          ...get().repos,
+          [repoId]: {
+            ...repo,
+            workingRequest: requestId,
+            pane: { ...pane, file },
+            workingLoading: repo.workingDocument === null,
+            workingError: null
+          }
+        }
+      });
+      try {
+        const assigned = await ipc.loadWorkingTreeDiff(
+          repoId,
+          pane.staged ? 'staged' : 'unstaged',
+          file
+        );
+        const current = get().repos[repoId];
+        if (current?.workingRequest === requestId) {
+          set({
+            repos: {
+              ...get().repos,
+              [repoId]: {
+                ...current,
+                workingRequest: Math.max(current.workingRequest, assigned)
+              }
+            }
+          });
+        }
+      } catch {
+        // A background diff refresh can race with closing the repository.
       }
     },
 

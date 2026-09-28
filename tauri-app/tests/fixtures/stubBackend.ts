@@ -205,7 +205,7 @@ function install(
       auto_follow: true,
       diff_layout: 'side-by-side',
       graph_history: 'all-branches',
-      auto_refresh_on_focus: true,
+      auto_refresh: true,
       commit_action: 'commit',
       pull_action: options.pullAction ?? 'merge'
     },
@@ -549,6 +549,8 @@ function install(
       }
       return null;
     },
+
+    set_auto_refresh_target: () => null,
 
     set_log_scope: () => null,
     load_more_log_page: () => null,

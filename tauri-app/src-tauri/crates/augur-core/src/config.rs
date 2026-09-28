@@ -259,7 +259,8 @@ pub struct ViewSettings {
     pub auto_follow: bool,
     pub diff_layout: DiffLayoutPreference,
     pub graph_history: GraphHistoryPreference,
-    pub auto_refresh_on_focus: bool,
+    #[serde(alias = "auto_refresh_on_focus")]
+    pub auto_refresh: bool,
     pub commit_action: CommitActionPreference,
     pub pull_action: PullActionPreference,
 }
@@ -271,7 +272,7 @@ impl Default for ViewSettings {
             auto_follow: true,
             diff_layout: DiffLayoutPreference::SideBySide,
             graph_history: GraphHistoryPreference::AllBranches,
-            auto_refresh_on_focus: true,
+            auto_refresh: true,
             commit_action: CommitActionPreference::Commit,
             pull_action: PullActionPreference::Merge,
         }
@@ -625,7 +626,7 @@ mod tests {
             config.view.graph_history,
             GraphHistoryPreference::AllBranches
         );
-        assert!(config.view.auto_refresh_on_focus);
+        assert!(config.view.auto_refresh);
         assert_eq!(config.view.commit_action, CommitActionPreference::Commit);
         assert_eq!(config.typography.ui_font_size, 16.0);
         assert_eq!(config.typography.diff_font_size, 16.0);
@@ -637,6 +638,16 @@ mod tests {
         assert_eq!(config.theme, ThemePreference::GitHubDark);
         assert_eq!(config.view, ViewSettings::default());
         assert_eq!(config.typography, TypographySettings::default());
+    }
+
+    #[test]
+    fn old_focus_refresh_setting_migrates_to_auto_refresh() {
+        let config: AppConfig =
+            serde_json::from_str(r#"{"view":{"auto_refresh_on_focus":false}}"#).unwrap();
+        assert!(!config.view.auto_refresh);
+        let serialized = serde_json::to_value(config).unwrap();
+        assert_eq!(serialized["view"]["auto_refresh"], false);
+        assert!(serialized["view"].get("auto_refresh_on_focus").is_none());
     }
 
     #[test]

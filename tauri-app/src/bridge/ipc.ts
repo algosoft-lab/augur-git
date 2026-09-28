@@ -47,7 +47,6 @@ export const APP_EVENT = 'augur://app-event';
 export const MENU_EVENT = 'augur://menu';
 export const OPEN_PATHS_EVENT = 'augur://open-paths';
 export const DROP_EVENT = 'augur://drop-paths';
-export const WINDOW_FOCUS_EVENT = 'augur://window-focus';
 
 export interface CommandError {
   key: string;
@@ -80,6 +79,13 @@ export async function closeRepository(repoId: number): Promise<void> {
 
 export async function refreshRepository(repoId: number): Promise<void> {
   return invoke<void>('refresh_repository', { repoId });
+}
+
+export async function setAutoRefreshTarget(
+  repoId: number | null,
+  generation: number
+): Promise<void> {
+  return invoke<void>('set_auto_refresh_target', { repoId, generation });
 }
 
 export async function setLogScope(repoId: number, upstream: string | null): Promise<void> {
@@ -333,10 +339,6 @@ export function onOpenPaths(handler: (paths: string[]) => void): Promise<Unliste
 
 export function onDropPaths(handler: (paths: string[]) => void): Promise<UnlistenFn> {
   return listen<{ paths: string[] }>(DROP_EVENT, (event) => handler(event.payload.paths));
-}
-
-export function onWindowFocus(handler: () => void): Promise<UnlistenFn> {
-  return listen(WINDOW_FOCUS_EVENT, () => handler());
 }
 
 /** Tell the backend to open paths in the window that owns the tab list. */

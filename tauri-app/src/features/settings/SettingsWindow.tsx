@@ -105,7 +105,7 @@ export function SettingsWindow() {
 function GeneralSection() {
   const translate = useStore((state) => state.t);
   const language = useStore((state) => state.config.language);
-  const autoRefresh = useStore((state) => state.config.view.auto_refresh_on_focus);
+  const autoRefresh = useStore((state) => state.config.view.auto_refresh);
   const setLanguage = useStore((state) => state.setLanguage);
   const setView = useStore((state) => state.setView);
 
@@ -126,7 +126,7 @@ function GeneralSection() {
         />
       </div>
       <div className="settings__field">
-        <span className="settings__label">{t(translate, 'auto-refresh-on-focus-title')}</span>
+        <span className="settings__label">{t(translate, 'auto-refresh-title')}</span>
         <Select
           value={autoRefresh}
           testId="settings-auto-refresh"
@@ -134,7 +134,7 @@ function GeneralSection() {
             { value: true, label: t(translate, 'setting-enabled') },
             { value: false, label: t(translate, 'setting-disabled') }
           ]}
-          onChange={(value) => void setView({ auto_refresh_on_focus: value })}
+          onChange={(value) => void setView({ auto_refresh: value })}
         />
       </div>
       <StoreLocation />

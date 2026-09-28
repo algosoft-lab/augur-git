@@ -6,11 +6,12 @@
  * so both surfaces run exactly the same handler.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { open } from '@tauri-apps/plugin-dialog';
 
 import { useStore } from '../../app/store';
+import * as ipc from '../../bridge/ipc';
 import { TitleBar } from './TitleBar';
 import { StatusBar } from './StatusBar';
 import { Welcome } from './Welcome';
@@ -28,6 +29,7 @@ export function MainWindow() {
   const addStartTab = useStore((state) => state.addStartTab);
   const notify = useStore((state) => state.notify);
   const [wslOpen, setWslOpen] = useState(false);
+  const targetGeneration = useRef(0);
 
   const pickFolder = async () => {
     const selected = await open({
@@ -60,6 +62,19 @@ export function MainWindow() {
   const activeTab = tabs.find((tab) => tab.key === activeTabKey) ?? null;
   const activeRepo =
     activeTab && activeTab.repoId !== null ? (repos[activeTab.repoId] ?? null) : null;
+
+  useEffect(() => {
+    const generation = ++targetGeneration.current;
+    void ipc.setAutoRefreshTarget(activeRepo?.id ?? null, generation).catch((error) => {
+      console.warn('[auto_refresh] failed to select active repository', error);
+    });
+    return () => {
+      const releaseGeneration = ++targetGeneration.current;
+      void ipc.setAutoRefreshTarget(null, releaseGeneration).catch((error) => {
+        console.warn('[auto_refresh] failed to release active repository', error);
+      });
+    };
+  }, [activeRepo?.id]);
 
   return (
     <div className="app">

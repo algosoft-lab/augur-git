@@ -7,6 +7,7 @@
 
 use tauri::{Emitter, Listener, Manager, RunEvent, WindowEvent};
 
+pub mod auto_refresh;
 pub mod commands;
 pub mod events;
 pub mod fonts;
@@ -70,6 +71,7 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             commands::app::set_language,
             commands::app::set_theme,
             commands::app::set_view,
+            commands::app::set_auto_refresh_target,
             commands::app::set_typography,
             commands::app::set_commit_action,
             commands::app::set_diff_layout,
@@ -98,6 +100,9 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             app.manage(AppState::new(handle.clone(), report));
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_decorations(cfg!(target_os = "macos"));
+                if let Ok(focused) = window.is_focused() {
+                    app.state::<AppState>().set_main_window_focused(focused);
+                }
             }
             log::info!(
                 "[startup] state ready; store files: {:?}",
@@ -227,19 +232,26 @@ fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .build()
 }
 
-/// Tell the webview when a window regains focus so it can refresh the active
-/// repository, and forward dropped folders to the window that received them.
+/// Track main-window focus for the active-repository refresh monitor, and
+/// forward dropped folders to the window that received them.
 fn install_window_hooks(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder
         .on_window_event(|window, event| match event {
-            WindowEvent::Focused(true) => {
-                let _ = window.emit(events::WINDOW_FOCUS_EVENT, ());
+            WindowEvent::Focused(focused) if window.label() == "main" => {
+                if let Some(state) = window.app_handle().try_state::<AppState>() {
+                    state.set_main_window_focused(*focused);
+                }
             }
             // A destroyed webview never runs its own cleanup, so a comparison
             // started by it would keep running and keep parsing diffs for
             // nobody. Cancelling here is the only place that still knows which
             // repository the window belonged to.
             WindowEvent::Destroyed => {
+                if let Some(state) = window.app_handle().try_state::<AppState>()
+                    && window.label() == "main"
+                {
+                    state.set_main_window_focused(false);
+                }
                 if let Some(repo_id) = window
                     .label()
                     .strip_prefix("compare-")

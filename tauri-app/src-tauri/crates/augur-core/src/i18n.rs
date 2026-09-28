@@ -119,6 +119,8 @@ fn parse_catalog(source: &'static str) -> HashMap<&'static str, &'static str> {
 mod tests {
     use super::*;
 
+    const ENGLISH_FALLBACK_KEYS: &[&str] = &["auto-refresh-title"];
+
     #[test]
     fn translates_and_falls_back_to_english() {
         assert_eq!(text(Locale::English, "toolbar-refresh"), "Refresh");
@@ -127,13 +129,23 @@ mod tests {
     }
 
     #[test]
-    fn catalogs_define_the_same_keys() {
+    fn catalog_keys_are_translated_or_use_the_english_fallback() {
         let english = translations(Locale::English);
         let chinese = translations(Locale::SimplifiedChinese);
 
-        assert_eq!(english.len(), chinese.len());
+        assert_eq!(english.len(), chinese.len() + ENGLISH_FALLBACK_KEYS.len());
         for key in english.keys() {
-            assert!(chinese.contains_key(key), "missing Chinese key: {key}");
+            assert!(
+                chinese.contains_key(key) || ENGLISH_FALLBACK_KEYS.contains(key),
+                "missing Chinese translation without an English fallback: {key}"
+            );
+        }
+        for key in ENGLISH_FALLBACK_KEYS {
+            assert!(!chinese.contains_key(key));
+            assert_eq!(
+                text(Locale::SimplifiedChinese, key),
+                text(Locale::English, key)
+            );
         }
     }
 
@@ -168,7 +180,11 @@ mod tests {
             exported.get("toolbar-refresh").map(String::as_str),
             Some("刷新")
         );
-        assert_eq!(exported.len(), translations(Locale::English).len());
+        assert!(!exported.contains_key("auto-refresh-title"));
+        assert_eq!(
+            text(Locale::SimplifiedChinese, "auto-refresh-title"),
+            "Auto refresh selected tab"
+        );
     }
 
     #[test]
@@ -180,7 +196,8 @@ mod tests {
         // and `shortcut-app-quit-reset` never had a producer here; and the
         // `workspace-close-*` card only ever renders in the reference's agent
         // build, which this product has no counterpart of. Re-adding one of
-        // these should come with a use, not by accident.
+        // these should come with a use, not by accident. `auto-refresh-on-focus-title`
+        // was replaced by the English-fallback `auto-refresh-title` copy.
         for key in [
             "no-repo-open",
             "err-git",
@@ -192,6 +209,7 @@ mod tests {
             "workspace-close-warning",
             "workspace-close-cancel",
             "workspace-close-confirm",
+            "auto-refresh-on-focus-title",
         ] {
             assert_eq!(text(Locale::English, key), key, "key {key} is back");
             assert_eq!(

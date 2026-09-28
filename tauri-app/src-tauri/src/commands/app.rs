@@ -101,6 +101,25 @@ pub fn set_view(state: State<'_, AppState>, view: ViewSettings) {
     state.update_settings(|settings| settings.config.view = view);
 }
 
+/// Limit ongoing automatic refresh to the repository shown in the main tab.
+#[tauri::command]
+pub fn set_auto_refresh_target(
+    state: State<'_, AppState>,
+    window: tauri::WebviewWindow,
+    repo_id: Option<u64>,
+    generation: u64,
+) -> Result<()> {
+    if window.label() != "main" {
+        return Err(CommandError::new(
+            "err-window",
+            "only the main window can select an automatic refresh target",
+        ));
+    }
+    state
+        .set_auto_refresh_target(repo_id, generation)
+        .map_err(|detail| CommandError::new("err-repo-closed", detail))
+}
+
 #[tauri::command]
 pub fn set_typography(state: State<'_, AppState>, typography: TypographySettings) {
     state.update_settings(|settings| settings.config.typography = typography);

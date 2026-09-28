@@ -17,6 +17,8 @@
 use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::Duration;
@@ -431,6 +433,8 @@ pub enum CheckoutTarget {
 pub enum GitCommand {
     /// 刷新仓库快照（status → branch → log 顺序执行，各发事件）
     Refresh,
+    /// Refresh requested by the active-tab background monitor.
+    AutoRefresh,
     /// Set the commit-graph history scope and reload the first log page.
     LogQuery { scope: LogScope },
     /// Fetch the next commit-graph page for the current log scope.
@@ -481,15 +485,49 @@ pub enum GitCommand {
 }
 
 /// 工作线程句柄（UI 侧持有）
+#[derive(Clone)]
 pub struct GitHandle {
     cmd_tx: Sender<GitCommand>,
     compare_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    auto_refresh_state: Arc<AtomicU8>,
 }
+
+const AUTO_REFRESH_PENDING: u8 = 1;
+const AUTO_REFRESH_STATUS: u8 = 2;
+const AUTO_REFRESH_FULL: u8 = 4;
 
 impl GitHandle {
     /// 请求刷新仓库快照（std mpsc 无界通道，send 即返回）
     pub fn refresh(&self) {
         let _ = self.cmd_tx.send(GitCommand::Refresh);
+    }
+
+    /// Request a coalesced refresh from the active-tab background monitor.
+    pub fn refresh_automatically(&self, full: bool) {
+        let dirty = if full {
+            AUTO_REFRESH_FULL
+        } else {
+            AUTO_REFRESH_STATUS
+        };
+        let mut state = self.auto_refresh_state.load(Ordering::Acquire);
+        loop {
+            let should_enqueue = state & AUTO_REFRESH_PENDING == 0;
+            let next = state | AUTO_REFRESH_PENDING | dirty;
+            match self.auto_refresh_state.compare_exchange(
+                state,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    if should_enqueue && self.cmd_tx.send(GitCommand::AutoRefresh).is_err() {
+                        self.auto_refresh_state.store(0, Ordering::Release);
+                    }
+                    return;
+                }
+                Err(current) => state = current,
+            }
+        }
     }
 
     /// Set the commit-graph history scope and reload the first page.
@@ -639,8 +677,8 @@ pub fn spawn_open(repo: GitRepo, event_tx: Sender<GitEvent>) -> Result<GitHandle
         if !path.is_dir() {
             return Err(GitError::new("err-path-not-exist", repo.path()));
         }
-        // TODO: submodules and linked worktrees may store `.git` as a file
-        // instead of a directory; revisit in a later milestone.
+        // Linked worktrees and submodules point `.git` at shared metadata;
+        // Git resolves both file and directory forms when commands use `-C`.
         if !path.join(".git").exists() {
             return Err(GitError::new("err-not-a-repo", repo.path()));
         }
@@ -648,14 +686,25 @@ pub fn spawn_open(repo: GitRepo, event_tx: Sender<GitEvent>) -> Result<GitHandle
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<GitCommand>();
     let compare_generation = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let auto_refresh_state = Arc::new(AtomicU8::new(0));
     thread::spawn({
         let compare_generation = compare_generation.clone();
-        move || worker_loop(repo, cmd_rx, event_tx, compare_generation)
+        let auto_refresh_state = auto_refresh_state.clone();
+        move || {
+            worker_loop(
+                repo,
+                cmd_rx,
+                event_tx,
+                compare_generation,
+                auto_refresh_state,
+            )
+        }
     });
 
     Ok(GitHandle {
         cmd_tx,
         compare_generation,
+        auto_refresh_state,
     })
 }
 
@@ -723,6 +772,7 @@ fn worker_loop(
     cmd_rx: Receiver<GitCommand>,
     event_tx: Sender<GitEvent>,
     compare_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    auto_refresh_state: Arc<AtomicU8>,
 ) {
     // WSL repositories are validated here because the synchronous open path
     // cannot inspect a remote filesystem; the worker exits on failure.
@@ -740,11 +790,27 @@ fn worker_loop(
 
     // Refresh once immediately after opening.
     let mut log_state = commit_log::LogState::default();
-    refresh_all(&repo, &event_tx, &mut log_state);
+    refresh_all(&repo, &event_tx, &mut log_state, false);
 
     loop {
         match cmd_rx.recv_timeout(Duration::from_millis(20)) {
-            Ok(GitCommand::Refresh) => refresh_all(&repo, &event_tx, &mut log_state),
+            Ok(GitCommand::Refresh) => refresh_all(&repo, &event_tx, &mut log_state, false),
+            Ok(GitCommand::AutoRefresh) => loop {
+                let requested =
+                    auto_refresh_state.fetch_and(AUTO_REFRESH_PENDING, Ordering::AcqRel);
+                if requested & AUTO_REFRESH_FULL != 0 {
+                    refresh_all(&repo, &event_tx, &mut log_state, true);
+                } else if requested & AUTO_REFRESH_STATUS != 0 {
+                    refresh_status(&repo, &event_tx, true);
+                }
+
+                if auto_refresh_state
+                    .compare_exchange(AUTO_REFRESH_PENDING, 0, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                {
+                    break;
+                }
+            },
             Ok(GitCommand::LogQuery { scope }) => {
                 commit_log::set_scope(&repo, &mut log_state, scope, &event_tx);
             }
@@ -758,7 +824,7 @@ fn worker_loop(
             }) => {
                 let success = run_git(&repo, &label, &args, &event_tx);
                 if success && refresh_after_success {
-                    refresh_all(&repo, &event_tx, &mut log_state);
+                    refresh_all(&repo, &event_tx, &mut log_state, false);
                 }
             }
             Ok(GitCommand::CommitNumstat { oid }) => {
@@ -825,7 +891,7 @@ fn worker_loop(
                 };
                 // A mutation can partially complete, so always publish a
                 // fresh status before reporting the operation result.
-                refresh_status(&repo, &event_tx);
+                refresh_status(&repo, &event_tx, false);
                 log::info!(
                     "[git_worktree] operation finished: action={}, scope={scope_kind:?}, files={}, success={success}",
                     action.description(),
@@ -849,15 +915,20 @@ fn worker_loop(
 
 /// Repository snapshot refresh: status + branches merge into one Status
 /// event; the log and refs snapshots travel as separate events.
-fn refresh_all(repo: &GitRepo, event_tx: &Sender<GitEvent>, log_state: &mut commit_log::LogState) {
-    refresh_status(repo, event_tx);
+fn refresh_all(
+    repo: &GitRepo,
+    event_tx: &Sender<GitEvent>,
+    log_state: &mut commit_log::LogState,
+    background: bool,
+) {
+    refresh_status(repo, event_tx, background);
     commit_log::run_page(repo, log_state, true, event_tx);
     run_refs(repo, event_tx);
 }
 
 /// Refresh only the status snapshot after a local index/worktree operation.
-fn refresh_status(repo: &GitRepo, event_tx: &Sender<GitEvent>) {
-    let status = run_status(repo);
+fn refresh_status(repo: &GitRepo, event_tx: &Sender<GitEvent>, background: bool) {
+    let status = run_status(repo, background);
     let branches = run_branches(repo);
     match status {
         Ok((branch, upstream, files, ahead, behind)) => {
@@ -1292,9 +1363,13 @@ pub(crate) fn read_blob_spec(repo: &GitRepo, spec: &str) -> Option<String> {
 /// Execute git status and return (branch, upstream, files, ahead, behind).
 fn run_status(
     repo: &GitRepo,
+    background: bool,
 ) -> Result<(String, Option<String>, Vec<FileStatus>, usize, usize), GitError> {
-    let output = repo
-        .command()
+    let mut command = repo.command();
+    if background {
+        command.arg("--no-optional-locks");
+    }
+    let output = command
         .args([
             "-C",
             repo.path(),
