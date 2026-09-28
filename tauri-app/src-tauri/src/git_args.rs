@@ -14,7 +14,11 @@ use augur_core::git::{CheckoutTarget, CompareRevision};
 
 /// A repository operation the interface can request.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "action", rename_all = "camelCase")]
+#[serde(
+    tag = "action",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum GitAction {
     Fetch,
     PullMerge,
@@ -610,5 +614,35 @@ mod tests {
             "fatal: 'main' does not appear to be a git repository"
         ));
         assert!(!push_error_missing_upstream("permission denied"));
+    }
+
+    /// The webview sends camelCase field names, and the e2e suite stubs the
+    /// IPC layer, so only a serde round trip through the exact wire shapes
+    /// catches a field the enum would silently reject.
+    #[test]
+    fn wire_shapes_with_camel_case_fields_deserialize() {
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "merge", "source": "feature", "noFf": true
+        }))
+        .expect("merge wire shape");
+        assert_eq!(args(wire), ["merge", "feature", "--no-ff"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "stashPop", "stashRef": null
+        }))
+        .expect("stash pop wire shape");
+        assert_eq!(args(wire), ["stash", "pop"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "stashDrop", "stashRef": "stash@{2}"
+        }))
+        .expect("stash drop wire shape");
+        assert_eq!(args(wire), ["stash", "drop", "stash@{2}"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "deleteBranch", "name": "old", "force": true
+        }))
+        .expect("delete branch wire shape");
+        assert_eq!(args(wire), ["branch", "-D", "old"]);
     }
 }
