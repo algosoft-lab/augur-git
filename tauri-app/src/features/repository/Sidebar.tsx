@@ -7,7 +7,7 @@
  * menus are the same on right click and on long press.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
@@ -25,8 +25,6 @@ interface SectionProps {
   count: number;
   collapsed: boolean;
   onToggle: (key: string) => void;
-  /** Briefly highlighted, because something outside the panel asked for it. */
-  flashing?: boolean;
   children: React.ReactNode;
 }
 
@@ -37,12 +35,11 @@ function Section({
   count,
   collapsed,
   onToggle,
-  flashing,
   children,
 }: SectionProps) {
   return (
     <div
-      className={`sidebar__section${flashing ? " is-flashing" : ""}`}
+      className="sidebar__section"
       data-testid={`sidebar-${sectionKey}`}
     >
       <button
@@ -64,17 +61,6 @@ function Section({
 export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
   const translate = useStore((state) => state.t);
   const [collapsed, setCollapsed] = useState<string[]>([]);
-  // The title bar's branch badge asks for this section, so a click there lands
-  // on a visible change even when the section was collapsed.
-  const flash = useStore((state) => state.sidebarFlash);
-  const [flashUntil, setFlashUntil] = useState(0);
-  useEffect(() => {
-    if (flash === 0) {
-      return;
-    }
-    setCollapsed((current) => current.filter((key) => key !== "branches"));
-    setFlashUntil(Date.now() + 800);
-  }, [flash]);
   const runAction = useStore((state) => state.runAction);
   const openOverlay = useStore((state) => state.openOverlay);
   const setMessage = useStore((state) => state.setMessage);
@@ -86,7 +72,6 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
   };
 
   const isCollapsed = (key: string) => collapsed.includes(key);
-  const flashing = Date.now() < flashUntil;
   const blocked = repo.hasConflicts || repo.busy;
   const groups = groupRemoteBranches(refs.remotes, refs.remote_branches);
 
@@ -247,7 +232,6 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
           count={repo.branches.length}
           collapsed={isCollapsed("branches")}
           onToggle={toggle}
-          flashing={flashing}
         >
           {repo.branches.map((branch) => (
             <ContextMenu

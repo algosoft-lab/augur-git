@@ -250,28 +250,23 @@ test.describe("repositories", () => {
     expect(last?.args.tabs.map((tab) => tab.path)).not.toContain("");
   });
 
-  test("shows the active branch in the title bar and reveals it on click", async ({
+  test("keeps the active branch in the sidebar without a title-bar badge", async ({
     page,
   }) => {
     await boot(page, { open: [fixtureRepo()] });
 
-    const badge = page.getByTestId("title-branch");
-    await expect(badge).toBeVisible();
-    await expect(badge).toHaveText("master");
+    await expect(page.getByTestId("title-branch")).toHaveCount(0);
+    await expect(page.getByTestId("branch-master")).toBeVisible();
 
-    // With the section collapsed, the click still has to land somewhere
-    // visible, so it expands and highlights the branch list.
     await page.getByTestId("sidebar-toggle-branches").click();
     await expect(page.getByTestId("branch-master")).toHaveCount(0);
-    await badge.click();
+    await page.getByTestId("sidebar-toggle-branches").click();
     await expect(page.getByTestId("branch-master")).toBeVisible();
-    await expect(page.getByTestId("sidebar-branches")).toHaveClass(/is-flashing/);
 
-    // A second repository switches which branch is shown.
     await page.getByTestId("tab-new").click();
     await page.getByTestId("welcome-open").click();
     await expect(page.getByTestId("repo-9")).toBeVisible();
-    await expect(badge).toHaveText("trunk");
+    await expect(page.getByTestId("branch-trunk")).toBeVisible();
   });
 
   test("marks a tab that failed to open", async ({ page }) => {

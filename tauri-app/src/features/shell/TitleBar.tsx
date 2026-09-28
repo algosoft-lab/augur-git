@@ -1,6 +1,5 @@
 /**
- * The title bar: the in-window application menu, the window drag region, and
- * the quick actions.
+ * The title bar: the in-window menu, tabs, drag region, app name, and controls.
  *
  * macOS renders the traffic lights over the content because the window uses an
  * overlay title bar, so the bar reserves space for them.
@@ -21,27 +20,16 @@ export function TitleBar({
   onNewTab,
   onInstallCli,
   onRemoveCli,
-  onShowBranches,
 }: {
   onOpenRepository: () => void;
   onOpenWslRepository: () => void;
   onNewTab: () => void;
   onInstallCli: () => void;
   onRemoveCli: () => void;
-  /** Reveal the branch list in the sidebar of the active repository. */
-  onShowBranches: () => void;
 }) {
   const translate = useStore((state) => state.t);
   const build = useStore((state) => state.build);
   const recent = useStore((state) => state.config.recent_repos);
-  const activeTabKey = useStore((state) => state.activeTabKey);
-  const tabs = useStore((state) => state.tabs);
-  const repos = useStore((state) => state.repos);
-  const branch = (() => {
-    const tab = tabs.find((entry) => entry.key === activeTabKey);
-    const repo = tab && tab.repoId !== null ? repos[tab.repoId] : undefined;
-    return repo?.branch || null;
-  })();
   const openTab = useStore((state) => state.openTab);
   const setSettingsOpen = useStore((state) => state.setSettingsOpen);
 
@@ -164,28 +152,6 @@ export function TitleBar({
         className="title-bar__drag"
         {...(IS_MACOS ? { "data-tauri-drag-region": true } : {})}
       />
-      {branch ? (
-        <button
-          type="button"
-          className="title-bar__branch"
-          data-testid="title-branch"
-          title={branch}
-          onClick={onShowBranches}
-        >
-          <Icon name="git-branch" size={12} />
-          <span>{branch}</span>
-        </button>
-      ) : null}
-      <button
-        type="button"
-        className="tool-button tool-button--compact title-bar__settings"
-        data-testid="title-settings"
-        title={t(translate, "menu-settings")}
-        aria-label={t(translate, "menu-settings")}
-        onClick={() => setSettingsOpen(true)}
-      >
-        <Icon name="settings" size={14} />
-      </button>
       {build?.name ? <span className="title-bar__brand">{build.name}</span> : null}
       <WindowControls flushBeforeClose />
     </div>

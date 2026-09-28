@@ -97,7 +97,6 @@ export function MainWindow() {
         onNewTab={addStartTab}
         onInstallCli={() => void installCli("install")}
         onRemoveCli={() => void installCli("remove")}
-        onShowBranches={() => useStore.getState().flashBranches()}
       />
       {activeRepo ? (
         <RepoTab repo={activeRepo} />

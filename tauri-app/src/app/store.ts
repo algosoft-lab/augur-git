@@ -146,12 +146,6 @@ interface AppStore {
   pendingEvents: Record<number, RepoEvent[]>;
 
   settingsOpen: boolean;
-  /**
-   * When the sidebar was last asked to reveal its branches.
-   *
-   * A timestamp rather than a boolean, so two clicks in a row both register.
-   */
-  sidebarFlash: number;
   overlay: Overlay;
   notice: Notice | null;
   /** The About window is a single instance, focused instead of duplicated. */
@@ -188,13 +182,6 @@ interface AppStore {
   openOverlay: (overlay: Overlay) => void;
   closeOverlay: () => void;
   setSettingsOpen: (open: boolean) => void;
-  /**
-   * Ask the sidebar of the active repository to reveal its branch list.
-   *
-   * The section is expanded and highlighted briefly, so the click lands on
-   * something visibly changed rather than on a list that may be collapsed.
-   */
-  flashBranches: () => void;
   /**
    * Open a start page as a new tab.
    *
@@ -408,7 +395,6 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
   pendingEvents: {},
 
   settingsOpen: false,
-  sidebarFlash: 0,
   overlay: { kind: "none" },
   notice: null,
   aboutOpen: false,
@@ -862,10 +848,6 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
 
   setSettingsOpen(open) {
     set({ settingsOpen: open });
-  },
-
-  flashBranches() {
-    set({ sidebarFlash: Date.now() });
   },
 
   notify(notice) {

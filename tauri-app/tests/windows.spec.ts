@@ -491,7 +491,7 @@ test.describe("custom title bar", () => {
 
     await page.locator(".title-bar__drag").click();
     await expect.poll(dragCount).toBe(1);
-    await page.getByTestId("title-settings").click();
+    await page.getByTestId("toolbar-settings").click();
     await expect(page.getByTestId("settings-overlay")).toBeVisible();
     await expect.poll(dragCount).toBe(1);
   });
@@ -730,11 +730,33 @@ test.describe("the in-window menu", () => {
     await expect(recent).toContainText("other-app");
   });
 
-  test("keeps the branch and settings actions beside the tabs", async ({ page }) => {
+  test("opens settings from the Edit menu on the welcome page", async ({ page }) => {
+    await boot(page, { windows: true });
+    await expect(page.getByTestId("title-settings")).toHaveCount(0);
+    await page.getByTestId("menu-file-trigger").click();
+    await page.getByTestId("menu-file-edit").click();
+    await page.getByTestId("menu-file-settings").click();
+    await expect(page.getByTestId("settings-overlay")).toBeVisible();
+  });
+
+  test("keeps the tab bar and window controls without title-bar quick actions", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()], windows: true });
     await expect(page.getByTestId("tab-bar")).toBeVisible();
-    await expect(page.getByTestId("title-branch")).toHaveText("master");
-    await page.getByTestId("title-settings").click();
+    await expect(page.getByTestId("title-branch")).toHaveCount(0);
+    await expect(page.getByTestId("title-settings")).toHaveCount(0);
+    const brand = page.locator(".title-bar__brand");
+    await expect(brand).toHaveText("Augur Git Tauri");
+    await expect(brand).toHaveCSS("font-weight", "700");
+    const usesThemeColor = await brand.evaluate((element) => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--base-blue)";
+      document.body.append(probe);
+      const expected = getComputedStyle(probe).color;
+      probe.remove();
+      return getComputedStyle(element).color === expected;
+    });
+    expect(usesThemeColor).toBe(true);
+    await page.getByTestId("toolbar-settings").click();
     await expect(page.getByTestId("settings-overlay")).toBeVisible();
     await expect(page.getByTestId("window-controls")).toBeVisible();
   });
