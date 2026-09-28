@@ -489,23 +489,12 @@ test.describe('commit selection', () => {
     await expect(page.getByTestId('bottom-copy-diff')).toBeVisible();
   });
 
-  test('draws the author initials on the node, in a colour that reads', async ({ page }) => {
+  test('marks HEAD with a filled disc and the rest with rings', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
-    // The first two characters of the author, centred on the node.
-    await expect(page.getByTestId('graph-initials-13c6ef3')).toHaveText('Li');
-    await expect(page.getByTestId('graph-initials-3171560')).toHaveText('Li');
-    await expect(page.getByTestId('graph-initials-1daa66d')).toHaveText('Ad');
-
-    // The initials sit on the node rather than beside it.
+    // The nodes carry no labels, so the tip of the history has to be findable
+    // from the shape alone.
     const row = page.locator('.graph-row').first();
-    const node = await row.locator('svg circle').first().boundingBox();
-    const initials = await page.getByTestId('graph-initials-13c6ef3').boundingBox();
-    expect(initials!.x + initials!.width / 2).toBeCloseTo(node!.x + node!.width / 2, 0);
-    expect(initials!.y + initials!.height / 2).toBeCloseTo(node!.y + node!.height / 2, 0);
-
-    // HEAD is a filled disc and the rest are rings, so the tip of the history
-    // is findable without reading a label.
     const headFill = await row.locator('svg circle').first().getAttribute('fill');
     const otherFill = await page
       .locator('.graph-row')

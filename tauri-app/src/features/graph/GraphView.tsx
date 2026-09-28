@@ -21,7 +21,6 @@ import {
   COL_WIDTH,
   GRAPH_LEFT_PAD,
   GraphSvg,
-  laneCenterX,
   ROW_HEIGHT,
   type LaneGeometry
 } from './GraphSvg';
@@ -390,21 +389,6 @@ function GraphRowView({
         ) : (
           <span className="graph-row__lanes" style={{ width: laneWidth }} />
         )}
-        {geometry && row.author ? (
-          <span
-            className="graph-row__initials"
-            data-testid={`graph-initials-${row.short}`}
-            aria-hidden="true"
-            style={{
-              left: laneCenterX(geometry.nodeLane),
-              color: geometry.isHead
-                ? `var(--graph-lane-text-${(geometry.colorIndex % LANE_COLORS.length) + 1})`
-                : 'var(--foreground)'
-            }}
-          >
-            {Array.from(row.author).slice(0, 2).join('')}
-          </span>
-        ) : null}
         <span className="graph-row__hash">{row.short}</span>
         {/*
          * The order matters: the subject takes the remaining space, the ref
