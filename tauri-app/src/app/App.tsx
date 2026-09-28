@@ -238,12 +238,6 @@ async function handleMenuAction(id: string): Promise<void> {
     case 'menu.new-tab':
       globalThis.dispatchEvent(new CustomEvent('augur:new-tab'));
       break;
-    case 'menu.install-cli':
-      globalThis.dispatchEvent(new CustomEvent('augur:install-cli'));
-      break;
-    case 'menu.remove-cli':
-      globalThis.dispatchEvent(new CustomEvent('augur:remove-cli'));
-      break;
     case 'menu.settings':
       await ipc.openSettingsWindow();
       break;

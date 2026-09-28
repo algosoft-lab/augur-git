@@ -5,8 +5,6 @@ import {
   BUNDLE_ROOT,
   OUTPUT_ROOT,
   assertHostPlatform,
-  assertPackagedSidecar,
-  assertRealSidecar,
   ensureOutputRoot,
   findSingleDirectory,
   removePath,
@@ -26,10 +24,8 @@ const environment = {
 run('bun', ['run', 'tauri:build', '--', '--bundles', 'app', '--ci'], {
   env: environment
 });
-assertRealSidecar();
 
 const appBundle = findSingleDirectory(join(BUNDLE_ROOT, 'macos'), '.app');
-assertPackagedSidecar(appBundle);
 run('codesign', ['--verify', '--deep', '--strict', appBundle]);
 
 const stagingRoot = mkdtempSync(join(tmpdir(), 'augur-git-tauri-dmg-'));

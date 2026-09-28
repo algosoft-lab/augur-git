@@ -8,8 +8,6 @@
 pub const APP_NAME: &str = "Augur Git Tauri";
 /// Executable name of the desktop application.
 pub const APP_BINARY: &str = "augur-git-tauri";
-/// Command the shell installer exposes to users.
-pub const CLI_COMMAND_NAME: &str = "augurgit-tauri";
 /// Bundle and application identifier used for this application's identity and
 /// platform data directory.
 pub const APP_IDENTIFIER: &str = "com.augur.git.tauri";
@@ -44,7 +42,6 @@ mod tests {
     #[test]
     fn identity_uses_the_tauri_product_namespace() {
         assert_eq!(APP_IDENTIFIER, "com.augur.git.tauri");
-        assert_eq!(CLI_COMMAND_NAME, "augurgit-tauri");
     }
 
     #[test]

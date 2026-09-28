@@ -387,7 +387,6 @@ export type AppEvent =
 export interface BuildInfo {
   name: string;
   binary: string;
-  cli_command: string;
   identifier: string;
   version: string;
   authors: string;
@@ -446,28 +445,5 @@ export interface RebaseProbe extends RebaseState {
   other_operation_in_progress: boolean;
   target_known: boolean;
 }
-
-export type CliOperation = 'install' | 'remove';
-
-export interface ChangeReport {
-  operation: Operation;
-  results: { path: string; outcome: Outcome }[];
-  fallback_binary: boolean;
-}
-
-export type Operation = 'install' | 'remove';
-
-/**
- * What happened to one shell configuration file.
- *
- * A unit variant arrives as an object with a null payload and a failure as an
- * object carrying the reason, because serde tags an enum externally.
- */
-export type Outcome =
-  | { updated: null }
-  | { unchanged: null }
-  | { removed: null }
-  | { notInstalled: null }
-  | { failed: string };
 
 export type ThemeTokens = Record<string, string>;

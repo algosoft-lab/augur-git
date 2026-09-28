@@ -48,9 +48,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": [
-      "binaries/augurgit-tauri"
-    ],
     "macOS": {
       "minimumSystemVersion": "10.15"
     },

@@ -21,8 +21,6 @@ pub mod ids {
     pub const OPEN_REPOSITORY: &str = "menu.open-repository";
     pub const OPEN_WSL_REPOSITORY: &str = "menu.open-wsl-repository";
     pub const NEW_TAB: &str = "menu.new-tab";
-    pub const INSTALL_CLI: &str = "menu.install-cli";
-    pub const REMOVE_CLI: &str = "menu.remove-cli";
     pub const SETTINGS: &str = "menu.settings";
     pub const ABOUT: &str = "menu.about";
     pub const QUIT: &str = "menu.quit";
@@ -154,12 +152,6 @@ fn build<R: Runtime>(
     .build(app)?;
     let new_tab =
         MenuItemBuilder::with_id(ids::NEW_TAB, i18n::text(locale, "menu-new-tab")).build(app)?;
-    let install_cli =
-        MenuItemBuilder::with_id(ids::INSTALL_CLI, i18n::text(locale, "menu-install-cli"))
-            .build(app)?;
-    let remove_cli =
-        MenuItemBuilder::with_id(ids::REMOVE_CLI, i18n::text(locale, "menu-remove-cli"))
-            .build(app)?;
     let settings =
         MenuItemBuilder::with_id(ids::SETTINGS, i18n::text(locale, "menu-settings")).build(app)?;
     let about =
@@ -170,7 +162,6 @@ fn build<R: Runtime>(
     }
     let quit = quit_builder.build(app)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let separator_two = PredefinedMenuItem::separator(app)?;
     let separator_three = PredefinedMenuItem::separator(app)?;
 
     let recent_items: Vec<_> = if recent.is_empty() {
@@ -209,9 +200,6 @@ fn build<R: Runtime>(
     }
     file_items.push(&new_tab);
     file_items.push(&separator);
-    file_items.push(&install_cli);
-    file_items.push(&remove_cli);
-    file_items.push(&separator_two);
     file_items.push(&recent_menu);
     if !cfg!(target_os = "macos") {
         file_items.push(&separator_three);

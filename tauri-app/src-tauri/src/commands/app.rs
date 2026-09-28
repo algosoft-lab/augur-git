@@ -1,5 +1,5 @@
-//! Application-level commands: settings, layout, shortcuts, windows, the
-//! shell CLI, and platform helpers.
+//! Application-level commands: settings, layout, shortcuts, windows, and
+//! platform helpers.
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
@@ -10,7 +10,6 @@ use augur_core::config::{
 };
 use augur_core::git::{GitError, GitRepo};
 use augur_core::keymap;
-use augur_core::shell_install::{self, ChangeReport, Operation};
 
 use crate::commands::repo::CommandError;
 use crate::events::{AppEvent, OPEN_PATHS_EVENT, OpenPathsPayload};
@@ -37,35 +36,6 @@ pub fn theme_options() -> Vec<ThemePreference> {
 #[tauri::command]
 pub fn list_font_families() -> Vec<String> {
     crate::fonts::font_families()
-}
-
-/// Which shell operation the File menu requested.
-#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum CliOperation {
-    Install,
-    Remove,
-}
-
-/// Install or remove the `augurgit-tauri` shell command.
-///
-/// The core report is returned unchanged. It already serialises, and re-shaping
-/// it here would be a second place to lose information: a successful removal
-/// collapsed into the same outcome as an install, and a failure lost the reason
-/// that makes it actionable.
-#[tauri::command]
-pub async fn run_cli_installer(operation: CliOperation) -> Result<ChangeReport> {
-    let operation = match operation {
-        CliOperation::Install => Operation::Install,
-        CliOperation::Remove => Operation::Remove,
-    };
-    let report = tauri::async_runtime::spawn_blocking(move || match operation {
-        Operation::Install => shell_install::install(),
-        Operation::Remove => shell_install::remove(),
-    })
-    .await
-    .map_err(|error| CommandError::new("err-installer", error.to_string()))?;
-    Ok(report)
 }
 
 /// Installed WSL distribution names. Empty on other platforms.

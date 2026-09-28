@@ -1677,12 +1677,6 @@ button {
   white-space: nowrap;
 }
 
-.about__hint {
-  margin-top: 6px;
-  color: var(--muted-foreground);
-  font-size: calc(var(--ui-font-size) * 0.65);
-}
-
 /* ===== Compare window ===== */
 
 .compare {

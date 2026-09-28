@@ -403,11 +403,6 @@ function ShortcutsSection() {
             {message}
           </div>
         ))}
-      <div className="settings__hint">
-        {ta(translate, 'about-cli-hint', {
-          command: useStore.getState().build?.cli_command ?? 'augurgit-tauri'
-        })}
-      </div>
     </>
   );
 }

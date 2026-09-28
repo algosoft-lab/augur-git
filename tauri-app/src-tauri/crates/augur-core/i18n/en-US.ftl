@@ -2,14 +2,11 @@
 # Format: key = value, one per line; { $name } placeholders are
 # substituted by src/core/i18n.rs::text_args.
 #
-# Two values differ from the reference catalog on purpose, and both are because
-# this product has no agent feature and a different shell command:
+# One value differs from the reference catalog on purpose:
 #
 #   rebase-preflight-dirty  The reference says "Rebase by AI", because an agent
 #                           is the only actor in a build that has one. Here the
 #                           message has to stand on its own.
-#   cli-dialog-title        This product installs `augurgit-tauri`, and the two
-#                           installers must never be mistaken for each other.
 
 # ===== App / Welcome =====
 app-tagline = Desktop Git client
@@ -34,22 +31,10 @@ menu-extensions = Extensions
 menu-help = Help
 menu-about = About Augur Git
 menu-quit = Quit
-menu-install-cli = Install augurgit CLI…
-menu-remove-cli = Remove augurgit CLI…
 window-minimize = Minimize
 window-maximize = Maximize
 window-restore = Restore
 window-close = Close window
-cli-dialog-title = augurgit-tauri CLI
-cli-install-updated = Added the augurgit command to
-cli-install-unchanged = Already installed and up to date in
-cli-install-failed = Failed to update
-cli-remove-updated = Removed the augurgit command from
-cli-remove-notinstalled = Not installed in
-cli-install-hint = Open a new terminal (or reload your shell configuration) to use it.
-cli-binary-fallback = No dedicated augurgit executable was found next to the application; the command points at the application binary, so running it without arguments will not open the current directory.
-cli-install-none = No supported shell configuration files were found.
-cli-remove-none = augurgit was not installed in any shell configuration file.
 about-title = About
 about-tagline = Desktop Git client
 about-author = Author
@@ -554,11 +539,9 @@ err-commit-message = Failed to read commit message: { $detail }
 
 # --- Augur Git Tauri: keys the desktop application adds ---
 app-name = Augur Git Tauri
-cli-command = Command
 app-identifier = Identifier
 app-data-dir = Data location
 compare-window-title = Compare revisions
-about-cli-hint = Run { $command } in a terminal to open the current directory.
 about-platform = Platform
 settings-store-location = Stored in
 tab-close = Close tab
@@ -572,5 +555,4 @@ err-invalid-shortcut = That is not a valid key combination.
 err-unknown-command = That command cannot be remapped.
 err-window = The window could not be opened.
 err-worker = A background task failed to start.
-err-installer = The shell command could not be updated.
 diff-copy-tooltip = Copy the diff

@@ -1,10 +1,9 @@
 //! Augur Git Tauri application entry point.
 //!
-//! The process can start in three ways: as the desktop application with no
-//! arguments, as the desktop application forwarding repository paths that are
-//! already open in a running instance, or as the `augurgit-tauri` companion
-//! command. All three share one command-line parser and one single-instance
-//! lock, so a second launch never produces a second window.
+//! The process can start as the desktop application with no arguments, or as a
+//! second launch forwarding repository paths that are already open in a
+//! running instance. Both share one command-line parser and one
+//! single-instance lock, so a second launch never produces a second window.
 
 use tauri::{Emitter, Listener, Manager, RunEvent, WindowEvent};
 
@@ -65,7 +64,6 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             commands::repo::column_visibility,
             commands::app::theme_options,
             commands::app::list_font_families,
-            commands::app::run_cli_installer,
             commands::app::list_wsl_distros,
             commands::app::probe_wsl_repository,
             commands::app::update_settings,
@@ -150,23 +148,21 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
 /// instance and focus its window.
 fn handle_second_launch(app: &tauri::AppHandle, args: &[String], cwd: &str) {
     let cwd_path = std::path::Path::new(cwd);
-    let mut requested: Vec<String> = args
+    let requested: Vec<String> = args
         .iter()
         .skip(1)
         .filter(|arg| !arg.starts_with('-'))
         .cloned()
         .collect();
-    // A bare `augurgit-tauri` means the directory the user typed it in.
     if requested.is_empty() {
-        if let Ok(current) = std::fs::canonicalize(cwd_path)
-            && current.is_dir()
-        {
-            requested.push(
-                augur_core::paths::normalize_extended_path(&current)
-                    .to_string_lossy()
-                    .into_owned(),
-            );
+        // A bare second launch carries no repository to forward; focusing the
+        // running window is all the user asked for.
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
         }
+        return;
     }
     match cli::resolve_forwarded(&requested, cwd_path) {
         Ok(paths) => {

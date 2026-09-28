@@ -3,12 +3,11 @@
  *
  * A separate window rather than a settings section, matching the reference
  * application. It reports the identity, version, and build commit of this
- * application, where its data lives, and the command that opens a repository
- * from a terminal.
+ * application and where its data lives.
  */
 
 import { useStore } from '../../app/store';
-import { t, ta } from '../../i18n/strings';
+import { t } from '../../i18n/strings';
 
 export function AboutWindow() {
   const translate = useStore((state) => state.t);
@@ -42,10 +41,6 @@ export function AboutWindow() {
             <dd data-testid="about-identifier">{build?.identifier ?? ''}</dd>
           </div>
           <div className="about__row">
-            <dt>{t(translate, 'cli-command')}</dt>
-            <dd data-testid="about-cli">{build?.cli_command ?? ''}</dd>
-          </div>
-          <div className="about__row">
             <dt>{t(translate, 'about-platform')}</dt>
             <dd data-testid="about-platform">{build?.platform ?? ''}</dd>
           </div>
@@ -56,11 +51,6 @@ export function AboutWindow() {
             </div>
           ))}
         </dl>
-        <div className="about__hint">
-          {ta(translate, 'about-cli-hint', {
-            command: build?.cli_command ?? 'augurgit-tauri'
-          })}
-        </div>
       </div>
     </div>
   );

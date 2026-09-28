@@ -14,8 +14,6 @@ import type {
   AppConfig,
   AppEvent,
   Bootstrap,
-  ChangeReport,
-  CliOperation,
   CommitActionPreference,
   CommitMessage,
   CompareRevisionArg,
@@ -215,10 +213,6 @@ export async function listFontFamilies(): Promise<string[]> {
 
 export async function themeOptions(): Promise<ThemePreference[]> {
   return invoke<ThemePreference[]>('theme_options');
-}
-
-export async function runCliInstaller(operation: CliOperation): Promise<ChangeReport> {
-  return invoke<ChangeReport>('run_cli_installer', { operation });
 }
 
 export async function listWslDistros(): Promise<string[]> {

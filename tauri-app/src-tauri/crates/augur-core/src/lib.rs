@@ -17,7 +17,6 @@ pub mod i18n;
 pub mod keymap;
 pub mod paths;
 pub mod refs;
-pub mod shell_install;
 
 /// Git operations, diff parsing, and the plain-Git state probes that the
 /// repository layer coordinates.

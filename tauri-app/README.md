@@ -19,7 +19,6 @@ identities.
 tauri-app/
   index.html                 # one document served to every window
   vite.config.ts
-  scripts/sidecar.mjs        # builds the CLI companion into src-tauri/binaries
   src/                       # the webview
     bridge/                  # the only module that talks to Tauri
     components/              # menus, dialogs, splitters, virtual list
@@ -55,7 +54,7 @@ parsing, and read-only state probes used by the Tauri backend.
 
 ```bash
 bun install          # frontend dependencies
-bun run tauri:dev    # build the CLI companion, then run the app in dev mode
+bun run tauri:dev    # run the app in dev mode
 bun run tauri:build  # produce a platform bundle
 bun run tauri:build -- --bundles app   # one platform's bundle only
 bun run format      # format TypeScript and Rust sources
@@ -71,12 +70,6 @@ cargo test --manifest-path src-tauri/Cargo.toml   # Rust unit tests
 
 Run these commands from the `tauri-app/` directory.
 
-`bun run tauri:dev` and `bun run tauri:build` run `scripts/sidecar.mjs` first.
-That script compiles the `augurgit-tauri` companion and copies it to
-`src-tauri/binaries/`, where the Tauri bundler expects a sidecar. A bare
-`cargo build` has no such hook, so `build.rs` writes a clearly labelled
-placeholder instead; the real binary is only ever produced by the bun scripts.
-
 ## Packaging
 
 The platform packaging commands require the matching host and architecture:
@@ -84,8 +77,8 @@ Windows x86-64, macOS ARM64, or Linux x86-64. They write artifacts to
 `packaging/out/`. Windows packaging requires NSIS. Linux packaging
 requires the Tauri 2 development libraries, including GTK 3 and WebKitGTK 4.1.
 The AppImage build runs with extraction mode for hosts without FUSE. The raw
-Linux `.tar.gz` contains the GUI and CLI executables but relies on compatible
-system GTK 3 and WebKitGTK 4.1 runtime libraries.
+Linux `.tar.gz` contains the GUI executable but relies on compatible system
+GTK 3 and WebKitGTK 4.1 runtime libraries.
 
 The macOS packaging command builds the ARM64 app bundle, verifies its
 ad-hoc signature, and creates the DMG with `hdiutil` so it can run without a

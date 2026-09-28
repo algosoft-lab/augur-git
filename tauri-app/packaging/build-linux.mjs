@@ -8,8 +8,6 @@ import {
   assertExecutable,
   assertHostPlatform,
   assertNonEmptyFile,
-  assertPackagedSidecar,
-  assertRealSidecar,
   copySingleFile,
   ensureOutputRoot,
   removePath,
@@ -19,7 +17,6 @@ import {
 
 assertHostPlatform('linux', 'x64');
 const appBinary = join(TARGET_ROOT, 'augur-git-tauri');
-const cliBinary = join(TARGET_ROOT, 'augurgit-tauri');
 const rawArchive = join(OUTPUT_ROOT, 'augur-git-tauri-linux-x86_64.tar.gz');
 const appImageOutput = join(OUTPUT_ROOT, 'augur-git-tauri-linux-x86_64.AppImage');
 const debOutput = join(OUTPUT_ROOT, 'augur-git-tauri-linux-x86_64.deb');
@@ -34,23 +31,19 @@ removePath(appImageOutput);
 removePath(debOutput);
 
 runBun('run', 'tauri:build', '--', '--no-bundle', '--ci');
-assertRealSidecar();
 assertExecutable(appBinary);
-assertExecutable(cliBinary);
 
 const stagingRoot = mkdtempSync(join(tmpdir(), 'augur-git-tauri-raw-'));
 const archiveDirectory = join(stagingRoot, 'augur-git-tauri-linux-x86_64');
 try {
   mkdirSync(archiveDirectory, { recursive: true });
   cpSync(appBinary, join(archiveDirectory, 'augur-git-tauri'));
-  cpSync(cliBinary, join(archiveDirectory, 'augurgit-tauri'));
   writeFileSync(
     join(archiveDirectory, 'README.txt'),
     [
       'Augur Git Tauri Linux x86-64 raw binaries',
       '',
       'Run ./augur-git-tauri to launch the desktop application.',
-      'Run ./augurgit-tauri --help to inspect the command-line interface.',
       '',
       'The desktop application uses system GTK 3 and WebKitGTK 4.1 libraries.',
       'Install the runtime libraries required by your Linux distribution.',
@@ -68,10 +61,7 @@ try {
   run('tar', ['-xzf', rawArchive, '-C', archiveCheckRoot]);
   const rawPackage = join(archiveCheckRoot, 'augur-git-tauri-linux-x86_64');
   const rawApp = join(rawPackage, 'augur-git-tauri');
-  const rawCli = join(rawPackage, 'augurgit-tauri');
   assertExecutable(rawApp);
-  assertExecutable(rawCli);
-  run(rawCli, ['--help']);
 } finally {
   removePath(archiveCheckRoot);
 }
@@ -112,8 +102,8 @@ try {
       APPIMAGE_EXTRACT_AND_RUN: '1'
     }
   });
-  assertPackagedSidecar(debRoot);
-  assertPackagedSidecar(appImageRoot);
+  assertExecutable(join(debRoot, 'usr', 'bin', 'augur-git-tauri'));
+  assertExecutable(join(appImageRoot, 'usr', 'bin', 'augur-git-tauri'));
 } finally {
   removePath(packageCheckRoot);
 }
