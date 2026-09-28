@@ -140,7 +140,6 @@ toolbar-branch = Branch
 toolbar-compare = Compare
 toolbar-extensions = Extensions
 toolbar-refresh = Refresh
-toolbar-settings = Settings
 
 # ===== Agent lifecycle =====
 

@@ -130,10 +130,40 @@ button {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--primary-background);
   font-size: calc(var(--ui-font-size) * 0.7);
   font-weight: 700;
-  color: var(--base-blue);
+  color: var(--primary-foreground);
   white-space: nowrap;
+}
+
+.title-bar__brand svg {
+  flex: 0 0 auto;
+  color: var(--primary-foreground);
+}
+
+.title-bar__settings {
+  display: inline-flex;
+  width: 32px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.title-bar__settings:hover {
+  background: var(--list-hover-background);
+  color: var(--foreground);
 }
 
 .window-controls {

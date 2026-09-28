@@ -145,9 +145,26 @@ export function TitleBar({
           </button>
         </Menu>
       ) : null}
+      {build?.name ? (
+        <span className="title-bar__brand">
+          <span>{build.name}</span>
+          <Icon name="git-branch" size={14} />
+        </span>
+      ) : null}
       <TabBar onNewTab={onNewTab} />
       <div className="title-bar__drag" {...(IS_MACOS ? { 'data-tauri-drag-region': true } : {})} />
-      {build?.name ? <span className="title-bar__brand">{build.name}</span> : null}
+      <button
+        type="button"
+        className="title-bar__settings"
+        title={t(translate, 'menu-settings')}
+        aria-label={t(translate, 'menu-settings')}
+        data-testid="title-settings"
+        onClick={() => {
+          void ipc.openSettingsWindow();
+        }}
+      >
+        <Icon name="settings" size={14} />
+      </button>
       <WindowControls flushBeforeClose />
     </div>
   );

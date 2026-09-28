@@ -327,10 +327,10 @@ test.describe('comparison window', () => {
     await expect(page.getByTestId('compare-file-src/lib.rs')).toBeVisible();
   });
 
-  test('opens the standalone settings window from the toolbar', async ({ page }) => {
+  test('opens the standalone settings window from the title-bar gear', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
 
-    await page.getByTestId('toolbar-settings').click();
+    await page.getByTestId('title-settings').click();
     // The settings live in their own window, so the main window only asks the
     // backend to open it and never mounts a surface of its own.
     await expect(page.getByTestId('settings-window')).toHaveCount(0);
@@ -474,7 +474,7 @@ test.describe('custom title bar', () => {
 
     await page.locator('.title-bar__drag').click();
     await expect.poll(dragCount).toBe(1);
-    await page.getByTestId('toolbar-settings').click();
+    await page.getByTestId('title-settings').click();
     await expect.poll(dragCount).toBe(1);
   });
 });
@@ -752,33 +752,66 @@ test.describe('the in-window menu', () => {
 
   test('opens settings from the Edit menu on the welcome page', async ({ page }) => {
     const stub = await boot(page, { windows: true });
-    await expect(page.getByTestId('title-settings')).toHaveCount(0);
+    await expect(page.getByTestId('title-settings')).toBeVisible();
     await page.getByTestId('menu-file-trigger').click();
     await page.getByTestId('menu-file-edit').click();
     await page.getByTestId('menu-file-settings').click();
     expect(await stub.commandNames()).toContain('open_settings_window');
   });
 
-  test('keeps the tab bar and window controls without title-bar quick actions', async ({
+  test('opens settings from the title-bar gear on the welcome page', async ({ page }) => {
+    const stub = await boot(page, { windows: true });
+    await page.getByTestId('title-settings').click();
+    expect(await stub.commandNames()).toContain('open_settings_window');
+  });
+
+  test('places the title card before tabs and settings before window controls', async ({
     page
   }) => {
     const stub = await boot(page, { open: [fixtureRepo()], windows: true });
     await expect(page.getByTestId('tab-bar')).toBeVisible();
     await expect(page.getByTestId('title-branch')).toHaveCount(0);
-    await expect(page.getByTestId('title-settings')).toHaveCount(0);
+    await expect(page.getByTestId('title-settings')).toBeVisible();
     const brand = page.locator('.title-bar__brand');
     await expect(brand).toHaveText('Augur Git Tauri');
     await expect(brand).toHaveCSS('font-weight', '700');
+    await expect(brand).toHaveCSS('border-radius', '6px');
+    await expect(brand.locator('svg')).toBeVisible();
+    await expect(page.getByTestId('title-settings')).toHaveText('');
+    await expect(page.getByTestId('title-settings')).toHaveAttribute('aria-label', 'Settings');
     const usesThemeColor = await brand.evaluate((element) => {
       const probe = document.createElement('span');
-      probe.style.color = 'var(--base-blue)';
+      probe.style.color = 'var(--primary-foreground)';
       document.body.append(probe);
       const expected = getComputedStyle(probe).color;
       probe.remove();
       return getComputedStyle(element).color === expected;
     });
     expect(usesThemeColor).toBe(true);
-    await page.getByTestId('toolbar-settings').click();
+    const usesButtonBackground = await brand.evaluate((element) => {
+      const probe = document.createElement('span');
+      probe.style.backgroundColor = 'var(--primary-background)';
+      document.body.append(probe);
+      const expected = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return getComputedStyle(element).backgroundColor === expected;
+    });
+    expect(usesButtonBackground).toBe(true);
+
+    const positions = await page.evaluate(() => {
+      const left = (selector: string) =>
+        document.querySelector(selector)?.getBoundingClientRect().left ?? -1;
+      return {
+        brand: left('.title-bar__brand'),
+        tabs: left('.tab-bar'),
+        settings: left('[data-testid="title-settings"]'),
+        controls: left('.window-controls')
+      };
+    });
+    expect(positions.brand).toBeLessThan(positions.tabs);
+    expect(positions.settings).toBeLessThan(positions.controls);
+
+    await page.getByTestId('title-settings').click();
     expect((await stub.commandNames()).filter((c) => c === 'open_settings_window')).toHaveLength(1);
     await expect(page.getByTestId('window-controls')).toBeVisible();
   });

@@ -9,7 +9,7 @@
 
 import { open } from '@tauri-apps/plugin-dialog';
 
-import { Icon, type IconName } from '../../components/Icon';
+import { Icon } from '../../components/Icon';
 import { Menu, ToolButton, type MenuItemSpec } from '../../components/controls';
 import * as ipc from '../../bridge/ipc';
 import { hasLocalBranches, useStore, type RepoState } from '../../app/store';
@@ -177,29 +177,9 @@ export function Toolbar({ repo }: { repo: RepoState }) {
         testId="toolbar-refresh"
         onClick={() => void refresh(repo.id)}
       />
-      <ToolButton
-        label={t(translate, 'toolbar-settings')}
-        icon={<Icon name="settings" />}
-        testId="toolbar-settings"
-        onClick={() => {
-          void ipc.openSettingsWindow();
-        }}
-      />
     </div>
   );
 }
-
-/** Icon names used by the toolbar, kept next to their buttons. */
-export const TOOLBAR_ICONS: Record<string, IconName> = {
-  fetch: 'download',
-  pull: 'chevron-down',
-  rebase: 'git-commit-horizontal',
-  push: 'chevron-down',
-  force: 'triangle-alert',
-  compare: 'git-branch',
-  refresh: 'refresh-cw',
-  settings: 'settings'
-};
 
 /** Whether a plain push should first offer to publish the branch. */
 export function shouldOfferUpstream(repo: RepoState): boolean {
