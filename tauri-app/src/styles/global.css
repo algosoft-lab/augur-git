@@ -203,6 +203,8 @@ button {
   flex: 1 1 auto;
   max-width: 65%;
   align-items: stretch;
+  gap: 4px;
+  padding: 4px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -223,7 +225,6 @@ button {
   gap: 6px;
   padding: 0 8px;
   border: none;
-  border-right: 1px solid var(--border);
   border-radius: 10px;
   background: color-mix(
     in srgb,
@@ -305,6 +306,7 @@ button {
   align-items: center;
   justify-content: center;
   border: none;
+  border-radius: 7px;
   background: transparent;
   color: var(--muted-foreground);
   cursor: pointer;
