@@ -10,6 +10,7 @@ import { test as base, expect, type Page } from '@playwright/test';
 import {
   DEFAULT_OPTIONS,
   fixtureRepo,
+  longFixtureRepo,
   secondFixtureRepo,
   stubSource,
   type StubOptions,
@@ -215,4 +216,4 @@ export const test = base.extend<{ stub: StubApi }>({
   }
 });
 
-export { expect, DEFAULT_OPTIONS, fixtureRepo, secondFixtureRepo };
+export { expect, DEFAULT_OPTIONS, fixtureRepo, longFixtureRepo, secondFixtureRepo };

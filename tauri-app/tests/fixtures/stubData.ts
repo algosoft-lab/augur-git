@@ -130,6 +130,29 @@ export function secondFixtureRepo(): StubRepo {
   };
 }
 
+/**
+ * A repository with a long linear history, so graph tests can scroll far past
+ * the first window of rows.
+ */
+export function longFixtureRepo(commits = 400): StubRepo {
+  const repo = fixtureRepo();
+  const rows: StubLogRow[] = Array.from({ length: commits }, (_, index) =>
+    logRow(
+      index + 20,
+      `Long history commit ${index + 1}`,
+      'Lihao',
+      30 * (index + 1),
+      index === commits - 1 ? [] : [index + 21],
+      index === 0 ? 'HEAD -> master' : ''
+    )
+  );
+  return {
+    ...repo,
+    rows,
+    status: { ...repo.status, head: rows[0].oid }
+  };
+}
+
 /** The file list of the newest commit, so the commit panel has content. */
 export function commitFiles(): Record<string, unknown>[] {
   return [

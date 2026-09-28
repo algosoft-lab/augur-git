@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { boot, fixtureRepo, rightClick, secondFixtureRepo } from './harness';
+import { boot, fixtureRepo, longFixtureRepo, rightClick, secondFixtureRepo } from './harness';
 
 /**
  * Selecting a commit and reading its diff.
@@ -394,6 +394,54 @@ test.describe('commit selection', () => {
 
     await page.getByTestId('commit-message-close').click();
     await expect(page.getByTestId('commit-message-dialog')).toHaveCount(0);
+  });
+
+  test('opens the context menu at the cursor after scrolling deep', async ({ page }) => {
+    await boot(page, { open: [longFixtureRepo()] });
+
+    // A deep scroll is what used to fling the menu far from the cursor: the
+    // fixed-position menu was laid out against the virtual list's transformed
+    // window instead of the viewport.
+    const list = page.getByTestId('graph-list');
+    await list.evaluate((element) => {
+      element.scrollTop = 72 * 36;
+    });
+    await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(72 * 36);
+
+    // The first fully visible row after that scroll. Rows are matched by
+    // subject because DOM order is the rendered window, not the item index.
+    const row = page.locator('.graph-row[title="Long history commit 74"]');
+    await expect(row).toBeVisible();
+    const box = (await row.boundingBox())!;
+    const cursor = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    await page.mouse.click(cursor.x, cursor.y, { button: 'right' });
+
+    const menu = page.locator('.context-menu');
+    await expect(menu).toBeVisible();
+    const menuBox = (await menu.boundingBox())!;
+    expect(Math.abs(menuBox.x - cursor.x)).toBeLessThanOrEqual(2);
+    expect(Math.abs(menuBox.y - cursor.y)).toBeLessThanOrEqual(2);
+    expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(800);
+
+    // Near the bottom edge the menu flips up instead of leaving the window.
+    // The event is dispatched manually because locator.dispatchEvent drops
+    // pointer coordinates, and no graph row sits near the window bottom in the
+    // default layout.
+    await page.evaluate(() => {
+      document.querySelector('.graph-row[title="Long history commit 74"]')?.dispatchEvent(
+        new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          clientX: 640,
+          clientY: 780
+        })
+      );
+    });
+    await expect
+      .poll(() => menu.boundingBox().then((value) => value!.y + value!.height))
+      .toBeLessThanOrEqual(792);
+    const flipped = (await menu.boundingBox())!;
+    expect(flipped.y).toBeLessThan(780);
   });
 
   test("copies a commit's diff from the button and the keyboard", async ({ page }) => {

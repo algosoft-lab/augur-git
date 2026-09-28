@@ -8,6 +8,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 import { Icon } from './Icon';
 import './controls.css';
@@ -690,7 +691,13 @@ export interface ContextMenuProps {
   testId?: string;
 }
 
-/** A right-click menu. Long-press opens it too, for touch input. */
+/**
+ * A right-click menu. Long-press opens it too, for touch input.
+ *
+ * The menu portals to the document body: rows live inside the virtual list's
+ * transformed window, and a transformed ancestor is the containing block for
+ * `position: fixed`, which used to displace the menu by the scroll depth.
+ */
 export function ContextMenu({ entries, children, testId }: ContextMenuProps) {
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -726,14 +733,30 @@ export function ContextMenu({ entries, children, testId }: ContextMenuProps) {
   }, [position, close]);
 
   const open = (x: number, y: number) => {
-    // Keep the menu inside the window.
-    const width = 220;
-    const height = entries.length * 26 + 12;
-    setPosition({
-      x: Math.min(x, window.innerWidth - width - 8),
-      y: Math.min(y, window.innerHeight - height - 8)
-    });
+    setPosition({ x, y });
   };
+
+  // The menu's real size is only known once it has mounted, so the clamp runs
+  // after layout: shift at the right edge and flip up at the bottom edge, the
+  // way a native menu does.
+  useLayoutEffect(() => {
+    if (!position || !menuRef.current) {
+      return;
+    }
+    const rect = menuRef.current.getBoundingClientRect();
+    const margin = 8;
+    const x =
+      position.x + rect.width > window.innerWidth - margin
+        ? Math.max(margin, window.innerWidth - rect.width - margin)
+        : position.x;
+    const y =
+      position.y + rect.height > window.innerHeight - margin
+        ? Math.max(margin, window.innerHeight - rect.height - margin)
+        : position.y;
+    if (x !== position.x || y !== position.y) {
+      setPosition({ x, y });
+    }
+  }, [position]);
 
   return (
     <>
@@ -765,34 +788,39 @@ export function ContextMenu({ entries, children, testId }: ContextMenuProps) {
       >
         {children}
       </div>
-      {position ? (
-        <div
-          className="context-menu"
-          role="menu"
-          ref={menuRef}
-          style={{ left: position.x, top: position.y }}
-        >
-          {entries.map((entry) => (
-            <div key={entry.id}>
-              {entry.separatorBefore ? <div className="menu__separator" /> : null}
-              <button
-                type="button"
-                role="menuitem"
-                data-testid={`context-${entry.id}`}
-                className={`menu__item${entry.disabled ? ' is-disabled' : ''}`}
-                disabled={entry.disabled}
-                onClick={() => {
-                  close();
-                  entry.onSelect();
-                }}
-              >
-                {entry.icon ? <span className="menu__icon">{entry.icon}</span> : null}
-                <span>{entry.label}</span>
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
+      {position
+        ? createPortal(
+            // Portaled so the virtual list's transformed window cannot become
+            // this fixed menu's containing block and displace it.
+            <div
+              className="context-menu"
+              role="menu"
+              ref={menuRef}
+              style={{ left: position.x, top: position.y }}
+            >
+              {entries.map((entry) => (
+                <div key={entry.id}>
+                  {entry.separatorBefore ? <div className="menu__separator" /> : null}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid={`context-${entry.id}`}
+                    className={`menu__item${entry.disabled ? ' is-disabled' : ''}`}
+                    disabled={entry.disabled}
+                    onClick={() => {
+                      close();
+                      entry.onSelect();
+                    }}
+                  >
+                    {entry.icon ? <span className="menu__icon">{entry.icon}</span> : null}
+                    <span>{entry.label}</span>
+                  </button>
+                </div>
+              ))}
+            </div>,
+            document.body
+          )
+        : null}
     </>
   );
 }

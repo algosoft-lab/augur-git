@@ -18,7 +18,13 @@ import { fixtureRepo, secondFixtureRepo } from './stubData';
 import type { StubLogRow, StubRepo } from './stubTypes';
 
 export type { StubFile, StubRefs, StubRepo, StubStatus } from './stubTypes';
-export { commitFiles, diffPayload, fixtureRepo, secondFixtureRepo } from './stubData';
+export {
+  commitFiles,
+  diffPayload,
+  fixtureRepo,
+  longFixtureRepo,
+  secondFixtureRepo
+} from './stubData';
 
 /** The stub's mutable state, so a test can steer it. */
 export interface StubOptions {
