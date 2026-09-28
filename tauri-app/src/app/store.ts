@@ -101,8 +101,9 @@ export type Overlay =
     }
   | { kind: 'mergeConflict'; source: string; detail: string }
   | { kind: 'mergeError'; label: string; detail: string }
-  | { kind: 'rebaseConflict'; detail: string; source?: string }
+  | { kind: 'rebaseConflict'; label: string; detail: string; source?: string }
   | { kind: 'rebaseError'; label: string; detail: string }
+  | { kind: 'stashPopConflict'; detail: string }
   | { kind: 'wslOpen'; distros: string[]; loading: boolean };
 
 /** A transient message shown in the status bar of the main window. */
@@ -229,6 +230,108 @@ let get: () => AppStore;
  * make every observer re-render when a repository finishes opening.
  */
 const opening = new Map<string, Promise<void>>();
+
+/**
+ * The integration source most recently named per repository, kept for conflict
+ * recovery: the dialog that reports a conflicted merge or rebase names the
+ * branch that was being integrated. Deliberately outside the reactive state,
+ * like the in-flight opens.
+ */
+const integrationSources = new Map<number, string>();
+
+/** Merge-shaped commands whose failure can stop on conflicts. */
+const MERGE_CONFLICT_LABELS = new Set(['merge', 'merge --no-ff', 'pull']);
+/** Rebase-shaped commands whose failure can stop on conflicts. */
+const REBASE_CONFLICT_LABELS = new Set(['rebase', 'pull --rebase']);
+
+/**
+ * Probe a repository after one of these commands failed, and turn a real
+ * conflict into the matching recovery dialog.
+ *
+ * The command's own failure has already reached the status bar, so a probe
+ * that finds no conflict, fails itself, or races a closed repository stays
+ * silent: the status text is then all there is to say.
+ */
+function watchForConflicts(repoId: number, label: string, detail: string): void {
+  const merge = MERGE_CONFLICT_LABELS.has(label);
+  const rebase = REBASE_CONFLICT_LABELS.has(label);
+  const stash = label === 'stash pop';
+  if (!merge && !rebase && !stash) {
+    return;
+  }
+  // Git leaves the unmerged index behind on a failed command, but the worker
+  // only refreshes the snapshot after success, so one is requested here; the
+  // disabled integration actions and the conflicted rows follow from it.
+  void useStore.getState().refresh(repoId);
+  if (merge) {
+    void openMergeConflict(repoId, label, detail);
+  } else if (rebase) {
+    void openRebaseConflict(repoId, label, detail);
+  } else {
+    void openStashPopConflict(repoId, detail);
+  }
+}
+
+async function openMergeConflict(repoId: number, label: string, detail: string): Promise<void> {
+  // A pull merges its upstream, which the status snapshot already carries; a
+  // plain merge names the branch that was picked when it started. The probe's
+  // source only feeds target resolution, so a stale or unknown name still
+  // yields the repository state the decision needs.
+  const repo = useStore.getState().repos[repoId];
+  const source =
+    label === 'pull' ? (repo?.upstream ?? 'pull') : (integrationSources.get(repoId) ?? label);
+  try {
+    const probe = await ipc.probeMerge(repoId, source);
+    const store = useStore.getState();
+    if (!store.repos[repoId] || !(probe.has_conflicts || probe.merge_head !== null)) {
+      return;
+    }
+    store.openOverlay({
+      kind: 'mergeConflict',
+      source,
+      // Git's own output names the conflicted files; the muted line above it
+      // already carries the warning text.
+      detail
+    });
+  } catch {
+    // The repository closed or the probe failed; the status-bar failure text
+    // is already showing what went wrong.
+  }
+}
+
+async function openRebaseConflict(repoId: number, label: string, detail: string): Promise<void> {
+  try {
+    const probe = await ipc.probeRebase(repoId, null);
+    const store = useStore.getState();
+    const conflicted = probe.has_conflicts || probe.rebase_in_progress || probe.rebase_head;
+    if (!store.repos[repoId] || !conflicted) {
+      return;
+    }
+    // A conflict raised by a pull rebase has no other source to name.
+    const source =
+      label === 'pull --rebase' ? undefined : (integrationSources.get(repoId) ?? undefined);
+    store.openOverlay({ kind: 'rebaseConflict', label, source, detail });
+  } catch {
+    // The repository closed or the probe failed; the status-bar failure text
+    // is already showing what went wrong.
+  }
+}
+
+async function openStashPopConflict(repoId: number, detail: string): Promise<void> {
+  try {
+    // The probe's source is unused here: only the repository state decides,
+    // because a conflicted stash pop leaves an unmerged index but no merge.
+    const probe = await ipc.probeMerge(repoId, 'stash pop');
+    const store = useStore.getState();
+    if (!store.repos[repoId] || !(probe.has_conflicts || probe.merge_head !== null)) {
+      return;
+    }
+    store.openOverlay({ kind: 'stashPopConflict', detail });
+  } catch {
+    // The repository closed or the probe failed; the status-bar failure text
+    // is already showing what went wrong.
+  }
+}
 
 /**
  * Write the repository tabs to the saved workspace.
@@ -618,6 +721,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
         delete repos[tab.repoId];
         const pendingEvents = { ...state.pendingEvents };
         delete pendingEvents[tab.repoId];
+        integrationSources.delete(tab.repoId);
         set({ tabs, activeTabKey, repos, pendingEvents });
         await ipc.closeRepository(tab.repoId);
         await ipc.closeCompareWindow(tab.repoId);
@@ -716,6 +820,11 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       const next = applyRepoEvent(repo, event, t, (key, detail) => renderGitError(t, key, detail));
       if (next !== repo) {
         set({ repos: { ...state.repos, [repoId]: next } });
+      }
+      // A failed integration command may have stopped on conflicts; the probe
+      // runs after the reducer so the status text is never delayed by it.
+      if (event.type === 'commandDone' && !event.success) {
+        watchForConflicts(repoId, event.label, event.message);
       }
     },
 
@@ -885,6 +994,10 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     },
 
     async runAction(repoId, action) {
+      if (action.action === 'merge' || action.action === 'rebase') {
+        // Remembered only so a later conflict dialog can name the source.
+        integrationSources.set(repoId, action.source);
+      }
       get().setBusy(repoId, true);
       try {
         await ipc.runAction(repoId, action);

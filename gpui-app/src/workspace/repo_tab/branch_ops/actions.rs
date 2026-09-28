@@ -674,6 +674,205 @@ impl RepoTab {
         self.refresh_repository(cx);
         cx.notify();
     }
+
+    /// Shared post-success bookkeeping for a command that ends an operation
+    /// and must clear the conflict guard: busy state, status line, refresh.
+    fn finish_integration_success(&mut self, label: &str, cx: &mut Context<RepoTab>) {
+        self.set_operation_busy(false, cx);
+        self.has_unresolved_conflicts = false;
+        self.sidebar.update(cx, |sidebar, cx| {
+            sidebar.set_conflicts(false, cx);
+        });
+        self.toolbar.update(cx, |toolbar, cx| {
+            toolbar.set_conflicts(false, cx);
+        });
+        self.status_message = Some(crate::core::i18n::text_args(
+            self.locale,
+            "command-success",
+            &[("label", label)],
+        ));
+        self.status_message_ok = Some(true);
+        self.refresh_repository(cx);
+    }
+
+    /// Handle the result of a plain `git pull`. A pull that stops while
+    /// merging leaves `MERGE_HEAD` behind exactly like a plain merge, so the
+    /// same asynchronous probe decides between a conflict dialog and a
+    /// plain error report.
+    pub(in crate::workspace::repo_tab) fn handle_pull_result(
+        &mut self,
+        label: String,
+        success: bool,
+        detail: String,
+        cx: &mut Context<RepoTab>,
+    ) {
+        if success {
+            self.finish_integration_success(&label, cx);
+            cx.notify();
+            return;
+        }
+
+        // The merge source of a pull is its upstream, which the latest
+        // status snapshot already carries.
+        let source = self.upstream.clone().unwrap_or_else(|| "pull".to_string());
+        self.merge_probe_request_id = self.merge_probe_request_id.wrapping_add(1).max(1);
+        let request_id = self.merge_probe_request_id;
+        let repo = match self.operation_repo() {
+            Ok(repo) => repo,
+            Err(error) => {
+                self.set_operation_busy(false, cx);
+                self.confirmation = Some(super::super::PendingConfirmation::MergeError {
+                    label,
+                    detail: format!("{detail}\n\n{error}"),
+                });
+                cx.notify();
+                return;
+            }
+        };
+        let entity = cx.entity();
+        cx.spawn(async move |_, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { probe_merge_state(&repo) })
+                .await;
+            let _ = entity.update(cx, |tab, cx| {
+                tab.finish_merge_probe(request_id, label, source, detail, result, cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Handle the result of `git stash pop`. A conflict here has no merge to
+    /// abort: the probe decides between the stash-specific recovery dialog
+    /// and Git's own failure text, and Git keeps the stash entry either way.
+    pub(in crate::workspace::repo_tab) fn handle_stash_pop_result(
+        &mut self,
+        label: String,
+        success: bool,
+        detail: String,
+        cx: &mut Context<RepoTab>,
+    ) {
+        if success {
+            self.finish_integration_success(&label, cx);
+            cx.notify();
+            return;
+        }
+
+        self.merge_probe_request_id = self.merge_probe_request_id.wrapping_add(1).max(1);
+        let request_id = self.merge_probe_request_id;
+        let repo = match self.operation_repo() {
+            Ok(repo) => repo,
+            Err(error) => {
+                self.set_operation_busy(false, cx);
+                self.status_message = Some(crate::core::i18n::text_args(
+                    self.locale,
+                    "command-failed",
+                    &[
+                        ("label", &label),
+                        (
+                            "error",
+                            &first_line(&format!("{detail}\n{error}")).to_string(),
+                        ),
+                    ],
+                ));
+                self.status_message_ok = Some(false);
+                cx.notify();
+                return;
+            }
+        };
+        let entity = cx.entity();
+        cx.spawn(async move |_, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { probe_merge_state(&repo) })
+                .await;
+            let _ = entity.update(cx, |tab, cx| {
+                tab.finish_stash_pop_probe(request_id, label, detail, result, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn finish_stash_pop_probe(
+        &mut self,
+        request_id: u64,
+        label: String,
+        detail: String,
+        result: Result<crate::core::git::agent_operation::AgentMergeProbe, String>,
+        cx: &mut Context<RepoTab>,
+    ) {
+        if request_id != self.merge_probe_request_id {
+            return;
+        }
+        self.set_operation_busy(false, cx);
+        let mut conflict = false;
+        if let Ok(probe) = result {
+            conflict = probe.has_conflicts || probe.merge_head.is_some();
+            self.has_unresolved_conflicts = conflict;
+            self.sidebar.update(cx, |sidebar, cx| {
+                sidebar.set_conflicts(conflict, cx);
+            });
+            self.toolbar.update(cx, |toolbar, cx| {
+                toolbar.set_conflicts(conflict, cx);
+            });
+            self.sync_branch_menu_context(cx);
+        }
+        if conflict {
+            self.confirmation =
+                Some(super::super::PendingConfirmation::StashPopConflict { detail });
+        } else {
+            // Failures without conflicts keep the plain status line: a stash
+            // pop is refused often enough that a modal would be noise.
+            self.status_message = Some(crate::core::i18n::text_args(
+                self.locale,
+                "command-failed",
+                &[
+                    ("label", &label),
+                    ("error", &first_line(&detail).to_string()),
+                ],
+            ));
+            self.status_message_ok = Some(false);
+        }
+        self.refresh_repository(cx);
+        cx.notify();
+    }
+
+    /// Handle the result of the worktree reset offered after a conflicted
+    /// stash pop. Git keeps the stash entry when the pop fails, so the reset
+    /// only discards the applied state; the change can be retried later.
+    pub(in crate::workspace::repo_tab) fn handle_stash_abort_result(
+        &mut self,
+        success: bool,
+        detail: String,
+        cx: &mut Context<RepoTab>,
+    ) {
+        self.stash_abort_pending = false;
+        self.set_operation_busy(false, cx);
+        if success {
+            self.confirmation = None;
+            self.has_unresolved_conflicts = false;
+            self.sidebar.update(cx, |sidebar, cx| {
+                sidebar.set_conflicts(false, cx);
+            });
+            self.toolbar.update(cx, |toolbar, cx| {
+                toolbar.set_conflicts(false, cx);
+            });
+            self.status_message = Some(crate::core::i18n::text(
+                self.locale,
+                "stash-pop-abort-success",
+            ));
+            self.status_message_ok = Some(true);
+            self.refresh_repository(cx);
+        } else {
+            self.status_message = Some(crate::core::i18n::text_args(
+                self.locale,
+                "stash-pop-abort-failed",
+                &[("error", &first_line(&detail).to_string())],
+            ));
+            self.status_message_ok = Some(false);
+        }
+        cx.notify();
+    }
 }
 
 fn first_line(text: &str) -> &str {

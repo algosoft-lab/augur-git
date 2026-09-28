@@ -300,6 +300,7 @@ export type GitAction =
   | { action: 'rebase'; source: string }
   | { action: 'abortMerge' }
   | { action: 'abortRebase' }
+  | { action: 'abortStashApply' }
   | { action: 'commit'; message: string; amend: boolean }
   | { action: 'copyCommitMessage'; oid: string };
 

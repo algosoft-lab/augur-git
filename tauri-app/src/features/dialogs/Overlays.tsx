@@ -15,7 +15,8 @@ import {
   MergeConflictDialog,
   MergeDialog,
   RebaseConflictDialog,
-  RebaseDialog
+  RebaseDialog,
+  StashPopConflictDialog
 } from './integrationDialogs';
 import { DiscardDialog, StashDialog, StashDropDialog } from './workingTreeDialogs';
 import { ForcePushDialog, PushUpstreamDialog } from './pushDialogs';
@@ -88,7 +89,13 @@ function OverlayBody({ overlay }: { overlay: Overlay }) {
         />
       );
     case 'rebaseConflict':
-      return <RebaseConflictDialog detail={overlay.detail} source={overlay.source} />;
+      return (
+        <RebaseConflictDialog
+          detail={overlay.detail}
+          source={overlay.source}
+          label={overlay.label}
+        />
+      );
     case 'rebaseError':
       return (
         <OperationErrorDialog
@@ -97,6 +104,8 @@ function OverlayBody({ overlay }: { overlay: Overlay }) {
           titleKey="merge-error-title"
         />
       );
+    case 'stashPopConflict':
+      return <StashPopConflictDialog detail={overlay.detail} />;
     default:
       return null;
   }

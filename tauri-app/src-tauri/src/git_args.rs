@@ -79,6 +79,10 @@ pub enum GitAction {
     },
     AbortMerge,
     AbortRebase,
+    /// Reset the worktree after a conflicted stash pop. Git keeps the stash
+    /// entry when the pop fails, so the reset only discards the applied
+    /// state and the change can be retried later.
+    AbortStashApply,
     Commit {
         message: String,
         amend: bool,
@@ -116,6 +120,7 @@ impl GitAction {
                 | GitAction::Rebase { .. }
                 | GitAction::AbortMerge
                 | GitAction::AbortRebase
+                | GitAction::AbortStashApply
         )
     }
 
@@ -147,6 +152,7 @@ impl GitAction {
             GitAction::Rebase { .. } => "rebase",
             GitAction::AbortMerge => "merge --abort",
             GitAction::AbortRebase => "rebase --abort",
+            GitAction::AbortStashApply => "stash pop abort",
             GitAction::Commit { amend: true, .. } => "commit --amend",
             GitAction::Commit { .. } => "commit",
             GitAction::CopyCommitMessage { .. } => "copy-commit-message",
@@ -221,6 +227,7 @@ impl GitAction {
             GitAction::Rebase { source } => strs(&["rebase", source]),
             GitAction::AbortMerge => strs(&["merge", "--abort"]),
             GitAction::AbortRebase => strs(&["rebase", "--abort"]),
+            GitAction::AbortStashApply => strs(&["reset", "--hard"]),
             GitAction::Commit { message, amend } => commit_args(message, *amend),
             // The message only, with no diff, notes, colour, or external
             // diff driver, because it goes straight to the clipboard.
@@ -522,6 +529,13 @@ mod tests {
             }),
             ["stash", "drop", "stash@{2}"]
         );
+    }
+
+    #[test]
+    fn stash_pop_abort_resets_the_worktree_and_keeps_its_label_routable() {
+        assert_eq!(args(GitAction::AbortStashApply), ["reset", "--hard"]);
+        assert_eq!(GitAction::AbortStashApply.label(), "stash pop abort");
+        assert!(GitAction::AbortStashApply.refreshes_after_success());
     }
 
     #[test]

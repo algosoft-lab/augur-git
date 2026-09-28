@@ -493,12 +493,24 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                 // The worker executes commands serially, so this result ends
                 // whatever `CommandStarted` announced most recently.
                 tab.busy_verb = None;
+                if tab.stash_abort_pending {
+                    tab.handle_stash_abort_result(*success, message.clone(), cx);
+                    return;
+                }
                 if label == "merge" || label == "merge --no-ff" || label == "merge --abort" {
                     tab.handle_merge_result(label.clone(), *success, message.clone(), cx);
                     return;
                 }
                 if label == "rebase" || label == "pull --rebase" || label == "rebase --abort" {
                     tab.handle_rebase_result(label.clone(), *success, message.clone(), cx);
+                    return;
+                }
+                if label == "pull" {
+                    tab.handle_pull_result(label.clone(), *success, message.clone(), cx);
+                    return;
+                }
+                if label == "stash pop" {
+                    tab.handle_stash_pop_result(label.clone(), *success, message.clone(), cx);
                     return;
                 }
                 if label == "checkout" {
@@ -616,6 +628,12 @@ fn wire_git_view(git_view: &Entity<GitView>, cx: &mut Context<RepoTab>) {
                             .unwrap_or_else(|| "rebase".to_string())
                     };
                     tab.handle_rebase_result(label, false, message.clone(), cx);
+                    return;
+                }
+                if tab.stash_abort_pending {
+                    // A spawn failure cannot have touched the repository, so
+                    // this is reported the same way as a failed reset.
+                    tab.handle_stash_abort_result(false, message.clone(), cx);
                     return;
                 }
                 tab.set_operation_busy(false, cx);

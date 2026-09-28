@@ -110,6 +110,12 @@ enum PendingConfirmation {
         label: String,
         detail: String,
     },
+    /// A failed `git stash pop` left an unmerged index. Git keeps the stash
+    /// entry in this state, so recovery is either manual resolution or
+    /// resetting the worktree and retrying the pop later.
+    StashPopConflict {
+        detail: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -209,6 +215,7 @@ pub struct RepoTab {
     rebase_probe_request_id: u64,
     merge_abort_pending: bool,
     rebase_abort_pending: bool,
+    stash_abort_pending: bool,
     layout: LayoutSettings,
     confirmation: Option<PendingConfirmation>,
     dialogs: branch_ops::BranchDialogs,
@@ -298,6 +305,7 @@ impl RepoTab {
             rebase_probe_request_id: 0,
             merge_abort_pending: false,
             rebase_abort_pending: false,
+            stash_abort_pending: false,
             layout,
             confirmation: None,
             dialogs: branch_ops::BranchDialogs::default(),

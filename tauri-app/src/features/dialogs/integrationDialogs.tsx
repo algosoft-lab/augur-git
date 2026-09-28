@@ -239,7 +239,15 @@ export function MergeConflictDialog({ source, detail }: { source: string; detail
   );
 }
 
-export function RebaseConflictDialog({ detail, source }: { detail: string; source?: string }) {
+export function RebaseConflictDialog({
+  detail,
+  source,
+  label
+}: {
+  detail: string;
+  source?: string;
+  label: string;
+}) {
   const translate = useStore((state) => state.t);
   const repoId = useActiveRepoId();
   const closeOverlay = useStore((state) => state.closeOverlay);
@@ -250,7 +258,8 @@ export function RebaseConflictDialog({ detail, source }: { detail: string; sourc
       testId="rebase-conflict-dialog"
       title={
         <>
-          <Icon name="triangle-alert" size={16} /> {t(translate, 'rebase-conflict-title')}
+          <Icon name="triangle-alert" size={16} />{' '}
+          {ta(translate, 'rebase-conflict-title', { label })}
         </>
       }
       onBackdrop={closeOverlay}
@@ -284,6 +293,59 @@ export function RebaseConflictDialog({ detail, source }: { detail: string; sourc
           }}
         >
           {t(translate, 'rebase-abort')}
+        </button>
+      }
+    />
+  );
+}
+
+/**
+ * A stash pop that stopped on conflicts has no merge to abort: Git keeps the
+ * stash entry, so the way back is resetting the worktree, and the way forward
+ * is resolving the conflicts and committing them.
+ */
+export function StashPopConflictDialog({ detail }: { detail: string }) {
+  const translate = useStore((state) => state.t);
+  const repoId = useActiveRepoId();
+  const closeOverlay = useStore((state) => state.closeOverlay);
+  const runAction = useStore((state) => state.runAction);
+
+  return (
+    <DialogCard
+      testId="stash-pop-conflict-dialog"
+      title={
+        <>
+          <Icon name="triangle-alert" size={16} /> {t(translate, 'stash-pop-conflict-title')}
+        </>
+      }
+      onBackdrop={closeOverlay}
+      body={
+        <>
+          <div className="muted" data-testid="stash-pop-conflict-warning">
+            {t(translate, 'stash-pop-conflict-warning')}
+          </div>
+          <pre
+            className="status-conflict"
+            style={{ maxHeight: 180, overflow: 'auto', margin: 0, fontSize: '0.7em' }}
+            data-testid="stash-pop-conflict-detail"
+          >
+            {detail}
+          </pre>
+        </>
+      }
+      footer={
+        <button
+          type="button"
+          className="tool-button tool-button--danger"
+          data-testid="stash-pop-abort"
+          onClick={() => {
+            if (repoId) {
+              closeOverlay();
+              void runAction(repoId, { action: 'abortStashApply' });
+            }
+          }}
+        >
+          {t(translate, 'stash-pop-abort')}
         </button>
       }
     />

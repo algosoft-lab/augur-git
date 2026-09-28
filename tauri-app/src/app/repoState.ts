@@ -383,6 +383,21 @@ export function applyRepoEvent(
           }
         };
       }
+      // Aborting a conflicted stash pop says what it did, because "reset
+      // --hard succeeded" would not say whether the stash survived.
+      if (event.label === 'stash pop abort') {
+        return {
+          ...state,
+          busy: false,
+          busyVerb: null,
+          message: {
+            text: event.success
+              ? label('stash-pop-abort-success')
+              : `${label('command-failed').replace('{ $label }', event.label).replace('{ $error }', firstLine(event.message))}`,
+            ok: event.success
+          }
+        };
+      }
       return {
         ...state,
         busy: false,

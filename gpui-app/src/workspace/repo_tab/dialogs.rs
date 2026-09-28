@@ -86,6 +86,28 @@ impl RepoTab {
         cx.notify();
     }
 
+    /// Reset the worktree after a conflicted stash pop. `merge --abort` has
+    /// nothing to undo here because a stash pop never records `MERGE_HEAD`;
+    /// the reset returns to HEAD while Git keeps the stash entry for a later
+    /// retry.
+    pub(super) fn start_abort_stash_pop(&mut self, cx: &mut Context<Self>) {
+        if !matches!(
+            self.confirmation.as_ref(),
+            Some(PendingConfirmation::StashPopConflict { .. })
+        ) || self.is_busy()
+        {
+            return;
+        }
+        self.confirmation = None;
+        self.invalidate_merge_state_probe();
+        self.stash_abort_pending = true;
+        self.git_view.update(cx, |view, _| {
+            view.run("stash pop abort", vec!["reset".into(), "--hard".into()]);
+        });
+        self.set_operation_busy(true, cx);
+        cx.notify();
+    }
+
     #[cfg(feature = "agent")]
     pub(super) fn start_resolve_merge_by_agent(&mut self, cx: &mut Context<Self>) {
         if self.is_busy() {
@@ -216,6 +238,9 @@ impl RepoTab {
             Some(PendingConfirmation::MergeError { .. }) => self.merge_error_overlay(cx),
             Some(PendingConfirmation::RebaseConflict { .. }) => self.rebase_conflict_overlay(cx),
             Some(PendingConfirmation::RebaseError { .. }) => self.rebase_error_overlay(cx),
+            Some(PendingConfirmation::StashPopConflict { .. }) => {
+                self.stash_pop_conflict_overlay(cx)
+            }
             None => div().into_any_element(),
         }
     }
@@ -467,6 +492,63 @@ impl RepoTab {
             title,
             warning,
             h_flex().w_full().child(close),
+        )
+        .into_any_element()
+    }
+
+    fn stash_pop_conflict_overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        let colors = cx.theme().colors.clone();
+        let locale = self.locale;
+        let Some(PendingConfirmation::StashPopConflict { detail }) = self.confirmation.as_ref()
+        else {
+            return div().into_any_element();
+        };
+        let this = cx.entity();
+        let abort = this.clone();
+        let title = h_flex()
+            .items_center()
+            .gap_2()
+            .child(Icon::new(IconName::TriangleAlert).text_color(colors.warning))
+            .child(
+                div()
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(colors.foreground)
+                    .child(shared(i18n::text(locale, "stash-pop-conflict-title"))),
+            );
+        let warning = v_flex()
+            .w_full()
+            .gap_2()
+            .child(
+                div()
+                    .text_size(crate::theme::scaled_text_size(12.))
+                    .text_color(colors.muted_foreground)
+                    .child(shared(i18n::text(locale, "stash-pop-conflict-warning"))),
+            )
+            .child(
+                div()
+                    .max_h(px(180.))
+                    .w_full()
+                    .overflow_y_scrollbar()
+                    .text_size(crate::theme::scaled_text_size(11.))
+                    .text_color(colors.red)
+                    .child(shared(detail.clone())),
+            );
+        let buttons = h_flex().w_full().gap_2().child(
+            Button::new("stash-pop-abort")
+                .label(i18n::text(locale, "stash-pop-abort"))
+                .danger()
+                .flex_1()
+                .on_click(move |_event, _window, cx| {
+                    abort.update(cx, |tab, cx| tab.start_abort_stash_pop(cx));
+                }),
+        );
+        self.overlay_card(
+            cx,
+            "stash-pop-conflict-overlay",
+            "stash-pop-conflict-card",
+            title,
+            warning,
+            buttons,
         )
         .into_any_element()
     }
