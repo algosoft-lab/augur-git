@@ -31,7 +31,6 @@ export function TitleBar({
   const build = useStore((state) => state.build);
   const recent = useStore((state) => state.config.recent_repos);
   const openTab = useStore((state) => state.openTab);
-  const setSettingsOpen = useStore((state) => state.setSettingsOpen);
 
   const recentItems: MenuItemSpec[] = recent.length
     ? recent.map((repo, index) => ({
@@ -97,7 +96,9 @@ export function TitleBar({
       id: "settings",
       label: t(translate, "menu-settings"),
       icon: <Icon name="settings" />,
-      onSelect: () => setSettingsOpen(true),
+      onSelect: () => {
+        void ipc.openSettingsWindow();
+      },
     },
   ];
 

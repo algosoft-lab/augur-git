@@ -12,6 +12,7 @@ import * as ipc from "../bridge/ipc";
 import { AboutWindow } from "../features/about/AboutWindow";
 import { CompareWindow } from "../features/compare/CompareWindow";
 import { MainWindow } from "../features/shell/MainWindow";
+import { SettingsWindow } from "../features/settings/SettingsWindow";
 import { applyTheme } from "../styles/themes";
 import { useStore, type WindowRole } from "./store";
 import { DEFAULT_THEME, DEFAULT_TYPOGRAPHY } from "../styles/themes";
@@ -33,6 +34,9 @@ function readTarget(): WindowTarget {
   }
   if (requested === "about") {
     return { role: "about", compareRepoId: null };
+  }
+  if (requested === "settings") {
+    return { role: "settings", compareRepoId: null };
   }
   return { role: "main", compareRepoId: null };
 }
@@ -150,6 +154,9 @@ export function App() {
   if (target.role === "about") {
     return <AboutWindow />;
   }
+  if (target.role === "settings") {
+    return <SettingsWindow />;
+  }
   if (target.role === "compare") {
     return <CompareWindow repoId={target.compareRepoId} />;
   }
@@ -227,7 +234,7 @@ async function handleMenuAction(id: string): Promise<void> {
       globalThis.dispatchEvent(new CustomEvent("augur:remove-cli"));
       break;
     case "menu.settings":
-      state.setSettingsOpen(true);
+      await ipc.openSettingsWindow();
       break;
     case "menu.about":
       await ipc.openAboutWindow();

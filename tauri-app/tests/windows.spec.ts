@@ -3,10 +3,10 @@ import { expect, test } from "@playwright/test";
 import { boot, fixtureRepo, secondFixtureRepo } from "./harness";
 
 /**
- * The standalone comparison window and the settings surface.
+ * The standalone comparison and settings windows.
  *
- * The comparison window is a separate document that talks to the same backend,
- * so it is booted with the same window role the backend puts on the URL.
+ * Each is a separate document that talks to the same backend, so each is booted
+ * with the same window role the backend puts on the URL.
  */
 
 test.describe("comparison window", () => {
@@ -331,21 +331,14 @@ test.describe("comparison window", () => {
     await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
   });
 
-  test("closes the settings surface on a click outside", async ({ page }) => {
-    await boot(page, { open: [fixtureRepo()] });
+  test("opens the standalone settings window from the toolbar", async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()] });
 
     await page.getByTestId("toolbar-settings").click();
-    await expect(page.getByTestId("settings-overlay")).toBeVisible();
-    // A click on the page behind it closes the surface: the settings are a
-    // detour, not a place to dwell.
-    await page.getByTestId("settings-overlay").click({ position: { x: 5, y: 5 } });
-    await expect(page.getByTestId("settings-overlay")).toHaveCount(0);
-
-    // A click inside it does not.
-    await page.getByTestId("toolbar-settings").click();
-    await expect(page.getByTestId("settings-overlay")).toBeVisible();
-    await page.getByTestId("settings-close").click({ trial: true });
-    await expect(page.getByTestId("settings-overlay")).toBeVisible();
+    // The settings live in their own window, so the main window only asks the
+    // backend to open it and never mounts a surface of its own.
+    await expect(page.getByTestId("settings-window")).toHaveCount(0);
+    expect((await stub.commandNames())).toContain("open_settings_window");
   });
 
   test("manual SHA input rejects short values and accepts a full object ID", async ({ page }) => {
@@ -492,12 +485,11 @@ test.describe("custom title bar", () => {
     await page.locator(".title-bar__drag").click();
     await expect.poll(dragCount).toBe(1);
     await page.getByTestId("toolbar-settings").click();
-    await expect(page.getByTestId("settings-overlay")).toBeVisible();
     await expect.poll(dragCount).toBe(1);
   });
 });
 
-test.describe("settings", () => {
+test.describe("settings window", () => {
   test("marks the current choice in a mode menu", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
@@ -519,10 +511,22 @@ test.describe("settings", () => {
     ).toHaveCount(0);
   });
 
-  test("shows the shipped shortcut binding next to an override", async ({ page }) => {
-    await boot(page, { open: [fixtureRepo()] });
+  test("opens under its own title bar without a maximize control", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()], window: "settings", windows: true });
 
-    await page.getByTestId("toolbar-settings").click();
+    await expect(page.getByTestId("settings-window")).toBeVisible();
+    await expect(page.getByTestId("settings-title")).toHaveText("Settings");
+    await expect(page.getByTestId("window-controls")).toBeVisible();
+    // The backend keeps the window at a fixed size, so there is nothing to
+    // maximize; minimize and close remain.
+    await expect(page.getByTestId("window-toggle-maximize")).toHaveCount(0);
+    await expect(page.getByTestId("window-minimize")).toBeVisible();
+    await expect(page.getByTestId("window-close")).toBeVisible();
+  });
+
+  test("shows the shipped shortcut binding next to an override", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()], window: "settings" });
+
     await page.getByTestId("settings-nav-shortcuts").click();
 
     // The default is shown so an override reads as a choice rather than a guess
@@ -533,10 +537,8 @@ test.describe("settings", () => {
   });
 
   test("changes the theme and preserves complete font family names", async ({ page }) => {
-    const stub = await boot(page, { open: [fixtureRepo()] });
+    const stub = await boot(page, { open: [fixtureRepo()], window: "settings" });
 
-    await page.getByTestId("toolbar-settings").click();
-    await expect(page.getByTestId("settings-overlay")).toBeVisible();
     await page.getByTestId("settings-nav-appearance").click();
 
     await page.getByTestId("settings-theme").click();
@@ -561,11 +563,11 @@ test.describe("settings", () => {
   test("shows a saved font that is not in the discovered system list", async ({ page }) => {
     await boot(page, {
       open: [fixtureRepo()],
+      window: "settings",
       typography: { ui_font_family: "Saved Custom Font" },
       fontFamilies: ["Inter"],
     });
 
-    await page.getByTestId("toolbar-settings").click();
     await page.getByTestId("settings-nav-appearance").click();
 
     await expect(page.getByTestId("settings-ui-font")).toContainText("Saved Custom Font");
@@ -575,9 +577,12 @@ test.describe("settings", () => {
   });
 
   test("accepts an exact typed font family when discovery omits it", async ({ page }) => {
-    const stub = await boot(page, { open: [fixtureRepo()], fontFamilies: ["Inter"] });
+    const stub = await boot(page, {
+      open: [fixtureRepo()],
+      window: "settings",
+      fontFamilies: ["Inter"],
+    });
 
-    await page.getByTestId("toolbar-settings").click();
     await page.getByTestId("settings-nav-appearance").click();
     await page.getByTestId("settings-ui-font").click();
     const search = page.locator(".select__search input");
@@ -590,9 +595,8 @@ test.describe("settings", () => {
   });
 
   test("changes the diff layout and the history scope", async ({ page }) => {
-    const stub = await boot(page, { open: [fixtureRepo()] });
+    const stub = await boot(page, { open: [fixtureRepo()], window: "settings" });
 
-    await page.getByTestId("toolbar-settings").click();
     await page.getByTestId("settings-nav-layout").click();
 
     await page.getByTestId("settings-diff-layout").click();
@@ -618,9 +622,8 @@ test.describe("settings", () => {
   });
 
   test("rejects an empty shortcut and accepts a real one", async ({ page }) => {
-    const stub = await boot(page, { open: [fixtureRepo()] });
+    const stub = await boot(page, { open: [fixtureRepo()], window: "settings" });
 
-    await page.getByTestId("toolbar-settings").click();
     await page.getByTestId("settings-nav-shortcuts").click();
 
     await page.getByTestId("shortcut-app.quit").fill("");
@@ -641,20 +644,21 @@ test.describe("settings", () => {
   });
 
   test("shows where the settings are stored", async ({ page }) => {
-    await boot(page, { open: [fixtureRepo()] });
-    await page.getByTestId("toolbar-settings").click();
+    await boot(page, { open: [fixtureRepo()], window: "settings" });
     await expect(page.getByTestId("settings-general")).toContainText(
       "com.augur.git.tauri",
     );
   });
 
-  test("closes without saving anything else", async ({ page }) => {
-    const stub = await boot(page, { open: [fixtureRepo()] });
-    await page.getByTestId("toolbar-settings").click();
-    await page.getByTestId("settings-close").click();
-    await expect(page.getByTestId("settings-overlay")).toHaveCount(0);
-    // Opening and closing is not a change.
+  test("navigating the sections writes nothing on its own", async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()], window: "settings" });
+    for (const section of ["appearance", "layout", "shortcuts", "general"]) {
+      await page.getByTestId(`settings-nav-${section}`).click();
+      await expect(page.getByTestId(`settings-${section}`)).toBeVisible();
+    }
+    // Reading the settings is not changing them.
     expect((await stub.commands()).filter((e) => e.cmd === "set_theme")).toHaveLength(0);
+    expect((await stub.commands()).filter((e) => e.cmd === "set_typography")).toHaveLength(0);
   });
 });
 
@@ -731,16 +735,16 @@ test.describe("the in-window menu", () => {
   });
 
   test("opens settings from the Edit menu on the welcome page", async ({ page }) => {
-    await boot(page, { windows: true });
+    const stub = await boot(page, { windows: true });
     await expect(page.getByTestId("title-settings")).toHaveCount(0);
     await page.getByTestId("menu-file-trigger").click();
     await page.getByTestId("menu-file-edit").click();
     await page.getByTestId("menu-file-settings").click();
-    await expect(page.getByTestId("settings-overlay")).toBeVisible();
+    expect((await stub.commandNames())).toContain("open_settings_window");
   });
 
   test("keeps the tab bar and window controls without title-bar quick actions", async ({ page }) => {
-    await boot(page, { open: [fixtureRepo()], windows: true });
+    const stub = await boot(page, { open: [fixtureRepo()], windows: true });
     await expect(page.getByTestId("tab-bar")).toBeVisible();
     await expect(page.getByTestId("title-branch")).toHaveCount(0);
     await expect(page.getByTestId("title-settings")).toHaveCount(0);
@@ -757,7 +761,7 @@ test.describe("the in-window menu", () => {
     });
     expect(usesThemeColor).toBe(true);
     await page.getByTestId("toolbar-settings").click();
-    await expect(page.getByTestId("settings-overlay")).toBeVisible();
+    expect((await stub.commandNames()).filter((c) => c === "open_settings_window")).toHaveLength(1);
     await expect(page.getByTestId("window-controls")).toBeVisible();
   });
 });
@@ -776,6 +780,11 @@ test.describe("the native menu bridge", () => {
       (window as any).__STUB__.emit("augur://menu", { id: "menu.about" });
     });
     expect((await stub.commandNames())).toContain("open_about_window");
+
+    await page.evaluate(() => {
+      (window as any).__STUB__.emit("augur://menu", { id: "menu.settings" });
+    });
+    expect((await stub.commandNames())).toContain("open_settings_window");
   });
 
   test("opens paths handed over by a second launch", async ({ page }) => {

@@ -11,8 +11,11 @@ export const IS_MACOS =
 
 export function WindowControls({
   flushBeforeClose = false,
+  maximize = true,
 }: {
   flushBeforeClose?: boolean;
+  /** Hide the maximize button on a window the backend keeps at a fixed size. */
+  maximize?: boolean;
 }) {
   const translate = useStore((state) => state.t);
   const [maximized, setMaximized] = useState(false);
@@ -33,20 +36,22 @@ export function WindowControls({
       >
         <Icon name="minus" size={12} />
       </button>
-      <button
-        type="button"
-        className="window-controls__button"
-        title={t(translate, maximized ? "window-restore" : "window-maximize")}
-        aria-label={t(translate, maximized ? "window-restore" : "window-maximize")}
-        data-testid="window-toggle-maximize"
-        onClick={async () => {
-          const window = getCurrentWindow();
-          await window.toggleMaximize();
-          setMaximized(await window.isMaximized());
-        }}
-      >
-        <Icon name={maximized ? "copy" : "square"} size={12} />
-      </button>
+      {maximize ? (
+        <button
+          type="button"
+          className="window-controls__button"
+          title={t(translate, maximized ? "window-restore" : "window-maximize")}
+          aria-label={t(translate, maximized ? "window-restore" : "window-maximize")}
+          data-testid="window-toggle-maximize"
+          onClick={async () => {
+            const window = getCurrentWindow();
+            await window.toggleMaximize();
+            setMaximized(await window.isMaximized());
+          }}
+        >
+          <Icon name={maximized ? "copy" : "square"} size={12} />
+        </button>
+      ) : null}
       <button
         type="button"
         className="window-controls__button window-controls__button--close"

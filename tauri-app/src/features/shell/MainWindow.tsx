@@ -18,7 +18,6 @@ import { StatusBar } from "./StatusBar";
 import { Welcome } from "./Welcome";
 import { RepoTab } from "../repository/RepoTab";
 import { Overlays } from "../dialogs/Overlays";
-import { SettingsWindow } from "../settings/SettingsWindow";
 import { t } from "../../i18n/strings";
 
 export function MainWindow() {
@@ -26,7 +25,6 @@ export function MainWindow() {
   const tabs = useStore((state) => state.tabs);
   const activeTabKey = useStore((state) => state.activeTabKey);
   const repos = useStore((state) => state.repos);
-  const settingsOpen = useStore((state) => state.settingsOpen);
   const notice = useStore((state) => state.notice);
   const openPaths = useStore((state) => state.openPaths);
   const addStartTab = useStore((state) => state.addStartTab);
@@ -119,7 +117,6 @@ export function MainWindow() {
         onWslOpenChange={setWslOpen}
         onOpenPaths={openPaths}
       />
-      {settingsOpen ? <SettingsWindow /> : null}
       {notice ? (
         <div className={`notice notice--${notice.level}`} data-testid="notice">
           <span>{notice.message}</span>

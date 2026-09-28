@@ -45,7 +45,7 @@ import {
   type RepoState,
 } from "./repoState";
 
-export type WindowRole = "main" | "compare" | "about";
+export type WindowRole = "main" | "compare" | "about" | "settings";
 
 /** One entry in the tab bar. */
 export interface TabEntry {
@@ -145,7 +145,6 @@ interface AppStore {
    */
   pendingEvents: Record<number, RepoEvent[]>;
 
-  settingsOpen: boolean;
   overlay: Overlay;
   notice: Notice | null;
   /** The About window is a single instance, focused instead of duplicated. */
@@ -181,7 +180,6 @@ interface AppStore {
   runAction: (repoId: number, action: GitAction) => Promise<void>;
   openOverlay: (overlay: Overlay) => void;
   closeOverlay: () => void;
-  setSettingsOpen: (open: boolean) => void;
   /**
    * Open a start page as a new tab.
    *
@@ -394,7 +392,6 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
   activeTabKey: null,
   pendingEvents: {},
 
-  settingsOpen: false,
   overlay: { kind: "none" },
   notice: null,
   aboutOpen: false,
@@ -844,10 +841,6 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
 
   closeOverlay() {
     set({ overlay: { kind: "none" } });
-  },
-
-  setSettingsOpen(open) {
-    set({ settingsOpen: open });
   },
 
   notify(notice) {

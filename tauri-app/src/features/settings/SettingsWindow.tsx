@@ -1,10 +1,12 @@
 /**
- * The settings surface.
+ * The settings window.
  *
- * Four sections cover everything the non-AI build exposes: language, themes and
- * fonts, the default diff and history behavior, and shortcut overrides. Every
- * change is written through the backend immediately so it survives a crash, and
- * the native menu is rebuilt by the backend when the language changes.
+ * A native standalone window, like About: the backend opens it once and focuses
+ * it on repeat requests. Four sections cover everything the non-AI build
+ * exposes: language, themes and fonts, the default diff and history behavior,
+ * and shortcut overrides. Every change is written through the backend
+ * immediately so it survives a crash, and the native menu is rebuilt by the
+ * backend when the language changes.
  */
 
 import { useEffect, useState } from "react";
@@ -20,6 +22,8 @@ import type {
 } from "../../bridge/types";
 import { useStore } from "../../app/store";
 import { t, ta } from "../../i18n/strings";
+import { IS_MACOS, WindowControls } from "../shell/WindowControls";
+import { handleTitleBarMouseDown } from "../shell/titleBarDrag";
 
 type Section = "general" | "appearance" | "layout" | "shortcuts";
 
@@ -56,7 +60,6 @@ const HISTORIES: { value: GraphHistoryPreference; key: string }[] = [
 
 export function SettingsWindow() {
   const translate = useStore((state) => state.t);
-  const setSettingsOpen = useStore((state) => state.setSettingsOpen);
   const [section, setSection] = useState<Section>("general");
   const [fonts, setFonts] = useState<string[]>([]);
 
@@ -65,50 +68,39 @@ export function SettingsWindow() {
   }, []);
 
   return (
-    <div
-      className="overlay"
-      data-testid="settings-overlay"
-      // A click outside closes the surface, as it does in the reference: the
-      // settings are a detour, not a place to dwell.
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          setSettingsOpen(false);
-        }
-      }}
-    >
-      <div className="window-page settings" style={{ width: 620, height: 460 }}>
-        <div className="window-page__title">
+    <div className="window-page" data-testid="settings-window">
+      <div
+        className={`window-titlebar${IS_MACOS ? " window-titlebar--macos" : ""}`}
+        onMouseDown={handleTitleBarMouseDown}
+      >
+        <span className="settings__title" data-testid="settings-title">
           {t(translate, "settings-title")}
-          <div style={{ flex: 1 }} />
-          <button
-            type="button"
-            className="tool-button tool-button--compact"
-            data-testid="settings-close"
-            onClick={() => setSettingsOpen(false)}
-          >
-            {t(translate, "settings-close")}
-          </button>
-        </div>
-        <div className="window-page__body">
-          <nav className="settings__nav">
-            {SECTIONS.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                className={`settings__nav-item${section === entry.id ? " is-active" : ""}`}
-                data-testid={`settings-nav-${entry.id}`}
-                onClick={() => setSection(entry.id)}
-              >
-                {t(translate, entry.key)}
-              </button>
-            ))}
-          </nav>
-          <div className="settings__content" data-testid={`settings-${section}`}>
-            {section === "general" ? <GeneralSection /> : null}
-            {section === "appearance" ? <AppearanceSection fonts={fonts} /> : null}
-            {section === "layout" ? <LayoutSection /> : null}
-            {section === "shortcuts" ? <ShortcutsSection /> : null}
-          </div>
+        </span>
+        <div
+          className="window-titlebar__drag"
+          {...(IS_MACOS ? { "data-tauri-drag-region": true } : {})}
+        />
+        <WindowControls maximize={false} />
+      </div>
+      <div className="settings">
+        <nav className="settings__nav">
+          {SECTIONS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              className={`settings__nav-item${section === entry.id ? " is-active" : ""}`}
+              data-testid={`settings-nav-${entry.id}`}
+              onClick={() => setSection(entry.id)}
+            >
+              {t(translate, entry.key)}
+            </button>
+          ))}
+        </nav>
+        <div className="settings__content" data-testid={`settings-${section}`}>
+          {section === "general" ? <GeneralSection /> : null}
+          {section === "appearance" ? <AppearanceSection fonts={fonts} /> : null}
+          {section === "layout" ? <LayoutSection /> : null}
+          {section === "shortcuts" ? <ShortcutsSection /> : null}
         </div>
       </div>
     </div>

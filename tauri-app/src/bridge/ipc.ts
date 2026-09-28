@@ -320,6 +320,10 @@ export async function openAboutWindow(): Promise<void> {
   return invoke<void>("open_about_window");
 }
 
+export async function openSettingsWindow(): Promise<void> {
+  return invoke<void>("open_settings_window");
+}
+
 export async function openCompareWindow(repoId: number): Promise<string> {
   return invoke<string>("open_compare_window", { repoId });
 }

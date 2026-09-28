@@ -242,6 +242,35 @@ pub fn open_about_window(app: AppHandle, state: State<'_, AppState>) -> Result<(
     Ok(())
 }
 
+/// The settings window, opened once and focused on repeat requests.
+#[tauri::command]
+pub fn open_settings_window(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+    let label = "settings";
+    if let Some(window) = app.get_webview_window(label) {
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    let builder = WebviewWindowBuilder::new(
+        &app,
+        label,
+        WebviewUrl::App("index.html?window=settings".into()),
+    )
+    .title(resolved_title(&state.settings().config.language, "settings-title"))
+    .inner_size(620.0, 460.0)
+    .min_inner_size(620.0, 460.0)
+    .resizable(false)
+    .decorations(cfg!(target_os = "macos"));
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+    builder
+        .build()
+        .map_err(|error| CommandError::new("err-window", error.to_string()))?;
+    Ok(())
+}
+
 /// The standalone comparison window for one repository.
 #[tauri::command]
 pub fn open_compare_window(

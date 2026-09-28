@@ -102,7 +102,7 @@ export interface BootOptions {
   /** How long the WSL distribution list takes to arrive. */
   wslDelay?: number;
   /** Window role, from the same query parameter the backend uses. */
-  window?: "main" | "compare" | "about";
+  window?: "main" | "compare" | "about" | "settings";
   /** Repository id passed to a compare window. */
   repoId?: number;
 }
@@ -156,7 +156,9 @@ export async function boot(
       ? '[data-testid="compare-window"], .empty-state'
       : role === "about"
         ? '[data-testid="about"]'
-        : '[data-testid="welcome"], [data-testid="graph"]';
+        : role === "settings"
+          ? '[data-testid="settings-window"]'
+          : '[data-testid="welcome"], [data-testid="graph"]';
   await page.waitForSelector(root);
   return {
     async commands() {

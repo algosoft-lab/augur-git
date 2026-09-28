@@ -1475,6 +1475,19 @@ button {
   flex: 1 1 auto;
 }
 
+/* The settings window fills the OS window under its own title bar. */
+.settings {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.settings__title {
+  flex: 0 0 auto;
+  font-size: calc(var(--ui-font-size) * 0.8125);
+  font-weight: 600;
+}
+
 .settings__nav {
   display: flex;
   width: 160px;

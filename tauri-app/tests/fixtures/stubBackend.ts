@@ -899,6 +899,7 @@ function install(
     },
     flush_state: () => null,
     open_about_window: () => null,
+    open_settings_window: () => null,
     open_compare_window: () => "compare-1",
     close_compare_window: () => null,
     focus_main_window: () => null,

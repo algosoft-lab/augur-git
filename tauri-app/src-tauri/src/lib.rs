@@ -75,6 +75,7 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             commands::app::validate_shortcut,
             commands::app::flush_state,
             commands::app::open_about_window,
+            commands::app::open_settings_window,
             commands::app::open_compare_window,
             commands::app::close_compare_window,
             commands::app::focus_main_window,

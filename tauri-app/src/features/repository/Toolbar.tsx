@@ -189,7 +189,9 @@ export function Toolbar({ repo }: { repo: RepoState }) {
         label={t(translate, "toolbar-settings")}
         icon={<Icon name="settings" />}
         testId="toolbar-settings"
-        onClick={() => useStore.getState().setSettingsOpen(true)}
+        onClick={() => {
+          void ipc.openSettingsWindow();
+        }}
       />
     </div>
   );
