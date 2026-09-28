@@ -141,7 +141,6 @@ toolbar-compare = Compare
 toolbar-extensions = Extensions
 toolbar-refresh = Refresh
 toolbar-settings = Settings
-toolbar-busy = Working…
 
 # ===== Agent lifecycle =====
 

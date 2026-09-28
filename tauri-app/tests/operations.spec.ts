@@ -82,18 +82,17 @@ test.describe('toolbar operations', () => {
     expect((actions.at(-1)!.args as any).action.action).toBe('pullRebase');
   });
 
-  test('says the toolbar is working while an operation runs', async ({ page }) => {
+  test('keeps operation progress in the status bar only', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()], actionDelay: 250 });
     await expect(page.getByTestId('repo-7')).toBeVisible();
 
     await page.getByTestId('toolbar-fetch').click();
 
-    // A bare spinner does not say what is holding the interface, so the busy
-    // marker carries a word.
-    await expect(page.getByTestId('toolbar-busy')).toHaveText('Working…');
-
-    // The operation still finishes and reports its label.
     await expect(page.getByTestId('toolbar-busy')).toHaveCount(0);
+    await expect(page.getByTestId('status-busy')).toHaveText('Working');
+
+    // The lower-right progress state clears and the result remains visible.
+    await expect(page.getByTestId('status-busy')).toHaveCount(0);
     await expect(page.getByTestId('status-message')).toContainText(LABELS.fetch ?? '');
   });
 

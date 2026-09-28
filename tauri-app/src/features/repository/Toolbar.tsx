@@ -10,7 +10,7 @@
 import { open } from '@tauri-apps/plugin-dialog';
 
 import { Icon, type IconName } from '../../components/Icon';
-import { Menu, Spinner, ToolButton, type MenuItemSpec } from '../../components/controls';
+import { Menu, ToolButton, type MenuItemSpec } from '../../components/controls';
 import * as ipc from '../../bridge/ipc';
 import { hasLocalBranches, useStore, type RepoState } from '../../app/store';
 import { firstLine } from '../../app/repoState';
@@ -168,12 +168,6 @@ export function Toolbar({ repo }: { repo: RepoState }) {
         {repo.behind}
       </span>
       <div className="toolbar__spacer" />
-      {repo.busy ? (
-        <span className="toolbar__busy" data-testid="toolbar-busy">
-          <Spinner />
-          {t(translate, 'toolbar-busy')}
-        </span>
-      ) : null}
       <ToolButton
         label={t(translate, 'toolbar-refresh')}
         icon={<Icon name="refresh-cw" />}
