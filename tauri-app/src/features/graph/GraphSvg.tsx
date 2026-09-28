@@ -32,7 +32,7 @@ export interface LaneGeometry {
   outputColors: number[];
 }
 
-const LANE_X = (lane: number) => GRAPH_LEFT_PAD + lane * COL_WIDTH + COL_WIDTH / 2;
+export const laneCenterX = (lane: number) => GRAPH_LEFT_PAD + lane * COL_WIDTH + COL_WIDTH / 2;
 
 export interface GraphSvgProps {
   geometry: LaneGeometry;
@@ -49,7 +49,7 @@ export interface GraphSvgProps {
 export function GraphSvg({ geometry, laneColors, width }: GraphSvgProps) {
   const { nodeLane, inputColors, outputColors, nodeInputLanes, parentLanes } = geometry;
   const midY = ROW_HEIGHT / 2;
-  const nodeX = LANE_X(nodeLane);
+  const nodeX = laneCenterX(nodeLane);
   const color = laneColors[geometry.colorIndex % laneColors.length] ?? 'currentColor';
 
   const paths: { d: string; color: string; width: number }[] = [];
@@ -62,7 +62,7 @@ export function GraphSvg({ geometry, laneColors, width }: GraphSvgProps) {
     if (outputColors.length <= lane) {
       continue;
     }
-    const x = LANE_X(lane);
+    const x = laneCenterX(lane);
     paths.push({
       d: `M ${x} 0 L ${x} ${ROW_HEIGHT}`,
       color: laneColors[outputColors[lane]! % laneColors.length] ?? 'currentColor',
@@ -86,13 +86,13 @@ export function GraphSvg({ geometry, laneColors, width }: GraphSvgProps) {
     if (lane === nodeLane) {
       continue;
     }
-    const x = LANE_X(lane);
+    const x = laneCenterX(lane);
     paths.push({ d: route(x, nodeX, midY), color, width: STROKE_WIDTH });
   }
 
   // Lanes created by this commit's parents.
   for (const lane of parentLanes) {
-    const x = LANE_X(lane);
+    const x = laneCenterX(lane);
     const laneColor =
       laneColors[(outputColors[lane] ?? geometry.colorIndex) % laneColors.length] ?? 'currentColor';
     if (lane === nodeLane) {

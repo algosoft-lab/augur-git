@@ -1,15 +1,10 @@
-name: Build Tauri application
+name: Build and publish Tauri packages
 
 on:
   push:
     branches:
-      - build
-      - publish
+      - publish-tauri
   workflow_dispatch:
-
-concurrency:
-  group: tauri-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -19,33 +14,21 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  test:
-    name: Tauri tests
+  checks:
+    name: Tauri checks
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install Tauri Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
-            build-essential \
-            curl \
-            file \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev \
-            pkg-config \
-            wget
+        uses: ./.github/actions/install-tauri-linux-deps
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
 
       - name: Install frontend dependencies
         working-directory: tauri-app
@@ -69,103 +52,302 @@ jobs:
 
       - name: Test Rust workspace
         working-directory: tauri-app
-        run: cargo test --manifest-path src-tauri/Cargo.toml
-
-  build-linux:
-    name: Linux Debian package
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v7
-
-      - name: Install Tauri Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
-            build-essential \
-            curl \
-            file \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev \
-            pkg-config \
-            wget
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install frontend dependencies
-        working-directory: tauri-app
-        run: bun ci
-
-      - name: Build Debian package
-        working-directory: tauri-app
-        run: bun run tauri:build -- --bundles deb
-
-      - name: Upload Debian package
-        uses: actions/upload-artifact@v7
-        with:
-          name: augur-git-tauri-linux-deb
-          path: tauri-app/src-tauri/target/release/bundle/deb/*.deb
-          if-no-files-found: error
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
   build-windows:
-    name: Windows NSIS installer
+    name: Windows x86-64 NSIS installer
     runs-on: windows-2025
     steps:
       - name: Check out source
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
+
+      - name: Cache Cargo
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tauri-app/src-tauri/target
+          key: ${{ runner.os }}-${{ runner.arch }}-tauri-cargo-${{ hashFiles('tauri-app/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-tauri-cargo-
 
       - name: Install frontend dependencies
         working-directory: tauri-app
         run: bun ci
 
-      - name: Build NSIS installer
+      - name: Build Windows installer
         working-directory: tauri-app
-        run: bun run tauri:build -- --bundles nsis
+        run: bun run package:windows
 
-      - name: Upload NSIS installer
-        uses: actions/upload-artifact@v7
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v7.0.1
         with:
-          name: augur-git-tauri-windows-nsis
-          path: tauri-app/src-tauri/target/release/bundle/nsis/*.exe
+          name: tauri-windows-x86_64
+          path: tauri-app/packaging/out/augur-git-tauri-windows-x86_64-nsis.exe
           if-no-files-found: error
+          retention-days: 7
 
   build-macos:
-    name: macOS application bundle
+    name: macOS ARM64 DMG
     runs-on: macos-15
     steps:
       - name: Check out source
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
+
+      - name: Confirm Apple Silicon runner
+        run: test "$(uname -m)" = "arm64"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
+
+      - name: Cache Cargo
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tauri-app/src-tauri/target
+          key: ${{ runner.os }}-${{ runner.arch }}-tauri-cargo-${{ hashFiles('tauri-app/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-tauri-cargo-
 
       - name: Install frontend dependencies
         working-directory: tauri-app
         run: bun ci
 
-      - name: Build macOS application
+      - name: Build macOS app and DMG
         working-directory: tauri-app
-        run: bun run tauri:build -- --bundles app
+        run: bun run package:macos
 
-      - name: Upload macOS application
-        uses: actions/upload-artifact@v7
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v7.0.1
         with:
-          name: augur-git-tauri-macos-app
-          path: tauri-app/src-tauri/target/release/bundle/macos/*.app
+          name: tauri-macos-arm64
+          path: tauri-app/packaging/out/augur-git-tauri-macos-arm64.dmg
           if-no-files-found: error
+          retention-days: 7
+
+  build-linux:
+    name: Linux x86-64 packages
+    runs-on: ubuntu-24.04
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+
+      - name: Install Tauri Linux dependencies
+        uses: ./.github/actions/install-tauri-linux-deps
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2.2.0
+
+      - name: Cache Cargo
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tauri-app/src-tauri/target
+          key: ${{ runner.os }}-${{ runner.arch }}-tauri-cargo-${{ hashFiles('tauri-app/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-tauri-cargo-
+
+      - name: Install frontend dependencies
+        working-directory: tauri-app
+        run: bun ci
+
+      - name: Build Linux packages
+        working-directory: tauri-app
+        run: bun run package:linux
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: tauri-linux-x86_64
+          path: |
+            tauri-app/packaging/out/augur-git-tauri-linux-x86_64.AppImage
+            tauri-app/packaging/out/augur-git-tauri-linux-x86_64.deb
+            tauri-app/packaging/out/augur-git-tauri-linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish Tauri nightly release
+    if: github.ref == 'refs/heads/publish-tauri'
+    needs:
+      - checks
+      - build-windows
+      - build-macos
+      - build-linux
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: tauri-nightly-release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      COMMIT_SHA: ${{ github.sha }}
+
+    steps:
+      - name: Download Windows installer
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: tauri-windows-x86_64
+          path: staging/windows
+
+      - name: Download macOS DMG
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: tauri-macos-arm64
+          path: staging/macos
+
+      - name: Download Linux packages
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: tauri-linux-x86_64
+          path: staging/linux
+
+      - name: Validate release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=(
+            augur-git-tauri-windows-x86_64-nsis.exe
+            augur-git-tauri-macos-arm64.dmg
+            augur-git-tauri-linux-x86_64.AppImage
+            augur-git-tauri-linux-x86_64.deb
+            augur-git-tauri-linux-x86_64.tar.gz
+          )
+          for name in "${expected[@]}"; do
+            case "${name}" in
+              *windows*) path="staging/windows/${name}" ;;
+              *macos*) path="staging/macos/${name}" ;;
+              *linux*) path="staging/linux/${name}" ;;
+            esac
+            test -s "${path}"
+            cp -- "${path}" "staging/${name}"
+          done
+          actual_count="$(find staging/windows staging/macos staging/linux -type f | wc -l)"
+          if [[ "${actual_count}" -ne 5 ]]; then
+            echo "Expected five staged platform files, found ${actual_count}."
+            exit 1
+          fi
+
+      - name: Skip stale builds
+        id: freshness
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch_sha="$(gh api "repos/${REPOSITORY}/branches/publish-tauri" --jq '.commit.sha')"
+          if [[ "${branch_sha}" != "${COMMIT_SHA}" ]]; then
+            echo "This run is stale; publish-tauri now points to ${branch_sha}."
+            echo "stale=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "stale=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Prepare rolling release
+        id: release_setup
+        if: steps.freshness.outputs.stale != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          releases_api="repos/${REPOSITORY}/releases"
+          release_body="Automated Tauri nightly build for commit ${COMMIT_SHA}."
+          release_body+=$'\n\nThe Linux raw archive requires system GTK 3 and WebKitGTK 4.1 libraries. The macOS app uses an ad-hoc signature and is not notarized.'
+
+          release_id="$(gh api --paginate "${releases_api}?per_page=100" --jq '.[] | select(.tag_name == "tauri-nightly") | .id' | head -n 1)"
+          if [[ -n "${release_id}" ]]; then
+            gh api --method PATCH "${releases_api}/${release_id}" \
+              -f name="Augur Git Tauri Nightly" \
+              -f "body=${release_body}" \
+              -F draft=true \
+              -F prerelease=true \
+              -f make_latest=false >/dev/null
+
+            asset_ids="$(gh api --paginate "${releases_api}/${release_id}/assets?per_page=100" --jq '.[].id')"
+            while IFS= read -r asset_id; do
+              if [[ -n "${asset_id}" ]]; then
+                gh api --method DELETE "${releases_api}/assets/${asset_id}" >/dev/null
+              fi
+            done <<< "${asset_ids}"
+          else
+            release_id="$(gh api --method POST "${releases_api}" \
+              -f tag_name=tauri-nightly \
+              -f "target_commitish=${COMMIT_SHA}" \
+              -f name="Augur Git Tauri Nightly" \
+              -f "body=${release_body}" \
+              -F draft=true \
+              -F prerelease=true \
+              -f make_latest=false \
+              --jq '.id')"
+          fi
+          echo "release_id=${release_id}" >> "${GITHUB_OUTPUT}"
+
+          tag_lookup_ref="repos/${REPOSITORY}/git/ref/tags/tauri-nightly"
+          tag_update_ref="repos/${REPOSITORY}/git/refs/tags/tauri-nightly"
+          if gh api "${tag_lookup_ref}" >/dev/null 2>&1; then
+            gh api --method PATCH "${tag_update_ref}" \
+              -f "sha=${COMMIT_SHA}" \
+              -F force=true >/dev/null
+          else
+            gh api --method POST "repos/${REPOSITORY}/git/refs" \
+              -f ref=refs/tags/tauri-nightly \
+              -f "sha=${COMMIT_SHA}" >/dev/null
+          fi
+
+      - name: Upload and publish release assets
+        if: steps.freshness.outputs.stale != 'true'
+        shell: bash
+        env:
+          RELEASE_ID: ${{ steps.release_setup.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          gh release upload tauri-nightly \
+            staging/augur-git-tauri-windows-x86_64-nsis.exe \
+            staging/augur-git-tauri-macos-arm64.dmg \
+            staging/augur-git-tauri-linux-x86_64.AppImage \
+            staging/augur-git-tauri-linux-x86_64.deb \
+            staging/augur-git-tauri-linux-x86_64.tar.gz \
+            --repo "${REPOSITORY}" \
+            --clobber
+
+          expected="$(printf '%s\n' \
+            augur-git-tauri-windows-x86_64-nsis.exe \
+            augur-git-tauri-macos-arm64.dmg \
+            augur-git-tauri-linux-x86_64.AppImage \
+            augur-git-tauri-linux-x86_64.deb \
+            augur-git-tauri-linux-x86_64.tar.gz | sort)"
+          actual="$(gh api --paginate "repos/${REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" --jq '.[].name' | sort)"
+          if [[ "${actual}" != "${expected}" ]]; then
+            echo "Release assets do not match the expected set."
+            printf 'Expected:\n%s\nActual:\n%s\n' "${expected}" "${actual}"
+            exit 1
+          fi
+
+          branch_sha="$(gh api "repos/${REPOSITORY}/branches/publish-tauri" --jq '.commit.sha')"
+          if [[ "${branch_sha}" != "${COMMIT_SHA}" ]]; then
+            echo "The branch advanced during publication; leaving this release as a draft."
+            exit 0
+          fi
+
+          gh api --method PATCH "repos/${REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false \
+            -F prerelease=true \
+            -f make_latest=false >/dev/null

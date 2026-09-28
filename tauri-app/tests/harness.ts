@@ -105,7 +105,7 @@ export interface BootOptions {
   probeMerge?: Record<string, unknown>;
   /** Overrides for the rebase preflight probe. */
   probeRebase?: Record<string, unknown>;
-  /** How long `run_action` takes to answer, so the busy state is observable. */
+  /** How long an action stays in progress, so the progress state is observable. */
   actionDelay?: number;
   /** How long `open_repository` takes, and its snapshot 1.5s after it. */
   openDelay?: number;

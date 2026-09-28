@@ -174,6 +174,10 @@ function existingGraphLanes(colors: {
   ];
 }
 
+function readableForeground(color: string): string {
+  return relativeLuminance(color) > 0.179 ? '#000000' : '#ffffff';
+}
+
 const existingThemesWithGraphColors = Object.fromEntries(
   Object.entries(EXISTING_THEMES).map(([key, definition]) => [
     key,
@@ -186,6 +190,12 @@ const existingThemesWithGraphColors = Object.fromEntries(
           existingGraphLanes(definition.colors).map((color, index) => [
             `graph.lane.${index + 1}`,
             color
+          ])
+        ),
+        ...Object.fromEntries(
+          existingGraphLanes(definition.colors).map((color, index) => [
+            `graph.lane.text.${index + 1}`,
+            readableForeground(color)
           ])
         )
       }
@@ -293,7 +303,10 @@ function makeTheme(colors: SourceTheme): ThemeDefinition {
       'primary.foreground': foregroundOnAccent,
       'switch.background': borderStrong,
       'switch.thumb.background': colors.foreground,
-      ...Object.fromEntries(lanes.map((color, index) => [`graph.lane.${index + 1}`, color]))
+      ...Object.fromEntries(lanes.map((color, index) => [`graph.lane.${index + 1}`, color])),
+      ...Object.fromEntries(
+        lanes.map((color, index) => [`graph.lane.text.${index + 1}`, readableForeground(color)])
+      )
     }
   };
 }

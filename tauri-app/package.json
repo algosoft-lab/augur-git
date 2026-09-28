@@ -19,6 +19,9 @@
     "tauri": "tauri",
     "tauri:dev": "bun scripts/sidecar.mjs && tauri dev",
     "tauri:build": "bun scripts/sidecar.mjs && tauri build",
+    "package:windows": "bun packaging/build-windows.mjs",
+    "package:macos": "bun packaging/build-macos.mjs",
+    "package:linux": "bun packaging/build-linux.mjs",
     "cli:build": "cargo build --release --bin augurgit-tauri --manifest-path src-tauri/Cargo.toml",
     "sidecar": "bun scripts/sidecar.mjs"
   },
