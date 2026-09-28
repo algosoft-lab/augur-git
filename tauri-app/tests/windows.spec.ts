@@ -706,7 +706,6 @@ test.describe('the About window', () => {
     // The identifier is what keeps the two products from sharing a data
     // directory, so it is on the page.
     await expect(page.getByTestId('about-identifier')).toHaveText('com.augur.git.tauri');
-    await expect(page.getByTestId('about-cli')).toHaveText('augurgit-tauri');
     await expect(page.getByTestId('about')).toContainText('com.augur.git.tauri/settings.json');
   });
 });
@@ -719,39 +718,6 @@ test.describe('the in-window menu', () => {
     await page.getByTestId('menu-file-open-repository').click();
     await expect(page.getByTestId('repo-7')).toBeVisible();
     expect((await stub.commandNames()).filter((c) => c === 'open_repository')).toHaveLength(1);
-  });
-
-  test('reports an install per file, with the reason for a failure', async ({ page }) => {
-    await boot(page, { windows: true });
-    await page.getByTestId('menu-file-trigger').click();
-    await page.getByTestId('menu-file-file').click();
-    await page.getByTestId('menu-file-install-cli').click();
-
-    const report = page.getByTestId('cli-report-dialog');
-    await expect(report).toBeVisible();
-    await expect(report).toContainText('~/.zshrc');
-    await expect(report).toContainText('Added the augurgit command to');
-    await expect(report).toContainText('Already installed and up to date in');
-    // A failure is only useful with its reason.
-    await expect(report).toContainText('Permission denied');
-    // The shell needs restarting before the change takes effect.
-    await expect(report).toContainText(
-      'Open a new terminal (or reload your shell configuration) to use it.'
-    );
-  });
-
-  test('reports a removal as removed, not added', async ({ page }) => {
-    await boot(page, { windows: true });
-    await page.getByTestId('menu-file-trigger').click();
-    await page.getByTestId('menu-file-file').click();
-    await page.getByTestId('menu-file-remove-cli').click();
-
-    // Reusing the install wording after a removal would tell the person the
-    // command was added when the opposite happened.
-    const report = page.getByTestId('cli-report-dialog');
-    await expect(report).toContainText('Removed the augurgit command from');
-    await expect(report).not.toContainText('Added the augurgit command to');
-    await expect(report).toContainText('Not installed in');
   });
 
   test('lists the recent repositories', async ({ page }) => {

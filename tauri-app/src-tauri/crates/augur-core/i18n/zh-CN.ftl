@@ -1,8 +1,8 @@
 # Augur Git 简体中文（zh-CN）翻译
 # 格式：key = value，一行一条；{ $name } 为占位符（src/core/i18n.rs::text_args 替换）。
 #
-# 与参考词条有意不同的两处，原因相同：本产品没有 agent 功能，且 shell 命令名不同。
-# 详见 en-US.ftl 顶部的说明。
+# 与参考词条有意不同的一处：本产品没有 agent 功能，rebase-preflight-dirty 的
+# 文案必须独立成立。详见 en-US.ftl 顶部的说明。
 
 # ===== 应用 / Welcome =====
 app-tagline = 桌面 Git 客户端
@@ -27,22 +27,10 @@ menu-extensions = 扩展
 menu-help = 帮助
 menu-about = 关于 Augur Git
 menu-quit = 退出
-menu-install-cli = 安装 augurgit 命令行…
-menu-remove-cli = 移除 augurgit 命令行…
 window-minimize = 最小化
 window-maximize = 最大化
 window-restore = 还原
 window-close = 关闭窗口
-cli-dialog-title = augurgit-tauri 命令行
-cli-install-updated = 已添加 augurgit 命令到
-cli-install-unchanged = 已是最新，无需修改
-cli-install-failed = 更新失败
-cli-remove-updated = 已从以下文件移除 augurgit 命令
-cli-remove-notinstalled = 未安装于
-cli-install-hint = 打开新终端（或重新加载 shell 配置）即可使用。
-cli-binary-fallback = 未在应用旁找到独立的 augurgit 可执行文件，命令将指向应用本体；此时无参数运行不会打开当前目录。
-cli-install-none = 未找到支持的 shell 配置文件。
-cli-remove-none = 尚未在任何 shell 配置文件中安装 augurgit。
 about-title = 关于
 about-tagline = 桌面 Git 客户端
 about-author = 作者
@@ -205,6 +193,7 @@ commit-ai-btn = AI 提交
 commit-action-commit = 提交
 commit-action-amend = 修改上次提交
 commit-action-ai = AI 提交
+commit-fill-last-message = 使用上一次提交信息
 
 # ===== 底部面板（选中提交文件清单 + 单文件 diff） =====
 bottom-no-commit = 未选择提交
@@ -546,11 +535,9 @@ err-commit-message = 读取提交信息失败: { $detail }
 
 # --- Augur Git Tauri: keys the desktop application adds ---
 app-name = Augur Git Tauri
-cli-command = 命令
 app-identifier = 标识符
 app-data-dir = 数据位置
 compare-window-title = 比较版本
-about-cli-hint = 在终端中运行 { $command } 即可打开当前目录。
 about-platform = 平台
 settings-store-location = 存储位置
 tab-close = 关闭标签页
@@ -564,5 +551,4 @@ err-invalid-shortcut = 这不是有效的快捷键组合。
 err-unknown-command = 该命令无法重新绑定。
 err-window = 无法打开该窗口。
 err-worker = 后台任务启动失败。
-err-installer = 无法更新 shell 命令。
 diff-copy-tooltip = 复制差异

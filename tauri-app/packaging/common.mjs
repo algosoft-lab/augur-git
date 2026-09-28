@@ -111,40 +111,6 @@ export function rustHostTarget() {
   return host.slice('host: '.length).trim();
 }
 
-export function assertRealSidecar(target = rustHostTarget()) {
-  const executableSuffix = target.includes('windows') ? '.exe' : '';
-  const path = join(TAURI_ROOT, 'binaries', 'augurgit-tauri-' + target + executableSuffix);
-
-  try {
-    if (statSync(path).isFile() && statSync(path).size > 4096) {
-      return path;
-    }
-  } catch {
-    // The sidecar is missing; report the expected target-specific path below.
-  }
-  throw new Error('The real Tauri CLI sidecar was not built at ' + path);
-}
-
-export function assertPackagedSidecar(root) {
-  const pending = [root];
-  while (pending.length > 0) {
-    const directory = pending.pop();
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        pending.push(path);
-      } else if (
-        entry.isFile() &&
-        entry.name.startsWith('augurgit-tauri') &&
-        statSync(path).size > 4096
-      ) {
-        return path;
-      }
-    }
-  }
-  throw new Error('No real augurgit-tauri CLI sidecar was found under ' + root);
-}
-
 export function assertHostPlatform(expectedPlatform, expectedArch) {
   if (process.platform !== expectedPlatform || process.arch !== expectedArch) {
     throw new Error(

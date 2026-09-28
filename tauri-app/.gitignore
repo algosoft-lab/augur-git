@@ -11,10 +11,6 @@ dist-ssr/
 /src-tauri/gen/
 /packaging/out/
 
-# The CLI companion is produced by `bun run sidecar`; only the placeholder the
-# build script writes when running plain `cargo build` lands here.
-/src-tauri/binaries/
-
 # Test output
 coverage/
 *.lcov

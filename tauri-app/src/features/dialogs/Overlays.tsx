@@ -19,7 +19,7 @@ import {
 } from './integrationDialogs';
 import { DiscardDialog, StashDialog, StashDropDialog } from './workingTreeDialogs';
 import { ForcePushDialog, PushUpstreamDialog } from './pushDialogs';
-import { CliReportDialog, OperationErrorDialog } from './reportDialogs';
+import { OperationErrorDialog } from './reportDialogs';
 
 export function Overlays({
   wslOpen,
@@ -97,8 +97,6 @@ function OverlayBody({ overlay }: { overlay: Overlay }) {
           titleKey="merge-error-title"
         />
       );
-    case 'cliReport':
-      return <CliReportDialog report={overlay.report} />;
     default:
       return null;
   }

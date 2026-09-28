@@ -14,7 +14,6 @@ import * as ipc from '../bridge/ipc';
 import type {
   AppConfig,
   BuildInfo,
-  ChangeReport,
   CheckoutTarget,
   CompareRevisionArg,
   DiffLayoutPreference,
@@ -104,11 +103,7 @@ export type Overlay =
   | { kind: 'mergeError'; label: string; detail: string }
   | { kind: 'rebaseConflict'; detail: string; source?: string }
   | { kind: 'rebaseError'; label: string; detail: string }
-  | { kind: 'cliReport'; report: CliReport }
   | { kind: 'wslOpen'; distros: string[]; loading: boolean };
-
-/** The shell installer's per-file report, as the backend serialises it. */
-type CliReport = ChangeReport;
 
 /** A transient message shown in the status bar of the main window. */
 export interface Notice {

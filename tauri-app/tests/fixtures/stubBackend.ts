@@ -250,7 +250,6 @@ function install(
   const build = {
     name: 'Augur Git Tauri',
     binary: 'augur-git-tauri',
-    cli_command: 'augurgit-tauri',
     identifier: 'com.augur.git.tauri',
     version: '0.1.0',
     authors: 'Augur',
@@ -865,26 +864,6 @@ function install(
       'claude-dark',
       'claude-light'
     ],
-    // The shape is the backend's: the operation, one entry per configuration
-    // file, and a failure carrying the reason.
-    run_cli_installer: (args: any) => ({
-      operation: args.operation,
-      results:
-        args.operation === 'install'
-          ? [
-              { path: '~/.zshrc', outcome: { updated: null } },
-              { path: '~/.config/fish/config.fish', outcome: { unchanged: null } },
-              {
-                path: '~/.bash_profile',
-                outcome: { failed: 'Permission denied' }
-              }
-            ]
-          : [
-              { path: '~/.zshrc', outcome: { removed: null } },
-              { path: '~/.config/fish/config.fish', outcome: { notInstalled: null } }
-            ],
-      fallback_binary: false
-    }),
     list_wsl_distros: () =>
       options.wslDelay
         ? new Promise((resolve) =>

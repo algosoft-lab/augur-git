@@ -17,15 +17,11 @@ import { handleTitleBarMouseDown } from './titleBarDrag';
 export function TitleBar({
   onOpenRepository,
   onOpenWslRepository,
-  onNewTab,
-  onInstallCli,
-  onRemoveCli
+  onNewTab
 }: {
   onOpenRepository: () => void;
   onOpenWslRepository: () => void;
   onNewTab: () => void;
-  onInstallCli: () => void;
-  onRemoveCli: () => void;
 }) {
   const translate = useStore((state) => state.t);
   const build = useStore((state) => state.build);
@@ -65,19 +61,6 @@ export function TitleBar({
       label: t(translate, 'menu-new-tab'),
       icon: <Icon name="plus" />,
       onSelect: onNewTab
-    },
-    { id: 'sep-1', label: '', separatorBefore: true, disabled: true },
-    {
-      id: 'install-cli',
-      label: t(translate, 'menu-install-cli'),
-      icon: <Icon name="upload" />,
-      onSelect: onInstallCli
-    },
-    {
-      id: 'remove-cli',
-      label: t(translate, 'menu-remove-cli'),
-      icon: <Icon name="trash-2" />,
-      onSelect: onRemoveCli
     },
     {
       id: 'recent-repositories',

@@ -83,7 +83,6 @@ pub struct Bootstrap {
 pub struct BuildInfo {
     pub name: String,
     pub binary: String,
-    pub cli_command: String,
     pub identifier: String,
     pub version: String,
     pub authors: String,
@@ -98,7 +97,6 @@ impl BuildInfo {
         Self {
             name: info::APP_NAME.to_string(),
             binary: info::APP_BINARY.to_string(),
-            cli_command: info::CLI_COMMAND_NAME.to_string(),
             identifier: info::APP_IDENTIFIER.to_string(),
             version: info::APP_VERSION.to_string(),
             authors: info::app_authors_display(),
