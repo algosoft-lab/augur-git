@@ -76,7 +76,7 @@ export interface StubOptions {
   probeMerge?: Record<string, unknown>;
   /** Overrides for the rebase preflight probe. */
   probeRebase?: Record<string, unknown>;
-  /** How long `run_action` takes to answer, so the busy state is observable. */
+  /** How long an action stays in progress, so the progress state is observable. */
   actionDelay?: number;
   /** How long `open_repository` takes, and its snapshot 1.5s after it. */
   openDelay?: number;
@@ -721,35 +721,29 @@ function install(
       // The clipboard copy is exercised through the clipboard plugin, which the
       // stub records; the message body is what a success would copy.
       const succeeded = name === 'copyCommitMessage' ? false : !bad;
-      const answer = () => {
+      const duration = options.actionDelay ?? 10;
+      setTimeout(() => {
+        emit('augur://repo-event', {
+          repoId: repo.id,
+          type: 'commandStarted',
+          label,
+          verb: 'Working'
+        });
         setTimeout(() => {
           emit('augur://repo-event', {
             repoId: repo.id,
-            type: 'commandStarted',
+            type: 'commandDone',
             label,
-            verb: 'Working'
+            success: succeeded,
+            message: succeeded
+              ? `Add the Tauri command surface\n\nWith a body.\n`
+              : bad
+                ? 'fatal: could not read from remote'
+                : 'fatal: clipboard unavailable'
           });
-          setTimeout(() => {
-            emit('augur://repo-event', {
-              repoId: repo.id,
-              type: 'commandDone',
-              label,
-              success: succeeded,
-              message: succeeded
-                ? `Add the Tauri command surface\n\nWith a body.\n`
-                : bad
-                  ? 'fatal: could not read from remote'
-                  : 'fatal: clipboard unavailable'
-            });
-          }, 10);
-        }, 10);
-        return null;
-      };
-      // A slow answer holds the interface's busy flag for the delay, which is
-      // the window a test of the busy state needs.
-      return options.actionDelay
-        ? new Promise((resolve) => setTimeout(() => resolve(answer()), options.actionDelay))
-        : answer();
+        }, duration);
+      }, 10);
+      return null;
     },
 
     probe_merge: () => ({

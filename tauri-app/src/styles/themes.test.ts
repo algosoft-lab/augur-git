@@ -64,6 +64,15 @@ describe('theme tokens', () => {
           .size,
         name
       ).toBe(10);
+      for (let index = 1; index <= 10; index += 1) {
+        expect(
+          contrastRatio(
+            theme.colors[`graph.lane.text.${index}`]!,
+            theme.colors[`graph.lane.${index}`]!
+          ),
+          `${name} graph lane ${index}`
+        ).toBeGreaterThanOrEqual(4.5);
+      }
     }
   });
 
