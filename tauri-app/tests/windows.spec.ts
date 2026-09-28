@@ -621,6 +621,19 @@ test.describe("settings window", () => {
     ).toBe(true);
   });
 
+  test("changes the pull action the toolbar button performs", async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()], window: "settings" });
+
+    await page.getByTestId("settings-nav-layout").click();
+    await page.getByTestId("settings-pull-action").click();
+    await page.getByTestId("select-option-rebase").click();
+
+    const commands = await stub.commands();
+    const views = commands.filter((entry) => entry.cmd === "set_view");
+    expect(views).toHaveLength(1);
+    expect((views[0]!.args as any).view.pull_action).toBe("rebase");
+  });
+
   test("rejects an empty shortcut and accepts a real one", async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()], window: "settings" });
 

@@ -23,6 +23,8 @@ export type GraphHistoryPreference = "current-branch" | "all-branches";
 
 export type CommitActionPreference = "commit" | "amend";
 
+export type PullActionPreference = "merge" | "rebase";
+
 export interface ViewSettings {
   show_untracked: boolean;
   auto_follow: boolean;
@@ -30,6 +32,7 @@ export interface ViewSettings {
   graph_history: GraphHistoryPreference;
   auto_refresh_on_focus: boolean;
   commit_action: CommitActionPreference;
+  pull_action: PullActionPreference;
 }
 
 export interface TypographySettings {

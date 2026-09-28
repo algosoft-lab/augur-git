@@ -57,6 +57,43 @@ test.describe("toolbar operations", () => {
     );
   });
 
+  test("pulls with a merge by default", async ({ page }) => {
+    // A conflict blocks the integration actions, so the clean fixture is the
+    // one that can reach the button.
+    const stub = await boot(page, { open: [cleanRepo()] });
+    await expect(page.getByTestId("repo-7")).toBeVisible();
+
+    await page.getByTestId("toolbar-pull").click();
+
+    await expect(page.getByTestId("status-message")).toContainText(
+      LABELS.pullMerge ?? "",
+    );
+    const actions = (await stub.commands()).filter(
+      (entry) => entry.cmd === "run_action",
+    );
+    expect(actions).toHaveLength(1);
+    expect((actions[0]!.args as any).action.action).toBe("pullMerge");
+  });
+
+  test("pulls with a rebase when the preference asks for it", async ({ page }) => {
+    const stub = await boot(page, { open: [cleanRepo()], pullAction: "rebase" });
+    await expect(page.getByTestId("repo-7")).toBeVisible();
+
+    await page.getByTestId("toolbar-pull").click();
+
+    await expect(page.getByTestId("status-message")).toContainText(
+      LABELS.pullRebase ?? "",
+    );
+    // The rebase runs behind the same preflight a branch rebase uses.
+    expect(
+      (await stub.commandNames()).filter((c) => c === "probe_rebase"),
+    ).toHaveLength(1);
+    const actions = (await stub.commands()).filter(
+      (entry) => entry.cmd === "run_action",
+    );
+    expect((actions.at(-1)!.args as any).action.action).toBe("pullRebase");
+  });
+
   test("says the toolbar is working while an operation runs", async ({
     page,
   }) => {
@@ -81,13 +118,14 @@ test.describe("toolbar operations", () => {
     // is the one that can reach the button.
     await boot(page, {
       open: [cleanRepo()],
+      pullAction: "rebase",
       refusals: {
         probe_rebase: { key: "err-git-run", detail: "fatal: cannot rebase here" },
       },
     });
     await expect(page.getByTestId("repo-7")).toBeVisible();
 
-    await page.getByTestId("toolbar-pull-rebase").click();
+    await page.getByTestId("toolbar-pull").click();
 
     await expect(page.getByTestId("status-message")).toHaveText(
       "Rebase was not started: fatal: cannot rebase here",
@@ -104,7 +142,7 @@ test.describe("toolbar operations", () => {
 
     await expect(page.getByTestId("toolbar-fetch")).toBeDisabled();
     await expect(page.getByTestId("toolbar-push")).toBeDisabled();
-    await expect(page.getByTestId("toolbar-pull-merge")).toBeDisabled();
+    await expect(page.getByTestId("toolbar-pull")).toBeDisabled();
     // Local actions stay available.
     await expect(page.getByTestId("toolbar-branch")).toBeEnabled();
   });

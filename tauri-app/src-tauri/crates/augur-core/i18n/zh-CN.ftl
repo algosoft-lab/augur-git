@@ -126,8 +126,7 @@ push-upstream-cancel = 取消
 
 # ===== 工具栏 =====
 toolbar-fetch = 获取
-toolbar-pull-merge = 拉取（合并）
-toolbar-pull-rebase = 拉取（变基）
+toolbar-pull = 拉取
 toolbar-push = 推送
 toolbar-push-force = 推送（强制）
 toolbar-branch = 分支
@@ -507,6 +506,10 @@ graph-history-title = 提交图历史范围
 graph-history-current = 当前分支及其上游
 graph-history-all = 所有分支
 graph-history-description = 当前模式显示当前分支、其跟踪的上游分支及它们可达的历史。
+pull-action-title = 拉取方式
+pull-action-merge = 合并
+pull-action-rebase = 变基
+pull-action-description = 工具栏拉取按钮整合上游分支的方式。变基会把本地提交重放到上游之上。
 theme-github-dark = GitHub Dark
 theme-catppuccin-latte = Latte
 theme-catppuccin-frappe = Frappé

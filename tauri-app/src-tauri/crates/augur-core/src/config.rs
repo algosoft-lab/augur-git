@@ -132,6 +132,21 @@ impl Default for CommitActionPreference {
     }
 }
 
+/// Strategy the toolbar Pull button uses against the upstream branch.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub enum PullActionPreference {
+    #[serde(rename = "merge")]
+    Merge,
+    #[serde(rename = "rebase")]
+    Rebase,
+}
+
+impl Default for PullActionPreference {
+    fn default() -> Self {
+        Self::Merge
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct ViewSettings {
@@ -141,6 +156,7 @@ pub struct ViewSettings {
     pub graph_history: GraphHistoryPreference,
     pub auto_refresh_on_focus: bool,
     pub commit_action: CommitActionPreference,
+    pub pull_action: PullActionPreference,
 }
 
 impl Default for ViewSettings {
@@ -152,6 +168,7 @@ impl Default for ViewSettings {
             graph_history: GraphHistoryPreference::AllBranches,
             auto_refresh_on_focus: true,
             commit_action: CommitActionPreference::Commit,
+            pull_action: PullActionPreference::Merge,
         }
     }
 }

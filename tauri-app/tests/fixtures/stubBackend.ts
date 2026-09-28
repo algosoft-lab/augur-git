@@ -91,6 +91,8 @@ export interface StubOptions {
     ui_font_size: number;
     diff_font_size: number;
   }>;
+  /** Strategy the toolbar Pull button uses. */
+  pullAction?: "merge" | "rebase";
 }
 
 export const DEFAULT_OPTIONS: StubOptions = {
@@ -200,6 +202,7 @@ function install(
       graph_history: "all-branches",
       auto_refresh_on_focus: true,
       commit_action: "commit",
+      pull_action: options.pullAction ?? "merge",
     },
     typography: {
       ui_font_family: null,

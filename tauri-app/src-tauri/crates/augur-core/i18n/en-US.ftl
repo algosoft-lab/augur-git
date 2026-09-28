@@ -133,8 +133,7 @@ push-upstream-cancel = Cancel
 
 # ===== Toolbar =====
 toolbar-fetch = Fetch
-toolbar-pull-merge = Pull (Merge)
-toolbar-pull-rebase = Pull (Rebase)
+toolbar-pull = Pull
 toolbar-push = Push
 toolbar-push-force = Push (Force)
 toolbar-branch = Branch
@@ -514,6 +513,10 @@ graph-history-title = Graph history
 graph-history-current = Current branch and upstream
 graph-history-all = All branches
 graph-history-description = The current mode shows the current branch, its tracked upstream, and their reachable history.
+pull-action-title = Pull action
+pull-action-merge = Merge
+pull-action-rebase = Rebase
+pull-action-description = How the toolbar Pull button integrates the upstream branch. Rebase replays local commits on top of it.
 theme-github-dark = GitHub Dark
 theme-catppuccin-latte = Latte
 theme-catppuccin-frappe = Frappé

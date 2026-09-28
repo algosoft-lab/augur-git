@@ -275,6 +275,7 @@ function LayoutSection() {
   const diffLayout = useStore((state) => state.config.view.diff_layout);
   const history = useStore((state) => state.config.view.graph_history);
   const commitAction = useStore((state) => state.config.view.commit_action);
+  const pullAction = useStore((state) => state.config.view.pull_action);
   const setDiffLayout = useStore((state) => state.setDiffLayout);
   const setView = useStore((state) => state.setView);
 
@@ -324,6 +325,21 @@ function LayoutSection() {
           ]}
           onChange={(value) => void setView({ commit_action: value })}
         />
+      </div>
+      <div className="settings__field">
+        <span className="settings__label">{t(translate, "pull-action-title")}</span>
+        <Select
+          value={pullAction}
+          testId="settings-pull-action"
+          options={[
+            { value: "merge" as const, label: t(translate, "pull-action-merge") },
+            { value: "rebase" as const, label: t(translate, "pull-action-rebase") },
+          ]}
+          onChange={(value) => void setView({ pull_action: value })}
+        />
+        <div className="settings__hint">
+          {t(translate, "pull-action-description")}
+        </div>
       </div>
     </>
   );

@@ -21,6 +21,7 @@ export function Toolbar({ repo }: { repo: RepoState }) {
   const runAction = useStore((state) => state.runAction);
   const openOverlay = useStore((state) => state.openOverlay);
   const refresh = useStore((state) => state.refresh);
+  const pullAction = useStore((state) => state.config.view.pull_action);
 
   const hasRemote = repo.refs.remotes.length > 0;
   const blocked = repo.hasConflicts;
@@ -112,19 +113,20 @@ export function Toolbar({ repo }: { repo: RepoState }) {
         onClick={() => void runAction(repo.id, { action: "fetch" })}
       />
       <ToolButton
-        label={t(translate, "toolbar-pull-merge")}
-        icon={<Icon name="chevron-down" />}
+        label={t(translate, "toolbar-pull")}
+        icon={
+          <Icon
+            name={pullAction === "rebase" ? "git-commit-horizontal" : "chevron-down"}
+          />
+        }
         disabled={!pull}
-        testId="toolbar-pull-merge"
-        onClick={() => void runAction(repo.id, { action: "pullMerge" })}
-      />
-      <ToolButton
-        label={t(translate, "toolbar-pull-rebase")}
-        icon={<Icon name="git-commit-horizontal" />}
-        disabled={!pull}
-        testId="toolbar-pull-rebase"
+        testId="toolbar-pull"
         onClick={() => {
-          void preflightRebase(repo, null);
+          if (pullAction === "rebase") {
+            void preflightRebase(repo, null);
+            return;
+          }
+          void runAction(repo.id, { action: "pullMerge" });
         }}
       />
       <ToolButton

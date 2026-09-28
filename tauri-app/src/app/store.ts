@@ -367,6 +367,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       graph_history: "all-branches",
       auto_refresh_on_focus: true,
       commit_action: "commit",
+      pull_action: "merge",
     },
     typography: {
       ui_font_family: null,
