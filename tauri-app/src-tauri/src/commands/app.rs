@@ -257,8 +257,8 @@ pub fn open_settings_window(app: AppHandle, state: State<'_, AppState>) -> Resul
         WebviewUrl::App("index.html?window=settings".into()),
     )
     .title(resolved_title(&state.settings().config.language, "settings-title"))
-    .inner_size(620.0, 460.0)
-    .min_inner_size(620.0, 460.0)
+    .inner_size(780.0, 560.0)
+    .min_inner_size(780.0, 560.0)
     .resizable(false)
     .decorations(cfg!(target_os = "macos"));
     #[cfg(target_os = "macos")]

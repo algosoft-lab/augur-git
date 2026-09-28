@@ -1546,7 +1546,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-width: 460px;
+  max-width: 560px;
 }
 
 .settings__label {
@@ -1573,7 +1573,7 @@ button {
 
 .settings__shortcut-row {
   display: flex;
-  max-width: 460px;
+  max-width: 560px;
   align-items: center;
   gap: 8px;
 }

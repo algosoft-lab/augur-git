@@ -30,7 +30,13 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             handle_second_launch(app, &args, &cwd);
         }))
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // The settings window is fixed-size, so a saved size can only go stale;
+        // a window-state entry left by an older build would otherwise shrink it.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .skip_initial_state("settings")
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(log_plugin())
