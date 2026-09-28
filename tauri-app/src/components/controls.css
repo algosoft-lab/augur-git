@@ -110,9 +110,26 @@
   animation: spinner-turn 0.9s linear infinite;
 }
 
+.spinner--two-turn-pause {
+  animation-name: spinner-two-turn-pause;
+  animation-duration: 1.4s;
+  animation-timing-function: ease-in-out;
+}
+
 @keyframes spinner-turn {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes spinner-two-turn-pause {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  78%,
+  100% {
+    transform: rotate(720deg);
   }
 }
 

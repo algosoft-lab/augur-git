@@ -114,13 +114,14 @@ export interface SpinnerProps {
   size?: number;
   color?: string;
   label?: string;
+  rhythm?: 'continuous' | 'two-turn-pause';
 }
 
 /** The animated busy indicator used in the toolbar and the status bar. */
-export function Spinner({ size = 13, color, label }: SpinnerProps) {
+export function Spinner({ size = 13, color, label, rhythm = 'continuous' }: SpinnerProps) {
   return (
     <span
-      className="spinner"
+      className={`spinner${rhythm === 'two-turn-pause' ? ' spinner--two-turn-pause' : ''}`}
       role="status"
       aria-label={label}
       style={{ width: size, height: size, borderTopColor: color }}
