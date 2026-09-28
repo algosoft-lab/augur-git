@@ -274,6 +274,33 @@ test.describe("toolbar operations", () => {
   });
 });
 
+test.describe("branch navigation", () => {
+  test("checks out a local branch on double click", async ({ page }) => {
+    const repo = cleanRepo();
+    const stub = await boot(page, { open: [repo] });
+
+    await page.getByTestId("branch-feature/tauri").dblclick();
+
+    const commands = await stub.commands();
+    const checkout = commands.find((entry) => entry.cmd === "run_action");
+    expect(checkout?.args).toMatchObject({
+      repoId: 7,
+      action: {
+        action: "checkout",
+        target: { kind: "localBranch", localBranch: "feature/tauri" },
+      },
+    });
+  });
+
+  test("keeps checkout blocked while the repository has conflicts", async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()] });
+
+    await page.getByTestId("branch-feature/tauri").dblclick();
+
+    expect((await stub.commands()).some((entry) => entry.cmd === "run_action")).toBe(false);
+  });
+});
+
 test.describe("branch dialogs", () => {
   test("refuses an invalid or duplicate branch name", async ({ page }) => {
     await boot(page, { open: [cleanRepo()] });

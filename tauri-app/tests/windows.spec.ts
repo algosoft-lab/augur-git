@@ -38,6 +38,20 @@ test.describe("comparison window", () => {
     await expect(page.getByTestId("window-close")).toBeVisible();
   });
 
+  test("drags the compare title text and maximizes on a double click", async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
+    const title = page.getByTestId("compare-title");
+
+    await title.click();
+    await expect
+      .poll(async () => (await stub.commands()).some((entry) => entry.cmd === "plugin:window|start_dragging"))
+      .toBe(true);
+    await title.dblclick();
+    await expect
+      .poll(async () => (await stub.commands()).some((entry) => entry.cmd === "plugin:window|toggle_maximize"))
+      .toBe(true);
+  });
+
   test("uses native-menu spacing on macOS and keeps tabs in the title bar", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()], macos: true });
     await expect(page.getByTestId("title-bar")).toHaveClass(/title-bar--macos/);
@@ -350,6 +364,20 @@ test.describe("comparison window", () => {
   });
 });
 
+test.describe("custom title bar", () => {
+  test("drags the main window from its blank region and leaves controls clickable", async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()] });
+    const dragCount = async () =>
+      (await stub.commands()).filter((entry) => entry.cmd === "plugin:window|start_dragging").length;
+
+    await page.locator(".title-bar__drag").click();
+    await expect.poll(dragCount).toBe(1);
+    await page.getByTestId("title-settings").click();
+    await expect(page.getByTestId("settings-overlay")).toBeVisible();
+    await expect.poll(dragCount).toBe(1);
+  });
+});
+
 test.describe("settings", () => {
   test("marks the current choice in a mode menu", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
@@ -385,7 +413,7 @@ test.describe("settings", () => {
     );
   });
 
-  test("changes the theme and the fonts", async ({ page }) => {
+  test("changes the theme and preserves complete font family names", async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
 
     await page.getByTestId("toolbar-settings").click();
@@ -402,10 +430,44 @@ test.describe("settings", () => {
     expect((setTheme[0]!.args as any).theme).toBe("github-dark");
 
     await page.getByTestId("settings-ui-font").click();
-    await page.getByTestId("select-option-menlo").click();
+    await page.getByTestId("select-option-source-sans-3").click();
     const setType = (await stub.commands()).filter((e) => e.cmd === "set_typography");
     expect(setType).toHaveLength(1);
-    expect((setType[0]!.args as any).typography.ui_font_family).toBe("Menlo");
+    expect((setType[0]!.args as any).typography.ui_font_family).toBe("Source Sans 3");
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--ui-font-family")))
+      .toBe('"Source Sans 3"');
+  });
+
+  test("shows a saved font that is not in the discovered system list", async ({ page }) => {
+    await boot(page, {
+      open: [fixtureRepo()],
+      typography: { ui_font_family: "Saved Custom Font" },
+      fontFamilies: ["Inter"],
+    });
+
+    await page.getByTestId("toolbar-settings").click();
+    await page.getByTestId("settings-nav-appearance").click();
+
+    await expect(page.getByTestId("settings-ui-font")).toContainText("Saved Custom Font");
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--ui-font-family")))
+      .toBe('"Saved Custom Font"');
+  });
+
+  test("accepts an exact typed font family when discovery omits it", async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()], fontFamilies: ["Inter"] });
+
+    await page.getByTestId("toolbar-settings").click();
+    await page.getByTestId("settings-nav-appearance").click();
+    await page.getByTestId("settings-ui-font").click();
+    const search = page.locator(".select__search input");
+    await search.fill("A Font With Spaces");
+    await search.press("Enter");
+
+    await expect(page.getByTestId("settings-ui-font")).toContainText("A Font With Spaces");
+    const setType = (await stub.commands()).filter((entry) => entry.cmd === "set_typography");
+    expect((setType.at(-1)!.args as any).typography.ui_font_family).toBe("A Font With Spaces");
   });
 
   test("changes the diff layout and the history scope", async ({ page }) => {

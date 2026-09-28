@@ -415,12 +415,12 @@ pub struct BranchInfo {
 
 /// A ref that can be checked out from the user interface.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum CheckoutTarget {
-    LocalBranch(String),
-    RemoteBranch(String),
-    Tag(String),
-    Commit(String),
+    LocalBranch { local_branch: String },
+    RemoteBranch { remote_branch: String },
+    Tag { tag: String },
+    Commit { commit: String },
 }
 
 /// UI → 后台指令
@@ -432,7 +432,11 @@ pub enum GitCommand {
     /// Fetch the next commit-graph page for the current log scope.
     MoreLogPage,
     /// 执行任意 git 命令（label 供 UI 显示；args 不含 "git" 本身）
-    Run { label: String, args: Vec<String> },
+    Run {
+        label: String,
+        args: Vec<String>,
+        refresh_after_success: bool,
+    },
     /// Query file metadata and line counts for the selected commit.
     CommitNumstat { oid: String },
     /// 查询提交的完整提交信息（git show -s --format=%B）
@@ -496,20 +500,31 @@ impl GitHandle {
 
     /// 执行任意 git 命令
     pub fn run(&self, label: impl Into<String>, args: Vec<String>) {
+        self.run_with_refresh(label, args, false);
+    }
+
+    /// Run a command and refresh the repository snapshot after success when requested.
+    pub fn run_with_refresh(
+        &self,
+        label: impl Into<String>,
+        args: Vec<String>,
+        refresh_after_success: bool,
+    ) {
         let _ = self.cmd_tx.send(GitCommand::Run {
             label: label.into(),
             args,
+            refresh_after_success,
         });
     }
 
     /// Check out a branch, tag, or commit using structured Git arguments.
     pub fn checkout(&self, target: CheckoutTarget) {
-        self.run("checkout", checkout_args(target));
+        self.run_with_refresh("checkout", checkout_args(target), true);
     }
 
     /// Create a commit from the staged changes, optionally amending HEAD.
     pub fn commit(&self, message: String, amend: bool) {
-        self.run("commit", commit_args(message, amend));
+        self.run_with_refresh("commit", commit_args(message, amend), true);
     }
 
     /// Query the complete commit message without including the commit diff.
@@ -732,8 +747,15 @@ fn worker_loop(
             Ok(GitCommand::MoreLogPage) => {
                 commit_log::request_more(&repo, &mut log_state, &event_tx);
             }
-            Ok(GitCommand::Run { label, args }) => {
-                run_git(&repo, &label, &args, &event_tx);
+            Ok(GitCommand::Run {
+                label,
+                args,
+                refresh_after_success,
+            }) => {
+                let success = run_git(&repo, &label, &args, &event_tx);
+                if success && refresh_after_success {
+                    refresh_all(&repo, &event_tx, &mut log_state);
+                }
             }
             Ok(GitCommand::CommitNumstat { oid }) => {
                 run_numstat(&repo, &oid, &event_tx);
@@ -871,7 +893,7 @@ fn read_head(repo: &GitRepo) -> Option<String> {
 /// failures at warn level with the full
 /// arguments, exit status, and git output so the diagnostic logs keep an
 /// actionable trail even under the default filter.
-fn run_git(repo: &GitRepo, label: &str, args: &[String], event_tx: &Sender<GitEvent>) {
+fn run_git(repo: &GitRepo, label: &str, args: &[String], event_tx: &Sender<GitEvent>) -> bool {
     log::debug!("[git_command] command started: label={label}, args={args:?}");
     let _ = event_tx.send(GitEvent::CommandStarted {
         label: label.to_string(),
@@ -894,6 +916,7 @@ fn run_git(repo: &GitRepo, label: &str, args: &[String], event_tx: &Sender<GitEv
                 success: true,
                 message: String::from_utf8_lossy(&output.stdout).into_owned(),
             });
+            true
         }
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -918,6 +941,7 @@ fn run_git(repo: &GitRepo, label: &str, args: &[String], event_tx: &Sender<GitEv
                 success: false,
                 message,
             });
+            false
         }
         Err(e) => {
             log::warn!(
@@ -925,6 +949,7 @@ fn run_git(repo: &GitRepo, label: &str, args: &[String], event_tx: &Sender<GitEv
                  args={args:?}, error={e}"
             );
             let _ = event_tx.send(GitEvent::Error(GitError::new("err-git-run", e.to_string())));
+            false
         }
     }
 }
@@ -945,13 +970,13 @@ fn truncated(text: &str) -> String {
 fn checkout_args(target: CheckoutTarget) -> Vec<String> {
     let mut args = vec!["checkout".to_string()];
     match target {
-        CheckoutTarget::RemoteBranch(name) => {
+        CheckoutTarget::RemoteBranch { remote_branch } => {
             args.push("--track".to_string());
-            args.push(name);
+            args.push(remote_branch);
         }
-        CheckoutTarget::LocalBranch(name)
-        | CheckoutTarget::Tag(name)
-        | CheckoutTarget::Commit(name) => args.push(name),
+        CheckoutTarget::LocalBranch { local_branch } => args.push(local_branch),
+        CheckoutTarget::Tag { tag } => args.push(tag),
+        CheckoutTarget::Commit { commit } => args.push(commit),
     }
     args
 }
@@ -1640,23 +1665,89 @@ mod tests {
     #[test]
     fn checkout_args_preserve_target_as_one_argument() {
         assert_eq!(
-            checkout_args(CheckoutTarget::LocalBranch("feature/ui polish".into())),
+            checkout_args(CheckoutTarget::LocalBranch {
+                local_branch: "feature/ui polish".into(),
+            }),
             vec!["checkout", "feature/ui polish"]
         );
         assert_eq!(
-            checkout_args(CheckoutTarget::RemoteBranch("origin/功能/导航".into())),
+            checkout_args(CheckoutTarget::RemoteBranch {
+                remote_branch: "origin/功能/导航".into(),
+            }),
             vec!["checkout", "--track", "origin/功能/导航"]
         );
         assert_eq!(
-            checkout_args(CheckoutTarget::Tag("release/v1.2.3".into())),
+            checkout_args(CheckoutTarget::Tag {
+                tag: "release/v1.2.3".into(),
+            }),
             vec!["checkout", "release/v1.2.3"]
         );
         assert_eq!(
-            checkout_args(CheckoutTarget::Commit(
-                "0123456789abcdef0123456789abcdef01234567".into()
-            )),
+            checkout_args(CheckoutTarget::Commit {
+                commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            }),
             vec!["checkout", "0123456789abcdef0123456789abcdef01234567"]
         );
+    }
+
+    #[test]
+    fn successful_checkout_command_refreshes_the_current_branch_snapshot() {
+        use std::fs;
+        use std::process::Command;
+        use std::sync::mpsc;
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "augur-git-checkout-refresh-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "--quiet", "--initial-branch=main"]);
+        git(&["config", "user.name", "Augur Test"]);
+        git(&["config", "user.email", "augur-test@example.invalid"]);
+        fs::write(root.join("file.txt"), "initial\n").unwrap();
+        git(&["add", "file.txt"]);
+        git(&["commit", "--quiet", "-m", "initial"]);
+        git(&["switch", "--quiet", "-c", "topic/target"]);
+        git(&["switch", "--quiet", "main"]);
+
+        let (event_tx, event_rx) = mpsc::channel();
+        let handle = spawn_open(GitRepo::local(root.to_string_lossy()), event_tx).unwrap();
+        handle.run_with_refresh(
+            "checkout",
+            vec!["switch".into(), "topic/target".into()],
+            true,
+        );
+
+        let mut refreshed = false;
+        while !refreshed {
+            let event = event_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("checkout should finish and publish a new repository snapshot");
+            if let GitEvent::Status { branch, .. } = event {
+                refreshed = branch == "topic/target";
+            }
+        }
+
+        handle.close();
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

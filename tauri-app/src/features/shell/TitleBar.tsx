@@ -13,6 +13,7 @@ import { useStore } from "../../app/store";
 import { t } from "../../i18n/strings";
 import { TabBar } from "./TabBar";
 import { IS_MACOS, WindowControls } from "./WindowControls";
+import { handleTitleBarMouseDown } from "./titleBarDrag";
 
 export function TitleBar({
   onOpenRepository,
@@ -144,15 +145,7 @@ export function TitleBar({
     <div
       className={`title-bar${IS_MACOS ? " title-bar--macos" : ""}`}
       data-testid="title-bar"
-      onDoubleClick={(event) => {
-        const target = event.target as HTMLElement;
-        if (IS_MACOS || target.closest("button, [role=tab], .menu")) {
-          return;
-        }
-        void import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
-          getCurrentWindow().toggleMaximize(),
-        );
-      }}
+      onMouseDown={handleTitleBarMouseDown}
     >
       {!IS_MACOS ? (
         <Menu items={menuItems} testId="menu-file">
@@ -167,7 +160,10 @@ export function TitleBar({
         </Menu>
       ) : null}
       <TabBar onNewTab={onNewTab} />
-      <div className="title-bar__drag" data-tauri-drag-region />
+      <div
+        className="title-bar__drag"
+        {...(IS_MACOS ? { "data-tauri-drag-region": true } : {})}
+      />
       {branch ? (
         <button
           type="button"

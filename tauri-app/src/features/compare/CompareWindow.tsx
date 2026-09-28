@@ -27,6 +27,7 @@ import { DiffView, type DiffSection } from "../diff/DiffView";
 import { t, ta } from "../../i18n/strings";
 import { isRevisionUnavailable } from "./revisions";
 import { IS_MACOS, WindowControls } from "../shell/WindowControls";
+import { handleTitleBarMouseDown } from "../shell/titleBarDrag";
 
 interface Endpoint {
   input: string;
@@ -54,19 +55,15 @@ function CompareTitleBar({ title }: { title: string }) {
   return (
     <div
       className={`window-titlebar${IS_MACOS ? " window-titlebar--macos" : ""}`}
-      onDoubleClick={(event) => {
-        const target = event.target as HTMLElement;
-        if (!IS_MACOS && !target.closest("button, input, .compare__picker")) {
-          void import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
-            getCurrentWindow().toggleMaximize(),
-          );
-        }
-      }}
+      onMouseDown={handleTitleBarMouseDown}
     >
       <span className="compare__title" data-testid="compare-title">
         {title}
       </span>
-      <div className="window-titlebar__drag" data-tauri-drag-region />
+      <div
+        className="window-titlebar__drag"
+        {...(IS_MACOS ? { "data-tauri-drag-region": true } : {})}
+      />
       <WindowControls />
     </div>
   );
@@ -114,8 +111,10 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
     }
     const generation = ++subscriptionGeneration.current;
     let resolveReady: () => void = () => {};
-    subscriptionReady.current = new Promise((resolve) => {
+    let rejectReady: (error: unknown) => void = () => {};
+    subscriptionReady.current = new Promise((resolve, reject) => {
       resolveReady = resolve;
+      rejectReady = reject;
     });
     consumeEvent.current = (event) => {
       switch (event.type) {
@@ -199,6 +198,14 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
       }
       unlisten = stop;
       resolveReady();
+    }).catch((error: unknown) => {
+      if (subscriptionGeneration.current === generation) {
+        rejectReady(error);
+        setLoading(false);
+        setErrors({ "": String(error) });
+      } else {
+        resolveReady();
+      }
     });
     return () => {
       if (subscriptionGeneration.current === generation) {
@@ -206,18 +213,6 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
       }
       resolveReady();
       unlisten?.();
-    };
-  }, [repoId]);
-
-  // Close the window's request when it goes away.
-  useEffect(() => {
-    return () => {
-      if (repoId !== null) {
-        activeGeneration.current += 1;
-        pendingGeneration.current = null;
-        requestId.current = 0;
-        void ipc.cancelCompare(repoId);
-      }
     };
   }, [repoId]);
 
@@ -332,8 +327,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
       return;
     }
     const listenerGeneration = subscriptionGeneration.current;
-    void (async () => {
-      await subscriptionReady.current;
+    void subscriptionReady.current.then(() => {
       if (preset.current || listenerGeneration !== subscriptionGeneration.current) {
         return;
       }
@@ -344,7 +338,12 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
         { input: current.name, selected: current },
         { input: other.name, selected: other },
       );
-    })();
+    }).catch((error: unknown) => {
+      if (listenerGeneration === subscriptionGeneration.current) {
+        setLoading(false);
+        setErrors({ "": String(error) });
+      }
+    });
   }, [repoId, repo, run]);
 
   const subjects = useMemo(

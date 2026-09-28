@@ -44,7 +44,10 @@ impl CommandError {
 
     /// The repository session is gone, usually because its tab closed.
     pub fn missing_repo(repo_id: u64) -> Self {
-        Self::new("err-repo-closed", format!("repository {repo_id} is no longer open"))
+        Self::new(
+            "err-repo-closed",
+            format!("repository {repo_id} is no longer open"),
+        )
     }
 }
 
@@ -217,11 +220,7 @@ pub fn select_commit(state: State<'_, AppState>, repo_id: u64, oid: String) -> R
 
 /// Request only the full message, for a hover or the message dialog.
 #[tauri::command]
-pub fn request_commit_message(
-    state: State<'_, AppState>,
-    repo_id: u64,
-    oid: String,
-) -> Result<()> {
+pub fn request_commit_message(state: State<'_, AppState>, repo_id: u64, oid: String) -> Result<()> {
     state
         .with_repo(repo_id, |session| session.request_commit_message(oid))
         .ok_or_else(|| CommandError::missing_repo(repo_id))
@@ -277,31 +276,30 @@ pub fn working_tree_operation(
         WorkingTreeScope::File(file)
     };
     state
-        .with_repo(repo_id, |session| session.working_tree_operation(action, scope))
+        .with_repo(repo_id, |session| {
+            session.working_tree_operation(action, scope)
+        })
         .ok_or_else(|| CommandError::missing_repo(repo_id))
 }
 
 /// Run one named Git operation.
 #[tauri::command]
-pub fn run_action(
-    state: State<'_, AppState>,
-    repo_id: u64,
-    action: GitAction,
-) -> Result<()> {
-    let args = action.args().map_err(|error| CommandError::new("err-invalid-action", error))?;
+pub fn run_action(state: State<'_, AppState>, repo_id: u64, action: GitAction) -> Result<()> {
+    let args = action
+        .args()
+        .map_err(|error| CommandError::new("err-invalid-action", error))?;
     let label = action.label();
+    let refresh_after_success = action.refreshes_after_success();
     state
-        .with_repo(repo_id, |session| session.run(label, args))
+        .with_repo(repo_id, |session| {
+            session.run(label, args, refresh_after_success)
+        })
         .ok_or_else(|| CommandError::missing_repo(repo_id))
 }
 
 /// Check out a branch, tag, or commit.
 #[tauri::command]
-pub fn checkout(
-    state: State<'_, AppState>,
-    repo_id: u64,
-    target: CheckoutTarget,
-) -> Result<()> {
+pub fn checkout(state: State<'_, AppState>, repo_id: u64, target: CheckoutTarget) -> Result<()> {
     run_action(state, repo_id, GitAction::Checkout { target })
 }
 
@@ -336,7 +334,9 @@ pub fn export_patch(
     destination: PathBuf,
 ) -> Result<u64> {
     state
-        .with_repo(repo_id, |session| session.export_patch(base, target, destination))
+        .with_repo(repo_id, |session| {
+            session.export_patch(base, target, destination)
+        })
         .ok_or_else(|| CommandError::missing_repo(repo_id))
 }
 
@@ -406,8 +406,7 @@ pub async fn probe_rebase(
             }
             None => None,
         };
-        let other =
-            augur_core::git::operation_probe::has_other_git_operation_except_rebase(&repo)?;
+        let other = augur_core::git::operation_probe::has_other_git_operation_except_rebase(&repo)?;
         let state = augur_core::git::operation_probe::probe_rebase_state(&repo)?;
         Ok((state, target.is_some(), other))
     })
@@ -572,7 +571,10 @@ mod tests {
             }
         }
         let mut found = Vec::new();
-        walk(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut found);
+        walk(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut found,
+        );
         assert!(!found.is_empty(), "no command sources were found");
         found
     }
@@ -636,6 +638,9 @@ mod tests {
             &error.key,
             &[("detail", error.detail.as_str())],
         );
-        assert!(rendered.contains("fatal: not a git repository"), "{rendered}");
+        assert!(
+            rendered.contains("fatal: not a git repository"),
+            "{rendered}"
+        );
     }
 }

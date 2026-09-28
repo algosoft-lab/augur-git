@@ -174,12 +174,39 @@ export function applyTheme(
   for (const [key, value] of Object.entries(definition.colors)) {
     root.style.setProperty(cssVariable(key), value);
   }
-  root.style.setProperty("--ui-font-family", typography.uiFontFamily ?? "system-ui");
-  root.style.setProperty("--mono-font-family", typography.monoFontFamily ?? "ui-monospace");
+  root.style.setProperty(
+    "--ui-font-family",
+    typography.uiFontFamily ? cssFontFamily(typography.uiFontFamily) : "system-ui",
+  );
+  root.style.setProperty(
+    "--mono-font-family",
+    typography.monoFontFamily ? cssFontFamily(typography.monoFontFamily) : "ui-monospace",
+  );
   root.style.setProperty("--ui-font-size", `${typography.uiFontSize}px`);
   root.style.setProperty("--diff-font-size", `${typography.diffFontSize}px`);
   root.dataset.mode = definition.mode;
   root.style.colorScheme = definition.mode;
+}
+
+/** Quote one family name as a CSS string without changing its exact name. */
+export function cssFontFamily(value: string): string {
+  const escaped = Array.from(value, (character) => {
+    const codepoint = character.codePointAt(0)!;
+    if (character === "\\") {
+      return "\\\\";
+    }
+    if (character === '"') {
+      return '\\"';
+    }
+    if (codepoint === 0) {
+      return "\\fffd ";
+    }
+    if (codepoint < 0x20 || codepoint === 0x7f) {
+      return `\\${codepoint.toString(16)} `;
+    }
+    return character;
+  }).join("");
+  return `"${escaped}"`;
 }
 
 /** The theme used before the preferences have been read. */

@@ -71,6 +71,10 @@ export interface BootOptions {
     diff_height: number | null;
     file_list_ratio: number;
   }>;
+  /** System font families returned by the appearance settings. */
+  fontFamilies?: string[];
+  /** Initial persisted font preferences. */
+  typography?: StubOptions["typography"];
   /**
    * Paths the backend is holding because the window was not listening when they
    * arrived, which is the state a launch with a path argument produces.
@@ -123,6 +127,8 @@ function optionsFor(options: BootOptions): StubOptions {
     openDelay: options.openDelay,
     wslDelay: options.wslDelay,
     layout: options.layout,
+    fontFamilies: options.fontFamilies,
+    typography: options.typography,
   };
 }
 

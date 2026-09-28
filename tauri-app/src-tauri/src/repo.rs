@@ -15,7 +15,9 @@ use tauri::{AppHandle, Emitter};
 
 use augur_core::config::LocationConfig;
 use augur_core::diff::{DiffDocument, FileChange};
-use augur_core::git::{FileStatus, GitError, GitEvent, GitHandle, GitRepo, LogScope, WorkingTreeAction};
+use augur_core::git::{
+    FileStatus, GitError, GitEvent, GitHandle, GitRepo, LogScope, WorkingTreeAction,
+};
 
 use crate::events::{REPO_EVENT, RepoEvent, RepoEventEnvelope};
 
@@ -116,8 +118,7 @@ impl RepoSession {
         file: FileStatus,
     ) -> u64 {
         let request_id = self.working_diff.fetch_add(1, Ordering::Relaxed) + 1;
-        self.handle
-            .working_tree_file_diff(request_id, kind, file);
+        self.handle.working_tree_file_diff(request_id, kind, file);
         request_id
     }
 
@@ -137,7 +138,8 @@ impl RepoSession {
     /// slow answer can never overwrite a newer one.
     pub fn start_compare(&self, base: CompareRevisionArg, target: CompareRevisionArg) -> u64 {
         let request_id = self.compare_request.fetch_add(1, Ordering::Relaxed) + 1;
-        self.handle.branch_compare(request_id, base.into(), target.into());
+        self.handle
+            .branch_compare(request_id, base.into(), target.into());
         request_id
     }
 
@@ -158,8 +160,9 @@ impl RepoSession {
     }
 
     /// Run a named operation built by [`crate::git_args::GitAction`].
-    pub fn run(&self, label: impl Into<String>, args: Vec<String>) {
-        self.handle.run(label, args);
+    pub fn run(&self, label: impl Into<String>, args: Vec<String>, refresh_after_success: bool) {
+        self.handle
+            .run_with_refresh(label, args, refresh_after_success);
     }
 
     /// Stop the worker. Called when a tab closes.
@@ -291,7 +294,8 @@ fn convert(repo_id: u64, event: GitEvent) -> Option<RepoEventEnvelope> {
             request_id,
             kind,
             file: file.clone(),
-            document: DiffDocument::from_patch(file.path.clone(), &patch, old_source, new_source).into(),
+            document: DiffDocument::from_patch(file.path.clone(), &patch, old_source, new_source)
+                .into(),
         },
         E::WorkingTreeFileDiffError {
             request_id,
@@ -389,19 +393,20 @@ mod tests {
 
     #[test]
     fn local_revisions_use_a_fully_qualified_ref() {
-        let revision: augur_core::git::CompareRevision =
-            CompareRevisionArg::Local { name: "main".into() }.into();
+        let revision: augur_core::git::CompareRevision = CompareRevisionArg::Local {
+            name: "main".into(),
+        }
+        .into();
         assert_eq!(revision.full_name, "refs/heads/main");
         assert_eq!(revision.kind, CompareRevisionKind::Local);
     }
 
     #[test]
     fn remote_and_tag_revisions_are_qualified_per_kind() {
-        let remote: augur_core::git::CompareRevision =
-            CompareRevisionArg::Remote {
-                name: "origin/topic".into(),
-            }
-            .into();
+        let remote: augur_core::git::CompareRevision = CompareRevisionArg::Remote {
+            name: "origin/topic".into(),
+        }
+        .into();
         assert_eq!(remote.full_name, "refs/remotes/origin/topic");
         let tag: augur_core::git::CompareRevision =
             CompareRevisionArg::Tag { name: "v1".into() }.into();
@@ -410,11 +415,10 @@ mod tests {
 
     #[test]
     fn commit_revisions_pass_the_object_id_through() {
-        let commit: augur_core::git::CompareRevision =
-            CompareRevisionArg::Commit {
-                name: "abc1234".into(),
-            }
-            .into();
+        let commit: augur_core::git::CompareRevision = CompareRevisionArg::Commit {
+            name: "abc1234".into(),
+        }
+        .into();
         assert_eq!(commit.full_name, "abc1234");
         assert_eq!(commit.kind, CompareRevisionKind::Commit);
     }

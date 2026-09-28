@@ -91,6 +91,7 @@ pub enum RepoEvent {
     LogPage {
         rows: Vec<LogRow>,
         replace: bool,
+        #[serde(rename = "hasMore")]
         has_more: bool,
     },
     Refs {
@@ -112,18 +113,21 @@ pub enum RepoEvent {
         document: DiffPayload,
     },
     WorkingTreeFileDiff {
+        #[serde(rename = "requestId")]
         request_id: u64,
         kind: WorkingTreeDiffKind,
         file: FileStatus,
         document: DiffPayload,
     },
     WorkingTreeFileDiffError {
+        #[serde(rename = "requestId")]
         request_id: u64,
         kind: WorkingTreeDiffKind,
         file: FileStatus,
         detail: String,
     },
     WorkingTreeOperationFinished {
+        #[serde(rename = "requestId")]
         request_id: u64,
         action: WorkingTreeAction,
         scope: WorkingTreeScopeKind,
@@ -131,28 +135,34 @@ pub enum RepoEvent {
         detail: String,
     },
     BranchCompareFiles {
+        #[serde(rename = "requestId")]
         request_id: u64,
         files: Vec<FileChange>,
     },
     BranchCompareFileDiff {
+        #[serde(rename = "requestId")]
         request_id: u64,
         file: FileChange,
         document: DiffDocument,
     },
     BranchCompareError {
+        #[serde(rename = "requestId")]
         request_id: u64,
         file: Option<FileChange>,
         detail: String,
     },
     BranchCompareFinished {
+        #[serde(rename = "requestId")]
         request_id: u64,
     },
     BranchComparePatchExported {
+        #[serde(rename = "requestId")]
         request_id: u64,
         destination: PathBuf,
         bytes: u64,
     },
     BranchComparePatchError {
+        #[serde(rename = "requestId")]
         request_id: u64,
         detail: String,
     },
@@ -190,8 +200,7 @@ pub struct RepoEventEnvelope {
 
 impl Serialize for RepoEventEnvelope {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut value =
-            serde_json::to_value(&self.event).map_err(serde::ser::Error::custom)?;
+        let mut value = serde_json::to_value(&self.event).map_err(serde::ser::Error::custom)?;
         if let Some(object) = value.as_object_mut() {
             object.insert("repoId".to_string(), serde_json::json!(self.repo_id));
         }
@@ -208,10 +217,7 @@ pub enum AppEvent {
     /// The tab list or active tab changed.
     WorkspaceChanged,
     /// A destructive or generated file operation needs the user's attention.
-    Notice {
-        level: String,
-        message: String,
-    },
+    Notice { level: String, message: String },
 }
 
 /// Envelope for [`AppEvent`].
@@ -258,5 +264,28 @@ mod tests {
     fn working_tree_kinds_use_camel_case() {
         let json = serde_json::to_value(WorkingTreeDiffKind::Unstaged).unwrap();
         assert_eq!(json, "unstaged");
+    }
+
+    #[test]
+    fn compare_events_serialize_request_ids_for_the_webview() {
+        let envelope = RepoEventEnvelope {
+            repo_id: 7,
+            event: RepoEvent::BranchCompareFinished { request_id: 42 },
+        };
+        let json = serde_json::to_value(&envelope).unwrap();
+        assert_eq!(json["requestId"], 42);
+        assert!(json.get("request_id").is_none());
+    }
+
+    #[test]
+    fn log_pages_serialize_the_more_flag_for_the_webview() {
+        let json = serde_json::to_value(RepoEvent::LogPage {
+            rows: Vec::new(),
+            replace: true,
+            has_more: false,
+        })
+        .unwrap();
+        assert_eq!(json["hasMore"], false);
+        assert!(json.get("has_more").is_none());
     }
 }

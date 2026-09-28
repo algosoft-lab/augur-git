@@ -313,6 +313,7 @@ export function Select<T extends string | number | boolean>({
   searchable = false,
   searchPlaceholder,
   testId,
+  allowCustomValue = false,
 }: {
   value: T;
   options: SelectOption<T>[];
@@ -321,6 +322,8 @@ export function Select<T extends string | number | boolean>({
   /** What the filter field says, since a list of fonts needs saying. */
   searchPlaceholder?: string;
   testId?: string;
+  /** Save the exact search text when no installed option matches. */
+  allowCustomValue?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -356,7 +359,9 @@ export function Select<T extends string | number | boolean>({
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
-        <span className="select__value">{selected?.label ?? ""}</span>
+        <span className="select__value">
+          {selected?.label ?? (typeof value === "string" ? value : "")}
+        </span>
         <span className="select__caret">▾</span>
       </button>
       {open ? (
@@ -370,6 +375,19 @@ export function Select<T extends string | number | boolean>({
                 aria-label={searchPlaceholder}
                 placeholder={searchPlaceholder ?? ""}
                 onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    allowCustomValue &&
+                    query.trim() &&
+                    !options.some((option) => option.value === query.trim())
+                  ) {
+                    event.preventDefault();
+                    onChange(query.trim() as T);
+                    setOpen(false);
+                    setQuery("");
+                  }
+                }}
               />
             </div>
           ) : null}

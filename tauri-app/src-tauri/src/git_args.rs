@@ -23,7 +23,10 @@ pub enum GitAction {
     /// Force push. The interface confirms first; the backend cannot know that.
     PushForce,
     /// Publish a branch that has no upstream yet.
-    PushSetUpstream { remote: String, branch: String },
+    PushSetUpstream {
+        remote: String,
+        branch: String,
+    },
     /// Create the new remote branch and delete the old one in one push.
     PushRenameRemote {
         remote: String,
@@ -31,26 +34,59 @@ pub enum GitAction {
         new: String,
     },
     /// Delete a branch on its remote.
-    PushDeleteRemote { remote: String, branch: String },
-    Stash { message: String },
+    PushDeleteRemote {
+        remote: String,
+        branch: String,
+    },
+    Stash {
+        message: String,
+    },
     /// Pop the newest stash, or one explicit entry.
-    StashPop { stash_ref: Option<String> },
-    StashDrop { stash_ref: String },
+    StashPop {
+        stash_ref: Option<String>,
+    },
+    StashDrop {
+        stash_ref: String,
+    },
     /// Apply a patch file. Plain `git apply` is atomic and leaves the result
     /// unstaged.
-    ApplyPatch { path: String },
-    Checkout { target: CheckoutTarget },
-    CreateBranch { name: String },
-    RenameBranch { old: String, new: String },
-    DeleteBranch { name: String, force: bool },
-    DeleteTag { name: String },
-    Merge { source: String, no_ff: bool },
-    Rebase { source: String },
+    ApplyPatch {
+        path: String,
+    },
+    Checkout {
+        target: CheckoutTarget,
+    },
+    CreateBranch {
+        name: String,
+    },
+    RenameBranch {
+        old: String,
+        new: String,
+    },
+    DeleteBranch {
+        name: String,
+        force: bool,
+    },
+    DeleteTag {
+        name: String,
+    },
+    Merge {
+        source: String,
+        no_ff: bool,
+    },
+    Rebase {
+        source: String,
+    },
     AbortMerge,
     AbortRebase,
-    Commit { message: String, amend: bool },
+    Commit {
+        message: String,
+        amend: bool,
+    },
     /// Read a commit message for the clipboard. Never mutates the repository.
-    CopyCommitMessage { oid: String },
+    CopyCommitMessage {
+        oid: String,
+    },
 }
 
 impl GitAction {
@@ -142,12 +178,9 @@ impl GitAction {
             GitAction::PullRebase => strs(&["pull", "--rebase"]),
             GitAction::Push => strs(&["push"]),
             GitAction::PushForce => strs(&["push", "--force"]),
-            GitAction::PushSetUpstream { remote, branch } => strs(&[
-                "push",
-                "--set-upstream",
-                remote,
-                branch,
-            ]),
+            GitAction::PushSetUpstream { remote, branch } => {
+                strs(&["push", "--set-upstream", remote, branch])
+            }
             GitAction::PushRenameRemote { remote, old, new } => strs(&[
                 "push",
                 remote,
@@ -210,10 +243,12 @@ fn strs(values: &[&str]) -> Vec<String> {
 
 pub fn checkout_args(target: &CheckoutTarget) -> Vec<String> {
     match target {
-        CheckoutTarget::LocalBranch(name) => strs(&["switch", name]),
-        CheckoutTarget::RemoteBranch(name) => strs(&["switch", "--track", name]),
-        CheckoutTarget::Tag(name) => strs(&["switch", "--detach", name]),
-        CheckoutTarget::Commit(oid) => strs(&["switch", "--detach", oid]),
+        CheckoutTarget::LocalBranch { local_branch } => strs(&["switch", local_branch]),
+        CheckoutTarget::RemoteBranch { remote_branch } => {
+            strs(&["switch", "--track", remote_branch])
+        }
+        CheckoutTarget::Tag { tag } => strs(&["switch", "--detach", tag]),
+        CheckoutTarget::Commit { commit } => strs(&["switch", "--detach", commit]),
     }
 }
 
@@ -334,28 +369,69 @@ mod tests {
     fn checkout_picks_the_matching_switch_form() {
         assert_eq!(
             args(GitAction::Checkout {
-                target: CheckoutTarget::LocalBranch("main".into())
+                target: CheckoutTarget::LocalBranch {
+                    local_branch: "main".into()
+                }
             }),
             ["switch", "main"]
         );
         assert_eq!(
             args(GitAction::Checkout {
-                target: CheckoutTarget::RemoteBranch("origin/topic".into())
+                target: CheckoutTarget::RemoteBranch {
+                    remote_branch: "origin/topic".into()
+                }
             }),
             ["switch", "--track", "origin/topic"]
         );
         assert_eq!(
             args(GitAction::Checkout {
-                target: CheckoutTarget::Tag("v1".into())
+                target: CheckoutTarget::Tag { tag: "v1".into() }
             }),
             ["switch", "--detach", "v1"]
         );
         assert_eq!(
             args(GitAction::Checkout {
-                target: CheckoutTarget::Commit("abc1234".into())
+                target: CheckoutTarget::Commit {
+                    commit: "abc1234".into()
+                }
             }),
             ["switch", "--detach", "abc1234"]
         );
+    }
+
+    #[test]
+    fn checkout_targets_deserialize_the_frontend_wire_shape() {
+        let targets = [
+            (
+                serde_json::json!({ "kind": "localBranch", "localBranch": "topic/name" }),
+                CheckoutTarget::LocalBranch {
+                    local_branch: "topic/name".into(),
+                },
+            ),
+            (
+                serde_json::json!({ "kind": "remoteBranch", "remoteBranch": "origin/topic" }),
+                CheckoutTarget::RemoteBranch {
+                    remote_branch: "origin/topic".into(),
+                },
+            ),
+            (
+                serde_json::json!({ "kind": "tag", "tag": "v1.2" }),
+                CheckoutTarget::Tag { tag: "v1.2".into() },
+            ),
+            (
+                serde_json::json!({ "kind": "commit", "commit": "abc1234" }),
+                CheckoutTarget::Commit {
+                    commit: "abc1234".into(),
+                },
+            ),
+        ];
+
+        for (wire, expected) in targets {
+            assert_eq!(
+                serde_json::from_value::<CheckoutTarget>(wire).unwrap(),
+                expected
+            );
+        }
     }
 
     #[test]
@@ -387,9 +463,7 @@ mod tests {
             ["branch", "-D", "f"]
         );
         assert_eq!(
-            args(GitAction::DeleteTag {
-                name: "v1".into()
-            }),
+            args(GitAction::DeleteTag { name: "v1".into() }),
             ["tag", "-d", "v1"]
         );
     }
@@ -432,7 +506,10 @@ mod tests {
 
     #[test]
     fn stash_pop_targets_the_newest_or_one_explicit_entry() {
-        assert_eq!(args(GitAction::StashPop { stash_ref: None }), ["stash", "pop"]);
+        assert_eq!(
+            args(GitAction::StashPop { stash_ref: None }),
+            ["stash", "pop"]
+        );
         assert_eq!(
             args(GitAction::StashPop {
                 stash_ref: Some("stash@{2}".into())
@@ -475,7 +552,9 @@ mod tests {
         assert!(GitAction::Fetch.refreshes_after_success());
         assert!(
             GitAction::Checkout {
-                target: CheckoutTarget::LocalBranch("m".into())
+                target: CheckoutTarget::LocalBranch {
+                    local_branch: "m".into()
+                }
             }
             .refreshes_after_success()
         );
@@ -487,7 +566,10 @@ mod tests {
         let refs = vec!["main".to_string(), "feature/one".to_string()];
         assert_eq!(validate_branch_name("dev", &refs, None), None);
         assert_eq!(validate_branch_name("topic+.patch", &refs, None), None);
-        assert_eq!(validate_branch_name("", &refs, None), Some(NameError::Empty));
+        assert_eq!(
+            validate_branch_name("", &refs, None),
+            Some(NameError::Empty)
+        );
         for name in [
             "-dev", ".hidden", "a..b", "a b", "a~b", "a^b", "a:b", "a?b", "a*b", "a[b", "a\\b",
             "a@{b", "a.lock", "a/", "a.", "/a", "a//b",

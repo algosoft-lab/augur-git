@@ -82,6 +82,15 @@ export interface StubOptions {
     diff_height: number | null;
     file_list_ratio: number;
   }>;
+  /** System font families returned by the appearance settings. */
+  fontFamilies?: string[];
+  /** Initial persisted font preferences. */
+  typography?: Partial<{
+    ui_font_family: string | null;
+    mono_font_family: string | null;
+    ui_font_size: number;
+    diff_font_size: number;
+  }>;
 }
 
 export const DEFAULT_OPTIONS: StubOptions = {
@@ -146,6 +155,13 @@ function install(
       diff_height: number | null;
       file_list_ratio: number;
     }>;
+    fontFamilies?: string[];
+    typography?: Partial<{
+      ui_font_family: string | null;
+      mono_font_family: string | null;
+      ui_font_size: number;
+      diff_font_size: number;
+    }>;
   },
   catalog: Record<string, string>,
 ): void {
@@ -190,6 +206,7 @@ function install(
       mono_font_family: null,
       ui_font_size: 16,
       diff_font_size: 16,
+      ...(options.typography ?? {}),
     },
     recent_repos: [
       { path: "/Users/dev/projects/augur-git", location: { kind: "local" } },
@@ -801,7 +818,8 @@ function install(
     cancel_compare: () => null,
     export_patch: () => ++compareRequest,
 
-    list_font_families: () => ["Inter", "Menlo", "Fira Code"],
+    list_font_families: () =>
+      options.fontFamilies ?? ["Inter", "Menlo", "Fira Code", "Source Sans 3"],
     theme_options: () => [
       "github-dark",
       "catppuccin-latte",
@@ -926,6 +944,9 @@ function install(
     "plugin:clipboard-manager|read_text": () => "",
     "plugin:window|show": () => null,
     "plugin:window|destroy": () => null,
+    "plugin:window|start_dragging": () => null,
+    "plugin:window|toggle_maximize": () => null,
+    "plugin:window|is_maximized": () => false,
     "plugin:opener|open_path": () => null,
   };
 
@@ -933,6 +954,7 @@ function install(
   const callbacks = new Map<number, (payload: unknown) => void>();
 
   const internals = {
+    metadata: { currentWindow: { label: options.window ?? "main" } },
     transformCallback(callback: (payload: unknown) => void, once = false): number {
       const id = callbackId;
       callbackId += 1;

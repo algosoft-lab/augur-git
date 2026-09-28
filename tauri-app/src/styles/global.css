@@ -78,6 +78,7 @@ button {
   background: var(--title-bar-background);
   border-bottom: 1px solid var(--border);
   user-select: none;
+  -webkit-user-select: none;
   -webkit-app-region: no-drag;
 }
 
@@ -159,6 +160,7 @@ button {
   background: var(--title-bar-background);
   border-bottom: 1px solid var(--border);
   user-select: none;
+  -webkit-user-select: none;
   -webkit-app-region: no-drag;
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyTheme, cssVariable, THEMES } from "../styles/themes";
+import { applyTheme, cssFontFamily, cssVariable, THEMES } from "../styles/themes";
 import { tokenize, grammarFor } from "../features/diff/highlight";
 
 describe("theme tokens", () => {
@@ -41,7 +41,7 @@ describe("theme tokens", () => {
       diffFontSize: 14,
     });
     expect(root.style.getPropertyValue("--background")).toBe("#0D1117");
-    expect(root.style.getPropertyValue("--ui-font-family")).toBe("Inter");
+    expect(root.style.getPropertyValue("--ui-font-family")).toBe('"Inter"');
     expect(root.style.getPropertyValue("--diff-font-size")).toBe("14px");
     expect(root.dataset.mode).toBe("dark");
   });
@@ -56,6 +56,11 @@ describe("theme tokens", () => {
     });
     expect(root.style.getPropertyValue("--ui-font-family")).toBe("system-ui");
     expect(root.style.getPropertyValue("--mono-font-family")).toBe("ui-monospace");
+  });
+
+  it("quotes a complete family name safely for CSS", () => {
+    expect(cssFontFamily("Source Sans 3")).toBe('"Source Sans 3"');
+    expect(cssFontFamily('Fira "Code"')).toBe('"Fira \\"Code\\""');
   });
 });
 
