@@ -336,9 +336,13 @@ mod tests {
         assert_eq!(local.key(), local.path);
     }
 
+    /// The name is the contract: off Windows the probe must fail. On Windows
+    /// the outcome depends on machine state (which distros are installed,
+    /// whether the path is a repository), so no assertion there is portable.
+    #[cfg(not(windows))]
     #[test]
     fn a_wsl_location_cannot_be_probed_off_windows() {
         let result = probe_location(&LocationConfig::wsl("Ubuntu"), "/home/dev/repo");
-        assert_eq!(result.is_ok(), cfg!(windows));
+        assert!(result.is_err());
     }
 }
