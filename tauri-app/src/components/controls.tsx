@@ -552,17 +552,24 @@ export function Menu({ items, align = 'start', testId, children }: MenuProps) {
   // The list's real size is only known once it has mounted, so alignment and
   // the viewport clamp run after layout: keep the aligned edge on the trigger,
   // flip up at the bottom edge, and pull the left edge inside the window.
+  // Derive everything from the live trigger rect rather than the stored
+  // position: positioning the end-aligned list from the stored value would
+  // subtract the list width again on every rerun and walk the menu to the
+  // window's left edge.
   useLayoutEffect(() => {
     if (!position || !menuRef.current) {
       return;
     }
     const rect = menuRef.current.getBoundingClientRect();
+    const trigger = rootRef.current?.getBoundingClientRect();
+    if (!trigger) {
+      return;
+    }
     const margin = 8;
-    let x = align === 'end' ? position.x - rect.width : position.x;
-    let y = position.y;
+    let x = align === 'end' ? trigger.right - rect.width : trigger.left;
+    let y = trigger.bottom + 2;
     if (y + rect.height > window.innerHeight - margin) {
-      const trigger = rootRef.current?.getBoundingClientRect();
-      y = Math.max(margin, (trigger?.top ?? margin) - rect.height - 6);
+      y = Math.max(margin, trigger.top - rect.height - 6);
     }
     if (x + rect.width > window.innerWidth - margin) {
       x = window.innerWidth - rect.width - margin;

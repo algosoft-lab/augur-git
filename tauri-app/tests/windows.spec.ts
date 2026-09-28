@@ -519,6 +519,13 @@ test.describe('settings window', () => {
     const mode = page.getByTestId('commit-mode');
     await expect(mode.getByTestId('commit-mode-commit').locator('.menu__check')).toBeVisible();
     await expect(mode.getByTestId('commit-mode-amend').locator('.menu__check')).toHaveCount(0);
+    // The list is end-aligned, so an adjustment bug that reruns the placement
+    // would walk it to the window's left edge; pin it to the trigger instead.
+    const triggerBox = (await trigger.boundingBox())!;
+    const menuBox = (await mode.boundingBox())!;
+    expect(menuBox.x + menuBox.width).toBeCloseTo(triggerBox.x + triggerBox.width, 0);
+    expect(menuBox.y).toBeGreaterThanOrEqual(triggerBox.y + triggerBox.height);
+    expect(menuBox.y - (triggerBox.y + triggerBox.height)).toBeLessThan(6);
     await page.getByTestId('commit-mode-amend').click();
     await trigger.click();
     await expect(mode.getByTestId('commit-mode-amend').locator('.menu__check')).toBeVisible();
