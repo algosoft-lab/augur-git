@@ -2,11 +2,25 @@
 
 ## Project
 
-`augur-git` is a cross-platform desktop Git GUI built with Rust and GPUI. It
-opens local Git repositories, shows status, branches, history, commit graphs,
-and diffs, runs Git operations on explicit user action, and supports a Lua
-extension runtime and launching external coding-agent CLIs in an embedded
-terminal.
+This repository contains two independent desktop Git applications:
+
+- **GPUI application** — the original `augur-git` product in the repository
+  root, built with Rust and GPUI. It opens local Git repositories, shows status,
+  branches, history, commit graphs, and diffs, and runs Git operations on
+  explicit user action. Its default `agent` feature adds the Lua extension
+  runtime and external coding-agent CLIs in an embedded terminal.
+- **Tauri application** — `tauri-app/`, a separate product built with Tauri 2,
+  React, and Vite. It has its own frontend, Rust backend, bundle identity,
+  settings, and workspace state. It can be developed and installed alongside
+  the GPUI application.
+
+Treat them as separate applications when exploring or changing the code. The
+root `README.md` documents the GPUI product, while
+[`tauri-app/README.md`](tauri-app/README.md) documents the Tauri product and
+its commands. The Tauri app's
+`src-tauri/crates/augur-core` is a decoupled copy of GPUI domain logic, not a
+shared workspace crate; changes to common behavior may need to be applied to
+both implementations.
 
 All agent/terminal/Lua-extension code is gated behind the default-on `agent`
 Cargo feature; `cargo build --no-default-features` produces a plain Git GUI
@@ -15,7 +29,7 @@ compiled in. New code in shared files that references agent-only types, UI,
 or behavior must be gated by `#[cfg(feature = "agent")]`; the CI
 `check-no-ai` job enforces this.
 
-## Structure (quick lookup)
+## GPUI project structure (repository root)
 
 ```text
 src/main.rs              startup, assets, window
@@ -49,6 +63,21 @@ extensions/              bundled Lua extension packages
 packaging/               platform packaging scripts
 build.rs                 platform build metadata (Windows icon)
 ```
+
+## Tauri project structure
+
+```text
+tauri-app/src/                  React/Vite webview, bridge, components, features
+tauri-app/src-tauri/src/        Tauri commands, events, Git worker, persistence
+tauri-app/src-tauri/crates/     Decoupled Rust domain crate(s)
+tauri-app/tests/                Frontend unit and browser tests
+```
+
+Run Tauri frontend commands from `tauri-app/` (for example `bun run typecheck`,
+`bun run test`, and `bun run test:e2e`). Its Rust tests use
+`cargo test --manifest-path src-tauri/Cargo.toml` from that directory. The root
+Cargo manifest and the `agent` feature rules below describe the GPUI product;
+do not assume those commands or feature gates apply to the Tauri app.
 
 ## Rules
 
