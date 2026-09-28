@@ -21,6 +21,11 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
   const setView = useStore((state) => state.setView);
   const runAction = useStore((state) => state.runAction);
   const [message, setMessageText] = useState('');
+  const lastCommitMessage = repo.head
+    ? (repo.logRows.find((row) => row.oid === repo.head)?.message.trimEnd() ?? '')
+    : '';
+  const canFillLastMessage =
+    preference === 'amend' && message.trim().length === 0 && lastCommitMessage.trim().length > 0;
 
   // Amending rewrites the previous commit, so either kind of staged change is
   // enough; a plain commit needs something staged.
@@ -80,6 +85,18 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
           onEscape={() => setMessageText('')}
           testId="commit-message"
         />
+        {canFillLastMessage ? (
+          <button
+            type="button"
+            className="tool-button tool-button--compact commit-panel__fill-message"
+            disabled={repo.busy}
+            data-testid="commit-fill-last-message"
+            onClick={() => setMessageText(lastCommitMessage)}
+          >
+            <Icon name="copy" size={11} />
+            {t(translate, 'commit-fill-last-message')}
+          </button>
+        ) : null}
         <div className="commit-panel__actions">
           <button
             type="button"

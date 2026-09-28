@@ -1220,6 +1220,11 @@ button {
   gap: 4px;
 }
 
+.commit-panel__fill-message {
+  align-self: flex-end;
+  color: var(--muted-foreground);
+}
+
 .commit-panel__actions {
   display: flex;
   align-items: stretch;

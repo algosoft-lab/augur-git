@@ -211,6 +211,7 @@ commit-amend-btn = Amend
 commit-ai-btn = Commit by AI
 commit-action-commit = Commit
 commit-action-amend = Amend last commit
+commit-fill-last-message = Use last commit message
 commit-action-ai = Commit by AI
 
 # ===== Bottom panel (selected commit file list + file diff) =====
