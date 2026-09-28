@@ -13,7 +13,7 @@ export const COL_WIDTH = 24;
 /** Left padding before the first lane center. */
 export const GRAPH_LEFT_PAD = 12;
 /** Commit marker radius. */
-export const NODE_RADIUS = 4;
+export const NODE_RADIUS = 7;
 const STROKE_WIDTH = 1.5;
 const TURN_RADIUS = 6;
 
