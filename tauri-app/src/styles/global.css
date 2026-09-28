@@ -1232,6 +1232,16 @@ button {
   margin-top: auto;
 }
 
+.commit-panel__actions > .menu {
+  display: flex;
+  height: 26px;
+}
+
+.commit-panel__actions > .menu > [role='button'] {
+  display: flex;
+  height: 100%;
+}
+
 /* A one-pixel rule between the commit action and its mode selector, so the pair
  * reads as one split control rather than two buttons. */
 .commit-panel__divider {
