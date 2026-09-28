@@ -14,7 +14,7 @@ use augur_core::config::{
 };
 use augur_core::git::{GitError, GitRepo, LogScope};
 
-use crate::events::{OpenPathsPayload, OPEN_PATHS_EVENT};
+use crate::events::{OPEN_PATHS_EVENT, OpenPathsPayload};
 use crate::persistence::{LoadReport, Persistence, SettingsDocument};
 use crate::repo::RepoSession;
 
@@ -97,16 +97,17 @@ impl AppState {
         let persistence = self.persistence();
 
         let id = self.with(|inner| -> Result<u64, GitError> {
-            if let Some((id, _)) = inner.repos.iter().find(|(_, session)| {
-                session.path() == path && *session.location() == location
-            }) {
+            if let Some((id, _)) = inner
+                .repos
+                .iter()
+                .find(|(_, session)| session.path() == path && *session.location() == location)
+            {
                 log::info!("[repo] reusing open repository {path}");
                 return Ok(*id);
             }
             let id = inner.next_repo_id;
             inner.next_repo_id += 1;
-            let session =
-                RepoSession::open(app.clone(), id, path.clone(), location.clone(), repo)?;
+            let session = RepoSession::open(app.clone(), id, path.clone(), location.clone(), repo)?;
             inner.repos.insert(id, session);
             Ok(id)
         })?;
@@ -206,8 +207,8 @@ impl AppState {
 
     /// Persist the final snapshot and stop every worker.
     pub fn shutdown(&self) {
-        let sessions: Vec<RepoSession> = self
-            .with(|inner| inner.repos.drain().map(|(_, session)| session).collect());
+        let sessions: Vec<RepoSession> =
+            self.with(|inner| inner.repos.drain().map(|(_, session)| session).collect());
         for session in sessions {
             session.close();
         }
@@ -217,20 +218,14 @@ impl AppState {
 
 /// Build a Git handle for a location without opening a worker. Used by the
 /// inline validation in the WSL open dialog.
-pub fn probe_location(
-    location: &LocationConfig,
-    path: &str,
-) -> Result<(), GitError> {
+pub fn probe_location(location: &LocationConfig, path: &str) -> Result<(), GitError> {
     let repo: GitRepo = location.to_repo(path)?;
     augur_core::git::probe_wsl_repository(&repo)
 }
 
 /// Log scope for a repository, derived from the persisted preference and the
 /// tracked upstream reported by the latest status snapshot.
-pub fn log_scope(
-    preference: GraphHistoryPreference,
-    upstream: Option<String>,
-) -> LogScope {
+pub fn log_scope(preference: GraphHistoryPreference, upstream: Option<String>) -> LogScope {
     match preference {
         GraphHistoryPreference::AllBranches => LogScope::AllBranches,
         GraphHistoryPreference::CurrentBranch => LogScope::CurrentBranch { upstream },
@@ -244,11 +239,17 @@ mod tests {
     #[test]
     fn log_scope_follows_the_persisted_preference() {
         assert_eq!(
-            log_scope(GraphHistoryPreference::AllBranches, Some("origin/main".into())),
+            log_scope(
+                GraphHistoryPreference::AllBranches,
+                Some("origin/main".into())
+            ),
             LogScope::AllBranches
         );
         assert_eq!(
-            log_scope(GraphHistoryPreference::CurrentBranch, Some("origin/main".into())),
+            log_scope(
+                GraphHistoryPreference::CurrentBranch,
+                Some("origin/main".into())
+            ),
             LogScope::CurrentBranch {
                 upstream: Some("origin/main".into())
             }

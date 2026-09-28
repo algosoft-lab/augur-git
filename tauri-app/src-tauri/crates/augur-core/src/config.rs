@@ -14,7 +14,6 @@
 //! load: a corrupt document degrades to defaults in memory, and the caller
 //! decides whether to report or overwrite it.
 
-
 use serde::{Deserialize, Serialize};
 
 use crate::git::{GitError, GitRepo, RepoLocation};
@@ -514,7 +513,10 @@ mod tests {
         assert_eq!(config.theme, ThemePreference::CatppuccinMocha);
         assert_eq!(config.language, LanguagePreference::System);
         assert_eq!(config.view.diff_layout, DiffLayoutPreference::SideBySide);
-        assert_eq!(config.view.graph_history, GraphHistoryPreference::AllBranches);
+        assert_eq!(
+            config.view.graph_history,
+            GraphHistoryPreference::AllBranches
+        );
         assert!(config.view.auto_refresh_on_focus);
         assert_eq!(config.view.commit_action, CommitActionPreference::Commit);
         assert_eq!(config.typography.ui_font_size, 16.0);

@@ -6,9 +6,7 @@
 //! The menu is rebuilt whenever the language or the shortcut overrides change,
 //! so labels and key equivalents never drift from the settings page.
 
-use tauri::menu::{
-    IsMenuItem, Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
-};
+use tauri::menu::{IsMenuItem, Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Runtime};
 
 use augur_core::config::RecentRepo;
@@ -78,9 +76,26 @@ fn normalize_key(key: &str) -> Option<String> {
     // Named keys are spelled out; anything else is rejected rather than
     // producing a menu entry the platform cannot display.
     const NAMED: [&str; 20] = [
-        "space", "enter", "return", "escape", "esc", "tab", "backspace", "delete", "insert",
-        "home", "end", "pageup", "pagedown", "up", "down", "left", "right", "printscreen",
-        "pause", "capslock",
+        "space",
+        "enter",
+        "return",
+        "escape",
+        "esc",
+        "tab",
+        "backspace",
+        "delete",
+        "insert",
+        "home",
+        "end",
+        "pageup",
+        "pagedown",
+        "up",
+        "down",
+        "left",
+        "right",
+        "printscreen",
+        "pause",
+        "capslock",
     ];
     NAMED
         .iter()
@@ -159,12 +174,14 @@ fn build<R: Runtime>(
     let separator_three = PredefinedMenuItem::separator(app)?;
 
     let recent_items: Vec<_> = if recent.is_empty() {
-        vec![MenuItemBuilder::with_id(
-            "menu.recent.empty",
-            i18n::text(locale, "menu-no-recent-repositories"),
-        )
-        .enabled(false)
-        .build(app)?]
+        vec![
+            MenuItemBuilder::with_id(
+                "menu.recent.empty",
+                i18n::text(locale, "menu-no-recent-repositories"),
+            )
+            .enabled(false)
+            .build(app)?,
+        ]
     } else {
         recent
             .iter()
@@ -234,13 +251,7 @@ fn build<R: Runtime>(
 /// so the webview receives the activation, writes the final snapshot, and then
 /// asks the backend to exit.
 pub fn dispatch<R: Runtime>(app: &AppHandle<R>, id: &str) {
-    let _ = app.emit_to(
-        "main",
-        MENU_EVENT,
-        MenuActivation {
-            id: id.to_string(),
-        },
-    );
+    let _ = app.emit_to("main", MENU_EVENT, MenuActivation { id: id.to_string() });
 }
 
 /// Payload of a native menu activation.

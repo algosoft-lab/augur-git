@@ -75,9 +75,10 @@ pub fn text_args(locale: Locale, key: &str, args: &[(&str, &str)]) -> String {
         .or_else(|| translations(Locale::English).get(key))
         .copied()
         .unwrap_or(key);
-    args.iter().fold(template.to_string(), |text, (name, value)| {
-        text.replace(&format!("{{ ${name} }}"), value)
-    })
+    args.iter()
+        .fold(template.to_string(), |text, (name, value)| {
+            text.replace(&format!("{{ ${name} }}"), value)
+        })
 }
 
 /// Owned copy of one catalog, used to hand translations to the webview.
@@ -163,7 +164,10 @@ mod tests {
     #[test]
     fn exported_catalog_matches_the_binary_lookup() {
         let exported = catalog(Locale::SimplifiedChinese);
-        assert_eq!(exported.get("toolbar-refresh").map(String::as_str), Some("刷新"));
+        assert_eq!(
+            exported.get("toolbar-refresh").map(String::as_str),
+            Some("刷新")
+        );
         assert_eq!(exported.len(), translations(Locale::English).len());
     }
 

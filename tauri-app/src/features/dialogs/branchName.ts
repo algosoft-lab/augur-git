@@ -6,45 +6,34 @@
  * reflects the input as it is edited.
  */
 
-export type NameError = "empty" | "invalid" | "exists";
+export type NameError = 'empty' | 'invalid' | 'exists';
 
-const INVALID_CHARACTERS = new Set([
-  " ",
-  "~",
-  "^",
-  ":",
-  "?",
-  "*",
-  "[",
-  "\\",
-]);
+const INVALID_CHARACTERS = new Set([' ', '~', '^', ':', '?', '*', '[', '\\']);
 
 export function validateBranchName(
   name: string,
   existing: string[],
-  allow?: string,
+  allow?: string
 ): NameError | null {
   if (name.length === 0) {
-    return "empty";
+    return 'empty';
   }
   if (
-    name.startsWith("-") ||
-    name.startsWith(".") ||
-    name.startsWith("/") ||
-    name.endsWith("/") ||
-    name.endsWith(".") ||
-    name.endsWith(".lock") ||
-    name.includes("..") ||
-    name.includes("//") ||
-    name.includes("@{") ||
-    [...name].some(
-      (character) => INVALID_CHARACTERS.has(character) || character < " ",
-    )
+    name.startsWith('-') ||
+    name.startsWith('.') ||
+    name.startsWith('/') ||
+    name.endsWith('/') ||
+    name.endsWith('.') ||
+    name.endsWith('.lock') ||
+    name.includes('..') ||
+    name.includes('//') ||
+    name.includes('@{') ||
+    [...name].some((character) => INVALID_CHARACTERS.has(character) || character < ' ')
   ) {
-    return "invalid";
+    return 'invalid';
   }
   if (allow !== name && existing.includes(name)) {
-    return "exists";
+    return 'exists';
   }
   return null;
 }

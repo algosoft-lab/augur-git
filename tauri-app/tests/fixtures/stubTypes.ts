@@ -10,7 +10,7 @@
 export interface StubRepo {
   id: number;
   path: string;
-  location: { kind: "local" } | { kind: "wsl"; distro: string };
+  location: { kind: 'local' } | { kind: 'wsl'; distro: string };
   status: {
     branch: string;
     head: string | null;
@@ -39,7 +39,7 @@ export interface StubRefs {
   comparison_revisions: {
     name: string;
     full_name: string;
-    kind: "local" | "remote" | "tag" | "commit";
+    kind: 'local' | 'remote' | 'tag' | 'commit';
   }[];
 }
 

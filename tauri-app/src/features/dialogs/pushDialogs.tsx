@@ -6,11 +6,11 @@
  * the branch they apply to before anything is sent.
  */
 
-import { Icon } from "../../components/Icon";
-import { DialogCard } from "../../components/controls";
-import { useStore } from "../../app/store";
-import { t, ta } from "../../i18n/strings";
-import { useActiveRepoId } from "./useActiveRepo";
+import { Icon } from '../../components/Icon';
+import { DialogCard } from '../../components/controls';
+import { useStore } from '../../app/store';
+import { t, ta } from '../../i18n/strings';
+import { useActiveRepoId } from './useActiveRepo';
 
 export function ForcePushDialog() {
   const translate = useStore((state) => state.t);
@@ -23,12 +23,11 @@ export function ForcePushDialog() {
       testId="force-push-dialog"
       title={
         <>
-          <Icon name="triangle-alert" size={16} />{" "}
-          {t(translate, "push-force-title")}
+          <Icon name="triangle-alert" size={16} /> {t(translate, 'push-force-title')}
         </>
       }
       onBackdrop={closeOverlay}
-      body={<div className="muted">{t(translate, "push-force-warning")}</div>}
+      body={<div className="muted">{t(translate, 'push-force-warning')}</div>}
       footer={
         <>
           <button
@@ -37,7 +36,7 @@ export function ForcePushDialog() {
             onClick={closeOverlay}
             data-testid="force-push-cancel"
           >
-            {t(translate, "push-force-cancel")}
+            {t(translate, 'push-force-cancel')}
           </button>
           <button
             type="button"
@@ -46,11 +45,11 @@ export function ForcePushDialog() {
             onClick={() => {
               if (repoId) {
                 closeOverlay();
-                void runAction(repoId, { action: "pushForce" });
+                void runAction(repoId, { action: 'pushForce' });
               }
             }}
           >
-            {t(translate, "push-force-confirm")}
+            {t(translate, 'push-force-confirm')}
           </button>
         </>
       }
@@ -58,13 +57,7 @@ export function ForcePushDialog() {
   );
 }
 
-export function PushUpstreamDialog({
-  branch,
-  remote,
-}: {
-  branch: string;
-  remote: string;
-}) {
+export function PushUpstreamDialog({ branch, remote }: { branch: string; remote: string }) {
   const translate = useStore((state) => state.t);
   const repoId = useActiveRepoId();
   const closeOverlay = useStore((state) => state.closeOverlay);
@@ -75,15 +68,12 @@ export function PushUpstreamDialog({
       testId="push-upstream-dialog"
       title={
         <>
-          <Icon name="chevron-down" size={16} />{" "}
-          {t(translate, "push-upstream-title")}
+          <Icon name="chevron-down" size={16} /> {t(translate, 'push-upstream-title')}
         </>
       }
       onBackdrop={closeOverlay}
       body={
-        <div className="muted">
-          {ta(translate, "push-upstream-warning", { branch, remote })}
-        </div>
+        <div className="muted">{ta(translate, 'push-upstream-warning', { branch, remote })}</div>
       }
       footer={
         <>
@@ -93,7 +83,7 @@ export function PushUpstreamDialog({
             onClick={closeOverlay}
             data-testid="push-upstream-cancel"
           >
-            {t(translate, "push-upstream-cancel")}
+            {t(translate, 'push-upstream-cancel')}
           </button>
           <button
             type="button"
@@ -103,14 +93,14 @@ export function PushUpstreamDialog({
               if (repoId) {
                 closeOverlay();
                 void runAction(repoId, {
-                  action: "pushSetUpstream",
+                  action: 'pushSetUpstream',
                   remote,
-                  branch,
+                  branch
                 });
               }
             }}
           >
-            {t(translate, "push-upstream-confirm")}
+            {t(translate, 'push-upstream-confirm')}
           </button>
         </>
       }

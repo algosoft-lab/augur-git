@@ -19,25 +19,22 @@ export interface RemoteBranchGroup {
   branches: RemoteBranchEntry[];
 }
 
-const OTHER_GROUP = "(other)";
+const OTHER_GROUP = '(other)';
 
-export function groupRemoteBranches(
-  remotes: string[],
-  branches: string[],
-): RemoteBranchGroup[] {
+export function groupRemoteBranches(remotes: string[], branches: string[]): RemoteBranchGroup[] {
   const groups = new Map<string, RemoteBranchEntry[]>();
   for (const remote of remotes) {
     groups.set(remote, []);
   }
   for (const branch of branches) {
-    if (branch.endsWith("/HEAD")) {
+    if (branch.endsWith('/HEAD')) {
       continue;
     }
     const matched = matchRemote(remotes, branch);
     const [remote, label] = matched
       ? [matched[0], matched[1]]
-      : branch.includes("/")
-        ? [branch.slice(0, branch.indexOf("/")), branch.slice(branch.indexOf("/") + 1)]
+      : branch.includes('/')
+        ? [branch.slice(0, branch.indexOf('/')), branch.slice(branch.indexOf('/') + 1)]
         : [OTHER_GROUP, branch];
     const bucket = groups.get(remote) ?? [];
     bucket.push({ fullName: branch, label });
@@ -47,14 +44,11 @@ export function groupRemoteBranches(
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([remote, entries]) => ({
       remote,
-      branches: [...entries].sort((a, b) => (a.label < b.label ? -1 : 1)),
+      branches: [...entries].sort((a, b) => (a.label < b.label ? -1 : 1))
     }));
 }
 
-function matchRemote(
-  remotes: string[],
-  branch: string,
-): [string, string] | null {
+function matchRemote(remotes: string[], branch: string): [string, string] | null {
   let best: [string, string] | null = null;
   for (const remote of remotes) {
     if (!branch.startsWith(`${remote}/`)) {

@@ -6,10 +6,10 @@
  * ready otherwise. The indicator is a 6px dot so the tab label stays readable.
  */
 
-import { Icon } from "../../components/Icon";
-import { useStore } from "../../app/store";
-import { t } from "../../i18n/strings";
-import { IS_MACOS } from "./WindowControls";
+import { Icon } from '../../components/Icon';
+import { useStore } from '../../app/store';
+import { t } from '../../i18n/strings';
+import { IS_MACOS } from './WindowControls';
 
 export function TabBar({ onNewTab }: { onNewTab: () => void }) {
   const translate = useStore((state) => state.t);
@@ -24,16 +24,16 @@ export function TabBar({ onNewTab }: { onNewTab: () => void }) {
       className="tab-bar"
       role="tablist"
       data-testid="tab-bar"
-      {...(IS_MACOS ? { "data-tauri-drag-region": true } : {})}
+      {...(IS_MACOS ? { 'data-tauri-drag-region': true } : {})}
     >
       {tabs.map((tab) => {
         const repo = tab.repoId === null ? undefined : repos[tab.repoId];
-        const state = repo?.status ?? "loading";
+        const state = repo?.status ?? 'loading';
         // A start page has no repository, so it is named for what it offers.
         const label =
           tab.repoId === null
-            ? t(translate, "tab-new")
-            : tab.location.kind === "wsl"
+            ? t(translate, 'tab-new')
+            : tab.location.kind === 'wsl'
               ? `${tab.location.distro} · ${basename(tab.path)}`
               : basename(tab.path);
         return (
@@ -41,7 +41,7 @@ export function TabBar({ onNewTab }: { onNewTab: () => void }) {
             key={tab.key}
             role="tab"
             aria-selected={tab.key === activeTabKey}
-            className={`tab${tab.key === activeTabKey ? " is-active" : ""}`}
+            className={`tab${tab.key === activeTabKey ? ' is-active' : ''}`}
             data-testid={`tab-${tab.key}`}
             onClick={() => {
               void selectTab(tab.key);
@@ -53,7 +53,7 @@ export function TabBar({ onNewTab }: { onNewTab: () => void }) {
                 void closeTab(tab.key);
               }
             }}
-            title={tab.repoId === null ? t(translate, "tab-new") : tab.path}
+            title={tab.repoId === null ? t(translate, 'tab-new') : tab.path}
           >
             <span className={`tab__dot tab__dot--${state}`} />
             <span className="tab__label">{label}</span>
@@ -62,8 +62,8 @@ export function TabBar({ onNewTab }: { onNewTab: () => void }) {
               className="tab__close"
               // The hover hint says what the button does to this tab; the
               // accessible name stays the short label.
-              title={t(translate, "tab-close-hint")}
-              aria-label={t(translate, "tab-close")}
+              title={t(translate, 'tab-close-hint')}
+              aria-label={t(translate, 'tab-close')}
               data-testid={`tab-close-${tab.key}`}
               onClick={(event) => {
                 event.stopPropagation();
@@ -78,8 +78,8 @@ export function TabBar({ onNewTab }: { onNewTab: () => void }) {
       <button
         type="button"
         className="tab-bar__new"
-        title={t(translate, "tab-new")}
-        aria-label={t(translate, "tab-new")}
+        title={t(translate, 'tab-new')}
+        aria-label={t(translate, 'tab-new')}
         data-testid="tab-new"
         onClick={onNewTab}
       >

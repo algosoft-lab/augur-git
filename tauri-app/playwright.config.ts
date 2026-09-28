@@ -1,4 +1,4 @@
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig, devices } from '@playwright/test';
 
 const requestedPort = Number(process.env.AUGUR_TEST_PORT);
 const port =
@@ -15,22 +15,22 @@ const port =
  * real event reducers; only the boundary is replaced.
  */
 export default defineConfig({
-  testDir: "./tests",
+  testDir: './tests',
   testMatch: /.*\.spec\.ts/,
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
-  reporter: process.env.CI ? "line" : [["list"]],
+  reporter: process.env.CI ? 'line' : [['list']],
   use: {
     baseURL: `http://127.0.0.1:${port}`,
-    trace: "retain-on-failure",
-    screenshot: "only-on-failure",
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure'
   },
   projects: [
     {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 800 } },
-    },
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } }
+    }
   ],
   webServer: {
     // Bound to IPv4 explicitly: the dev server otherwise listens on whatever
@@ -39,6 +39,6 @@ export default defineConfig({
     command: `bun run dev --port ${port} --strictPort --host 127.0.0.1`,
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
-  },
+    timeout: 60_000
+  }
 });

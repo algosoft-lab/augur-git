@@ -6,16 +6,16 @@
  * forwarded CLI path has to reach all of them.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from 'react';
 
-import * as ipc from "../bridge/ipc";
-import { AboutWindow } from "../features/about/AboutWindow";
-import { CompareWindow } from "../features/compare/CompareWindow";
-import { MainWindow } from "../features/shell/MainWindow";
-import { SettingsWindow } from "../features/settings/SettingsWindow";
-import { applyTheme } from "../styles/themes";
-import { useStore, type WindowRole } from "./store";
-import { DEFAULT_THEME, DEFAULT_TYPOGRAPHY } from "../styles/themes";
+import * as ipc from '../bridge/ipc';
+import { AboutWindow } from '../features/about/AboutWindow';
+import { CompareWindow } from '../features/compare/CompareWindow';
+import { MainWindow } from '../features/shell/MainWindow';
+import { SettingsWindow } from '../features/settings/SettingsWindow';
+import { applyTheme } from '../styles/themes';
+import { useStore, type WindowRole } from './store';
+import { DEFAULT_THEME, DEFAULT_TYPOGRAPHY } from '../styles/themes';
 
 interface WindowTarget {
   role: WindowRole;
@@ -24,21 +24,21 @@ interface WindowTarget {
 
 function readTarget(): WindowTarget {
   const params = new URLSearchParams(window.location.search);
-  const requested = params.get("window");
-  if (requested === "compare") {
-    const repo = Number(params.get("repo"));
+  const requested = params.get('window');
+  if (requested === 'compare') {
+    const repo = Number(params.get('repo'));
     return {
-      role: "compare",
-      compareRepoId: Number.isFinite(repo) && repo > 0 ? repo : null,
+      role: 'compare',
+      compareRepoId: Number.isFinite(repo) && repo > 0 ? repo : null
     };
   }
-  if (requested === "about") {
-    return { role: "about", compareRepoId: null };
+  if (requested === 'about') {
+    return { role: 'about', compareRepoId: null };
   }
-  if (requested === "settings") {
-    return { role: "settings", compareRepoId: null };
+  if (requested === 'settings') {
+    return { role: 'settings', compareRepoId: null };
   }
-  return { role: "main", compareRepoId: null };
+  return { role: 'main', compareRepoId: null };
 }
 
 export function App() {
@@ -77,41 +77,41 @@ export function App() {
         await subscribe(
           ipc.onRepoEvent((event) => {
             useStore.getState().applyEvent(event.repoId, event);
-          }),
+          })
         );
         await subscribe(
           ipc.onAppEvent((event) => {
-            if (event.type === "settingsChanged") {
+            if (event.type === 'settingsChanged') {
               void refreshConfig();
-            } else if (event.type === "workspaceChanged") {
+            } else if (event.type === 'workspaceChanged') {
               // The main window owns the tab list; other windows ignore it.
-            } else if (event.type === "notice") {
+            } else if (event.type === 'notice') {
               useStore.getState().notify({
-                level: event.level as "info" | "warning" | "error",
-                message: event.message,
+                level: event.level as 'info' | 'warning' | 'error',
+                message: event.message
               });
             }
-          }),
+          })
         );
         await subscribe(
           ipc.onOpenPaths((paths) => {
             void useStore.getState().openPaths(paths);
-          }),
+          })
         );
         await subscribe(
           ipc.onDropPaths((paths) => {
             void useStore.getState().openPaths(paths);
-          }),
+          })
         );
         await subscribe(
           ipc.onMenuEvent((id) => {
             void handleMenuAction(id);
-          }),
+          })
         );
         await subscribe(
           ipc.onWindowFocus(() => {
             onWindowFocus();
-          }),
+          })
         );
 
         await store.initialize(target.role, target.compareRepoId);
@@ -121,7 +121,7 @@ export function App() {
       } catch (error) {
         // The log plugin does not capture the webview console, so a start-up
         // failure is reported through the interface as well.
-        console.error("[boot] start-up failed", error);
+        console.error('[boot] start-up failed', error);
         if (!cancelled) {
           setFatal(describeFailure(error));
         }
@@ -162,13 +162,13 @@ export function App() {
     return <div className="app" />;
   }
 
-  if (target.role === "about") {
+  if (target.role === 'about') {
     return <AboutWindow />;
   }
-  if (target.role === "settings") {
+  if (target.role === 'settings') {
     return <SettingsWindow />;
   }
-  if (target.role === "compare") {
+  if (target.role === 'compare') {
     return <CompareWindow repoId={target.compareRepoId} />;
   }
   return <MainWindow />;
@@ -176,13 +176,13 @@ export function App() {
 
 /** Turn any thrown value into something worth reading on screen. */
 function describeFailure(error: unknown): string {
-  if (error && typeof error === "object") {
+  if (error && typeof error === 'object') {
     const record = error as Record<string, unknown>;
     const parts = Object.entries(record)
-      .filter(([, value]) => typeof value === "string" || typeof value === "number")
+      .filter(([, value]) => typeof value === 'string' || typeof value === 'number')
       .map(([key, value]) => `${key}: ${value}`);
     if (parts.length) {
-      return parts.join("\n");
+      return parts.join('\n');
     }
     try {
       return JSON.stringify(record, null, 2);
@@ -200,7 +200,7 @@ export function applyThemeFromState(): void {
     uiFontFamily: config.typography.ui_font_family,
     monoFontFamily: config.typography.mono_font_family,
     uiFontSize: config.typography.ui_font_size,
-    diffFontSize: config.typography.diff_font_size,
+    diffFontSize: config.typography.diff_font_size
   });
 }
 
@@ -217,8 +217,8 @@ async function refreshConfig(): Promise<void> {
 /** Route a native menu activation to the same action the in-window menu uses. */
 async function handleMenuAction(id: string): Promise<void> {
   const state = useStore.getState();
-  if (id.startsWith("menu.recent.")) {
-    const indexText = id.slice("menu.recent.".length);
+  if (id.startsWith('menu.recent.')) {
+    const indexText = id.slice('menu.recent.'.length);
     const index = /^\d+$/.test(indexText) ? Number(indexText) : -1;
     const repository = Number.isInteger(index) ? state.config.recent_repos[index] : undefined;
     if (repository) {
@@ -229,32 +229,32 @@ async function handleMenuAction(id: string): Promise<void> {
   // The in-window menu dispatches the same DOM events, so both surfaces run one
   // handler.
   switch (id) {
-    case "menu.open-repository":
-      globalThis.dispatchEvent(new CustomEvent("augur:open-repository"));
+    case 'menu.open-repository':
+      globalThis.dispatchEvent(new CustomEvent('augur:open-repository'));
       break;
-    case "menu.open-wsl-repository":
-      globalThis.dispatchEvent(new CustomEvent("augur:open-wsl-repository"));
+    case 'menu.open-wsl-repository':
+      globalThis.dispatchEvent(new CustomEvent('augur:open-wsl-repository'));
       break;
-    case "menu.new-tab":
-      globalThis.dispatchEvent(new CustomEvent("augur:new-tab"));
+    case 'menu.new-tab':
+      globalThis.dispatchEvent(new CustomEvent('augur:new-tab'));
       break;
-    case "menu.install-cli":
-      globalThis.dispatchEvent(new CustomEvent("augur:install-cli"));
+    case 'menu.install-cli':
+      globalThis.dispatchEvent(new CustomEvent('augur:install-cli'));
       break;
-    case "menu.remove-cli":
-      globalThis.dispatchEvent(new CustomEvent("augur:remove-cli"));
+    case 'menu.remove-cli':
+      globalThis.dispatchEvent(new CustomEvent('augur:remove-cli'));
       break;
-    case "menu.settings":
+    case 'menu.settings':
       await ipc.openSettingsWindow();
       break;
-    case "menu.about":
+    case 'menu.about':
       await ipc.openAboutWindow();
       break;
-    case "menu.quit":
+    case 'menu.quit':
       // The webview writes the final snapshot before the process ends, so a
       // setting changed seconds earlier is not lost to the debounce window.
       await ipc.flushState();
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
       await getCurrentWindow().destroy();
       break;
     default:
@@ -276,7 +276,7 @@ const FOCUS_REFRESH_COOLDOWN_MS = 2000;
 export function shouldRefreshOnFocus(
   last: number | null,
   now: number,
-  cooldown = FOCUS_REFRESH_COOLDOWN_MS,
+  cooldown = FOCUS_REFRESH_COOLDOWN_MS
 ): boolean {
   return last === null || now - last >= cooldown;
 }
@@ -290,7 +290,7 @@ function onWindowFocus(): void {
   if (!state.config.view.auto_refresh_on_focus) {
     return;
   }
-  if (state.role !== "main" || !state.activeTabKey) {
+  if (state.role !== 'main' || !state.activeTabKey) {
     return;
   }
   const now = Date.now();

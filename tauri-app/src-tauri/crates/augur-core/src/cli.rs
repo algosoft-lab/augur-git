@@ -211,7 +211,10 @@ mod tests {
         let Parsed::Run(invocation) = parsed else {
             panic!("expected a run invocation");
         };
-        assert_eq!(invocation.paths, vec![assets.to_string_lossy().into_owned()]);
+        assert_eq!(
+            invocation.paths,
+            vec![assets.to_string_lossy().into_owned()]
+        );
     }
 
     #[test]

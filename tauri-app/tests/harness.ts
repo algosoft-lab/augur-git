@@ -5,7 +5,7 @@
  * so the application boots exactly as it does inside the real window.
  */
 
-import { test as base, expect, type Page } from "@playwright/test";
+import { test as base, expect, type Page } from '@playwright/test';
 
 import {
   DEFAULT_OPTIONS,
@@ -13,8 +13,8 @@ import {
   secondFixtureRepo,
   stubSource,
   type StubOptions,
-  type StubRepo,
-} from "./fixtures/stubBackend";
+  type StubRepo
+} from './fixtures/stubBackend';
 
 export interface StubApi {
   /** Every command the interface invoked, in order. */
@@ -74,9 +74,9 @@ export interface BootOptions {
   /** System font families returned by the appearance settings. */
   fontFamilies?: string[];
   /** Initial persisted font preferences. */
-  typography?: StubOptions["typography"];
+  typography?: StubOptions['typography'];
   /** Strategy the toolbar Pull button uses. */
-  pullAction?: StubOptions["pullAction"];
+  pullAction?: StubOptions['pullAction'];
   /**
    * Paths the backend is holding because the window was not listening when they
    * arrived, which is the state a launch with a path argument produces.
@@ -111,7 +111,7 @@ export interface BootOptions {
   /** How long the WSL distribution list takes to arrive. */
   wslDelay?: number;
   /** Window role, from the same query parameter the backend uses. */
-  window?: "main" | "compare" | "about" | "settings";
+  window?: 'main' | 'compare' | 'about' | 'settings';
   /** Repository id passed to a compare window. */
   repoId?: number;
 }
@@ -139,35 +139,35 @@ function optionsFor(options: BootOptions): StubOptions {
     layout: options.layout,
     fontFamilies: options.fontFamilies,
     typography: options.typography,
-    pullAction: options.pullAction,
+    pullAction: options.pullAction
   };
 }
 
 /** Load the interface in a page with the stub runtime installed. */
-export async function boot(
-  page: Page,
-  options: BootOptions = {},
-): Promise<StubApi> {
-  const role = options.window ?? "main";
+export async function boot(page: Page, options: BootOptions = {}): Promise<StubApi> {
+  const role = options.window ?? 'main';
   const params = new URLSearchParams({ window: role });
-  if (role === "compare" && options.repoId !== undefined) {
-    params.set("repo", String(options.repoId));
+  if (role === 'compare' && options.repoId !== undefined) {
+    params.set('repo', String(options.repoId));
   }
   if (options.windows || options.macos) {
-    await page.addInitScript((platform) => {
-      Object.defineProperty(navigator, "platform", { value: platform, configurable: true });
-    }, options.macos ? "MacIntel" : "Win32");
+    await page.addInitScript(
+      (platform) => {
+        Object.defineProperty(navigator, 'platform', { value: platform, configurable: true });
+      },
+      options.macos ? 'MacIntel' : 'Win32'
+    );
   }
   await page.addInitScript(stubSource(optionsFor(options)));
   await page.goto(`/?${params.toString()}`);
   // Each window surfaces a different root, so the wait matches the role: seeing
   // it means the store has finished booting.
   const root =
-    role === "compare"
+    role === 'compare'
       ? '[data-testid="compare-window"], .empty-state'
-      : role === "about"
+      : role === 'about'
         ? '[data-testid="about"]'
-        : role === "settings"
+        : role === 'settings'
           ? '[data-testid="settings-window"]'
           : '[data-testid="welcome"], [data-testid="graph"]';
   await page.waitForSelector(root);
@@ -176,20 +176,18 @@ export async function boot(
       return page.evaluate(() => window.__STUB__.log);
     },
     async commandNames() {
-      const names = await page.evaluate(() =>
-        window.__STUB__.log.map((entry) => entry.cmd),
-      );
+      const names = await page.evaluate(() => window.__STUB__.log.map((entry) => entry.cmd));
       return [...new Set(names)];
     },
     async emit(event, payload) {
-      await page.evaluate(
-        ([name, body]) => window.__STUB__.emit(name as string, body),
-        [event, payload] as const,
-      );
+      await page.evaluate(([name, body]) => window.__STUB__.emit(name as string, body), [
+        event,
+        payload
+      ] as const);
     },
     async announce(repoId) {
       await page.evaluate((id) => window.__STUB__.announce(id), repoId);
-    },
+    }
   };
 }
 
@@ -200,17 +198,13 @@ export async function boot(
  * synthesize `contextmenu`, so the mouse is driven directly at the element's
  * centre, which is what a person does.
  */
-export async function rightClick(
-  page: Page,
-  selector: string,
-  index = 0,
-): Promise<void> {
+export async function rightClick(page: Page, selector: string, index = 0): Promise<void> {
   const box = await page.locator(selector).nth(index).boundingBox();
   if (!box) {
     throw new Error(`no box for ${selector}`);
   }
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, {
-    button: "right",
+    button: 'right'
   });
 }
 
@@ -218,7 +212,7 @@ export async function rightClick(
 export const test = base.extend<{ stub: StubApi }>({
   stub: async ({ page }, use) => {
     await use(await boot(page));
-  },
+  }
 });
 
 export { expect, DEFAULT_OPTIONS, fixtureRepo, secondFixtureRepo };

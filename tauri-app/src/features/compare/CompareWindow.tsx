@@ -7,55 +7,49 @@
  * the export writes the full patch with a native save dialog.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { save } from "@tauri-apps/plugin-dialog";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
-import { Icon } from "../../components/Icon";
-import { EmptyState, Spinner } from "../../components/controls";
-import * as ipc from "../../bridge/ipc";
+import { Icon } from '../../components/Icon';
+import { EmptyState, Spinner } from '../../components/controls';
+import * as ipc from '../../bridge/ipc';
 import type {
   CompareRevision,
   DiffPayload,
   FileChange,
-  RepoEventEnvelope,
-} from "../../bridge/types";
-import { useStore, type RepoState } from "../../app/store";
-import { statBlocks, statusKey, statusModifier } from "../diff/fileMeta";
-import { DiffView, type DiffSection } from "../diff/DiffView";
-import { t, ta } from "../../i18n/strings";
-import { endpointRevision, RevisionPicker, type Endpoint } from "./RevisionPicker";
-import { IS_MACOS, WindowControls } from "../shell/WindowControls";
-import { handleTitleBarMouseDown } from "../shell/titleBarDrag";
+  RepoEventEnvelope
+} from '../../bridge/types';
+import { useStore, type RepoState } from '../../app/store';
+import { statBlocks, statusKey, statusModifier } from '../diff/fileMeta';
+import { DiffView, type DiffSection } from '../diff/DiffView';
+import { t, ta } from '../../i18n/strings';
+import { endpointRevision, RevisionPicker, type Endpoint } from './RevisionPicker';
+import { IS_MACOS, WindowControls } from '../shell/WindowControls';
+import { handleTitleBarMouseDown } from '../shell/titleBarDrag';
 
 type CompareEvent = Extract<
   RepoEventEnvelope,
   {
     type:
-      | "branchCompareFiles"
-      | "branchCompareFileDiff"
-      | "branchCompareError"
-      | "branchCompareFinished"
-      | "branchComparePatchExported"
-      | "branchComparePatchError";
+      | 'branchCompareFiles'
+      | 'branchCompareFileDiff'
+      | 'branchCompareError'
+      | 'branchCompareFinished'
+      | 'branchComparePatchExported'
+      | 'branchComparePatchError';
   }
 >;
 
 function isCompareEvent(event: RepoEventEnvelope): event is CompareEvent {
-  return event.type.startsWith("branchCompare");
+  return event.type.startsWith('branchCompare');
 }
 
 function CompareTitleBar({ title }: { title: string }) {
   return (
     <div
-      className={`window-titlebar${IS_MACOS ? " window-titlebar--macos" : ""}`}
+      className={`window-titlebar${IS_MACOS ? ' window-titlebar--macos' : ''}`}
       onMouseDown={handleTitleBarMouseDown}
     >
       <span className="compare__title" data-testid="compare-title">
@@ -63,7 +57,7 @@ function CompareTitleBar({ title }: { title: string }) {
       </span>
       <div
         className="window-titlebar__drag"
-        {...(IS_MACOS ? { "data-tauri-drag-region": true } : {})}
+        {...(IS_MACOS ? { 'data-tauri-drag-region': true } : {})}
       />
       <WindowControls />
     </div>
@@ -72,13 +66,13 @@ function CompareTitleBar({ title }: { title: string }) {
 
 export function CompareWindow({ repoId }: { repoId: number | null }) {
   const translate = useStore((state) => state.t);
-  const repo = useStore<RepoState | undefined>(
-    (state) => (repoId ? state.repos[repoId] : undefined),
+  const repo = useStore<RepoState | undefined>((state) =>
+    repoId ? state.repos[repoId] : undefined
   );
   const diffLayout = useStore((state) => state.config.view.diff_layout);
 
-  const [base, setBase] = useState<Endpoint>({ manualInput: "", selected: null });
-  const [target, setTarget] = useState<Endpoint>({ manualInput: "", selected: null });
+  const [base, setBase] = useState<Endpoint>({ manualInput: '', selected: null });
+  const [target, setTarget] = useState<Endpoint>({ manualInput: '', selected: null });
   /**
    * The comparison this window is waiting for.
    *
@@ -119,7 +113,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
     });
     consumeEvent.current = (event) => {
       switch (event.type) {
-        case "branchCompareFiles":
+        case 'branchCompareFiles':
           if (event.requestId !== requestId.current) {
             return;
           }
@@ -130,13 +124,13 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           setErrors({});
           setSelected(null);
           break;
-        case "branchCompareFileDiff":
+        case 'branchCompareFileDiff':
           if (event.requestId !== requestId.current) {
             return;
           }
           setDocuments((current) => ({
             ...current,
-            [event.file.new_path]: event.document,
+            [event.file.new_path]: event.document
           }));
           setErrors((current) => {
             const next = { ...current };
@@ -145,69 +139,72 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           });
           setSelected((current) => current ?? event.file);
           break;
-        case "branchCompareError":
+        case 'branchCompareError':
           if (event.requestId !== requestId.current) {
             return;
           }
           if (event.file) {
             setErrors((current) => ({
               ...current,
-              [event.file!.new_path]: event.detail,
+              [event.file!.new_path]: event.detail
             }));
           } else {
-            setErrors((current) => ({ ...current, "": event.detail }));
+            setErrors((current) => ({ ...current, '': event.detail }));
           }
           break;
-        case "branchCompareFinished":
+        case 'branchCompareFinished':
           if (event.requestId !== requestId.current) {
             return;
           }
           setLoading(false);
           setFinished(true);
           break;
-        case "branchComparePatchExported":
+        case 'branchComparePatchExported':
           if (event.requestId === requestId.current) {
             setExportState(
-              ta(translateRef.current, "branch-compare-export-success", {
-                path: event.destination,
-              }),
+              ta(translateRef.current, 'branch-compare-export-success', {
+                path: event.destination
+              })
             );
           }
           break;
-        case "branchComparePatchError":
+        case 'branchComparePatchError':
           if (event.requestId === requestId.current) {
             setExportState(
-              ta(translateRef.current, "branch-compare-export-error", { detail: event.detail }),
+              ta(translateRef.current, 'branch-compare-export-error', { detail: event.detail })
             );
           }
           break;
       }
     };
-    void ipc.onRepoEvent((event) => {
-      if (event.repoId !== repoId || !isCompareEvent(event)) {
-        return;
-      }
-      if (event.requestId === requestId.current) {
-        consumeEvent.current(event);
-      } else if (pendingGeneration.current !== null) {
-        bufferedEvents.current = [...bufferedEvents.current, event].slice(-256);
-      }
-    }).then((stop) => {
-      if (subscriptionGeneration.current !== generation) {
-        stop();
-        return;
-      }
-      unlisten = stop;
-      resolveReady();
-    }).catch((error: unknown) => {
-      if (subscriptionGeneration.current === generation) {
-        rejectReady(error);
-        setLoading(false);
-        setErrors({ "": String(error) });
-      } else {
+    void ipc
+      .onRepoEvent((event) => {
+        if (event.repoId !== repoId || !isCompareEvent(event)) {
+          return;
+        }
+        if (event.requestId === requestId.current) {
+          consumeEvent.current(event);
+        } else if (pendingGeneration.current !== null) {
+          bufferedEvents.current = [...bufferedEvents.current, event].slice(-256);
+        }
+      })
+      .then((stop) => {
+        if (subscriptionGeneration.current !== generation) {
+          stop();
+          return;
+        }
+        unlisten = stop;
         resolveReady();
-      }
-    });
+      })
+      .catch((error: unknown) => {
+        if (subscriptionGeneration.current === generation) {
+          rejectReady(error);
+          setLoading(false);
+          setErrors({ '': String(error) });
+        } else {
+          resolveReady();
+        }
+      });
     return () => {
       if (subscriptionGeneration.current === generation) {
         subscriptionGeneration.current += 1;
@@ -292,10 +289,10 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           pendingGeneration.current = null;
         }
         setLoading(false);
-        setErrors({ "": String(error) });
+        setErrors({ '': String(error) });
       }
     },
-    [repoId, trackRequest],
+    [repoId, trackRequest]
   );
 
   // The aggregate row sits above the list rather than replacing it, so choosing
@@ -308,7 +305,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           return document ? { path: file.new_path, document } : null;
         })
         .filter((entry): entry is DiffSection => entry !== null),
-    [files, documents],
+    [files, documents]
   );
 
   // The reference pre-selects the current branch as the base and the first
@@ -319,54 +316,50 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
       return;
     }
     const values = repo.refs.comparison_revisions;
-    const current = values.find(
-      (option) => option.kind === "local" && option.name === repo.branch,
-    );
-    const other =
-      values.find((option) => option.full_name !== current?.full_name) ?? values[0];
+    const current = values.find((option) => option.kind === 'local' && option.name === repo.branch);
+    const other = values.find((option) => option.full_name !== current?.full_name) ?? values[0];
     if (!current || !other) {
       return;
     }
     const listenerGeneration = subscriptionGeneration.current;
-    void subscriptionReady.current.then(() => {
-      if (preset.current || listenerGeneration !== subscriptionGeneration.current) {
-        return;
-      }
-      preset.current = true;
-      setBase({ manualInput: "", selected: current });
-      setTarget({ manualInput: "", selected: other });
-      void run(
-        { manualInput: "", selected: current },
-        { manualInput: "", selected: other },
-      );
-    }).catch((error: unknown) => {
-      if (listenerGeneration === subscriptionGeneration.current) {
-        setLoading(false);
-        setErrors({ "": String(error) });
-      }
-    });
+    void subscriptionReady.current
+      .then(() => {
+        if (preset.current || listenerGeneration !== subscriptionGeneration.current) {
+          return;
+        }
+        preset.current = true;
+        setBase({ manualInput: '', selected: current });
+        setTarget({ manualInput: '', selected: other });
+        void run({ manualInput: '', selected: current }, { manualInput: '', selected: other });
+      })
+      .catch((error: unknown) => {
+        if (listenerGeneration === subscriptionGeneration.current) {
+          setLoading(false);
+          setErrors({ '': String(error) });
+        }
+      });
   }, [repoId, repo, run]);
 
   // Commits are entered as object IDs in manual mode; the list contains named refs.
   const offered = useMemo<CompareRevision[]>(
     () =>
       (repo?.refs.comparison_revisions ?? []).filter(
-        (revision) => revision.kind === "local" || revision.kind === "remote" || revision.kind === "tag",
+        (revision) =>
+          revision.kind === 'local' || revision.kind === 'remote' || revision.kind === 'tag'
       ),
-    [repo?.refs.comparison_revisions],
+    [repo?.refs.comparison_revisions]
   );
 
   if (repoId === null || !repo) {
     return (
       <div className="compare" data-testid="compare-window">
-        <CompareTitleBar title={t(translate, "branch-compare-title")} />
-        <EmptyState message={t(translate, "err-repo-closed")} />
+        <CompareTitleBar title={t(translate, 'branch-compare-title')} />
+        <EmptyState message={t(translate, 'err-repo-closed')} />
       </div>
     );
   }
 
-  const canRun = (endpoint: Endpoint) =>
-    endpointRevision(endpoint) !== null;
+  const canRun = (endpoint: Endpoint) => endpointRevision(endpoint) !== null;
 
   /**
    * A comparison that failed as a whole, before any file could be listed.
@@ -374,19 +367,19 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
    * The reference reports this state instead of the empty states, because
    * "no changes" would be a lie about a request that never got that far.
    */
-  const requestError = errors[""] ?? null;
+  const requestError = errors[''] ?? null;
   const emptyMessage = requestError
-    ? t(translate, "branch-compare-error")
+    ? t(translate, 'branch-compare-error')
     : loading
-      ? t(translate, "branch-compare-loading")
-      : t(translate, "branch-compare-select-hint");
+      ? t(translate, 'branch-compare-loading')
+      : t(translate, 'branch-compare-select-hint');
 
   return (
     <div className="compare" data-testid="compare-window">
-      <CompareTitleBar title={t(translate, "branch-compare-title")} />
+      <CompareTitleBar title={t(translate, 'branch-compare-title')} />
       <div className="compare__header">
         <RevisionPicker
-          label={t(translate, "branch-compare-base")}
+          label={t(translate, 'branch-compare-base')}
           endpoint={base}
           options={offered}
           onChange={(next) => {
@@ -398,7 +391,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           type="button"
           className="tool-button tool-button--compact"
           data-testid="compare-swap"
-          title={t(translate, "branch-compare-run")}
+          title={t(translate, 'branch-compare-run')}
           onClick={() => {
             const nextBase = target;
             const nextTarget = base;
@@ -410,7 +403,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           ⇄
         </button>
         <RevisionPicker
-          label={t(translate, "branch-compare-target")}
+          label={t(translate, 'branch-compare-target')}
           endpoint={target}
           options={offered}
           onChange={(next) => {
@@ -425,9 +418,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           data-testid="compare-run"
           onClick={() => void run(base, target)}
         >
-          {finished
-            ? t(translate, "branch-compare-refresh")
-            : t(translate, "branch-compare-run")}
+          {finished ? t(translate, 'branch-compare-refresh') : t(translate, 'branch-compare-run')}
         </button>
         {loading ? (
           // Progress while a large comparison streams in, because a window that
@@ -444,12 +435,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           className="tool-button"
           // A typed object id is a revision like any other, so it exports; what
           // cannot be exported is a comparison that found nothing.
-          disabled={
-            !canRun(base) ||
-            !canRun(target) ||
-            loading ||
-            (finished && files.length === 0)
-          }
+          disabled={!canRun(base) || !canRun(target) || loading || (finished && files.length === 0)}
           data-testid="compare-export"
           onClick={async () => {
             const left = endpointRevision(base);
@@ -459,92 +445,87 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
             }
             const destination = await save({
               defaultPath: suggestedPatchFilename(left, right),
-              filters: [{ name: "Patch", extensions: ["patch", "diff"] }],
+              filters: [{ name: 'Patch', extensions: ['patch', 'diff'] }]
             });
-            if (typeof destination !== "string") {
+            if (typeof destination !== 'string') {
               return;
             }
-            setExportState(t(translate, "branch-compare-export-saving"));
+            setExportState(t(translate, 'branch-compare-export-saving'));
             try {
               await trackRequest(() => ipc.exportPatch(repoId, left, right, destination));
             } catch (error) {
-              setExportState(ta(translate, "branch-compare-export-error", { detail: String(error) }));
+              setExportState(
+                ta(translate, 'branch-compare-export-error', { detail: String(error) })
+              );
             }
           }}
         >
-          {t(translate, "branch-compare-export-patch")}
+          {t(translate, 'branch-compare-export-patch')}
         </button>
       </div>
       <div className="compare__body">
         <div
           className="bottom__files"
-          style={{ width: "25%", minWidth: 200 }}
+          style={{ width: '25%', minWidth: 200 }}
           data-testid="compare-file-list"
         >
-          <div style={{ overflowY: "auto" }}>
+          <div style={{ overflowY: 'auto' }}>
             {files.length === 0 ? (
-              <EmptyState
-                message={emptyMessage}
-                testId="compare-files-empty"
-              />
+              <EmptyState message={emptyMessage} testId="compare-files-empty" />
             ) : (
               <>
                 <div
-                  className={`file-row${showAll ? " is-selected" : ""}`}
+                  className={`file-row${showAll ? ' is-selected' : ''}`}
                   data-testid="compare-all-files"
                   onClick={() => setShowAll(true)}
                 >
                   <span className="file-row__status" />
-                  <span className="file-row__name">
-                    {t(translate, "branch-compare-all-files")}
-                  </span>
+                  <span className="file-row__name">{t(translate, 'branch-compare-all-files')}</span>
                   <span className="file-row__stat muted">{files.length}</span>
                 </div>
-              {files.map((file) => {
-                const blocks = statBlocks(file.added, file.deleted);
-                const error = errors[file.new_path];
-                return (
-                  <div
-                    key={`${file.status}-${file.new_path}`}
-                    className={`file-row${selected?.new_path === file.new_path ? " is-selected" : ""}`}
-                    data-testid={`compare-file-${file.new_path}`}
-                    title={file.path}
-                    onClick={() => {
-                      // Choosing a file narrows the view to it, which also turns
-                      // off the aggregate row.
-                      setShowAll(false);
-                      setSelected(file);
-                    }}
-                  >
-                    <span
-                      className={`file-row__status status-${statusModifier(file.status)}`}
+                {files.map((file) => {
+                  const blocks = statBlocks(file.added, file.deleted);
+                  const error = errors[file.new_path];
+                  return (
+                    <div
+                      key={`${file.status}-${file.new_path}`}
+                      className={`file-row${selected?.new_path === file.new_path ? ' is-selected' : ''}`}
+                      data-testid={`compare-file-${file.new_path}`}
+                      title={file.path}
+                      onClick={() => {
+                        // Choosing a file narrows the view to it, which also turns
+                        // off the aggregate row.
+                        setShowAll(false);
+                        setSelected(file);
+                      }}
                     >
-                      {t(translate, statusKey(file.status))}
-                    </span>
-                    <span className="file-row__name">{file.path}</span>
-                    {/* A file that failed to diff looks like one that has simply
-                        not loaded yet unless the reason is in the row. */}
-                    {error ? (
-                      <span className="file-row__stat status-conflict" title={error}>
-                        {error.split("\n")[0]}
+                      <span className={`file-row__status status-${statusModifier(file.status)}`}>
+                        {t(translate, statusKey(file.status))}
                       </span>
-                    ) : null}
-                    <span className="stat-blocks">
-                      <span className="stat-blocks__added" style={{ flex: blocks.added }} />
-                      <span className="stat-blocks__deleted" style={{ flex: blocks.deleted }} />
-                    </span>
-                  </div>
-                );
-              })}
+                      <span className="file-row__name">{file.path}</span>
+                      {/* A file that failed to diff looks like one that has simply
+                        not loaded yet unless the reason is in the row. */}
+                      {error ? (
+                        <span className="file-row__stat status-conflict" title={error}>
+                          {error.split('\n')[0]}
+                        </span>
+                      ) : null}
+                      <span className="stat-blocks">
+                        <span className="stat-blocks__added" style={{ flex: blocks.added }} />
+                        <span className="stat-blocks__deleted" style={{ flex: blocks.deleted }} />
+                      </span>
+                    </div>
+                  );
+                })}
               </>
             )}
           </div>
         </div>
-        <div style={{ display: "flex", minWidth: 0, flex: 1, flexDirection: "column" }}>
+        <div style={{ display: 'flex', minWidth: 0, flex: 1, flexDirection: 'column' }}>
           <div className="bottom__toolbar">
             {loading ? (
               <span className="compare__status">
-                <Spinner size={11} /> {t(translate, "branch-compare-loading")}
+                <Spinner size={11} /> {t(translate, 'branch-compare-loading')}
               </span>
             ) : null}
             {requestError ? (
@@ -555,13 +536,11 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
                 data-testid="compare-request-error"
                 title={requestError}
               >
-                {t(translate, "branch-compare-error")}
+                {t(translate, 'branch-compare-error')}
               </span>
             ) : null}
             {!requestError && finished && files.length === 0 ? (
-              <span className="compare__status">
-                {t(translate, "branch-compare-no-changes")}
-              </span>
+              <span className="compare__status">{t(translate, 'branch-compare-no-changes')}</span>
             ) : null}
             <span className="bottom__toolbar-spacer" />
             {exportState ? (
@@ -574,13 +553,13 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
               className="tool-button tool-button--compact"
               data-testid="compare-copy"
               disabled={!selected || !documents[selected.new_path]}
-              title={t(translate, "diff-copy-tooltip")}
-              aria-label={t(translate, "diff-copy-tooltip")}
+              title={t(translate, 'diff-copy-tooltip')}
+              aria-label={t(translate, 'diff-copy-tooltip')}
               onClick={() => {
                 const document = selected ? documents[selected.new_path] : undefined;
                 if (document) {
                   void writeText(document.copy_text).then(() => {
-                    setExportState(t(translate, "branch-compare-copy-success"));
+                    setExportState(t(translate, 'branch-compare-copy-success'));
                   });
                 }
               }}
@@ -604,22 +583,26 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
             error={selected && !showAll ? (errors[selected.new_path] ?? null) : null}
             testId="compare-diff"
             showFileHeaders
-            header={showAll && sections.length > 0 ? t(translate, "branch-compare-all-files") : undefined}
+            header={
+              showAll && sections.length > 0 ? t(translate, 'branch-compare-all-files') : undefined
+            }
             emptyMessage={
               requestError
-                ? t(translate, "branch-compare-error")
+                ? t(translate, 'branch-compare-error')
                 : loading
-                  ? t(translate, "branch-compare-loading")
-                  : t(translate, "branch-compare-select-file")
+                  ? t(translate, 'branch-compare-loading')
+                  : t(translate, 'branch-compare-select-file')
             }
             onCopy={
               sections.length
                 ? () => {
                     void writeText(
                       sections
-                        .map((entry) => `diff -- ${entry.path}
-${entry.document.copy_text}`)
-                        .join(""),
+                        .map(
+                          (entry) => `diff -- ${entry.path}
+${entry.document.copy_text}`
+                        )
+                        .join('')
                     );
                   }
                 : undefined
@@ -642,15 +625,13 @@ ${entry.document.copy_text}`)
 export function suggestedPatchFilename(base: CompareRevision, target: CompareRevision): string {
   const sanitize = (value: string) =>
     [...value]
-      .map((character) =>
-        /[A-Za-z0-9._-]/.test(character) ? character : "-",
-      )
-      .join("")
-      .replace(/^-+|-+$/g, "");
+      .map((character) => (/[A-Za-z0-9._-]/.test(character) ? character : '-'))
+      .join('')
+      .replace(/^-+|-+$/g, '');
   const left = sanitize(base.name);
   const right = sanitize(target.name);
   if (!left || !right) {
-    return "comparison.patch";
+    return 'comparison.patch';
   }
   return `${left}-to-${right}.patch`;
 }

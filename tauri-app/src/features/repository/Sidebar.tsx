@@ -7,17 +7,17 @@
  * menus are the same on right click and on long press.
  */
 
-import { useState } from "react";
+import { useState } from 'react';
 
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
-import { Icon } from "../../components/Icon";
-import type { ContextMenuEntry } from "../../components/controls";
-import { ContextMenu } from "../../components/controls";
-import type { RefsInfo } from "../../bridge/types";
-import { useStore, type RepoState } from "../../app/store";
-import { groupRemoteBranches } from "./remoteGroups";
-import { t, ta } from "../../i18n/strings";
+import { Icon } from '../../components/Icon';
+import type { ContextMenuEntry } from '../../components/controls';
+import { ContextMenu } from '../../components/controls';
+import type { RefsInfo } from '../../bridge/types';
+import { useStore, type RepoState } from '../../app/store';
+import { groupRemoteBranches } from './remoteGroups';
+import { t, ta } from '../../i18n/strings';
 
 interface SectionProps {
   sectionKey: string;
@@ -29,19 +29,9 @@ interface SectionProps {
 }
 
 /** One collapsible section header with a count. */
-function Section({
-  sectionKey,
-  title,
-  count,
-  collapsed,
-  onToggle,
-  children,
-}: SectionProps) {
+function Section({ sectionKey, title, count, collapsed, onToggle, children }: SectionProps) {
   return (
-    <div
-      className="sidebar__section"
-      data-testid={`sidebar-${sectionKey}`}
-    >
+    <div className="sidebar__section" data-testid={`sidebar-${sectionKey}`}>
       <button
         type="button"
         className="sidebar__section-header"
@@ -49,7 +39,7 @@ function Section({
         onClick={() => onToggle(sectionKey)}
         data-testid={`sidebar-toggle-${sectionKey}`}
       >
-        <Icon name={collapsed ? "chevron-right" : "chevron-down"} size={12} />
+        <Icon name={collapsed ? 'chevron-right' : 'chevron-down'} size={12} />
         <span className="sidebar__section-title">{title}</span>
         <span className="sidebar__section-count">{count}</span>
       </button>
@@ -67,7 +57,7 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
 
   const toggle = (key: string) => {
     setCollapsed((current) =>
-      current.includes(key) ? current.filter((item) => item !== key) : [...current, key],
+      current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
     );
   };
 
@@ -77,160 +67,160 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
 
   const copy = (value: string) => {
     void writeText(value).then(() => {
-      setMessage(repo.id, ta(translate, "context-copied", { name: value }), true);
+      setMessage(repo.id, ta(translate, 'context-copied', { name: value }), true);
     });
   };
 
   const branchEntries = (name: string, isHead: boolean): ContextMenuEntry[] => [
     {
-      id: "checkout",
-      label: t(translate, "context-checkout"),
+      id: 'checkout',
+      label: t(translate, 'context-checkout'),
       icon: <Icon name="git-branch" size={12} />,
       disabled: blocked || isHead,
       onSelect: () => {
         void runAction(repo.id, {
-          action: "checkout",
-          target: { kind: "localBranch", localBranch: name },
+          action: 'checkout',
+          target: { kind: 'localBranch', localBranch: name }
         });
-      },
+      }
     },
     {
-      id: "copy-branch",
-      label: t(translate, "context-copy-branch"),
+      id: 'copy-branch',
+      label: t(translate, 'context-copy-branch'),
       icon: <Icon name="copy" size={12} />,
-      onSelect: () => copy(name),
+      onSelect: () => copy(name)
     },
     {
-      id: "rename",
-      label: t(translate, "context-rename"),
+      id: 'rename',
+      label: t(translate, 'context-rename'),
       icon: <Icon name="pencil" size={12} />,
       disabled: blocked,
       separatorBefore: true,
-      onSelect: () => openOverlay({ kind: "renameBranch", old: name }),
+      onSelect: () => openOverlay({ kind: 'renameBranch', old: name })
     },
     {
-      id: "delete",
-      label: t(translate, "context-delete"),
+      id: 'delete',
+      label: t(translate, 'context-delete'),
       icon: <Icon name="trash-2" size={12} />,
       disabled: blocked || isHead,
-      onSelect: () => openOverlay({ kind: "deleteRef", name, isTag: false }),
+      onSelect: () => openOverlay({ kind: 'deleteRef', name, isTag: false })
     },
     // Merging a branch into the current one is immediate here: the branch is
     // already named, so there is nothing to ask about. The dialog the toolbar
     // opens is for choosing the source.
     {
-      id: "merge-into-current",
-      label: t(translate, "context-merge-into-current"),
+      id: 'merge-into-current',
+      label: t(translate, 'context-merge-into-current'),
       icon: <Icon name="git-merge" size={12} />,
       disabled: blocked || isHead,
       separatorBefore: true,
       onSelect: () => {
-        void runAction(repo.id, { action: "merge", source: name, noFf: false });
-      },
+        void runAction(repo.id, { action: 'merge', source: name, noFf: false });
+      }
     },
     {
-      id: "merge-no-ff-into-current",
-      label: t(translate, "context-merge-no-ff-into-current"),
+      id: 'merge-no-ff-into-current',
+      label: t(translate, 'context-merge-no-ff-into-current'),
       icon: <Icon name="git-merge" size={12} />,
       disabled: blocked || isHead,
       onSelect: () => {
-        void runAction(repo.id, { action: "merge", source: name, noFf: true });
-      },
-    },
+        void runAction(repo.id, { action: 'merge', source: name, noFf: true });
+      }
+    }
   ];
 
   const tagEntries = (name: string): ContextMenuEntry[] => [
     {
-      id: "checkout",
-      label: t(translate, "context-checkout"),
+      id: 'checkout',
+      label: t(translate, 'context-checkout'),
       icon: <Icon name="git-branch" size={12} />,
       disabled: blocked,
       onSelect: () => {
-        void runAction(repo.id, { action: "checkout", target: { kind: "tag", tag: name } });
-      },
+        void runAction(repo.id, { action: 'checkout', target: { kind: 'tag', tag: name } });
+      }
     },
     {
-      id: "copy-tag",
-      label: t(translate, "context-copy-tag"),
+      id: 'copy-tag',
+      label: t(translate, 'context-copy-tag'),
       icon: <Icon name="copy" size={12} />,
-      onSelect: () => copy(name),
+      onSelect: () => copy(name)
     },
     {
-      id: "delete",
-      label: t(translate, "context-delete"),
+      id: 'delete',
+      label: t(translate, 'context-delete'),
       icon: <Icon name="trash-2" size={12} />,
       disabled: blocked,
       separatorBefore: true,
-      onSelect: () => openOverlay({ kind: "deleteRef", name, isTag: true }),
-    },
+      onSelect: () => openOverlay({ kind: 'deleteRef', name, isTag: true })
+    }
   ];
 
   const remoteEntries = (remote: string, branch: string): ContextMenuEntry[] => [
     {
-      id: "checkout",
-      label: t(translate, "context-checkout"),
+      id: 'checkout',
+      label: t(translate, 'context-checkout'),
       icon: <Icon name="git-branch" size={12} />,
       disabled: blocked,
       onSelect: () => {
         void runAction(repo.id, {
-          action: "checkout",
-          target: { kind: "remoteBranch", remoteBranch: `${remote}/${branch}` },
+          action: 'checkout',
+          target: { kind: 'remoteBranch', remoteBranch: `${remote}/${branch}` }
         });
-      },
+      }
     },
     {
-      id: "copy-branch",
-      label: t(translate, "context-copy-branch"),
+      id: 'copy-branch',
+      label: t(translate, 'context-copy-branch'),
       icon: <Icon name="copy" size={12} />,
-      onSelect: () => copy(`${remote}/${branch}`),
+      onSelect: () => copy(`${remote}/${branch}`)
     },
     {
-      id: "rename",
-      label: t(translate, "context-rename"),
+      id: 'rename',
+      label: t(translate, 'context-rename'),
       icon: <Icon name="pencil" size={12} />,
       disabled: blocked,
       separatorBefore: true,
-      onSelect: () => openOverlay({ kind: "renameRemoteBranch", remote, old: branch }),
+      onSelect: () => openOverlay({ kind: 'renameRemoteBranch', remote, old: branch })
     },
     {
-      id: "delete",
-      label: t(translate, "context-delete"),
+      id: 'delete',
+      label: t(translate, 'context-delete'),
       icon: <Icon name="trash-2" size={12} />,
       disabled: blocked,
-      onSelect: () => openOverlay({ kind: "deleteRemoteBranch", remote, branch }),
-    },
+      onSelect: () => openOverlay({ kind: 'deleteRemoteBranch', remote, branch })
+    }
   ];
 
   const stashEntries = (reference: string): ContextMenuEntry[] => [
     {
-      id: "pop",
-      label: t(translate, "menu-stash-pop"),
+      id: 'pop',
+      label: t(translate, 'menu-stash-pop'),
       icon: <Icon name="archive-restore" size={12} />,
       disabled: blocked,
       onSelect: () => {
-        void runAction(repo.id, { action: "stashPop", stashRef: reference });
-      },
+        void runAction(repo.id, { action: 'stashPop', stashRef: reference });
+      }
     },
     {
-      id: "drop",
-      label: t(translate, "menu-stash-drop"),
+      id: 'drop',
+      label: t(translate, 'menu-stash-drop'),
       icon: <Icon name="trash-2" size={12} />,
       disabled: blocked,
-      onSelect: () => openOverlay({ kind: "stashDrop", reference }),
-    },
+      onSelect: () => openOverlay({ kind: 'stashDrop', reference })
+    }
   ];
 
   return (
     <div className="sidebar" data-testid="sidebar">
       <div className="panel-header" data-testid="sidebar-header">
-        {t(translate, "sidebar-repo")}
+        {t(translate, 'sidebar-repo')}
       </div>
       <div className="sidebar__scroll">
         <Section
           sectionKey="branches"
-          title={t(translate, "section-branches")}
+          title={t(translate, 'section-branches')}
           count={repo.branches.length}
-          collapsed={isCollapsed("branches")}
+          collapsed={isCollapsed('branches')}
           onToggle={toggle}
         >
           {repo.branches.map((branch) => (
@@ -241,37 +231,37 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
             >
               <button
                 type="button"
-                className={`ref-row${branch.is_head ? " is-head" : ""}`}
+                className={`ref-row${branch.is_head ? ' is-head' : ''}`}
                 data-testid={`branch-${branch.name}`}
                 title={branch.name}
                 onDoubleClick={() => {
                   if (!blocked && !branch.is_head) {
                     void runAction(repo.id, {
-                      action: "checkout",
-                      target: { kind: "localBranch", localBranch: branch.name },
+                      action: 'checkout',
+                      target: { kind: 'localBranch', localBranch: branch.name }
                     });
                   }
                 }}
                 onClick={() => {
                   setMessage(
                     repo.id,
-                    ta(translate, "branch-selected", { name: branch.name }),
-                    null,
+                    ta(translate, 'branch-selected', { name: branch.name }),
+                    null
                   );
                 }}
               >
-                <span className={`ref-marker${branch.is_head ? " ref-marker--head" : ""}`} />
+                <span className={`ref-marker${branch.is_head ? ' ref-marker--head' : ''}`} />
                 <span className="ref-row__label">{branch.name}</span>
               </button>
             </ContextMenu>
           ))}
         </Section>
-  
+
         <Section
           sectionKey="remote-branches"
-          title={t(translate, "section-remote-branches")}
+          title={t(translate, 'section-remote-branches')}
           count={refs.remote_branches.length}
-          collapsed={isCollapsed("remote-branches")}
+          collapsed={isCollapsed('remote-branches')}
           onToggle={toggle}
         >
           {groups.map((group) => (
@@ -283,7 +273,7 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
                 data-testid={`sidebar-toggle-remote-${group.remote}`}
               >
                 <Icon
-                  name={isCollapsed(`remote-${group.remote}`) ? "chevron-right" : "chevron-down"}
+                  name={isCollapsed(`remote-${group.remote}`) ? 'chevron-right' : 'chevron-down'}
                   size={12}
                 />
                 <Icon name="git-branch" size={12} />
@@ -307,11 +297,11 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
                         onDoubleClick={() => {
                           if (!blocked) {
                             void runAction(repo.id, {
-                              action: "checkout",
+                              action: 'checkout',
                               target: {
-                                kind: "remoteBranch",
-                                remoteBranch: entry.fullName,
-                              },
+                                kind: 'remoteBranch',
+                                remoteBranch: entry.fullName
+                              }
                             });
                           }
                         }}
@@ -324,12 +314,12 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
             </div>
           ))}
         </Section>
-  
+
         <Section
           sectionKey="tags"
-          title={t(translate, "section-tags")}
+          title={t(translate, 'section-tags')}
           count={refs.tags.length}
-          collapsed={isCollapsed("tags")}
+          collapsed={isCollapsed('tags')}
           onToggle={toggle}
         >
           {refs.tags.map((name) => (
@@ -342,8 +332,8 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
                 onDoubleClick={() => {
                   if (!blocked) {
                     void runAction(repo.id, {
-                      action: "checkout",
-                      target: { kind: "tag", tag: name },
+                      action: 'checkout',
+                      target: { kind: 'tag', tag: name }
                     });
                   }
                 }}
@@ -354,12 +344,12 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
             </ContextMenu>
           ))}
         </Section>
-  
+
         <Section
           sectionKey="stashes"
-          title={t(translate, "section-stashes")}
+          title={t(translate, 'section-stashes')}
           count={refs.stashes.length}
-          collapsed={isCollapsed("stashes")}
+          collapsed={isCollapsed('stashes')}
           onToggle={toggle}
         >
           {refs.stashes.map((stash) => (
@@ -374,7 +364,7 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
                 data-testid={`stash-row-${stash.reference}`}
                 title={stash.description}
                 onClick={() => {
-                  void runAction(repo.id, { action: "stashPop", stashRef: stash.reference });
+                  void runAction(repo.id, { action: 'stashPop', stashRef: stash.reference });
                 }}
               >
                 <span className="ref-marker" />

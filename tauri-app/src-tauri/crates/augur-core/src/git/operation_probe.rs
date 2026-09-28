@@ -339,7 +339,9 @@ mod tests {
         let unborn = parse_status(b"# branch.oid (initial)\0");
         assert_eq!(unborn.head, None);
 
-        let staged = parse_status(b"# branch.oid aaaa\01 M. N... 100644 100644 100644 aaa bbb R100\0src/x.rs\0");
+        let staged = parse_status(
+            b"# branch.oid aaaa\01 M. N... 100644 100644 100644 aaa bbb R100\0src/x.rs\0",
+        );
         assert!(staged.has_changes);
         assert!(!staged.has_conflicts);
 
@@ -347,7 +349,9 @@ mod tests {
         assert!(untracked.has_changes);
         assert!(!untracked.has_conflicts);
 
-        let conflicted = parse_status(b"# branch.oid aaaa\0u UU N... 100644 100644 100644 100644 aaa bbb ccc src/x.rs\0");
+        let conflicted = parse_status(
+            b"# branch.oid aaaa\0u UU N... 100644 100644 100644 100644 aaa bbb ccc src/x.rs\0",
+        );
         assert!(conflicted.has_changes);
         assert!(conflicted.has_conflicts);
     }

@@ -95,40 +95,32 @@ impl Persistence {
             }
         };
 
-        let settings = match read_document::<SettingsDocument>(
-            &settings_store,
-            SETTINGS_DOCUMENT_KEY,
-        ) {
-            Ok(Some(mut document)) => {
-                document.config.normalize();
-                document
-            }
-            Ok(None) => SettingsDocument::default(),
-            Err(message) => {
-                warnings.push(message);
-                SettingsDocument::default()
-            }
-        };
-        let workspace = match read_document::<WorkspaceState>(
-            &workspace_store,
-            WORKSPACE_DOCUMENT_KEY,
-        ) {
-            Ok(Some(mut state)) => {
-                state.normalize();
-                state
-            }
-            Ok(None) => WorkspaceState::default(),
-            Err(message) => {
-                warnings.push(message);
-                WorkspaceState::default()
-            }
-        };
+        let settings =
+            match read_document::<SettingsDocument>(&settings_store, SETTINGS_DOCUMENT_KEY) {
+                Ok(Some(mut document)) => {
+                    document.config.normalize();
+                    document
+                }
+                Ok(None) => SettingsDocument::default(),
+                Err(message) => {
+                    warnings.push(message);
+                    SettingsDocument::default()
+                }
+            };
+        let workspace =
+            match read_document::<WorkspaceState>(&workspace_store, WORKSPACE_DOCUMENT_KEY) {
+                Ok(Some(mut state)) => {
+                    state.normalize();
+                    state
+                }
+                Ok(None) => WorkspaceState::default(),
+                Err(message) => {
+                    warnings.push(message);
+                    WorkspaceState::default()
+                }
+            };
 
-        log::info!(
-            "[store] loaded {} and {}",
-            SETTINGS_FILE,
-            WORKSPACE_FILE
-        );
+        log::info!("[store] loaded {} and {}", SETTINGS_FILE, WORKSPACE_FILE);
         (
             Self {
                 settings: Mutex::new(settings),
@@ -154,7 +146,11 @@ impl Persistence {
     }
 
     pub fn layout(&self) -> LayoutSettings {
-        self.workspace.lock().expect("workspace lock").layout.clone()
+        self.workspace
+            .lock()
+            .expect("workspace lock")
+            .layout
+            .clone()
     }
 
     pub fn shortcuts(&self) -> ShortcutOverrides {
@@ -228,9 +224,7 @@ impl Persistence {
 
     /// Report an application-level notice to every window.
     pub fn notify(&self, event: AppEvent) {
-        let _ = self
-            .app
-            .emit(APP_EVENT, AppEventEnvelope { event });
+        let _ = self.app.emit(APP_EVENT, AppEventEnvelope { event });
     }
 
     /// Absolute path of a store file, shown in diagnostics.

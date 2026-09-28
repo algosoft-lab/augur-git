@@ -7,13 +7,13 @@
  * its distribution and Linux path.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from 'react';
 
-import { Icon } from "../../components/Icon";
-import { DialogCard, Spinner, TextInput } from "../../components/controls";
-import * as ipc from "../../bridge/ipc";
-import { renderGitError, useStore } from "../../app/store";
-import { t } from "../../i18n/strings";
+import { Icon } from '../../components/Icon';
+import { DialogCard, Spinner, TextInput } from '../../components/controls';
+import * as ipc from '../../bridge/ipc';
+import { renderGitError, useStore } from '../../app/store';
+import { t } from '../../i18n/strings';
 
 /**
  * Why the current distribution and path cannot be opened.
@@ -25,22 +25,20 @@ import { t } from "../../i18n/strings";
  * in one place instead of deciding it twice.
  */
 type Validation =
-  | { kind: "idle" }
-  | { kind: "checking" }
-  | { kind: "ok" }
-  | { kind: "failed"; key: string; detail: string };
+  | { kind: 'idle' }
+  | { kind: 'checking' }
+  | { kind: 'ok' }
+  | { kind: 'failed'; key: string; detail: string };
 
 /** Split a pasted `\\wsl$\Distro\path` into its two halves. */
-export function splitUncPath(
-  input: string,
-): { distro: string; path: string } | null {
+export function splitUncPath(input: string): { distro: string; path: string } | null {
   const match = /^\\\\wsl\$\\([^\\]+)\\(.*)$/.exec(input.trim());
   if (!match) {
     return null;
   }
-  const distro = match[1] ?? "";
-  const rest = match[2] ?? "";
-  return distro && rest ? { distro, path: `/${rest.replace(/\\/g, "/")}` } : null;
+  const distro = match[1] ?? '';
+  const rest = match[2] ?? '';
+  return distro && rest ? { distro, path: `/${rest.replace(/\\/g, '/')}` } : null;
 }
 
 /**
@@ -54,27 +52,27 @@ export function splitUncPath(
 export function validateLinuxPath(input: string): string | null {
   const value = input.trim();
   if (value.length === 0) {
-    return "empty";
+    return 'empty';
   }
   // `--exec` performs no shell expansion, so `~` and relative paths cannot be
   // resolved.
-  if (!value.startsWith("/")) {
-    return "not-absolute";
+  if (!value.startsWith('/')) {
+    return 'not-absolute';
   }
-  if ([...value].some((character) => character < " " || character === "")) {
-    return "control-characters";
+  if ([...value].some((character) => character < ' ' || character === '')) {
+    return 'control-characters';
   }
   return null;
 }
 
 /** Whether a value looks like an absolute Linux path. */
 export function isAbsoluteLinuxPath(value: string): boolean {
-  return value.startsWith("/");
+  return value.startsWith('/');
 }
 
 export function WslOpenDialog({
   onClose,
-  onOpen,
+  onOpen
 }: {
   onClose: () => void;
   onOpen: (distro: string, path: string) => void | Promise<void>;
@@ -83,8 +81,8 @@ export function WslOpenDialog({
   const [distros, setDistros] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [distro, setDistro] = useState<string | null>(null);
-  const [path, setPath] = useState("");
-  const [validation, setValidation] = useState<Validation>({ kind: "idle" });
+  const [path, setPath] = useState('');
+  const [validation, setValidation] = useState<Validation>({ kind: 'idle' });
   // A key and a detail, for the same reason as the probe's validation: the
   // backend has a sentence for "this is not a Windows build" and the raw
   // transport error does not say it.
@@ -119,7 +117,7 @@ export function WslOpenDialog({
   // Validate as the user types, but only once both halves are present.
   useEffect(() => {
     if (!distro || !path) {
-      setValidation({ kind: "idle" });
+      setValidation({ kind: 'idle' });
       return;
     }
     // Checked before the probe, because a probe of a path that cannot be passed
@@ -127,17 +125,17 @@ export function WslOpenDialog({
     // about the path.
     const reason = validateLinuxPath(path);
     if (reason) {
-      setValidation({ kind: "failed", key: `wsl-path-${reason}`, detail: "" });
+      setValidation({ kind: 'failed', key: `wsl-path-${reason}`, detail: '' });
       return;
     }
     let cancelled = false;
-    setValidation({ kind: "checking" });
+    setValidation({ kind: 'checking' });
     const timer = window.setTimeout(() => {
       void ipc
         .probeWslRepository(distro, path)
         .then(() => {
           if (!cancelled) {
-            setValidation({ kind: "ok" });
+            setValidation({ kind: 'ok' });
           }
         })
         .catch((failure) => {
@@ -148,9 +146,9 @@ export function WslOpenDialog({
             // unreadable line.
             const error = ipc.describeError(failure);
             setValidation({
-              kind: "failed",
+              kind: 'failed',
               key: error.key,
-              detail: error.detail,
+              detail: error.detail
             });
           }
         });
@@ -161,38 +159,37 @@ export function WslOpenDialog({
     };
   }, [distro, path, translate]);
 
-  const canOpen =
-    distro !== null && path.length > 0 && validation.kind === "ok";
+  const canOpen = distro !== null && path.length > 0 && validation.kind === 'ok';
 
   const status = (() => {
-    if (validation.kind === "checking") {
+    if (validation.kind === 'checking') {
       return (
         <span className="row muted" data-testid="wsl-checking">
-          <Spinner size={11} /> {t(translate, "wsl-checking")}
+          <Spinner size={11} /> {t(translate, 'wsl-checking')}
         </span>
       );
     }
-    if (validation.kind === "ok") {
+    if (validation.kind === 'ok') {
       return (
         <span className="status-add" data-testid="wsl-check-ok">
-          {t(translate, "wsl-check-ok")}
+          {t(translate, 'wsl-check-ok')}
         </span>
       );
     }
-    if (validation.kind === "failed") {
+    if (validation.kind === 'failed') {
       return (
         <span className="status-conflict" data-testid="wsl-check-failed">
           {renderGitError(translate, validation.key, validation.detail)}
         </span>
       );
     }
-    return <span className="muted">{t(translate, "wsl-path-hint")}</span>;
+    return <span className="muted">{t(translate, 'wsl-path-hint')}</span>;
   })();
 
   return (
     <DialogCard
       testId="wsl-dialog"
-      title={t(translate, "wsl-open-title")}
+      title={t(translate, 'wsl-open-title')}
       icon={<Icon name="file" size={16} />}
       onBackdrop={onClose}
       width={460}
@@ -200,25 +197,25 @@ export function WslOpenDialog({
         <>
           <div className="row">
             <span className="settings__label" style={{ width: 90 }}>
-              {t(translate, "wsl-distro-label")}
+              {t(translate, 'wsl-distro-label')}
             </span>
             {loading ? (
               <span
-                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 data-testid="wsl-loading-distros"
               >
                 <Spinner size={13} />
-                {t(translate, "wsl-loading-distros")}
+                {t(translate, 'wsl-loading-distros')}
               </span>
             ) : distros.length === 0 ? (
               <span className="muted" data-testid="wsl-no-distros">
-                {t(translate, "wsl-no-distros")}
+                {t(translate, 'wsl-no-distros')}
               </span>
             ) : (
               <select
                 className="select__trigger"
                 style={{ flex: 1 }}
-                value={distro ?? ""}
+                value={distro ?? ''}
                 data-testid="wsl-distro"
                 onChange={(event) => setDistro(event.target.value)}
               >
@@ -235,12 +232,12 @@ export function WslOpenDialog({
               data-testid="wsl-refresh"
               onClick={() => void loadDistros()}
             >
-              {t(translate, "wsl-refresh-distros")}
+              {t(translate, 'wsl-refresh-distros')}
             </button>
           </div>
           <div className="row">
             <span className="settings__label" style={{ width: 90 }}>
-              {t(translate, "wsl-path-label")}
+              {t(translate, 'wsl-path-label')}
             </span>
             <TextInput
               value={path}
@@ -266,19 +263,14 @@ export function WslOpenDialog({
           {/* A hint, not a setting: it is drawn as a permanently ticked box,
               which reads as something that is on and cannot be turned off. */}
           <div className="settings__hint" data-testid="wsl-path-hint">
-            {t(translate, "wsl-path-hint")}
+            {t(translate, 'wsl-path-hint')}
           </div>
         </>
       }
       footer={
         <>
-          <button
-            type="button"
-            className="tool-button"
-            onClick={onClose}
-            data-testid="wsl-cancel"
-          >
-            {t(translate, "dialog-cancel")}
+          <button type="button" className="tool-button" onClick={onClose} data-testid="wsl-cancel">
+            {t(translate, 'dialog-cancel')}
           </button>
           <button
             type="button"
@@ -291,7 +283,7 @@ export function WslOpenDialog({
               }
             }}
           >
-            {t(translate, "wsl-open-confirm")}
+            {t(translate, 'wsl-open-confirm')}
           </button>
         </>
       }

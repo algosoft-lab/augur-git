@@ -7,19 +7,12 @@
  * about behavior rather than styling.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 
-import { Icon } from "./Icon";
-import "./controls.css";
+import { Icon } from './Icon';
+import './controls.css';
 
-export type ButtonVariant = "ghost" | "primary" | "danger";
+export type ButtonVariant = 'ghost' | 'primary' | 'danger';
 
 export interface ToolButtonProps {
   label?: string;
@@ -40,28 +33,28 @@ export function ToolButton({
   label,
   icon,
   tooltip,
-  variant = "ghost",
+  variant = 'ghost',
   compact = false,
   disabled = false,
   active = false,
   children,
   onClick,
   title,
-  testId,
+  testId
 }: ToolButtonProps) {
   return (
     <button
       type="button"
       data-testid={testId}
       className={[
-        "tool-button",
+        'tool-button',
         `tool-button--${variant}`,
-        compact ? "tool-button--compact" : "",
-        active ? "is-active" : "",
-        disabled ? "is-disabled" : "",
+        compact ? 'tool-button--compact' : '',
+        active ? 'is-active' : '',
+        disabled ? 'is-disabled' : ''
       ]
         .filter(Boolean)
-        .join(" ")}
+        .join(' ')}
       disabled={disabled}
       title={title ?? tooltip}
       aria-label={tooltip ?? label}
@@ -90,10 +83,10 @@ export function IconButton({
   disabled = false,
   visible = true,
   onClick,
-  testId,
+  testId
 }: IconButtonProps) {
   return (
-    <span className={`icon-button-slot${visible ? "" : " is-hidden"}`}>
+    <span className={`icon-button-slot${visible ? '' : ' is-hidden'}`}>
       <button
         type="button"
         data-testid={testId}
@@ -148,11 +141,11 @@ export interface TextInputProps {
    * applied so the caret does not jump, which is what makes the list usable from
    * the keyboard alone.
    */
-  onArrow?: (direction: "up" | "down") => void;
+  onArrow?: (direction: 'up' | 'down') => void;
   testId?: string;
   prefix?: ReactNode;
   cleanable?: boolean;
-  size?: "small" | "normal";
+  size?: 'small' | 'normal';
   disabled?: boolean;
 }
 
@@ -169,13 +162,13 @@ export function TextInput({
   testId,
   prefix,
   cleanable,
-  size = "normal",
-  disabled,
+  size = 'normal',
+  disabled
 }: TextInputProps) {
   return (
     <span
-      className={`text-input${size === "small" ? " text-input--small" : ""}${
-        monospace ? " text-input--mono" : ""
+      className={`text-input${size === 'small' ? ' text-input--small' : ''}${
+        monospace ? ' text-input--mono' : ''
       }`}
     >
       {prefix ? <span className="text-input__prefix">{prefix}</span> : null}
@@ -189,16 +182,16 @@ export function TextInput({
         spellCheck={false}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && onSubmit) {
+          if (event.key === 'Enter' && onSubmit) {
             event.preventDefault();
             onSubmit();
-          } else if (event.key === "Escape" && onEscape) {
+          } else if (event.key === 'Escape' && onEscape) {
             event.preventDefault();
             event.stopPropagation();
             onEscape();
-          } else if (onArrow && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+          } else if (onArrow && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
             event.preventDefault();
-            onArrow(event.key === "ArrowDown" ? "down" : "up");
+            onArrow(event.key === 'ArrowDown' ? 'down' : 'up');
           }
         }}
       />
@@ -208,7 +201,7 @@ export function TextInput({
           className="text-input__clear"
           aria-label="clear"
           onMouseDown={(event) => event.preventDefault()}
-          onClick={() => onChange("")}
+          onClick={() => onChange('')}
         >
           ×
         </button>
@@ -231,7 +224,7 @@ export interface TextAreaProps {
    * applied so the caret does not jump, which is what makes the list usable from
    * the keyboard alone.
    */
-  onArrow?: (direction: "up" | "down") => void;
+  onArrow?: (direction: 'up' | 'down') => void;
   testId?: string;
 }
 
@@ -245,7 +238,7 @@ export function TextArea({
   maxRows = 5,
   onSubmit,
   onEscape,
-  testId,
+  testId
 }: TextAreaProps) {
   return (
     <textarea
@@ -258,10 +251,10 @@ export function TextArea({
       spellCheck={false}
       onChange={(event) => onChange(event.target.value)}
       onKeyDown={(event) => {
-        if (event.key === "Enter" && !event.shiftKey && onSubmit) {
+        if (event.key === 'Enter' && !event.shiftKey && onSubmit) {
           event.preventDefault();
           onSubmit();
-        } else if (event.key === "Escape" && onEscape) {
+        } else if (event.key === 'Escape' && onEscape) {
           event.preventDefault();
           event.stopPropagation();
           onEscape();
@@ -282,7 +275,7 @@ export interface CheckboxProps {
 
 export function Checkbox({ checked, onChange, label, disabled, testId }: CheckboxProps) {
   return (
-    <label className={`checkbox${disabled ? " is-disabled" : ""}`}>
+    <label className={`checkbox${disabled ? ' is-disabled' : ''}`}>
       <input
         data-testid={testId}
         type="checkbox"
@@ -297,7 +290,7 @@ export function Checkbox({ checked, onChange, label, disabled, testId }: Checkbo
 
 /** A stable test id for an option, derived from its visible label. */
 function slug(label: string): string {
-  return label.trim().toLowerCase().replace(/\s+/g, "-");
+  return label.trim().toLowerCase().replace(/\s+/g, '-');
 }
 
 export interface SelectOption<T> {
@@ -313,7 +306,7 @@ export function Select<T extends string | number | boolean>({
   searchable = false,
   searchPlaceholder,
   testId,
-  allowCustomValue = false,
+  allowCustomValue = false
 }: {
   value: T;
   options: SelectOption<T>[];
@@ -326,7 +319,7 @@ export function Select<T extends string | number | boolean>({
   allowCustomValue?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
   const selected = options.find((option) => option.value === value);
 
@@ -339,14 +332,12 @@ export function Select<T extends string | number | boolean>({
         setOpen(false);
       }
     };
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
   }, [open]);
 
   const filtered = query
-    ? options.filter((option) =>
-        option.label.toLowerCase().includes(query.toLowerCase()),
-      )
+    ? options.filter((option) => option.label.toLowerCase().includes(query.toLowerCase()))
     : options;
 
   return (
@@ -360,7 +351,7 @@ export function Select<T extends string | number | boolean>({
         onClick={() => setOpen((current) => !current)}
       >
         <span className="select__value">
-          {selected?.label ?? (typeof value === "string" ? value : "")}
+          {selected?.label ?? (typeof value === 'string' ? value : '')}
         </span>
         <span className="select__caret">▾</span>
       </button>
@@ -373,11 +364,11 @@ export function Select<T extends string | number | boolean>({
                 value={query}
                 autoFocus
                 aria-label={searchPlaceholder}
-                placeholder={searchPlaceholder ?? ""}
+                placeholder={searchPlaceholder ?? ''}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => {
                   if (
-                    event.key === "Enter" &&
+                    event.key === 'Enter' &&
                     allowCustomValue &&
                     query.trim() &&
                     !options.some((option) => option.value === query.trim())
@@ -385,7 +376,7 @@ export function Select<T extends string | number | boolean>({
                     event.preventDefault();
                     onChange(query.trim() as T);
                     setOpen(false);
-                    setQuery("");
+                    setQuery('');
                   }
                 }}
               />
@@ -398,19 +389,17 @@ export function Select<T extends string | number | boolean>({
               role="option"
               data-testid={`select-option-${slug(option.label)}`}
               aria-selected={option.value === value}
-              className={`select__option${option.value === value ? " is-selected" : ""}`}
+              className={`select__option${option.value === value ? ' is-selected' : ''}`}
               onClick={() => {
                 onChange(option.value);
                 setOpen(false);
-                setQuery("");
+                setQuery('');
               }}
             >
               {option.label}
             </button>
           ))}
-          {filtered.length === 0 ? (
-            <div className="select__empty">—</div>
-          ) : null}
+          {filtered.length === 0 ? <div className="select__empty">—</div> : null}
         </div>
       ) : null}
     </div>
@@ -461,13 +450,13 @@ export interface MenuItemSpec {
 
 export interface MenuProps {
   items: MenuItemSpec[];
-  align?: "start" | "end";
+  align?: 'start' | 'end';
   testId?: string;
   children?: ReactNode;
 }
 
 /** A dropdown menu. The trigger is supplied as the single child. */
-export function Menu({ items, align = "start", testId, children }: MenuProps) {
+export function Menu({ items, align = 'start', testId, children }: MenuProps) {
   const [open, setOpen] = useState(false);
   const [openPath, setOpenPath] = useState<string[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -482,7 +471,7 @@ export function Menu({ items, align = "start", testId, children }: MenuProps) {
       }
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === 'Escape') {
         if (openPath.length > 0) {
           setOpenPath((current) => current.slice(0, -1));
         } else {
@@ -490,11 +479,11 @@ export function Menu({ items, align = "start", testId, children }: MenuProps) {
         }
       }
     };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
     return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
     };
   }, [open, openPath]);
 
@@ -502,7 +491,7 @@ export function Menu({ items, align = "start", testId, children }: MenuProps) {
     entries.map((item) => (
       <div
         key={item.id}
-        className={`menu__group${item.children ? " menu__group--submenu" : ""}`}
+        className={`menu__group${item.children ? ' menu__group--submenu' : ''}`}
         onMouseEnter={() => {
           if (item.children) {
             setOpenPath((current) => [...current.slice(0, parents.length), item.id]);
@@ -526,10 +515,10 @@ export function Menu({ items, align = "start", testId, children }: MenuProps) {
                 setOpenPath((current) => [...current.slice(0, parents.length), item.id])
               }
               onKeyDown={(event) => {
-                if (event.key === "ArrowRight") {
+                if (event.key === 'ArrowRight') {
                   event.preventDefault();
                   setOpenPath((current) => [...current.slice(0, parents.length), item.id]);
-                } else if (event.key === "ArrowLeft") {
+                } else if (event.key === 'ArrowLeft') {
                   event.preventDefault();
                   setOpenPath((current) => current.slice(0, parents.length));
                 }
@@ -540,7 +529,11 @@ export function Menu({ items, align = "start", testId, children }: MenuProps) {
               <Icon name="chevron-right" size={11} className="menu__submenu-arrow" />
             </button>
             {openPath[parents.length] === item.id ? (
-              <div className="menu__submenu" role="menu" data-testid={`${prefix}-${item.id}-submenu`}>
+              <div
+                className="menu__submenu"
+                role="menu"
+                data-testid={`${prefix}-${item.id}-submenu`}
+              >
                 {renderItems(item.children, prefix, [...parents, item.id])}
               </div>
             ) : null}
@@ -551,12 +544,12 @@ export function Menu({ items, align = "start", testId, children }: MenuProps) {
             role="menuitem"
             data-testid={`${prefix}-${item.id}`}
             className={[
-              "menu__item",
-              item.disabled ? "is-disabled" : "",
-              item.danger ? "is-danger" : "",
+              'menu__item',
+              item.disabled ? 'is-disabled' : '',
+              item.danger ? 'is-danger' : ''
             ]
               .filter(Boolean)
-              .join(" ")}
+              .join(' ')}
             disabled={item.disabled}
             onClick={() => {
               setOpen(false);
@@ -573,14 +566,14 @@ export function Menu({ items, align = "start", testId, children }: MenuProps) {
     ));
 
   return (
-    <div className={`menu${align === "end" ? " menu--end" : ""}`} ref={rootRef}>
+    <div className={`menu${align === 'end' ? ' menu--end' : ''}`} ref={rootRef}>
       <span
         onClick={() => {
           setOpen((current) => !current);
           setOpenPath([]);
         }}
         onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
+          if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
             setOpen((current) => !current);
             setOpenPath([]);
@@ -596,7 +589,7 @@ export function Menu({ items, align = "start", testId, children }: MenuProps) {
       </span>
       {open ? (
         <div className="menu__list" role="menu" data-testid={testId}>
-          {renderItems(items, testId ?? "menu")}
+          {renderItems(items, testId ?? 'menu')}
         </div>
       ) : null}
     </div>
@@ -621,7 +614,7 @@ export function DialogCard({
   footer,
   onBackdrop,
   testId,
-  width,
+  width
 }: DialogCardProps) {
   return (
     <div
@@ -684,20 +677,20 @@ export function ContextMenu({ entries, children, testId }: ContextMenuProps) {
       }
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === 'Escape') {
         close();
       }
     };
     const onScroll = () => close();
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onScroll);
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
     return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", onScroll);
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
     };
   }, [position, close]);
 
@@ -707,7 +700,7 @@ export function ContextMenu({ entries, children, testId }: ContextMenuProps) {
     const height = entries.length * 26 + 12;
     setPosition({
       x: Math.min(x, window.innerWidth - width - 8),
-      y: Math.min(y, window.innerHeight - height - 8),
+      y: Math.min(y, window.innerHeight - height - 8)
     });
   };
 
@@ -724,10 +717,7 @@ export function ContextMenu({ entries, children, testId }: ContextMenuProps) {
           if (!touch) {
             return;
           }
-          holdTimer.current = window.setTimeout(
-            () => open(touch.clientX, touch.clientY),
-            500,
-          );
+          holdTimer.current = window.setTimeout(() => open(touch.clientX, touch.clientY), 500);
         }}
         onTouchEnd={() => {
           if (holdTimer.current !== null) {
@@ -758,7 +748,7 @@ export function ContextMenu({ entries, children, testId }: ContextMenuProps) {
                 type="button"
                 role="menuitem"
                 data-testid={`context-${entry.id}`}
-                className={`menu__item${entry.disabled ? " is-disabled" : ""}`}
+                className={`menu__item${entry.disabled ? ' is-disabled' : ''}`}
                 disabled={entry.disabled}
                 onClick={() => {
                   close();
@@ -802,7 +792,7 @@ export function VirtualList<T>({
   onViewportChange,
   className,
   testId,
-  empty,
+  empty
 }: VirtualListProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -831,7 +821,7 @@ export function VirtualList<T>({
 
   if (items.length === 0 && empty) {
     return (
-      <div className={`virtual-list${className ? ` ${className}` : ""}`} ref={containerRef}>
+      <div className={`virtual-list${className ? ` ${className}` : ''}`} ref={containerRef}>
         {empty}
       </div>
     );
@@ -839,15 +829,12 @@ export function VirtualList<T>({
 
   return (
     <div
-      className={`virtual-list${className ? ` ${className}` : ""}`}
+      className={`virtual-list${className ? ` ${className}` : ''}`}
       ref={containerRef}
       data-testid={testId}
       onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
     >
-      <div
-        className="virtual-list__sizer"
-        style={{ height: items.length * rowHeight }}
-      >
+      <div className="virtual-list__sizer" style={{ height: items.length * rowHeight }}>
         <div
           className="virtual-list__window"
           style={{ transform: `translateY(${start * rowHeight}px)` }}
@@ -864,7 +851,7 @@ export function VirtualList<T>({
 }
 
 export interface SplitterProps {
-  orientation: "vertical" | "horizontal";
+  orientation: 'vertical' | 'horizontal';
   onDragStart?: () => void;
   onDrag: (delta: number) => void;
   onDragEnd?: () => void;
@@ -884,7 +871,7 @@ export function Splitter({
   onDrag,
   onDragEnd,
   testId,
-  label,
+  label
 }: SplitterProps) {
   const [active, setActive] = useState(false);
   const start = useRef(0);
@@ -892,14 +879,10 @@ export function Splitter({
   return (
     <div
       data-testid={testId}
-      className={[
-        "splitter",
-        `splitter--${orientation}`,
-        active ? "is-active" : "",
-      ].join(" ")}
+      className={['splitter', `splitter--${orientation}`, active ? 'is-active' : ''].join(' ')}
       role="separator"
       aria-label={label}
-      aria-orientation={orientation === "vertical" ? "vertical" : "horizontal"}
+      aria-orientation={orientation === 'vertical' ? 'vertical' : 'horizontal'}
       onPointerDown={(event) => {
         if (event.button !== 0) {
           return;
@@ -907,14 +890,14 @@ export function Splitter({
         event.preventDefault();
         event.currentTarget.setPointerCapture(event.pointerId);
         setActive(true);
-        start.current = orientation === "vertical" ? event.clientX : event.clientY;
+        start.current = orientation === 'vertical' ? event.clientX : event.clientY;
         onDragStart?.();
       }}
       onPointerMove={(event) => {
         if (!active) {
           return;
         }
-        const current = orientation === "vertical" ? event.clientX : event.clientY;
+        const current = orientation === 'vertical' ? event.clientX : event.clientY;
         onDrag(current - start.current);
       }}
       onPointerUp={() => {
@@ -936,7 +919,7 @@ export function Splitter({
 export function EmptyState({
   icon,
   message,
-  testId,
+  testId
 }: {
   icon?: ReactNode;
   message: string;

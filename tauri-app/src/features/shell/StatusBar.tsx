@@ -7,10 +7,10 @@
  * serially and an older message would be stale by the time it was shown.
  */
 
-import { Spinner } from "../../components/controls";
-import { useStore } from "../../app/store";
-import type { RepoState } from "../../app/repoState";
-import { t, ta } from "../../i18n/strings";
+import { Spinner } from '../../components/controls';
+import { useStore } from '../../app/store';
+import type { RepoState } from '../../app/repoState';
+import { t, ta } from '../../i18n/strings';
 
 /** Last path segment, with a fallback for a filesystem root. */
 function basename(path: string): string {
@@ -22,20 +22,16 @@ export function StatusBar({ repo }: { repo: RepoState | null }) {
   const translate = useStore((state) => state.t);
 
   let state: { text: string; className: string } | null = null;
-  if (repo?.status === "loading") {
+  if (repo?.status === 'loading') {
     // The reference names the repository it is scanning, not just the fact.
     state = {
-      text: ta(
-        translate,
-        "status-scanning-at",
-        { repo: basename(repo.path) },
-      ),
-      className: "status-bar__state status-bar__state--scanning",
+      text: ta(translate, 'status-scanning-at', { repo: basename(repo.path) }),
+      className: 'status-bar__state status-bar__state--scanning'
     };
-  } else if (repo?.status === "error") {
+  } else if (repo?.status === 'error') {
     state = {
-      text: `✗ ${repo.errorMessage ?? t(translate, "err-unknown")}`,
-      className: "status-bar__state status-bar__state--error",
+      text: `✗ ${repo.errorMessage ?? t(translate, 'err-unknown')}`,
+      className: 'status-bar__state status-bar__state--error'
     };
   }
 
@@ -44,13 +40,13 @@ export function StatusBar({ repo }: { repo: RepoState | null }) {
 
   return (
     <div className="status-bar" data-testid="status-bar">
-      <div className="status-bar__path" title={repo?.path ?? ""}>
-        {repo?.path ?? t(translate, "status-no-repo-selected")}
+      <div className="status-bar__path" title={repo?.path ?? ''}>
+        {repo?.path ?? t(translate, 'status-no-repo-selected')}
       </div>
       <div className="status-bar__right">
         {message ? (
           <div
-            className={`status-bar__message--${message.ok === false ? "fail" : "ok"}`}
+            className={`status-bar__message--${message.ok === false ? 'fail' : 'ok'}`}
             data-testid="status-message"
           >
             {message.text}

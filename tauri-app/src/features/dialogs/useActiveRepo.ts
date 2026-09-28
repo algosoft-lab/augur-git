@@ -1,4 +1,4 @@
-import { useStore } from "../../app/store";
+import { useStore } from '../../app/store';
 
 /** The repository the overlay acts on: the active tab. */
 export function useActiveRepoId(): number | null {

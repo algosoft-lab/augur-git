@@ -7,22 +7,22 @@
  * colour's actual value, so the variables are resolved once per theme.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
 
-import { LANE_COLORS } from "../../styles/themes";
+import { LANE_COLORS } from '../../styles/themes';
 
 /** The custom property each lane colour is written as. */
 const LANE_VARIABLES = [
-  "--base-blue",
-  "--base-green",
-  "--warning-background",
-  "--base-red",
+  '--base-blue',
+  '--base-green',
+  '--warning-background',
+  '--base-red',
   null,
   null,
   null,
   null,
   null,
-  null,
+  null
 ];
 
 /** Parse `#rgb`, `#rrggbb`, or `rgb(r, g, b)` into channels. */
@@ -33,7 +33,7 @@ function parseColor(value: string): [number, number, number] | null {
     return [
       parseInt(short[1]! + short[1]!, 16),
       parseInt(short[2]! + short[2]!, 16),
-      parseInt(short[3]! + short[3]!, 16),
+      parseInt(short[3]! + short[3]!, 16)
     ];
   }
   const long = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
@@ -78,7 +78,7 @@ export function initialsTextColor(fill: string, fallback: string): string {
   if (luminance === null) {
     return fallback;
   }
-  return luminance > 0.179 ? "#000000" : "#FFFFFF";
+  return luminance > 0.179 ? '#000000' : '#FFFFFF';
 }
 
 /** The lane colour behind a colour index, resolved to a real colour. */
@@ -87,16 +87,14 @@ function resolveLane(index: number): string | null {
   if (!entry) {
     return null;
   }
-  if (!entry.startsWith("var(")) {
+  if (!entry.startsWith('var(')) {
     return entry;
   }
-  if (typeof document === "undefined" || typeof getComputedStyle !== "function") {
+  if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') {
     return null;
   }
   const variable = LANE_VARIABLES[index] ?? entry.slice(4, -1).trim();
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(variable)
-    .trim();
+  const value = getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
   return value || null;
 }
 
@@ -108,7 +106,7 @@ function resolveLane(index: number): string | null {
  */
 export function useResolvedLaneColors(revision: string | null): (string | null)[] {
   const [colors, setColors] = useState<(string | null)[]>(() =>
-    LANE_COLORS.map((_, index) => resolveLane(index)),
+    LANE_COLORS.map((_, index) => resolveLane(index))
   );
   useEffect(() => {
     setColors(LANE_COLORS.map((_, index) => resolveLane(index)));

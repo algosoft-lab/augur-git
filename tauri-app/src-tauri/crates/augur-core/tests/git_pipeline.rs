@@ -125,7 +125,7 @@ impl Sandbox {
                 Ok(event) if accept(&event) => return Some(event),
                 Ok(_) => continue,
                 Err(RecvTimeoutError::Timeout) | Err(RecvTimeoutError::Disconnected) => {
-                    return None
+                    return None;
                 }
             }
         }
@@ -170,7 +170,9 @@ macro_rules! require_git {
 fn a_refresh_reports_the_real_repository() {
     require_git!();
     let mut sandbox = Sandbox::new().expect("sandbox");
-    sandbox.write("src/main.rs", "fn main() {\n    let count = 1;\n}\n").unwrap();
+    sandbox
+        .write("src/main.rs", "fn main() {\n    let count = 1;\n}\n")
+        .unwrap();
     sandbox.write("notes.md", "notes\n").unwrap();
     sandbox.open();
 
@@ -278,7 +280,9 @@ fn a_log_query_produces_a_layable_graph() {
 fn selecting_a_commit_yields_its_files_and_their_diff() {
     require_git!();
     let mut sandbox = Sandbox::new().expect("sandbox");
-    sandbox.write("src/main.rs", "fn main() {\n    let count = 1;\n}\n").unwrap();
+    sandbox
+        .write("src/main.rs", "fn main() {\n    let count = 1;\n}\n")
+        .unwrap();
     sandbox.write("extra.txt", "extra\n").unwrap();
     sandbox.git_ok(&["add", "."]);
     sandbox.git_ok(&["commit", "-m", "Change two files"]);
@@ -313,9 +317,7 @@ fn selecting_a_commit_yields_its_files_and_their_diff() {
     assert_eq!(extra.added, Some(1));
     assert_eq!(extra.deleted, Some(0));
 
-    sandbox
-        .handle()
-        .commit_file_diff(oid, None, main.clone());
+    sandbox.handle().commit_file_diff(oid, None, main.clone());
     let diff = sandbox
         .wait_for(|event| matches!(event, GitEvent::CommitFileDiff { .. }))
         .expect("the file diff");
@@ -334,10 +336,10 @@ fn selecting_a_commit_yields_its_files_and_their_diff() {
     assert!(!document.binary);
     assert_eq!(document.language.as_deref(), Some("rust"));
     assert!(
-        document
-            .rows
-            .iter()
-            .any(|row| row.new_text.as_deref().is_some_and(|text| text.contains("let count = 1;"))),
+        document.rows.iter().any(|row| row
+            .new_text
+            .as_deref()
+            .is_some_and(|text| text.contains("let count = 1;"))),
         "the new line is present"
     );
     assert!(!document.aligned_rows().is_empty());
@@ -345,8 +347,14 @@ fn selecting_a_commit_yields_its_files_and_their_diff() {
     // the patch, so it carries the change itself.
     let copied = document.copy_text();
     assert!(copied.contains("@@"), "a hunk header: {copied}");
-    assert!(copied.contains("+    let count = 1;"), "the addition: {copied}");
-    assert!(copied.contains("-    let count = 0;"), "the deletion: {copied}");
+    assert!(
+        copied.contains("+    let count = 1;"),
+        "the addition: {copied}"
+    );
+    assert!(
+        copied.contains("-    let count = 0;"),
+        "the deletion: {copied}"
+    );
 }
 
 #[test]
@@ -387,10 +395,10 @@ fn a_working_tree_file_diff_names_the_side_it_read() {
     assert_eq!(request_id, 1, "the request id is echoed back");
     assert!(matches!(kind, WorkingTreeDiffKind::Unstaged));
     assert!(
-        document
-            .rows
-            .iter()
-            .any(|row| row.new_text.as_deref().is_some_and(|text| text.contains("let count = 7;"))),
+        document.rows.iter().any(|row| row
+            .new_text
+            .as_deref()
+            .is_some_and(|text| text.contains("let count = 7;"))),
         "the working-tree content is what is shown"
     );
 }
@@ -487,7 +495,10 @@ fn comparing_two_revisions_lists_only_what_differs() {
     let finished = sandbox
         .wait_for(|event| matches!(event, GitEvent::BranchCompareFinished { .. }))
         .expect("the comparison finishing");
-    assert!(matches!(finished, GitEvent::BranchCompareFinished { request_id: 7 }));
+    assert!(matches!(
+        finished,
+        GitEvent::BranchCompareFinished { request_id: 7 }
+    ));
 }
 
 #[test]
@@ -502,14 +513,9 @@ fn a_command_reports_its_label_and_its_failure() {
         .run("checkout", vec!["no-such-branch".to_string()]);
 
     let done = sandbox
-        .wait_for(|event| {
-            matches!(event, GitEvent::CommandDone { success: false, .. })
-        })
+        .wait_for(|event| matches!(event, GitEvent::CommandDone { success: false, .. }))
         .expect("the command finishing");
-    let GitEvent::CommandDone {
-        label, message, ..
-    } = done
-    else {
+    let GitEvent::CommandDone { label, message, .. } = done else {
         unreachable!()
     };
     assert_eq!(label, "checkout", "the label is the one the caller chose");
@@ -543,7 +549,8 @@ fn opening_a_directory_that_is_not_a_repository_fails_immediately() {
     std::fs::create_dir_all(&path).unwrap();
 
     let (tx, _rx): (Sender<GitEvent>, Receiver<GitEvent>) = std::sync::mpsc::channel();
-    let result = augur_core::git::spawn_open(GitRepo::local(path.to_string_lossy().into_owned()), tx);
+    let result =
+        augur_core::git::spawn_open(GitRepo::local(path.to_string_lossy().into_owned()), tx);
 
     let error = result.err().expect("a plain directory is not a repository");
     assert_eq!(error.key, "err-not-a-repo");
@@ -555,10 +562,8 @@ fn opening_a_path_that_does_not_exist_fails_immediately() {
     require_git!();
     let (tx, _rx): (Sender<GitEvent>, Receiver<GitEvent>) = std::sync::mpsc::channel();
     let missing = std::env::temp_dir().join(format!("augur-missing-{}", unique()));
-    let result = augur_core::git::spawn_open(
-        GitRepo::local(missing.to_string_lossy().into_owned()),
-        tx,
-    );
+    let result =
+        augur_core::git::spawn_open(GitRepo::local(missing.to_string_lossy().into_owned()), tx);
 
     let error = result.err().expect("a missing path is refused");
     assert_eq!(error.key, "err-path-not-exist");

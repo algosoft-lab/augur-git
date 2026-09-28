@@ -1,13 +1,8 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from '@playwright/test';
 
-import { boot, fixtureRepo } from "./harness";
+import { boot, fixtureRepo } from './harness';
 
-async function dragBy(
-  page: Page,
-  selector: string,
-  deltaX: number,
-  deltaY = 0,
-): Promise<void> {
+async function dragBy(page: Page, selector: string, deltaX: number, deltaY = 0): Promise<void> {
   const handle = page.getByTestId(selector);
   const box = await handle.boundingBox();
   if (!box) {
@@ -21,10 +16,10 @@ async function dragBy(
   await page.mouse.up();
 }
 
-test.describe("pane layout", () => {
-  test("captures drags beyond the handle and restores the saved width", async ({ page }) => {
+test.describe('pane layout', () => {
+  test('captures drags beyond the handle and restores the saved width', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
-    const handle = page.getByTestId("sidebar-splitter");
+    const handle = page.getByTestId('sidebar-splitter');
     const box = await handle.boundingBox();
     expect(box).not.toBeNull();
     const startX = box!.x + box!.width / 2;
@@ -36,49 +31,53 @@ test.describe("pane layout", () => {
     await page.mouse.move(startX + 50, startY, { steps: 4 });
     await page.mouse.up();
 
-    await expect(page.getByTestId("repo-sidebar")).toHaveCSS("width", "300px");
-    await expect.poll(async () =>
-      (await stub.commands()).filter((entry) => entry.cmd === "set_layout").length,
-    ).toBe(1);
+    await expect(page.getByTestId('repo-sidebar')).toHaveCSS('width', '300px');
+    await expect
+      .poll(
+        async () => (await stub.commands()).filter((entry) => entry.cmd === 'set_layout').length
+      )
+      .toBe(1);
 
     await page.mouse.move(startX + 150, startY);
-    await expect(page.getByTestId("repo-sidebar")).toHaveCSS("width", "300px");
+    await expect(page.getByTestId('repo-sidebar')).toHaveCSS('width', '300px');
 
     await page.reload();
-    await expect(page.getByTestId("repo-sidebar")).toHaveCSS("width", "300px");
+    await expect(page.getByTestId('repo-sidebar')).toHaveCSS('width', '300px');
   });
 
-  test("clamps side and bottom splitters after the window shrinks", async ({ page }) => {
+  test('clamps side and bottom splitters after the window shrinks', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
     await page.setViewportSize({ width: 860, height: 600 });
 
-    await dragBy(page, "sidebar-splitter", 400);
-    await expect(page.getByTestId("repo-sidebar")).toHaveCSS("width", "260px");
+    await dragBy(page, 'sidebar-splitter', 400);
+    await expect(page.getByTestId('repo-sidebar')).toHaveCSS('width', '260px');
 
-    await dragBy(page, "right-splitter", 50);
-    await expect(page.getByTestId("repo-right")).toHaveCSS("width", "270px");
-    const center = await page.getByTestId("repo-7").locator(".repo__center").boundingBox();
+    await dragBy(page, 'right-splitter', 50);
+    await expect(page.getByTestId('repo-right')).toHaveCSS('width', '270px');
+    const center = await page.getByTestId('repo-7').locator('.repo__center').boundingBox();
     expect(center!.width).toBeGreaterThanOrEqual(280);
 
-    await dragBy(page, "diff-splitter", 0, 30);
+    await dragBy(page, 'diff-splitter', 0, 30);
     const diffHeight = Number.parseFloat(
-      await page.getByTestId("bottom-panel").evaluate((element) => getComputedStyle(element).height),
+      await page.getByTestId('bottom-panel').evaluate((element) => getComputedStyle(element).height)
     );
     expect(diffHeight).toBeLessThan(300);
     expect(diffHeight).toBeGreaterThan(280);
 
-    await page.locator(".graph-row").first().click();
-    await expect(page.getByTestId("bottom-file-src/lib.rs")).toBeVisible();
-    const listBefore = await page.getByTestId("bottom-file-list").evaluate((element) =>
-      element.getBoundingClientRect().width,
-    );
-    await dragBy(page, "bottom-file-splitter", 80);
-    const listAfter = await page.getByTestId("bottom-file-list").evaluate((element) =>
-      element.getBoundingClientRect().width,
-    );
+    await page.locator('.graph-row').first().click();
+    await expect(page.getByTestId('bottom-file-src/lib.rs')).toBeVisible();
+    const listBefore = await page
+      .getByTestId('bottom-file-list')
+      .evaluate((element) => element.getBoundingClientRect().width);
+    await dragBy(page, 'bottom-file-splitter', 80);
+    const listAfter = await page
+      .getByTestId('bottom-file-list')
+      .evaluate((element) => element.getBoundingClientRect().width);
     expect(listAfter).toBeGreaterThan(listBefore);
-    await expect.poll(async () =>
-      (await stub.commands()).filter((entry) => entry.cmd === "set_layout").length,
-    ).toBe(4);
+    await expect
+      .poll(
+        async () => (await stub.commands()).filter((entry) => entry.cmd === 'set_layout').length
+      )
+      .toBe(4);
   });
 });

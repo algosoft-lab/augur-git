@@ -6,37 +6,27 @@
  * application exactly, and ref decorations are parsed there too.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
-import { Icon } from "../../components/Icon";
-import {
-  ContextMenu,
-  EmptyState,
-  Menu,
-  TextInput,
-  VirtualList,
-} from "../../components/controls";
-import * as ipc from "../../bridge/ipc";
-import type {
-  GraphRow,
-  LogRow,
-  RefLabel,
-} from "../../bridge/types";
-import { useStore, type RepoState } from "../../app/store";
-import { LANE_COLORS } from "../../styles/themes";
-import { t, ta } from "../../i18n/strings";
+import { Icon } from '../../components/Icon';
+import { ContextMenu, EmptyState, Menu, TextInput, VirtualList } from '../../components/controls';
+import * as ipc from '../../bridge/ipc';
+import type { GraphRow, LogRow, RefLabel } from '../../bridge/types';
+import { useStore, type RepoState } from '../../app/store';
+import { LANE_COLORS } from '../../styles/themes';
+import { t, ta } from '../../i18n/strings';
 import {
   COL_WIDTH,
   GRAPH_LEFT_PAD,
   GraphSvg,
   ROW_HEIGHT,
   authorInitials,
-  type LaneGeometry,
-} from "./GraphSvg";
-import { initialsTextColor, useResolvedLaneColors } from "./laneColors";
-import { filterCommits, type CommitSearchField } from "./commitSearch";
+  type LaneGeometry
+} from './GraphSvg';
+import { initialsTextColor, useResolvedLaneColors } from './laneColors';
+import { filterCommits, type CommitSearchField } from './commitSearch';
 
 /** Rows from the end of the list that trigger the next page request. */
 const LOAD_AHEAD_ROWS = 30;
@@ -53,8 +43,8 @@ export function GraphView({ repo }: { repo: RepoState }) {
   const clearCommit = useStore((state) => state.clearCommit);
   const runAction = useStore((state) => state.runAction);
   const setMessage = useStore((state) => state.setMessage);
-  const [query, setQuery] = useState("");
-  const [field, setField] = useState<CommitSearchField>("subject");
+  const [query, setQuery] = useState('');
+  const [field, setField] = useState<CommitSearchField>('subject');
   const [layout, setLayout] = useState<{
     graph: GraphRow[];
     labels: Record<string, RefLabel[]>;
@@ -72,7 +62,7 @@ export function GraphView({ repo }: { repo: RepoState }) {
   // local, so the layout only has to follow what is displayed.
   const visibleRows = useMemo(
     () => filterCommits(repo.logRows, query, field),
-    [repo.logRows, query, field],
+    [repo.logRows, query, field]
   );
 
   // A filter that hides the selected commit clears the selection, because the
@@ -143,17 +133,17 @@ export function GraphView({ repo }: { repo: RepoState }) {
   // what the search is matching on rather than only what it is called.
   const fieldItems = [
     {
-      id: "subject",
-      label: t(translate, "commit-search-subject"),
-      checked: field === "subject",
-      onSelect: () => setField("subject"),
+      id: 'subject',
+      label: t(translate, 'commit-search-subject'),
+      checked: field === 'subject',
+      onSelect: () => setField('subject')
     },
     {
-      id: "full",
-      label: t(translate, "commit-search-full-message"),
-      checked: field === "full",
-      onSelect: () => setField("full"),
-    },
+      id: 'full',
+      label: t(translate, 'commit-search-full-message'),
+      checked: field === 'full',
+      onSelect: () => setField('full')
+    }
   ];
 
   const dialogRow = showMessageDialog
@@ -161,11 +151,11 @@ export function GraphView({ repo }: { repo: RepoState }) {
     : null;
   const dialogMessage = dialogRow ? repo.commitMessages[dialogRow.oid] : undefined;
 
-  if (repo.status === "error") {
+  if (repo.status === 'error') {
     return (
       <div className="graph">
         <EmptyState
-          message={repo.errorMessage ?? t(translate, "err-unknown")}
+          message={repo.errorMessage ?? t(translate, 'err-unknown')}
           testId="graph-error"
         />
       </div>
@@ -178,7 +168,7 @@ export function GraphView({ repo }: { repo: RepoState }) {
         <TextInput
           value={query}
           onChange={setQuery}
-          placeholder={t(translate, "commit-search-placeholder")}
+          placeholder={t(translate, 'commit-search-placeholder')}
           cleanable
           size="small"
           prefix={<Icon name="search" size={11} />}
@@ -186,17 +176,17 @@ export function GraphView({ repo }: { repo: RepoState }) {
         />
         <Menu items={fieldItems} testId="commit-search-field" align="end">
           <button type="button" className="tool-button tool-button--compact">
-            {field === "subject"
-              ? t(translate, "commit-search-subject")
-              : t(translate, "commit-search-full-message")}
+            {field === 'subject'
+              ? t(translate, 'commit-search-subject')
+              : t(translate, 'commit-search-full-message')}
             <Icon name="chevron-down" size={10} />
           </button>
         </Menu>
         {query ? (
           <span className="graph__search-results" data-testid="commit-search-results">
-            {ta(translate, "commit-search-results", {
+            {ta(translate, 'commit-search-results', {
               matches: visibleRows.length,
-              total: repo.logRows.length,
+              total: repo.logRows.length
             })}
           </span>
         ) : null}
@@ -209,20 +199,16 @@ export function GraphView({ repo }: { repo: RepoState }) {
           style={{ width: laneWidth }}
           data-testid="graph-header-graph"
         >
-          {t(translate, "col-graph")}
+          {t(translate, 'col-graph')}
         </div>
-        <div
-          className="graph-header__label"
-          style={{ width: 60 }}
-          data-testid="graph-header-hash"
-        >
+        <div className="graph-header__label" style={{ width: 60 }} data-testid="graph-header-hash">
           <span className="graph-header__divider" />
-          {t(translate, "col-hash")}
+          {t(translate, 'col-hash')}
         </div>
         {showsMessage ? (
           <div className="graph-header__message" data-testid="graph-header-message">
             <span className="graph-header__divider" />
-            {t(translate, "col-message")}
+            {t(translate, 'col-message')}
           </div>
         ) : null}
         {showsAuthor ? (
@@ -232,16 +218,12 @@ export function GraphView({ repo }: { repo: RepoState }) {
             data-testid="graph-header-author"
           >
             <span className="graph-header__divider" />
-            {t(translate, "col-author")}
+            {t(translate, 'col-author')}
           </div>
         ) : null}
-        <div
-          className="graph-header__label"
-          style={{ width: 120 }}
-          data-testid="graph-header-date"
-        >
+        <div className="graph-header__label" style={{ width: 120 }} data-testid="graph-header-date">
           <span className="graph-header__divider" />
-          {t(translate, "col-date")}
+          {t(translate, 'col-date')}
         </div>
       </div>
       <div className="graph__rows" ref={containerRef}>
@@ -254,11 +236,9 @@ export function GraphView({ repo }: { repo: RepoState }) {
             <EmptyState
               icon={<Icon name="git-commit-horizontal" size={24} />}
               message={
-                query
-                  ? t(translate, "commit-search-no-results")
-                  : t(translate, "graph-empty")
+                query ? t(translate, 'commit-search-no-results') : t(translate, 'graph-empty')
               }
-              testId={query ? "commit-search-no-results" : "graph-empty"}
+              testId={query ? 'commit-search-no-results' : 'graph-empty'}
             />
           }
           renderRow={(row, index) => {
@@ -281,23 +261,19 @@ export function GraphView({ repo }: { repo: RepoState }) {
                 onHover={(value) => setHovered(value)}
                 onCheckout={() => {
                   void runAction(repo.id, {
-                    action: "checkout",
-                    target: { kind: "commit", commit: row.oid },
+                    action: 'checkout',
+                    target: { kind: 'commit', commit: row.oid }
                   });
                 }}
                 onCopyMessage={() => {
                   void runAction(repo.id, {
-                    action: "copyCommitMessage",
-                    oid: row.oid,
+                    action: 'copyCommitMessage',
+                    oid: row.oid
                   });
                 }}
                 onCopyOid={() => {
                   void writeText(row.oid).then(() => {
-                    setMessage(
-                      repo.id,
-                      ta(translate, "context-copied", { name: row.short }),
-                      true,
-                    );
+                    setMessage(repo.id, ta(translate, 'context-copied', { name: row.short }), true);
                   });
                 }}
                 onShowMessage={() => {
@@ -337,7 +313,7 @@ function GraphRowView({
   onCopyOid,
   onCopyMessage,
   onShowMessage,
-  hovered,
+  hovered
 }: {
   repo: RepoState;
   row: LogRow;
@@ -369,50 +345,50 @@ function GraphRowView({
         nodeInputLanes: graphRow.node_input_lanes,
         parentLanes: graphRow.parent_lanes,
         inputColors: graphRow.input_lanes.map((lane) => lane.color_index),
-        outputColors: graphRow.output_lanes.map((lane) => lane.color_index),
+        outputColors: graphRow.output_lanes.map((lane) => lane.color_index)
       }
     : null;
 
   const relative = useMemo(
     () => relativeTime(row.timestamp, translate),
-    [row.timestamp, translate],
+    [row.timestamp, translate]
   );
 
   const entries = [
     {
-      id: "checkout",
-      label: t(translate, "context-checkout"),
+      id: 'checkout',
+      label: t(translate, 'context-checkout'),
       icon: <Icon name="git-branch" size={12} />,
       disabled: repo.busy,
-      onSelect: onCheckout,
+      onSelect: onCheckout
     },
     {
-      id: "copy-oid",
-      label: t(translate, "context-copy-commit"),
+      id: 'copy-oid',
+      label: t(translate, 'context-copy-commit'),
       icon: <Icon name="copy" size={12} />,
-      onSelect: onCopyOid,
+      onSelect: onCopyOid
     },
     {
-      id: "copy-message",
-      label: t(translate, "context-copy-commit-message"),
+      id: 'copy-message',
+      label: t(translate, 'context-copy-commit-message'),
       icon: <Icon name="copy" size={12} />,
       disabled: repo.busy,
       // Goes through the worker rather than the cached message, because the
       // clipboard wants the message as Git renders it.
-      onSelect: onCopyMessage,
+      onSelect: onCopyMessage
     },
     {
-      id: "show-message",
-      label: t(translate, "context-show-commit-message"),
+      id: 'show-message',
+      label: t(translate, 'context-show-commit-message'),
       icon: <Icon name="file" size={12} />,
-      onSelect: onShowMessage,
-    },
+      onSelect: onShowMessage
+    }
   ];
 
   return (
     <ContextMenu testId={`graph-row-${row.oid}`} entries={entries}>
       <div
-        className={`graph-row${selected ? " is-selected" : ""}`}
+        className={`graph-row${selected ? ' is-selected' : ''}`}
         data-testid={`graph-row-${row.short}`}
         title={row.subject}
         onClick={onSelect}
@@ -423,11 +399,11 @@ function GraphRowView({
           <>
             <GraphSvg geometry={geometry} laneColors={LANE_COLORS} width={laneWidth} />
             {/*
-              * The author initials sit on top of the node. On a hollow node they
-              * are the theme foreground; on the filled HEAD node they have to
-              * contrast with the lane fill, so their colour follows the fill's
-              * luminance.
-              */}
+             * The author initials sit on top of the node. On a hollow node they
+             * are the theme foreground; on the filled HEAD node they have to
+             * contrast with the lane fill, so their colour follows the fill's
+             * luminance.
+             */}
             <span
               className="graph-row__initials"
               data-testid={`graph-initials-${row.short}`}
@@ -435,10 +411,10 @@ function GraphRowView({
                 left: GRAPH_LEFT_PAD + geometry.nodeLane * COL_WIDTH + COL_WIDTH / 2 - 12,
                 color: geometry.isHead
                   ? initialsTextColor(
-                      resolvedLanes[geometry.colorIndex % resolvedLanes.length] ?? "",
-                      "var(--foreground)",
+                      resolvedLanes[geometry.colorIndex % resolvedLanes.length] ?? '',
+                      'var(--foreground)'
                     )
-                  : "var(--foreground)",
+                  : 'var(--foreground)'
               }}
             >
               {authorInitials(row.author)}
@@ -503,10 +479,10 @@ function GraphRowView({
 function CommitHoverPreview({
   row,
   message,
-  onRequest,
+  onRequest
 }: {
   row: LogRow;
-  message: NonNullable<RepoState["commitMessages"][string]> | undefined;
+  message: NonNullable<RepoState['commitMessages'][string]> | undefined;
   onRequest: () => void;
 }) {
   const translate = useStore((state) => state.t);
@@ -519,7 +495,7 @@ function CommitHoverPreview({
   return (
     <div className="commit-preview" data-testid="commit-preview">
       <div className="commit-preview__label" data-testid="commit-preview-label">
-        {t(translate, "commit-message-preview")}
+        {t(translate, 'commit-message-preview')}
       </div>
       <div className="commit-preview__ident">
         <span className="commit-preview__hash mono">{row.short}</span>
@@ -549,14 +525,12 @@ function CommitHoverPreview({
         </>
       ) : (
         <div className="muted" data-testid="commit-preview-loading">
-          {t(translate, "commit-message-loading")}
+          {t(translate, 'commit-message-loading')}
         </div>
       )}
       <div className="commit-preview__meta">
-        <span className="muted">
-          {ta(translate, "commit-author", { author: row.author })}
-        </span>
-        <span className="muted">{ta(translate, "commit-date", { date: row.date })}</span>
+        <span className="muted">{ta(translate, 'commit-author', { author: row.author })}</span>
+        <span className="muted">{ta(translate, 'commit-date', { date: row.date })}</span>
       </div>
     </div>
   );
@@ -565,17 +539,18 @@ function CommitHoverPreview({
 function CommitMessageDialog({
   row,
   message,
-  onClose,
+  onClose
 }: {
   row: LogRow;
-  message: { subject: string; body: string; co_authors: { name: string; email: string }[] } | undefined;
+  message:
+    { subject: string; body: string; co_authors: { name: string; email: string }[] } | undefined;
   onClose: () => void;
 }) {
   const translate = useStore((state) => state.t);
-  const [full, setFull] = useState(message?.body ?? "");
+  const [full, setFull] = useState(message?.body ?? '');
   useEffect(() => {
     if (message) {
-      setFull([message.subject, message.body].filter(Boolean).join("\n\n"));
+      setFull([message.subject, message.body].filter(Boolean).join('\n\n'));
     }
   }, [message]);
 
@@ -589,15 +564,8 @@ function CommitMessageDialog({
         }
       }}
     >
-      <div
-        className="dialog"
-        role="dialog"
-        aria-modal="true"
-        data-testid="commit-message-dialog"
-      >
-        <div className="dialog__title">
-          {t(translate, "commit-message-dialog-title")}
-        </div>
+      <div className="dialog" role="dialog" aria-modal="true" data-testid="commit-message-dialog">
+        <div className="dialog__title">{t(translate, 'commit-message-dialog-title')}</div>
         <div className="dialog__body">
           {/* The hash and the decorations come first, as in the reference: they
               identify the commit, and a body of text without them is not
@@ -618,7 +586,7 @@ function CommitMessageDialog({
               </pre>
               {message.co_authors.length ? (
                 <div data-testid="commit-message-coauthors">
-                  <div className="muted">{t(translate, "commit-coauthors")}</div>
+                  <div className="muted">{t(translate, 'commit-coauthors')}</div>
                   {message.co_authors.map((author) => (
                     <div key={`${author.name}-${author.email}`}>
                       {author.email ? `${author.name} <${author.email}>` : author.name}
@@ -628,16 +596,16 @@ function CommitMessageDialog({
               ) : null}
               <div className="commit-preview__meta">
                 <span className="muted" data-testid="commit-message-author">
-                  {ta(translate, "commit-author", { author: row.author })}
+                  {ta(translate, 'commit-author', { author: row.author })}
                 </span>
                 <span className="muted" data-testid="commit-message-date">
-                  {ta(translate, "commit-date", { date: row.date })}
+                  {ta(translate, 'commit-date', { date: row.date })}
                 </span>
               </div>
             </>
           ) : (
             <div className="muted" data-testid="commit-message-loading">
-              {t(translate, "commit-message-loading")}
+              {t(translate, 'commit-message-loading')}
             </div>
           )}
         </div>
@@ -648,7 +616,7 @@ function CommitMessageDialog({
             onClick={onClose}
             data-testid="commit-message-close"
           >
-            {t(translate, "dialog-cancel")}
+            {t(translate, 'dialog-cancel')}
           </button>
         </div>
       </div>
@@ -675,7 +643,7 @@ export function maxLanes(rows: GraphRow[]): number {
  */
 function useColumnVisibility(
   totalWidth: number,
-  laneWidth: number,
+  laneWidth: number
 ): { author: boolean; message: boolean } {
   const [visibility, setVisibility] = useState({ author: false, message: false });
   useEffect(() => {
@@ -706,26 +674,26 @@ function useColumnVisibility(
 export function relativeTime(
   timestamp: number,
   translate: (key: string, args?: Record<string, string | number>) => string,
-  now: number = Math.floor(Date.now() / 1000),
+  now: number = Math.floor(Date.now() / 1000)
 ): string {
   const minutes = Math.max(0, Math.floor((now - timestamp) / 60));
   if (minutes < 1) {
-    return translate("rel-now");
+    return translate('rel-now');
   }
   if (minutes < 60) {
-    return translate("rel-min", { n: minutes });
+    return translate('rel-min', { n: minutes });
   }
   if (minutes < 60 * 24) {
-    return translate("rel-hour", { n: Math.floor(minutes / 60) });
+    return translate('rel-hour', { n: Math.floor(minutes / 60) });
   }
   if (minutes < 60 * 24 * 7) {
-    return translate("rel-day", { n: Math.floor(minutes / (60 * 24)) });
+    return translate('rel-day', { n: Math.floor(minutes / (60 * 24)) });
   }
   if (minutes < 60 * 24 * 30) {
-    return translate("rel-week", { n: Math.floor(minutes / (60 * 24 * 7)) });
+    return translate('rel-week', { n: Math.floor(minutes / (60 * 24 * 7)) });
   }
   if (minutes < 60 * 24 * 365) {
-    return translate("rel-month", { n: Math.floor(minutes / (60 * 24 * 30)) });
+    return translate('rel-month', { n: Math.floor(minutes / (60 * 24 * 30)) });
   }
-  return translate("rel-year", { n: Math.floor(minutes / (60 * 24 * 365)) });
+  return translate('rel-year', { n: Math.floor(minutes / (60 * 24 * 365)) });
 }

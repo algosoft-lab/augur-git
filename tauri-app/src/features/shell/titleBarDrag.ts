@@ -1,11 +1,10 @@
-import type { MouseEvent } from "react";
+import type { MouseEvent } from 'react';
 
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
-import { IS_MACOS } from "./WindowControls";
+import { IS_MACOS } from './WindowControls';
 
-const NON_DRAG_SELECTOR =
-  "button, input, textarea, select, a, [role=tab], .menu, .compare__picker";
+const NON_DRAG_SELECTOR = 'button, input, textarea, select, a, [role=tab], .menu, .compare__picker';
 
 export function handleTitleBarMouseDown(event: MouseEvent<HTMLElement>): void {
   if (IS_MACOS || event.button !== 0) {
@@ -21,12 +20,12 @@ export function handleTitleBarMouseDown(event: MouseEvent<HTMLElement>): void {
   if (event.detail === 2) {
     event.preventDefault();
     void window.toggleMaximize().catch((error: unknown) => {
-      console.error("[window] failed to toggle maximize", error);
+      console.error('[window] failed to toggle maximize', error);
     });
     return;
   }
 
   void window.startDragging().catch((error: unknown) => {
-    console.error("[window] failed to start dragging", error);
+    console.error('[window] failed to start dragging', error);
   });
 }

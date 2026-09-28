@@ -7,54 +7,53 @@
  * that says "added" after a removal is worse than no report.
  */
 
-import { useStore } from "../../app/store";
-import type { ChangeReport, Outcome } from "../../bridge/types";
-import { DialogCard } from "../../components/controls";
-import { Icon } from "../../components/Icon";
-import { t, ta } from "../../i18n/strings";
+import { useStore } from '../../app/store';
+import type { ChangeReport, Outcome } from '../../bridge/types';
+import { DialogCard } from '../../components/controls';
+import { Icon } from '../../components/Icon';
+import { t, ta } from '../../i18n/strings';
 
 /** The catalog key naming one outcome of the installer's work on a file. */
-function outcomeKey(operation: ChangeReport["operation"], outcome: Outcome): string {
-  if ("failed" in outcome) {
-    return "cli-install-failed";
+function outcomeKey(operation: ChangeReport['operation'], outcome: Outcome): string {
+  if ('failed' in outcome) {
+    return 'cli-install-failed';
   }
-  if ("removed" in outcome) {
-    return "cli-remove-updated";
+  if ('removed' in outcome) {
+    return 'cli-remove-updated';
   }
-  if ("notInstalled" in outcome) {
-    return "cli-remove-notinstalled";
+  if ('notInstalled' in outcome) {
+    return 'cli-remove-notinstalled';
   }
-  if ("updated" in outcome) {
+  if ('updated' in outcome) {
     // A removal that changed a file is reported as removed above, so `updated`
     // here is always an install.
-    return "cli-install-updated";
+    return 'cli-install-updated';
   }
   // `unchanged` is install-only: a removal with nothing to remove is
   // `notInstalled`.
-  return operation === "install" ? "cli-install-unchanged" : "cli-remove-notinstalled";
+  return operation === 'install' ? 'cli-install-unchanged' : 'cli-remove-notinstalled';
 }
 
 export function OperationErrorDialog({
   label,
   detail,
-  titleKey,
+  titleKey
 }: {
   label: string;
   detail: string;
   /** Which operation failed, so the title names it rather than "command". */
-  titleKey: "merge-error-title" | "rebase-error-title";
+  titleKey: 'merge-error-title' | 'rebase-error-title';
 }) {
   const translate = useStore((state) => state.t);
   const closeOverlay = useStore((state) => state.closeOverlay);
-  const firstLine = detail.split("\n").find((line) => line.trim().length > 0) ?? detail;
+  const firstLine = detail.split('\n').find((line) => line.trim().length > 0) ?? detail;
 
   return (
     <DialogCard
       testId="operation-error-dialog"
       title={
         <>
-          <Icon name="triangle-alert" size={16} />{" "}
-          {ta(translate, titleKey, { label })}
+          <Icon name="triangle-alert" size={16} /> {ta(translate, titleKey, { label })}
         </>
       }
       onBackdrop={closeOverlay}
@@ -75,7 +74,7 @@ export function OperationErrorDialog({
           onClick={closeOverlay}
           data-testid="operation-error-close"
         >
-          {t(translate, "rebase-error-close")}
+          {t(translate, 'rebase-error-close')}
         </button>
       }
     />
@@ -86,21 +85,21 @@ export function CliReportDialog({ report }: { report: ChangeReport }) {
   const translate = useStore((state) => state.t);
   const closeOverlay = useStore((state) => state.closeOverlay);
 
-  const failed = report.results.filter((entry) => "failed" in entry.outcome);
+  const failed = report.results.filter((entry) => 'failed' in entry.outcome);
   const changed = report.results.filter(
-    (entry) => "updated" in entry.outcome || "removed" in entry.outcome,
+    (entry) => 'updated' in entry.outcome || 'removed' in entry.outcome
   );
   const skipped = report.results.filter(
-    (entry) => "unchanged" in entry.outcome || "notInstalled" in entry.outcome,
+    (entry) => 'unchanged' in entry.outcome || 'notInstalled' in entry.outcome
   );
 
   const group = (entries: typeof report.results) => (
     <ul className="stack stack--tight" style={{ margin: 0, paddingLeft: 18 }}>
       {entries.map((entry) => (
         <li key={entry.path}>
-          {t(translate, outcomeKey(report.operation, entry.outcome))}{" "}
+          {t(translate, outcomeKey(report.operation, entry.outcome))}{' '}
           <span className="mono">{entry.path}</span>
-          {"failed" in entry.outcome ? (
+          {'failed' in entry.outcome ? (
             <span className="status-conflict"> — {entry.outcome.failed}</span>
           ) : null}
         </li>
@@ -111,7 +110,7 @@ export function CliReportDialog({ report }: { report: ChangeReport }) {
   return (
     <DialogCard
       testId="cli-report-dialog"
-      title={t(translate, "cli-dialog-title")}
+      title={t(translate, 'cli-dialog-title')}
       onBackdrop={closeOverlay}
       width={520}
       body={
@@ -120,7 +119,7 @@ export function CliReportDialog({ report }: { report: ChangeReport }) {
             <div className="muted" data-testid="cli-report-none">
               {t(
                 translate,
-                report.operation === "install" ? "cli-install-none" : "cli-remove-none",
+                report.operation === 'install' ? 'cli-install-none' : 'cli-remove-none'
               )}
             </div>
           ) : null}
@@ -130,11 +129,9 @@ export function CliReportDialog({ report }: { report: ChangeReport }) {
               thing worth reading. */}
           {failed.length ? group(failed) : null}
           {report.fallback_binary ? (
-            <div className="status-mod">{t(translate, "cli-binary-fallback")}</div>
+            <div className="status-mod">{t(translate, 'cli-binary-fallback')}</div>
           ) : null}
-          {changed.length ? (
-            <div className="muted">{t(translate, "cli-install-hint")}</div>
-          ) : null}
+          {changed.length ? <div className="muted">{t(translate, 'cli-install-hint')}</div> : null}
         </>
       }
       footer={
@@ -144,7 +141,7 @@ export function CliReportDialog({ report }: { report: ChangeReport }) {
           onClick={closeOverlay}
           data-testid="cli-report-close"
         >
-          {t(translate, "dialog-cancel")}
+          {t(translate, 'dialog-cancel')}
         </button>
       }
     />

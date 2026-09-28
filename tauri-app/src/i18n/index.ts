@@ -8,7 +8,7 @@
  * both renders as the key itself.
  */
 
-import type { LanguagePreference } from "../bridge/types";
+import type { LanguagePreference } from '../bridge/types';
 
 export type Catalog = Record<string, string>;
 
@@ -21,7 +21,7 @@ const PLACEHOLDER = /\{\s*\$([a-zA-Z0-9_]+)\s*\}/g;
  * either finds a string or returns the key.
  */
 export function createTranslator(
-  catalog: Catalog,
+  catalog: Catalog
 ): (key: string, args?: Record<string, string | number>) => string {
   return (key, args) => {
     const template = catalog[key] ?? key;
@@ -38,12 +38,9 @@ export function createTranslator(
 export type Translator = ReturnType<typeof createTranslator>;
 
 /** Resolve a persisted preference to a concrete locale id. */
-export function resolveLocale(
-  preference: LanguagePreference,
-  systemLanguage: string,
-): string {
-  if (preference === "en-US" || preference === "zh-CN") {
+export function resolveLocale(preference: LanguagePreference, systemLanguage: string): string {
+  if (preference === 'en-US' || preference === 'zh-CN') {
     return preference;
   }
-  return systemLanguage.toLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
+  return systemLanguage.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US';
 }

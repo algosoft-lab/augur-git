@@ -35,9 +35,9 @@ use crate::diff::{merge_numstat, parse_numstat, parse_raw_records};
 use crate::graph::LogRow;
 
 pub mod branch_compare;
-pub mod operation_probe;
 mod commit_log;
 pub mod location;
+pub mod operation_probe;
 pub mod progress;
 pub mod working_tree;
 
@@ -415,7 +415,11 @@ pub struct BranchInfo {
 
 /// A ref that can be checked out from the user interface.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum CheckoutTarget {
     LocalBranch { local_branch: String },
     RemoteBranch { remote_branch: String },

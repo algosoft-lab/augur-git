@@ -1,6 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from '@playwright/test';
 
-import { boot, fixtureRepo, rightClick, secondFixtureRepo } from "./harness";
+import { boot, fixtureRepo, rightClick, secondFixtureRepo } from './harness';
 
 /**
  * Selecting a commit and reading its diff.
@@ -10,176 +10,172 @@ import { boot, fixtureRepo, rightClick, secondFixtureRepo } from "./harness";
  * showing so a stale panel cannot be mistaken for current content.
  */
 
-test.describe("commit selection", () => {
-  test("waits for a user selection instead of showing a permanent commit placeholder", async ({
-    page,
+test.describe('commit selection', () => {
+  test('waits for a user selection instead of showing a permanent commit placeholder', async ({
+    page
   }) => {
     await boot(page, { open: [fixtureRepo()] });
 
-    await expect(page.getByTestId("bottom-no-commit-state")).toBeVisible();
-    await expect(page.getByTestId("bottom-panel")).toContainText("No commit selected");
-    await expect(page.getByTestId("diff-hunk")).toHaveCount(0);
+    await expect(page.getByTestId('bottom-no-commit-state')).toBeVisible();
+    await expect(page.getByTestId('bottom-panel')).toContainText('No commit selected');
+    await expect(page.getByTestId('diff-hunk')).toHaveCount(0);
 
-    await page.locator(".graph-row").first().click();
-    await expect(page.getByTestId("bottom-commit-hash")).toHaveText("13c6ef3");
-    await expect(page.getByTestId("bottom-no-commit-state")).toHaveCount(0);
-    await expect(page.getByTestId("bottom-panel")).not.toContainText("No commit selected");
+    await page.locator('.graph-row').first().click();
+    await expect(page.getByTestId('bottom-commit-hash')).toHaveText('13c6ef3');
+    await expect(page.getByTestId('bottom-no-commit-state')).toHaveCount(0);
+    await expect(page.getByTestId('bottom-panel')).not.toContainText('No commit selected');
   });
 
   test("loads a commit's files and then its diff", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
-    await page.locator(".graph-row").first().click();
+    await page.locator('.graph-row').first().click();
 
     // The commit's files arrive in their own event.
-    await expect(page.getByTestId("bottom-file-src/lib.rs")).toBeVisible();
-    await expect(page.getByTestId("bottom-file-src/commands/repo.rs")).toBeVisible();
+    await expect(page.getByTestId('bottom-file-src/lib.rs')).toBeVisible();
+    await expect(page.getByTestId('bottom-file-src/commands/repo.rs')).toBeVisible();
     // The panel names the commit so the content is attributable.
-    await expect(page.getByTestId("bottom-panel")).toContainText(
-      "Add the Tauri command surface",
-    );
+    await expect(page.getByTestId('bottom-panel')).toContainText('Add the Tauri command surface');
 
     // Every changed file is shown at once, each under its own path header.
-    await expect(page.getByTestId("bottom-panel")).toContainText("All changed files");
+    await expect(page.getByTestId('bottom-panel')).toContainText('All changed files');
     // The commit has two parents, so the panel says the diff is against the
     // first parent rather than an implicit comparison.
-    await expect(page.getByTestId("bottom-panel")).toContainText("vs first parent");
-    const headers = page.getByTestId("diff-file-header");
+    await expect(page.getByTestId('bottom-panel')).toContainText('vs first parent');
+    const headers = page.getByTestId('diff-file-header');
     await expect(headers).toHaveCount(2);
-    await expect(headers.nth(0)).toContainText("src/lib.rs");
-    await expect(headers.nth(1)).toContainText("src/commands/repo.rs");
+    await expect(headers.nth(0)).toContainText('src/lib.rs');
+    await expect(headers.nth(1)).toContainText('src/commands/repo.rs');
 
     // One hunk per file, because both files of the commit are shown.
-    await expect(page.getByTestId("diff-hunk")).toHaveCount(2);
-    await expect(page.getByTestId("diff-view")).toContainText("count += 2");
+    await expect(page.getByTestId('diff-hunk')).toHaveCount(2);
+    await expect(page.getByTestId('diff-view')).toContainText('count += 2');
     // The deleted line is present too, because the inline layout pairs them.
-    await expect(page.getByTestId("diff-view")).toContainText("count += 1");
+    await expect(page.getByTestId('diff-view')).toContainText('count += 1');
   });
 
-  test("marks the changed characters in the inline layout", async ({ page }) => {
+  test('marks the changed characters in the inline layout', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
     await page.evaluate(() => {
       const store = (window as any).__STUB__;
       void store;
     });
 
-    await page.locator(".graph-row").first().click();
-    await expect(page.getByTestId("diff-hunk").first()).toBeVisible();
+    await page.locator('.graph-row').first().click();
+    await expect(page.getByTestId('diff-hunk').first()).toBeVisible();
 
     // The backend reports the changed character, so it is marked inside the
     // line. A whole-line colour would hide a one-character edit.
-    const mark = page.locator(".diff__text mark").first();
+    const mark = page.locator('.diff__text mark').first();
     await expect(mark).toBeVisible();
     await expect(mark).toHaveText(/2/);
   });
 
-  test("switches to the side-by-side layout when the preference says so", async ({
-    page,
-  }) => {
+  test('switches to the side-by-side layout when the preference says so', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
     await page.evaluate(() => {
-      (window as any).__STUB__.config.view.diff_layout = "side-by-side";
+      (window as any).__STUB__.config.view.diff_layout = 'side-by-side';
     });
 
-    await page.locator(".graph-row").first().click();
-    await expect(page.getByTestId("diff-hunk").first()).toBeVisible();
+    await page.locator('.graph-row').first().click();
+    await expect(page.getByTestId('diff-hunk').first()).toBeVisible();
 
     // A single file shows one text cell per row; the file list is what narrows
     // the view, so a commit with two files still lists both.
-    await page.getByTestId("bottom-file-src/lib.rs").click();
-    await expect(page.getByTestId("bottom-file-src/lib.rs")).toHaveClass(/is-selected/);
-    await expect(page.getByTestId("diff-file-header")).toHaveCount(0);
+    await page.getByTestId('bottom-file-src/lib.rs').click();
+    await expect(page.getByTestId('bottom-file-src/lib.rs')).toHaveClass(/is-selected/);
+    await expect(page.getByTestId('diff-file-header')).toHaveCount(0);
     const firstRow = page.locator('[data-testid="diff-row"]').first();
-    await expect(firstRow.locator(".diff__side")).toHaveCount(2);
-    await expect(firstRow.locator(".diff__text")).toHaveCount(2);
+    await expect(firstRow.locator('.diff__side')).toHaveCount(2);
+    await expect(firstRow.locator('.diff__text')).toHaveCount(2);
   });
 
-  test("aligns diff columns and preserves tab and wide-character advances", async ({ page }) => {
+  test('aligns diff columns and preserves tab and wide-character advances', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
     await page.setViewportSize({ width: 1800, height: 1000 });
-    await page.locator(".graph-row").first().click();
-    await page.getByTestId("bottom-file-src/lib.rs").click();
-    await expect(page.getByTestId("diff-row").first()).toBeVisible();
+    await page.locator('.graph-row').first().click();
+    await page.getByTestId('bottom-file-src/lib.rs').click();
+    await expect(page.getByTestId('diff-row').first()).toBeVisible();
 
-    const selection = (await stub.commands()).find((entry) => entry.cmd === "select_commit")!;
+    const selection = (await stub.commands()).find((entry) => entry.cmd === 'select_commit')!;
     const oid = String((selection.args as any).oid);
-    const code = `\tconst label = "${"界".repeat(100)}";`;
-    await stub.emit("augur://repo-event", {
+    const code = `\tconst label = "${'界'.repeat(100)}";`;
+    await stub.emit('augur://repo-event', {
       repoId: 7,
-      type: "fileDiff",
+      type: 'fileDiff',
       oid,
       file: {
-        path: "src/lib.rs",
+        path: 'src/lib.rs',
         old_path: null,
-        new_path: "src/lib.rs",
-        status: "modified",
+        new_path: 'src/lib.rs',
+        status: 'modified',
         old_blob: null,
         new_blob: null,
         added: 1,
-        deleted: 1,
+        deleted: 1
       },
       document: {
-        path: "src/lib.rs",
-        language: "rust",
+        path: 'src/lib.rs',
+        language: 'rust',
         rows: [
           {
-            kind: "hunk",
+            kind: 'hunk',
             old_no: null,
             new_no: null,
             old_text: null,
             new_text: null,
             old_line_index: null,
             new_line_index: null,
-            hunk_header: "@@ -1 +1 @@",
+            hunk_header: '@@ -1 +1 @@'
           },
           {
-            kind: "context",
+            kind: 'context',
             old_no: 1,
             new_no: 1,
             old_text: code,
             new_text: code,
             old_line_index: 0,
             new_line_index: 0,
-            hunk_header: null,
-          },
+            hunk_header: null
+          }
         ],
         aligned_rows: [
           {
-            kind: "hunk",
+            kind: 'hunk',
             old_no: null,
             new_no: null,
             old_text: null,
             new_text: null,
             old_line_index: null,
             new_line_index: null,
-            hunk_header: "@@ -1 +1 @@",
+            hunk_header: '@@ -1 +1 @@'
           },
           {
-            kind: "context",
+            kind: 'context',
             old_no: 1,
             new_no: 1,
             old_text: code,
             new_text: code,
             old_line_index: 0,
             new_line_index: 0,
-            hunk_header: null,
-          },
+            hunk_header: null
+          }
         ],
         old_source: null,
         new_source: null,
         inline_old: [[]],
         inline_new: [[]],
         binary: false,
-        copy_text: "",
-      },
+        copy_text: ''
+      }
     });
 
-    const metrics = await page.locator(".diff__row--split").evaluate((row) => {
-      const sides = [...row.querySelectorAll<HTMLElement>(".diff__side")];
-      const codeCell = sides[0]!.querySelector<HTMLElement>(".diff__text")!;
-      const gutter = sides[0]!.querySelector<HTMLElement>(".diff__gutter")!;
-      const hunk = document.querySelector<HTMLElement>(".diff__hunk");
+    const metrics = await page.locator('.diff__row--split').evaluate((row) => {
+      const sides = [...row.querySelectorAll<HTMLElement>('.diff__side')];
+      const codeCell = sides[0]!.querySelector<HTMLElement>('.diff__text')!;
+      const gutter = sides[0]!.querySelector<HTMLElement>('.diff__gutter')!;
+      const hunk = document.querySelector<HTMLElement>('.diff__hunk');
       return {
         widths: sides.map((side) => side.getBoundingClientRect().width),
         fontSize: getComputedStyle(codeCell).fontSize,
@@ -188,55 +184,55 @@ test.describe("commit selection", () => {
         tabSize: getComputedStyle(codeCell).tabSize,
         scrolls: codeCell.scrollWidth > codeCell.clientWidth,
         text: codeCell.textContent,
-        hunkFontSize: hunk ? getComputedStyle(hunk).fontSize : null,
+        hunkFontSize: hunk ? getComputedStyle(hunk).fontSize : null
       };
     });
     expect(Math.abs(metrics.widths[0]! - metrics.widths[1]!)).toBeLessThanOrEqual(1);
-    expect(metrics.fontSize).toBe("12px");
-    expect(metrics.lineHeight).toBe("22px");
+    expect(metrics.fontSize).toBe('12px');
+    expect(metrics.lineHeight).toBe('22px');
     expect(metrics.gutterWidth).toBe(42);
-    expect(metrics.tabSize).toBe("4");
+    expect(metrics.tabSize).toBe('4');
     expect(metrics.scrolls).toBe(true);
     expect(metrics.text).toBe(code);
-    expect(metrics.hunkFontSize).toBe("11px");
+    expect(metrics.hunkFontSize).toBe('11px');
   });
 
-  test("drops a diff that arrives after the selection moved on", async ({ page }) => {
+  test('drops a diff that arrives after the selection moved on', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
 
-    await page.locator(".graph-row").first().click();
-    await page.getByTestId("bottom-file-src/lib.rs").click();
-    await expect(page.getByTestId("diff-file-header")).toHaveCount(0);
-    await expect(page.getByTestId("diff-view")).toContainText("count += 2");
+    await page.locator('.graph-row').first().click();
+    await page.getByTestId('bottom-file-src/lib.rs').click();
+    await expect(page.getByTestId('diff-file-header')).toHaveCount(0);
+    await expect(page.getByTestId('diff-view')).toContainText('count += 2');
 
     // A late answer for a commit that is no longer selected must not replace
     // what is on screen.
-    await stub.emit("augur://repo-event", {
+    await stub.emit('augur://repo-event', {
       repoId: 7,
-      type: "fileDiff",
-      oid: "0000000000000000000000000000000000000001",
+      type: 'fileDiff',
+      oid: '0000000000000000000000000000000000000001',
       file: {
-        path: "src/other.rs",
+        path: 'src/other.rs',
         old_path: null,
-        new_path: "src/other.rs",
-        status: "modified",
+        new_path: 'src/other.rs',
+        status: 'modified',
         old_blob: null,
         new_blob: null,
         added: 1,
-        deleted: 1,
+        deleted: 1
       },
       document: {
-        path: "src/other.rs",
-        language: "rust",
+        path: 'src/other.rs',
+        language: 'rust',
         rows: [
           {
-            kind: "hunk",
+            kind: 'hunk',
             old_no: null,
             new_no: null,
             old_text: null,
             new_text: null,
-            hunk_header: "@@ -1 +1 @@",
-          },
+            hunk_header: '@@ -1 +1 @@'
+          }
         ],
         aligned_rows: [],
         old_source: null,
@@ -244,301 +240,279 @@ test.describe("commit selection", () => {
         inline_old: [],
         inline_new: [],
         binary: false,
-        copy_text: "",
-      },
+        copy_text: ''
+      }
     });
 
-    await expect(page.getByTestId("diff-view")).toContainText("count += 2");
-    await expect(page.getByTestId("diff-view")).not.toContainText("@@ -1 +1 @@");
+    await expect(page.getByTestId('diff-view')).toContainText('count += 2');
+    await expect(page.getByTestId('diff-view')).not.toContainText('@@ -1 +1 @@');
   });
 
-  test("drops a late file list for a commit that is no longer selected", async ({ page }) => {
+  test('drops a late file list for a commit that is no longer selected', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
-    const rows = page.locator(".graph-row");
+    const rows = page.locator('.graph-row');
     await rows.nth(0).click();
-    await expect(page.getByTestId("bottom-file-src/lib.rs")).toBeVisible();
-    const oldSelection = (await stub.commands()).filter((entry) => entry.cmd === "select_commit")[0]!;
+    await expect(page.getByTestId('bottom-file-src/lib.rs')).toBeVisible();
+    const oldSelection = (await stub.commands()).filter(
+      (entry) => entry.cmd === 'select_commit'
+    )[0]!;
     const oldOid = String((oldSelection.args as any).oid);
 
     await rows.nth(1).click();
-    await expect(page.getByTestId("bottom-panel")).toContainText(
-      await rows.nth(1).locator(".graph-row__subject").innerText(),
+    await expect(page.getByTestId('bottom-panel')).toContainText(
+      await rows.nth(1).locator('.graph-row__subject').innerText()
     );
-    await stub.emit("augur://repo-event", {
+    await stub.emit('augur://repo-event', {
       repoId: 7,
-      type: "commitFiles",
+      type: 'commitFiles',
       oid: oldOid,
       files: [
         {
-          path: "stale-only.rs",
+          path: 'stale-only.rs',
           old_path: null,
-          new_path: "stale-only.rs",
-          status: "modified",
+          new_path: 'stale-only.rs',
+          status: 'modified',
           old_blob: null,
           new_blob: null,
           added: 1,
-          deleted: 0,
-        },
+          deleted: 0
+        }
       ],
-      merge_parent: null,
+      merge_parent: null
     });
 
-    await expect(page.getByTestId("bottom-file-stale-only.rs")).toHaveCount(0);
-    await expect(page.getByTestId("bottom-panel")).not.toContainText("No commit selected");
+    await expect(page.getByTestId('bottom-file-stale-only.rs')).toHaveCount(0);
+    await expect(page.getByTestId('bottom-panel')).not.toContainText('No commit selected');
   });
 
-  test("clears the selection back to the placeholder", async ({ page }) => {
+  test('clears the selection back to the placeholder', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
-    await page.locator(".graph-row").first().click();
-    await expect(page.getByTestId("bottom-file-src/lib.rs")).toBeVisible();
+    await page.locator('.graph-row').first().click();
+    await expect(page.getByTestId('bottom-file-src/lib.rs')).toBeVisible();
 
-    await page.getByTestId("bottom-clear-commit").click();
+    await page.getByTestId('bottom-clear-commit').click();
 
-    await expect(page.getByTestId("bottom-file-src/lib.rs")).toHaveCount(0);
-    await expect(page.getByTestId("bottom-panel")).toContainText("No commit selected");
+    await expect(page.getByTestId('bottom-file-src/lib.rs')).toHaveCount(0);
+    await expect(page.getByTestId('bottom-panel')).toContainText('No commit selected');
   });
 
-  test("loads a working-tree diff and says which side it is", async ({ page }) => {
+  test('loads a working-tree diff and says which side it is', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
-    await page.getByTestId("changes-file-src/main.rs").click();
+    await page.getByTestId('changes-file-src/main.rs').click();
 
-    await expect(page.getByTestId("bottom-panel")).toContainText("Staged");
-    await expect(page.getByTestId("diff-hunk")).toBeVisible();
-    await expect(page.getByTestId("diff-view")).toContainText("count += 2");
+    await expect(page.getByTestId('bottom-panel')).toContainText('Staged');
+    await expect(page.getByTestId('diff-hunk')).toBeVisible();
+    await expect(page.getByTestId('diff-view')).toContainText('count += 2');
   });
 
-  test("labels an unstaged file as a working-tree change", async ({ page }) => {
+  test('labels an unstaged file as a working-tree change', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
-    await page.getByTestId("changes-file-src/git/graph.rs").click();
+    await page.getByTestId('changes-file-src/git/graph.rs').click();
 
-    await expect(page.getByTestId("bottom-panel")).toContainText("Changes");
+    await expect(page.getByTestId('bottom-panel')).toContainText('Changes');
   });
 
-  test("copies the commit message to the clipboard", async ({ page }) => {
+  test('copies the commit message to the clipboard', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
 
-    await rightClick(page, ".graph-row");
-    await page.getByTestId("context-copy-message").click();
+    await rightClick(page, '.graph-row');
+    await page.getByTestId('context-copy-message').click();
 
     // The worker runs the command so the message is Git's own rendering, and
     // the result goes to the clipboard rather than the status line.
-    const actions = (await stub.commands()).filter(
-      (entry) => entry.cmd === "run_action",
-    );
+    const actions = (await stub.commands()).filter((entry) => entry.cmd === 'run_action');
     expect(actions).toHaveLength(1);
     expect((actions[0]!.args as any).action).toMatchObject({
-      action: "copyCommitMessage",
+      action: 'copyCommitMessage'
     });
 
     // The stub answers with a failure for this label so the reporting path is
     // observable; a success would put the message on the clipboard.
-    await expect(page.getByTestId("status-message")).toContainText(
-      "Failed to copy commit message",
-    );
+    await expect(page.getByTestId('status-message')).toContainText('Failed to copy commit message');
   });
 
-  test("previews a commit on the first hover, and asks for its message", async ({
-    page,
-  }) => {
+  test('previews a commit on the first hover, and asks for its message', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
 
     // The first hover asks the backend, rather than waiting for a visit that
     // already cached the message.
-    await page.locator(".graph-row").first().hover();
-    const preview = page.getByTestId("commit-preview");
+    await page.locator('.graph-row').first().hover();
+    const preview = page.getByTestId('commit-preview');
     await expect(preview).toBeVisible();
     expect(
-      await stub.commands().then((all) =>
-        all.filter((entry) => entry.cmd === "request_commit_message"),
-      ),
+      await stub
+        .commands()
+        .then((all) => all.filter((entry) => entry.cmd === 'request_commit_message'))
     ).not.toHaveLength(0);
 
     // The preview identifies the commit before it shows anything else: a body
     // of text with no hash and no decorations is not identifiable.
-    await expect(preview.getByTestId("commit-preview-label")).toHaveText(
-      "Commit message",
+    await expect(preview.getByTestId('commit-preview-label')).toHaveText('Commit message');
+    await expect(preview.locator('.commit-preview__hash')).toHaveText('13c6ef3');
+    await expect(preview.locator('.commit-preview__subject')).toHaveText(
+      'Add the Tauri command surface'
     );
-    await expect(preview.locator(".commit-preview__hash")).toHaveText("13c6ef3");
-    await expect(preview.locator(".commit-preview__subject")).toHaveText(
-      "Add the Tauri command surface",
-    );
-    await expect(preview.locator(".commit-preview__meta")).toContainText(
-      "Author Lihao",
-    );
-    await expect(preview.locator(".commit-preview__meta")).toContainText("Date ");
+    await expect(preview.locator('.commit-preview__meta')).toContainText('Author Lihao');
+    await expect(preview.locator('.commit-preview__meta')).toContainText('Date ');
 
     // The preview goes away with the hover.
-    await page.locator(".graph__search").hover();
+    await page.locator('.graph__search').hover();
     await expect(preview).toHaveCount(0);
   });
 
-  test("shows the commit message dialog on request", async ({ page }) => {
+  test('shows the commit message dialog on request', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
     // A right click inside the row opens the context menu, exactly as it does
     // in the application.
-    const row = page.locator(".graph-row").first();
+    const row = page.locator('.graph-row').first();
     const box = (await row.boundingBox())!;
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, {
-      button: "right",
+      button: 'right'
     });
-    await expect(page.getByTestId("context-show-message")).toBeVisible();
-    await page.getByTestId("context-show-message").click();
+    await expect(page.getByTestId('context-show-message')).toBeVisible();
+    await page.getByTestId('context-show-message').click();
 
-    const dialog = page.getByTestId("commit-message-dialog");
+    const dialog = page.getByTestId('commit-message-dialog');
     await expect(dialog).toBeVisible();
     // The message is fetched on demand and rendered in full.
-    await expect(page.getByTestId("commit-message-body")).toContainText(
-      "Add the Tauri command surface",
+    await expect(page.getByTestId('commit-message-body')).toContainText(
+      'Add the Tauri command surface'
     );
     // The dialog identifies the commit by hash and names its author and date,
     // which the collapsed row cannot show.
-    await expect(dialog.locator(".commit-preview__hash")).toHaveText("13c6ef3");
-    await expect(page.getByTestId("commit-message-author")).toHaveText(
-      "Author Lihao",
-    );
-    await expect(page.getByTestId("commit-message-date")).toContainText("Date ");
+    await expect(dialog.locator('.commit-preview__hash')).toHaveText('13c6ef3');
+    await expect(page.getByTestId('commit-message-author')).toHaveText('Author Lihao');
+    await expect(page.getByTestId('commit-message-date')).toContainText('Date ');
     // The co-author trailer is part of the message and is listed separately
     // from the body.
-    await expect(page.getByTestId("commit-message-coauthors")).toContainText(
-      "Co-authored-by",
-    );
-    await expect(page.getByTestId("commit-message-coauthors")).toContainText(
-      "ada@example.com",
-    );
+    await expect(page.getByTestId('commit-message-coauthors')).toContainText('Co-authored-by');
+    await expect(page.getByTestId('commit-message-coauthors')).toContainText('ada@example.com');
 
-    await page.getByTestId("commit-message-close").click();
-    await expect(page.getByTestId("commit-message-dialog")).toHaveCount(0);
+    await page.getByTestId('commit-message-close').click();
+    await expect(page.getByTestId('commit-message-dialog')).toHaveCount(0);
   });
 
-  test("copies a commit's diff from the button and the keyboard", async ({
-    page,
-  }) => {
+  test("copies a commit's diff from the button and the keyboard", async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
-    await page.locator(".graph-row").first().click();
-    await page.getByTestId("diff-hunk").first().waitFor();
+    await page.locator('.graph-row').first().click();
+    await page.getByTestId('diff-hunk').first().waitFor();
 
     // The commit's totals are in the header, so the size of the change is
     // readable without summing the file list.
-    await expect(page.getByTestId("bottom-commit-stat-added")).toHaveText("+124");
-    await expect(page.getByTestId("bottom-commit-stat-deleted")).toHaveText("-1");
+    await expect(page.getByTestId('bottom-commit-stat-added')).toHaveText('+124');
+    await expect(page.getByTestId('bottom-commit-stat-deleted')).toHaveText('-1');
 
     // A copy is available even for a single file, because a pasted hunk with no
     // file in it cannot be pasted anywhere useful.
-    await expect(page.getByTestId("bottom-copy-diff")).toBeVisible();
-    await page.getByTestId("bottom-copy-diff").click();
+    await expect(page.getByTestId('bottom-copy-diff')).toBeVisible();
+    await page.getByTestId('bottom-copy-diff').click();
     const writes = async () =>
       page.evaluate(() =>
-        (window as any).__STUB__.log.filter((entry: any) => entry.cmd === "plugin:clipboard-manager|write_text"),
+        (window as any).__STUB__.log.filter(
+          (entry: any) => entry.cmd === 'plugin:clipboard-manager|write_text'
+        )
       );
     await expect.poll(async () => (await writes()).length).toBeGreaterThan(0);
     const copied = String((await writes()).at(-1)!.args.text);
     // Every document names its own file, in whatever order the commit lists
     // them.
     expect(copied).toMatch(/^diff -- src\//m);
-    expect(copied.split("diff -- ").length - 1).toBe(2);
+    expect(copied.split('diff -- ').length - 1).toBe(2);
 
     // The same gesture from the keyboard.
     const before = (await writes()).length;
-    await page.getByTestId("diff-view").click();
-    await page.keyboard.press("Meta+c");
+    await page.getByTestId('diff-view').click();
+    await page.keyboard.press('Meta+c');
     await expect.poll(async () => (await writes()).length).toBeGreaterThan(before);
   });
 
-  test("names the file and offers a copy in the working-tree view", async ({
-    page,
-  }) => {
+  test('names the file and offers a copy in the working-tree view', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
-    await page.getByTestId("changes-file-src/main.rs").first().click();
-    await page.getByTestId("diff-hunk").first().waitFor();
+    await page.getByTestId('changes-file-src/main.rs').first().click();
+    await page.getByTestId('diff-hunk').first().waitFor();
 
     // The working-tree view has no commit to name, so it names the file.
-    await expect(page.getByTestId("bottom-working-path")).toHaveText("src/main.rs");
-    await expect(page.getByTestId("bottom-copy-diff")).toBeVisible();
+    await expect(page.getByTestId('bottom-working-path')).toHaveText('src/main.rs');
+    await expect(page.getByTestId('bottom-copy-diff')).toBeVisible();
   });
 
-  test("draws the author initials on the node, in a colour that reads", async ({
-    page,
-  }) => {
+  test('draws the author initials on the node, in a colour that reads', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
     // The first two characters of the author, centred on the node.
-    await expect(page.getByTestId("graph-initials-13c6ef3")).toHaveText("Li");
-    await expect(page.getByTestId("graph-initials-3171560")).toHaveText("Li");
-    await expect(page.getByTestId("graph-initials-1daa66d")).toHaveText("Ad");
+    await expect(page.getByTestId('graph-initials-13c6ef3')).toHaveText('Li');
+    await expect(page.getByTestId('graph-initials-3171560')).toHaveText('Li');
+    await expect(page.getByTestId('graph-initials-1daa66d')).toHaveText('Ad');
 
     // The initials sit on the node rather than beside it.
-    const row = page.locator(".graph-row").first();
-    const node = await row.locator("svg circle").first().boundingBox();
-    const initials = await page.getByTestId("graph-initials-13c6ef3").boundingBox();
+    const row = page.locator('.graph-row').first();
+    const node = await row.locator('svg circle').first().boundingBox();
+    const initials = await page.getByTestId('graph-initials-13c6ef3').boundingBox();
     expect(initials!.x + initials!.width / 2).toBeCloseTo(node!.x + node!.width / 2, 0);
     expect(initials!.y + initials!.height / 2).toBeCloseTo(node!.y + node!.height / 2, 0);
 
     // HEAD is a filled disc and the rest are rings, so the tip of the history
     // is findable without reading a label.
-    const headFill = await row.locator("svg circle").first().getAttribute("fill");
+    const headFill = await row.locator('svg circle').first().getAttribute('fill');
     const otherFill = await page
-      .locator(".graph-row")
+      .locator('.graph-row')
       .nth(1)
-      .locator("svg circle")
+      .locator('svg circle')
       .first()
-      .getAttribute("fill");
-    expect(headFill).not.toBe("var(--background)");
-    expect(otherFill).toBe("var(--background)");
+      .getAttribute('fill');
+    expect(headFill).not.toBe('var(--background)');
+    expect(otherFill).toBe('var(--background)');
   });
 
-  test("clears the selection when the filter hides it", async ({ page }) => {
+  test('clears the selection when the filter hides it', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
-    await page.locator(".graph-row").first().click();
-    await expect(page.getByTestId("diff-hunk").first()).toBeVisible();
+    await page.locator('.graph-row').first().click();
+    await expect(page.getByTestId('diff-hunk').first()).toBeVisible();
 
     // A query that matches nothing removes the row the diff belongs to, so the
     // panel must not keep showing a commit the list no longer contains.
-    await page.getByTestId("commit-search").fill("nothing matches this");
-    await expect(page.getByTestId("commit-search-no-results")).toBeVisible();
+    await page.getByTestId('commit-search').fill('nothing matches this');
+    await expect(page.getByTestId('commit-search-no-results')).toBeVisible();
     // The panel stays mounted with its placeholder, as the reference does, but
     // the diff is gone.
-    await expect(page.getByTestId("diff-hunk")).toHaveCount(0);
-    await expect(page.getByTestId("bottom-panel")).toContainText(
-      "No commit selected",
-    );
+    await expect(page.getByTestId('diff-hunk')).toHaveCount(0);
+    await expect(page.getByTestId('bottom-panel')).toContainText('No commit selected');
 
     // Restoring the query does not resurrect the selection.
-    await page.getByTestId("commit-search").fill("");
-    await expect(page.locator(".graph-row")).toHaveCount(8);
-    await expect(page.getByTestId("diff-hunk")).toHaveCount(0);
+    await page.getByTestId('commit-search').fill('');
+    await expect(page.locator('.graph-row')).toHaveCount(8);
+    await expect(page.getByTestId('diff-hunk')).toHaveCount(0);
   });
 
-  test("names each column in a header that tracks the rows", async ({ page }) => {
+  test('names each column in a header that tracks the rows', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
     await page.setViewportSize({ width: 1280, height: 800 });
 
     // The header uses the same widths as the rows, so a label always sits over
     // the column it names.
-    for (const column of ["graph", "hash", "message", "author", "date"]) {
+    for (const column of ['graph', 'hash', 'message', 'author', 'date']) {
       await expect(page.getByTestId(`graph-header-${column}`)).toBeVisible();
     }
-    await expect(page.getByTestId("graph-header-hash")).toHaveText("Hash");
+    await expect(page.getByTestId('graph-header-hash')).toHaveText('Hash');
 
     // Narrowing removes the author label and then the message label, in step
     // with the columns themselves.
     await page.setViewportSize({ width: 1000, height: 800 });
-    await expect(page.getByTestId("graph-header-author")).toHaveCount(0);
-    await expect(page.getByTestId("graph-header-message")).toBeVisible();
+    await expect(page.getByTestId('graph-header-author')).toHaveCount(0);
+    await expect(page.getByTestId('graph-header-message')).toBeVisible();
     await page.setViewportSize({ width: 800, height: 800 });
-    await expect(page.getByTestId("graph-header-message")).toHaveCount(0);
+    await expect(page.getByTestId('graph-header-message')).toHaveCount(0);
     // The date's threshold already accounts for it, so it never goes away.
-    await expect(page.getByTestId("graph-header-date")).toBeVisible();
+    await expect(page.getByTestId('graph-header-date')).toBeVisible();
   });
 
-  test("hides the author and then the message when the window narrows", async ({
-    page,
-  }) => {
+  test('hides the author and then the message when the window narrows', async ({ page }) => {
     await boot(page, { open: [secondFixtureRepo()] });
 
     // The lane area is 12 + 24 * lanes + 8, and the two columns need their own
@@ -546,38 +520,38 @@ test.describe("commit selection", () => {
     // so this asserts the whole column rule rather than a duplicated formula.
     const thresholds = await page.evaluate(() =>
       (window as any).__STUB__.log
-        .filter((entry: any) => entry.cmd === "column_visibility")
-        .map((entry: any) => entry.args),
+        .filter((entry: any) => entry.cmd === 'column_visibility')
+        .map((entry: any) => entry.args)
     );
     expect((thresholds as unknown[]).length).toBeGreaterThan(0);
 
     // At the default width both optional columns are present.
-    await expect(page.locator(".graph-row__author").first()).toBeVisible();
-    await expect(page.locator(".graph-row__subject").first()).toBeVisible();
+    await expect(page.locator('.graph-row__author').first()).toBeVisible();
+    await expect(page.locator('.graph-row__subject').first()).toBeVisible();
 
     // The author goes first, because its threshold is the higher of the two.
     await page.setViewportSize({ width: 1000, height: 800 });
-    await expect(page.locator(".graph-row__author")).toHaveCount(0);
-    await expect(page.locator(".graph-row__subject").first()).toBeVisible();
+    await expect(page.locator('.graph-row__author')).toHaveCount(0);
+    await expect(page.locator('.graph-row__subject').first()).toBeVisible();
 
     // The subject goes next. The date and the hash stay: the threshold for the
     // subject already accounts for the date, and the hash identifies the row.
     await page.setViewportSize({ width: 800, height: 800 });
-    await expect(page.locator(".graph-row__subject")).toHaveCount(0);
-    await expect(page.locator(".graph-row__date").first()).toBeVisible();
-    await expect(page.locator(".graph-row__hash").first()).toBeVisible();
+    await expect(page.locator('.graph-row__subject')).toHaveCount(0);
+    await expect(page.locator('.graph-row__date').first()).toBeVisible();
+    await expect(page.locator('.graph-row__hash').first()).toBeVisible();
   });
 
-  test("filters the graph by commit message", async ({ page }) => {
+  test('filters the graph by commit message', async ({ page }) => {
     await boot(page, { open: [secondFixtureRepo()] });
-    await expect(page.locator(".graph-row")).toHaveCount(1);
+    await expect(page.locator('.graph-row')).toHaveCount(1);
 
-    await page.getByTestId("commit-search").fill("nothing matches this");
-    await expect(page.getByTestId("commit-search-no-results")).toBeVisible();
-    await expect(page.locator(".graph-row")).toHaveCount(0);
+    await page.getByTestId('commit-search').fill('nothing matches this');
+    await expect(page.getByTestId('commit-search-no-results')).toBeVisible();
+    await expect(page.locator('.graph-row')).toHaveCount(0);
 
-    await page.getByTestId("commit-search").fill("readme");
-    await expect(page.getByTestId("commit-search-results")).toContainText("1 / 1");
-    await expect(page.locator(".graph-row")).toHaveCount(1);
+    await page.getByTestId('commit-search').fill('readme');
+    await expect(page.getByTestId('commit-search-results')).toContainText('1 / 1');
+    await expect(page.locator('.graph-row')).toHaveCount(1);
   });
 });

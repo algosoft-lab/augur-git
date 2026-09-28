@@ -10,19 +10,19 @@
  * invalid.
  */
 
-import { useMemo, useState } from "react";
-import { Icon } from "../../components/Icon";
-import { Checkbox, DialogCard, TextInput } from "../../components/controls";
-import { localBranches, useStore } from "../../app/store";
-import { validateBranchName } from "./branchName";
-import { t, ta } from "../../i18n/strings";
-import { useActiveRepoId } from "./useActiveRepo";
+import { useMemo, useState } from 'react';
+import { Icon } from '../../components/Icon';
+import { Checkbox, DialogCard, TextInput } from '../../components/controls';
+import { localBranches, useStore } from '../../app/store';
+import { validateBranchName } from './branchName';
+import { t, ta } from '../../i18n/strings';
+import { useActiveRepoId } from './useActiveRepo';
 
 /** Which of the three name-based dialogs is being shown. */
 export type NamedMode =
-  | { mode: "newBranch" }
-  | { mode: "renameBranch"; old: string }
-  | { mode: "renameRemoteBranch"; old: string; remote: string };
+  | { mode: 'newBranch' }
+  | { mode: 'renameBranch'; old: string }
+  | { mode: 'renameRemoteBranch'; old: string; remote: string };
 
 export function NamedBranchDialog(props: NamedMode) {
   const translate = useStore((state) => state.t);
@@ -30,9 +30,7 @@ export function NamedBranchDialog(props: NamedMode) {
   const repo = useStore((state) => (repoId ? state.repos[repoId] : undefined));
   const closeOverlay = useStore((state) => state.closeOverlay);
   const runAction = useStore((state) => state.runAction);
-  const [name, setName] = useState(
-    props.mode === "newBranch" ? "" : props.old,
-  );
+  const [name, setName] = useState(props.mode === 'newBranch' ? '' : props.old);
   const existing = useMemo(() => {
     if (!repo) {
       return [];
@@ -46,33 +44,33 @@ export function NamedBranchDialog(props: NamedMode) {
 
   // A remote branch name only has to satisfy ref syntax; the remote itself
   // rejects a name that already exists, so a duplicate is not checked here.
-  const allow = props.mode === "renameBranch" ? props.old : undefined;
-  const duplicateCheck = props.mode === "renameRemoteBranch" ? [] : existing;
+  const allow = props.mode === 'renameBranch' ? props.old : undefined;
+  const duplicateCheck = props.mode === 'renameRemoteBranch' ? [] : existing;
   const error = validateBranchName(name, duplicateCheck, allow);
   const confirmEnabled = error === null;
 
   const title =
-    props.mode === "newBranch"
-      ? t(translate, "branch-new-title")
-      : props.mode === "renameBranch"
-        ? t(translate, "branch-rename-title")
-        : t(translate, "rename-remote-branch-title");
+    props.mode === 'newBranch'
+      ? t(translate, 'branch-new-title')
+      : props.mode === 'renameBranch'
+        ? t(translate, 'branch-rename-title')
+        : t(translate, 'rename-remote-branch-title');
 
   const icon =
-    props.mode === "newBranch" ? (
+    props.mode === 'newBranch' ? (
       <Icon name="git-branch-plus" size={16} />
     ) : (
       <Icon name="pencil" size={16} />
     );
 
   const hint =
-    props.mode === "newBranch"
-      ? ta(translate, "branch-new-hint", { branch: repo?.branch || "HEAD" })
-      : props.mode === "renameBranch"
-        ? ta(translate, "branch-rename-hint", { branch: props.old })
-        : ta(translate, "rename-remote-branch-hint", {
+    props.mode === 'newBranch'
+      ? ta(translate, 'branch-new-hint', { branch: repo?.branch || 'HEAD' })
+      : props.mode === 'renameBranch'
+        ? ta(translate, 'branch-rename-hint', { branch: props.old })
+        : ta(translate, 'rename-remote-branch-hint', {
             remote: props.remote,
-            branch: props.old,
+            branch: props.old
           });
 
   const confirm = () => {
@@ -80,16 +78,16 @@ export function NamedBranchDialog(props: NamedMode) {
       return;
     }
     closeOverlay();
-    if (props.mode === "newBranch") {
-      void runAction(repoId, { action: "createBranch", name });
-    } else if (props.mode === "renameBranch") {
-      void runAction(repoId, { action: "renameBranch", old: props.old, new: name });
+    if (props.mode === 'newBranch') {
+      void runAction(repoId, { action: 'createBranch', name });
+    } else if (props.mode === 'renameBranch') {
+      void runAction(repoId, { action: 'renameBranch', old: props.old, new: name });
     } else {
       void runAction(repoId, {
-        action: "pushRenameRemote",
+        action: 'pushRenameRemote',
         remote: props.remote,
         old: props.old,
-        new: name,
+        new: name
       });
     }
   };
@@ -103,7 +101,7 @@ export function NamedBranchDialog(props: NamedMode) {
       body={
         <>
           <label className="settings__label" htmlFor="branch-name-input">
-            {t(translate, "branch-name-label")}
+            {t(translate, 'branch-name-label')}
           </label>
           <TextInput
             value={name}
@@ -115,11 +113,11 @@ export function NamedBranchDialog(props: NamedMode) {
             onEscape={closeOverlay}
           />
           <div className="settings__hint">{hint}</div>
-          {error && error !== "empty" ? (
+          {error && error !== 'empty' ? (
             <div className="status-conflict" data-testid="branch-name-error">
-              {error === "exists"
-                ? ta(translate, "branch-name-exists", { name })
-                : t(translate, "branch-name-invalid")}
+              {error === 'exists'
+                ? ta(translate, 'branch-name-exists', { name })
+                : t(translate, 'branch-name-invalid')}
             </div>
           ) : null}
         </>
@@ -132,7 +130,7 @@ export function NamedBranchDialog(props: NamedMode) {
             onClick={closeOverlay}
             data-testid="branch-dialog-cancel"
           >
-            {t(translate, "dialog-cancel")}
+            {t(translate, 'dialog-cancel')}
           </button>
           <button
             type="button"
@@ -141,7 +139,7 @@ export function NamedBranchDialog(props: NamedMode) {
             onClick={confirm}
             data-testid="branch-dialog-confirm"
           >
-            {t(translate, "dialog-confirm")}
+            {t(translate, 'dialog-confirm')}
           </button>
         </>
       }
@@ -159,23 +157,19 @@ export function DeleteRefDialog({ name, isTag }: { name: string; isTag: boolean 
   return (
     <DialogCard
       testId="delete-ref-dialog"
-      title={t(translate, isTag ? "delete-tag-title" : "delete-branch-title")}
+      title={t(translate, isTag ? 'delete-tag-title' : 'delete-branch-title')}
       icon={<Icon name="trash-2" size={16} />}
       onBackdrop={closeOverlay}
       body={
         <>
           <div className="muted">
-            {ta(
-              translate,
-              isTag ? "delete-tag-warning" : "delete-branch-warning",
-              { name },
-            )}
+            {ta(translate, isTag ? 'delete-tag-warning' : 'delete-branch-warning', { name })}
           </div>
           {isTag ? null : (
             <Checkbox
               checked={force}
               onChange={setForce}
-              label={t(translate, "delete-force-label")}
+              label={t(translate, 'delete-force-label')}
               testId="delete-force"
             />
           )}
@@ -189,7 +183,7 @@ export function DeleteRefDialog({ name, isTag }: { name: string; isTag: boolean 
             onClick={closeOverlay}
             data-testid="delete-ref-cancel"
           >
-            {t(translate, "dialog-cancel")}
+            {t(translate, 'dialog-cancel')}
           </button>
           <button
             type="button"
@@ -202,13 +196,11 @@ export function DeleteRefDialog({ name, isTag }: { name: string; isTag: boolean 
               closeOverlay();
               void runAction(
                 repoId,
-                isTag
-                  ? { action: "deleteTag", name }
-                  : { action: "deleteBranch", name, force },
+                isTag ? { action: 'deleteTag', name } : { action: 'deleteBranch', name, force }
               );
             }}
           >
-            {t(translate, "dialog-confirm")}
+            {t(translate, 'dialog-confirm')}
           </button>
         </>
       }
@@ -216,13 +208,7 @@ export function DeleteRefDialog({ name, isTag }: { name: string; isTag: boolean 
   );
 }
 
-export function DeleteRemoteBranchDialog({
-  remote,
-  branch,
-}: {
-  remote: string;
-  branch: string;
-}) {
+export function DeleteRemoteBranchDialog({ remote, branch }: { remote: string; branch: string }) {
   const translate = useStore((state) => state.t);
   const repoId = useActiveRepoId();
   const closeOverlay = useStore((state) => state.closeOverlay);
@@ -231,12 +217,12 @@ export function DeleteRemoteBranchDialog({
   return (
     <DialogCard
       testId="delete-remote-dialog"
-      title={t(translate, "delete-remote-branch-title")}
+      title={t(translate, 'delete-remote-branch-title')}
       icon={<Icon name="trash-2" size={16} />}
       onBackdrop={closeOverlay}
       body={
         <div className="muted">
-          {ta(translate, "delete-remote-branch-warning", { remote, branch })}
+          {ta(translate, 'delete-remote-branch-warning', { remote, branch })}
         </div>
       }
       footer={
@@ -247,7 +233,7 @@ export function DeleteRemoteBranchDialog({
             onClick={closeOverlay}
             data-testid="delete-remote-cancel"
           >
-            {t(translate, "dialog-cancel")}
+            {t(translate, 'dialog-cancel')}
           </button>
           <button
             type="button"
@@ -257,14 +243,14 @@ export function DeleteRemoteBranchDialog({
               if (repoId) {
                 closeOverlay();
                 void runAction(repoId, {
-                  action: "pushDeleteRemote",
+                  action: 'pushDeleteRemote',
                   remote,
-                  branch,
+                  branch
                 });
               }
             }}
           >
-            {t(translate, "dialog-confirm")}
+            {t(translate, 'dialog-confirm')}
           </button>
         </>
       }

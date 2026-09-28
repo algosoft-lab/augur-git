@@ -52,7 +52,7 @@ export function GraphSvg({ geometry, laneColors, width }: GraphSvgProps) {
   const { nodeLane, inputColors, outputColors, nodeInputLanes, parentLanes } = geometry;
   const midY = ROW_HEIGHT / 2;
   const nodeX = LANE_X(nodeLane);
-  const color = laneColors[geometry.colorIndex % laneColors.length] ?? "currentColor";
+  const color = laneColors[geometry.colorIndex % laneColors.length] ?? 'currentColor';
 
   const paths: { d: string; color: string; width: number }[] = [];
 
@@ -67,8 +67,8 @@ export function GraphSvg({ geometry, laneColors, width }: GraphSvgProps) {
     const x = LANE_X(lane);
     paths.push({
       d: `M ${x} 0 L ${x} ${ROW_HEIGHT}`,
-      color: laneColors[outputColors[lane]! % laneColors.length] ?? "currentColor",
-      width: STROKE_WIDTH,
+      color: laneColors[outputColors[lane]! % laneColors.length] ?? 'currentColor',
+      width: STROKE_WIDTH
     });
   }
 
@@ -79,7 +79,7 @@ export function GraphSvg({ geometry, laneColors, width }: GraphSvgProps) {
     paths.push({
       d: `M ${nodeX} 0 L ${nodeX} ${midY - NODE_RADIUS}`,
       color,
-      width: STROKE_WIDTH,
+      width: STROKE_WIDTH
     });
   }
 
@@ -96,15 +96,14 @@ export function GraphSvg({ geometry, laneColors, width }: GraphSvgProps) {
   for (const lane of parentLanes) {
     const x = LANE_X(lane);
     const laneColor =
-      laneColors[(outputColors[lane] ?? geometry.colorIndex) % laneColors.length] ??
-      "currentColor";
+      laneColors[(outputColors[lane] ?? geometry.colorIndex) % laneColors.length] ?? 'currentColor';
     if (lane === nodeLane) {
       // The stub leaving the node downwards. The node's own stroke would stop
       // short of the row below, leaving a visible gap.
       paths.push({
         d: `M ${nodeX} ${midY + NODE_RADIUS} L ${nodeX} ${ROW_HEIGHT}`,
         color: laneColor,
-        width: STROKE_WIDTH,
+        width: STROKE_WIDTH
       });
     } else {
       paths.push({ d: route(nodeX, x, midY), color: laneColor, width: STROKE_WIDTH });
@@ -137,7 +136,7 @@ export function GraphSvg({ geometry, laneColors, width }: GraphSvgProps) {
         cx={nodeX}
         cy={midY}
         r={NODE_RADIUS}
-        fill={geometry.isHead ? color : "var(--background)"}
+        fill={geometry.isHead ? color : 'var(--background)'}
         stroke={color}
         strokeWidth={STROKE_WIDTH}
       />
@@ -147,7 +146,7 @@ export function GraphSvg({ geometry, laneColors, width }: GraphSvgProps) {
 
 /** The first two characters of an author name, as the reference shows them. */
 export function authorInitials(author: string): string {
-  return [...author].slice(0, 2).join("");
+  return [...author].slice(0, 2).join('');
 }
 
 /** A rounded orthogonal route from `fromX` to `toX` at `midY`. */
@@ -165,6 +164,6 @@ function route(fromX: number, toX: number, midY: number): string {
     `Q ${fromX} ${midY} ${fromX + radius * direction} ${midY}`,
     `L ${toX - radius * direction} ${midY}`,
     `Q ${toX} ${midY} ${toX} ${endY}`,
-    `L ${toX} ${ROW_HEIGHT}`,
-  ].join(" ");
+    `L ${toX} ${ROW_HEIGHT}`
+  ].join(' ');
 }

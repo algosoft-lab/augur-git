@@ -161,12 +161,19 @@ fn handle_second_launch(app: &tauri::AppHandle, args: &[String], cwd: &str) {
         if let Ok(current) = std::fs::canonicalize(cwd_path)
             && current.is_dir()
         {
-            requested.push(augur_core::paths::normalize_extended_path(&current).to_string_lossy().into_owned());
+            requested.push(
+                augur_core::paths::normalize_extended_path(&current)
+                    .to_string_lossy()
+                    .into_owned(),
+            );
         }
     }
     match cli::resolve_forwarded(&requested, cwd_path) {
         Ok(paths) => {
-            log::info!("[cli] forwarding {} path(s) to the running instance", paths.len());
+            log::info!(
+                "[cli] forwarding {} path(s) to the running instance",
+                paths.len()
+            );
             AppState::deliver_open_paths(app, paths);
         }
         Err(error) => log::warn!("[cli] forwarded launch rejected: {error}"),

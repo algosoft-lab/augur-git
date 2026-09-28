@@ -58,7 +58,9 @@ fn target_triple() -> Option<String> {
     // dropped: Tauri names the sidecar after the full Rust triple.
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").ok()?;
     let os = std::env::var("CARGO_CFG_TARGET_OS").ok()?;
-    let env = std::env::var("CARGO_CFG_TARGET_ENV").ok().unwrap_or_default();
+    let env = std::env::var("CARGO_CFG_TARGET_ENV")
+        .ok()
+        .unwrap_or_default();
     let abi = std::env::var("CARGO_CFG_TARGET_ABI").ok();
     let vendor = match os.as_str() {
         "macos" => "apple",

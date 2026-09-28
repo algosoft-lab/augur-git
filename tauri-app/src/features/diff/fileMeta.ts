@@ -1,6 +1,6 @@
 /** Helpers for the changed-file lists. */
 
-import type { FileChange, FileChangeStatus } from "../../bridge/types";
+import type { FileChange, FileChangeStatus } from '../../bridge/types';
 
 /**
  * Split an add/delete count into the five-segment bar.
@@ -10,7 +10,7 @@ import type { FileChange, FileChangeStatus } from "../../bridge/types";
  */
 export function statBlocks(
   added: number | null,
-  deleted: number | null,
+  deleted: number | null
 ): { added: number; deleted: number } {
   const TOTAL = 5;
   const add = added ?? 0;
@@ -41,19 +41,19 @@ export function statusKey(status: FileChangeStatus): string {
  */
 export function statusModifier(status: FileChangeStatus): string {
   switch (status) {
-    case "added":
-      return "add";
-    case "deleted":
-      return "del";
-    case "modified":
-      return "mod";
-    case "renamed":
-      return "ren";
-    case "copied":
-      return "cpy";
-    case "unmerged":
-      return "conflict";
+    case 'added':
+      return 'add';
+    case 'deleted':
+      return 'del';
+    case 'modified':
+      return 'mod';
+    case 'renamed':
+      return 'ren';
+    case 'copied':
+      return 'cpy';
+    case 'unmerged':
+      return 'conflict';
     default:
-      return "unknown";
+      return 'unknown';
   }
 }

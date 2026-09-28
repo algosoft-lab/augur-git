@@ -13,7 +13,7 @@ use augur_core::keymap;
 use augur_core::shell_install::{self, ChangeReport, Operation};
 
 use crate::commands::repo::CommandError;
-use crate::events::{AppEvent, OpenPathsPayload, OPEN_PATHS_EVENT};
+use crate::events::{AppEvent, OPEN_PATHS_EVENT, OpenPathsPayload};
 use crate::state::AppState;
 
 type Result<T> = std::result::Result<T, CommandError>;
@@ -189,14 +189,12 @@ pub fn set_shortcut(
             ));
         }
     }
-    state.update_settings(|settings| {
-        match keys {
-            Some(keys) => {
-                settings.shortcuts.insert(command.clone(), keys);
-            }
-            None => {
-                settings.shortcuts.remove(&command);
-            }
+    state.update_settings(|settings| match keys {
+        Some(keys) => {
+            settings.shortcuts.insert(command.clone(), keys);
+        }
+        None => {
+            settings.shortcuts.remove(&command);
         }
     });
     Ok(state.persistence().shortcut_state())
@@ -228,7 +226,10 @@ pub fn open_about_window(app: AppHandle, state: State<'_, AppState>) -> Result<(
         label,
         WebviewUrl::App("index.html?window=about".into()),
     )
-    .title(resolved_title(&state.settings().config.language, "app-name"))
+    .title(resolved_title(
+        &state.settings().config.language,
+        "app-name",
+    ))
     .inner_size(400.0, 340.0)
     .min_inner_size(400.0, 340.0)
     .resizable(false);
@@ -256,7 +257,10 @@ pub fn open_settings_window(app: AppHandle, state: State<'_, AppState>) -> Resul
         label,
         WebviewUrl::App("index.html?window=settings".into()),
     )
-    .title(resolved_title(&state.settings().config.language, "settings-title"))
+    .title(resolved_title(
+        &state.settings().config.language,
+        "settings-title",
+    ))
     .inner_size(780.0, 560.0)
     .min_inner_size(780.0, 560.0)
     .resizable(false)
@@ -286,7 +290,10 @@ pub fn open_compare_window(
     }
     let url = WebviewUrl::App(format!("index.html?window=compare&repo={repo_id}").into());
     let builder = WebviewWindowBuilder::new(&app, &label, url)
-        .title(resolved_title(&state.settings().config.language, "compare-window-title"))
+        .title(resolved_title(
+            &state.settings().config.language,
+            "compare-window-title",
+        ))
         .inner_size(1280.0, 820.0)
         .min_inner_size(900.0, 560.0)
         .resizable(true)
@@ -331,9 +338,9 @@ pub fn request_open_paths(app: AppHandle, paths: Vec<String>) {
     if paths.is_empty() {
         return;
     }
-    let _ = app.get_webview_window("main").map(|window| {
-        window.emit(OPEN_PATHS_EVENT, OpenPathsPayload { paths })
-    });
+    let _ = app
+        .get_webview_window("main")
+        .map(|window| window.emit(OPEN_PATHS_EVENT, OpenPathsPayload { paths }));
 }
 
 /// Collect the repository paths handed over before this window was listening.
@@ -389,7 +396,10 @@ mod tests {
             "Compare revisions"
         );
         assert_eq!(
-            resolved_title(&LanguagePreference::SimplifiedChinese, "compare-window-title"),
+            resolved_title(
+                &LanguagePreference::SimplifiedChinese,
+                "compare-window-title"
+            ),
             "比较版本"
         );
         // The About window is titled as the product, which is what the main

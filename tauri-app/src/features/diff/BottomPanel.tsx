@@ -7,24 +7,24 @@
  * current content.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
-import { EmptyState, Splitter } from "../../components/controls";
-import { Icon } from "../../components/Icon";
-import type { FileChange } from "../../bridge/types";
-import * as ipc from "../../bridge/ipc";
-import { statBlocks, statusKey, statusModifier } from "./fileMeta";
-import { useStore, type RepoState } from "../../app/store";
-import { DiffView, NARROW_WIDTH, type DiffSection } from "./DiffView";
-import { t } from "../../i18n/strings";
+import { EmptyState, Splitter } from '../../components/controls';
+import { Icon } from '../../components/Icon';
+import type { FileChange } from '../../bridge/types';
+import * as ipc from '../../bridge/ipc';
+import { statBlocks, statusKey, statusModifier } from './fileMeta';
+import { useStore, type RepoState } from '../../app/store';
+import { DiffView, NARROW_WIDTH, type DiffSection } from './DiffView';
+import { t } from '../../i18n/strings';
 
 export function BottomPanel({
   repo,
   height,
   onFileListRatioChange,
-  onFileListRatioChangeEnd,
+  onFileListRatioChangeEnd
 }: {
   repo: RepoState;
   height: number | null;
@@ -44,12 +44,12 @@ export function BottomPanel({
 
   const pane = repo.pane;
   const commit = repo.selected;
-  const showFileList = pane.kind === "commit" && repo.commitFiles.length > 0;
+  const showFileList = pane.kind === 'commit' && repo.commitFiles.length > 0;
 
   // Every file of the selected commit is loaded, because the panel shows them
   // all. The requested set keeps a re-render from asking for the same file
   // twice, and it resets when the selection changes.
-  const selectionKey = commit?.oid ?? "";
+  const selectionKey = commit?.oid ?? '';
   useEffect(() => {
     requested.current = new Set();
   }, [selectionKey]);
@@ -62,12 +62,7 @@ export function BottomPanel({
         continue;
       }
       requested.current.add(file.new_path);
-      void ipc.loadCommitFileDiff(
-        repo.id,
-        commit.oid,
-        repo.commitMergeParent,
-        file,
-      );
+      void ipc.loadCommitFileDiff(repo.id, commit.oid, repo.commitMergeParent, file);
     }
   }, [repo.id, commit, repo.commitFiles, repo.commitDiffs]);
 
@@ -83,11 +78,11 @@ export function BottomPanel({
   }, []);
 
   const sections = useMemo<DiffSection[]>(() => {
-    if (pane.kind === "commit" && pane.file) {
+    if (pane.kind === 'commit' && pane.file) {
       const document = repo.commitDiffs[pane.file.new_path];
       return document ? [{ path: pane.file.new_path, document }] : [];
     }
-    if (pane.kind === "commit") {
+    if (pane.kind === 'commit') {
       return repo.commitFiles
         .map((file) => {
           const document = repo.commitDiffs[file.new_path];
@@ -95,28 +90,24 @@ export function BottomPanel({
         })
         .filter((entry): entry is DiffSection => entry !== null);
     }
-    if (pane.kind === "working" && repo.workingDocument) {
+    if (pane.kind === 'working' && repo.workingDocument) {
       return [{ path: pane.file.path, document: repo.workingDocument }];
     }
     return [];
   }, [pane, repo.commitFiles, repo.commitDiffs, repo.workingDocument]);
 
   const commitLoading =
-    pane.kind === "commit" &&
-    (repo.commitFilesLoading ||
-      sections.length < (pane.file ? 1 : repo.commitFiles.length));
+    pane.kind === 'commit' &&
+    (repo.commitFilesLoading || sections.length < (pane.file ? 1 : repo.commitFiles.length));
 
   const title = (() => {
-    if (pane.kind === "working") {
-      return t(
-        translate,
-        pane.staged ? "diff-working-tree-staged" : "diff-working-tree-changes",
-      );
+    if (pane.kind === 'working') {
+      return t(translate, pane.staged ? 'diff-working-tree-staged' : 'diff-working-tree-changes');
     }
     if (commit) {
       return commit.subject;
     }
-    return t(translate, "bottom-no-commit");
+    return t(translate, 'bottom-no-commit');
   })();
 
   // A wide view of many files forces the inline layout, because a side-by-side
@@ -127,13 +118,13 @@ export function BottomPanel({
   // The commit's own totals, so the size of the change is readable without
   // summing the file list.
   const commitTotals =
-    pane.kind === "commit" && repo.commitFiles.length
+    pane.kind === 'commit' && repo.commitFiles.length
       ? repo.commitFiles.reduce(
           (sum, file) => ({
             added: sum.added + (file.added ?? 0),
-            deleted: sum.deleted + (file.deleted ?? 0),
+            deleted: sum.deleted + (file.deleted ?? 0)
           }),
-          { added: 0, deleted: 0 },
+          { added: 0, deleted: 0 }
         )
       : null;
 
@@ -149,7 +140,7 @@ export function BottomPanel({
       return;
     }
     void writeText(
-      sections.map((entry) => `diff -- ${entry.path}\n${entry.document.copy_text}`).join(""),
+      sections.map((entry) => `diff -- ${entry.path}\n${entry.document.copy_text}`).join('')
     );
   };
 
@@ -159,26 +150,26 @@ export function BottomPanel({
     const onKeyDown = (event: KeyboardEvent) => {
       if (
         (event.metaKey || event.ctrlKey) &&
-        event.key.toLowerCase() === "c" &&
+        event.key.toLowerCase() === 'c' &&
         sections.length > 0
       ) {
         copyDiff();
       }
     };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
   }, [sections, repo.id]);
 
-  if (pane.kind === "none") {
+  if (pane.kind === 'none') {
     return (
       <div
-        className={`bottom${height !== null ? " bottom--fixed" : ""}`}
+        className={`bottom${height !== null ? ' bottom--fixed' : ''}`}
         style={height !== null ? { height } : undefined}
         data-testid="bottom-panel"
       >
         <EmptyState
           icon={<Icon name="git-commit-horizontal" />}
-          message={t(translate, "bottom-no-commit")}
+          message={t(translate, 'bottom-no-commit')}
           testId="bottom-no-commit-state"
         />
       </div>
@@ -187,7 +178,7 @@ export function BottomPanel({
 
   return (
     <div
-      className={`bottom${height !== null ? " bottom--fixed" : ""}`}
+      className={`bottom${height !== null ? ' bottom--fixed' : ''}`}
       style={height !== null ? { height } : undefined}
       data-testid="bottom-panel"
     >
@@ -198,21 +189,23 @@ export function BottomPanel({
           data-testid="bottom-toggle-files"
           onClick={() => setCollapsed((value) => !value)}
         >
-          <Icon name={collapsed ? "chevron-right" : "chevron-down"} size={11} />
+          <Icon name={collapsed ? 'chevron-right' : 'chevron-down'} size={11} />
         </button>
         {commit ? (
           <span className="mono bottom__commit-hash" data-testid="bottom-commit-hash">
             {commit.short}
           </span>
         ) : null}
-        <span className="bottom__toolbar-title" title={title}>{title}</span>
+        <span className="bottom__toolbar-title" title={title}>
+          {title}
+        </span>
         <span className="bottom__toolbar-spacer" />
-        {repo.commitMergeParent && pane.kind === "commit" ? (
-          <span className="muted">{t(translate, "diff-merge-first-parent")}</span>
+        {repo.commitMergeParent && pane.kind === 'commit' ? (
+          <span className="muted">{t(translate, 'diff-merge-first-parent')}</span>
         ) : null}
         {/* The commit's own totals, so the size of the change is readable
             without summing the file list. */}
-        {pane.kind === "commit" && commitTotals ? (
+        {pane.kind === 'commit' && commitTotals ? (
           <StatBar
             added={commitTotals.added}
             deleted={commitTotals.deleted}
@@ -221,7 +214,7 @@ export function BottomPanel({
         ) : null}
         {/* The working-tree view has no commit, so it names the file and offers
             the copy, as the reference does. */}
-        {pane.kind === "working" && pane.file ? (
+        {pane.kind === 'working' && pane.file ? (
           <span
             className="bottom__toolbar-title mono"
             data-testid="bottom-working-path"
@@ -235,7 +228,7 @@ export function BottomPanel({
             type="button"
             className="tool-button tool-button--compact"
             data-testid="bottom-copy-diff"
-            title={t(translate, "diff-copy")}
+            title={t(translate, 'diff-copy')}
             onClick={copyDiff}
           >
             <Icon name="copy" size={12} />
@@ -246,8 +239,8 @@ export function BottomPanel({
             type="button"
             className="tool-button tool-button--compact"
             data-testid="bottom-clear-commit"
-            title={t(translate, "bottom-clear-selection")}
-            aria-label={t(translate, "bottom-clear-selection")}
+            title={t(translate, 'bottom-clear-selection')}
+            aria-label={t(translate, 'bottom-clear-selection')}
             onClick={() => clearCommit(repo.id)}
           >
             <Icon name="x" size={11} />
@@ -264,7 +257,7 @@ export function BottomPanel({
             >
               <FileList
                 files={repo.commitFiles}
-                selected={pane.kind === "commit" ? pane.file : null}
+                selected={pane.kind === 'commit' ? pane.file : null}
                 onSelect={(file) => {
                   void selectCommitFile(repo.id, file);
                 }}
@@ -279,9 +272,7 @@ export function BottomPanel({
               }}
               onDrag={(delta) => {
                 const total = Math.max(1, bodyRef.current?.clientWidth ?? 600);
-                onFileListRatioChange(
-                  clampRatio(fileListDragStart.current + delta / total),
-                );
+                onFileListRatioChange(clampRatio(fileListDragStart.current + delta / total));
               }}
               onDragEnd={onFileListRatioChangeEnd}
             />
@@ -291,27 +282,26 @@ export function BottomPanel({
           sections={sections}
           layout={layout}
           forceInline={narrow}
-          error={pane.kind === "working" ? repo.workingError : null}
+          error={pane.kind === 'working' ? repo.workingError : null}
           // A bare spinner and a bare error both read as a broken panel; the
           // reference names both states.
-          loading={pane.kind === "working" ? repo.workingLoading : commitLoading}
-          loadingMessage={pane.kind === "working"
-            ? t(translate, "diff-working-tree-loading")
-            : commitLoading ? t(translate, "bottom-loading-commit") : undefined}
-          errorLabel={
-            pane.kind === "working" ? t(translate, "diff-working-tree-error") : undefined
+          loading={pane.kind === 'working' ? repo.workingLoading : commitLoading}
+          loadingMessage={
+            pane.kind === 'working'
+              ? t(translate, 'diff-working-tree-loading')
+              : commitLoading
+                ? t(translate, 'bottom-loading-commit')
+                : undefined
           }
+          errorLabel={pane.kind === 'working' ? t(translate, 'diff-working-tree-error') : undefined}
           testId="diff-view"
-          header={multiFile ? t(translate, "diff-all-files") : undefined}
+          header={multiFile ? t(translate, 'diff-all-files') : undefined}
           emptyMessage={
-            pane.kind === "working"
-              ? t(translate, "bottom-no-file")
+            pane.kind === 'working'
+              ? t(translate, 'bottom-no-file')
               : commit
-                ? t(
-                    translate,
-                    repo.commitMergeParent ? "bottom-merge-empty" : "bottom-no-changes",
-                  )
-                : t(translate, "bottom-no-commit")
+                ? t(translate, repo.commitMergeParent ? 'bottom-merge-empty' : 'bottom-no-changes')
+                : t(translate, 'bottom-no-commit')
           }
           onCopy={sections.length ? copyDiff : undefined}
         />
@@ -327,7 +317,7 @@ function clampRatio(value: number): number {
 function FileList({
   files,
   selected,
-  onSelect,
+  onSelect
 }: {
   files: FileChange[];
   selected: FileChange | null;
@@ -335,12 +325,7 @@ function FileList({
 }) {
   const translate = useStore((state) => state.t);
   if (files.length === 0) {
-    return (
-      <EmptyState
-        message={t(translate, "bottom-no-changes")}
-        testId="bottom-files-empty"
-      />
-    );
+    return <EmptyState message={t(translate, 'bottom-no-changes')} testId="bottom-files-empty" />;
   }
   return (
     <div className="bottom__files-scroll">
@@ -350,21 +335,17 @@ function FileList({
         return (
           <div
             key={`${file.status}-${file.new_path}-${index}`}
-            className={`file-row${isSelected ? " is-selected" : ""}`}
+            className={`file-row${isSelected ? ' is-selected' : ''}`}
             data-testid={`bottom-file-${file.new_path}`}
             title={file.old_path ? `${file.old_path} → ${file.new_path}` : file.new_path}
             onClick={() => onSelect(file)}
           >
-            <span
-              className={`file-row__status status-${statusModifier(file.status)}`}
-            >
+            <span className={`file-row__status status-${statusModifier(file.status)}`}>
               {t(translate, statusKey(file.status))}
             </span>
             <span className="file-row__name mono">{file.new_path}</span>
             {binary ? (
-              <span className="file-row__stat muted">
-                {t(translate, "bottom-bin")}
-              </span>
+              <span className="file-row__stat muted">{t(translate, 'bottom-bin')}</span>
             ) : (
               <StatBar added={file.added ?? 0} deleted={file.deleted ?? 0} />
             )}
@@ -382,15 +363,7 @@ function FileList({
  * numbers say the size, and a bar alone cannot say whether a change is three
  * lines or three hundred.
  */
-function StatBar({
-  added,
-  deleted,
-  testId,
-}: {
-  added: number;
-  deleted: number;
-  testId?: string;
-}) {
+function StatBar({ added, deleted, testId }: { added: number; deleted: number; testId?: string }) {
   const blocks = statBlocks(added, deleted);
   if (blocks.added === 0 && blocks.deleted === 0) {
     return <span className="file-row__stat muted">—</span>;
@@ -400,10 +373,7 @@ function StatBar({
       <span className="stat-bar__added" data-testid={testId ? `${testId}-added` : undefined}>
         +{added}
       </span>
-      <span
-        className="stat-bar__deleted"
-        data-testid={testId ? `${testId}-deleted` : undefined}
-      >
+      <span className="stat-bar__deleted" data-testid={testId ? `${testId}-deleted` : undefined}>
         -{deleted}
       </span>
       <span className="stat-blocks">

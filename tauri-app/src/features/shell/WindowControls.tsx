@@ -1,17 +1,16 @@
-import { useState } from "react";
+import { useState } from 'react';
 
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
-import { Icon } from "../../components/Icon";
-import { t } from "../../i18n/strings";
-import { useStore } from "../../app/store";
+import { Icon } from '../../components/Icon';
+import { t } from '../../i18n/strings';
+import { useStore } from '../../app/store';
 
-export const IS_MACOS =
-  typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+export const IS_MACOS = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
 
 export function WindowControls({
   flushBeforeClose = false,
-  maximize = true,
+  maximize = true
 }: {
   flushBeforeClose?: boolean;
   /** Hide the maximize button on a window the backend keeps at a fixed size. */
@@ -29,8 +28,8 @@ export function WindowControls({
       <button
         type="button"
         className="window-controls__button"
-        title={t(translate, "window-minimize")}
-        aria-label={t(translate, "window-minimize")}
+        title={t(translate, 'window-minimize')}
+        aria-label={t(translate, 'window-minimize')}
         data-testid="window-minimize"
         onClick={() => void getCurrentWindow().minimize()}
       >
@@ -40,8 +39,8 @@ export function WindowControls({
         <button
           type="button"
           className="window-controls__button"
-          title={t(translate, maximized ? "window-restore" : "window-maximize")}
-          aria-label={t(translate, maximized ? "window-restore" : "window-maximize")}
+          title={t(translate, maximized ? 'window-restore' : 'window-maximize')}
+          aria-label={t(translate, maximized ? 'window-restore' : 'window-maximize')}
           data-testid="window-toggle-maximize"
           onClick={async () => {
             const window = getCurrentWindow();
@@ -49,18 +48,18 @@ export function WindowControls({
             setMaximized(await window.isMaximized());
           }}
         >
-          <Icon name={maximized ? "copy" : "square"} size={12} />
+          <Icon name={maximized ? 'copy' : 'square'} size={12} />
         </button>
       ) : null}
       <button
         type="button"
         className="window-controls__button window-controls__button--close"
-        title={t(translate, "window-close")}
-        aria-label={t(translate, "window-close")}
+        title={t(translate, 'window-close')}
+        aria-label={t(translate, 'window-close')}
         data-testid="window-close"
         onClick={async () => {
           if (flushBeforeClose) {
-            await import("../../bridge/ipc").then((ipc) => ipc.flushState());
+            await import('../../bridge/ipc').then((ipc) => ipc.flushState());
           }
           await getCurrentWindow().close();
         }}

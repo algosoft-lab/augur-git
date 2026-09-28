@@ -339,7 +339,10 @@ fn apply(target: &RcTarget, binary: &Path, operation: Operation) -> TargetResult
             }
         }
         if let Err(error) = std::fs::write(&target.path, &updated) {
-            log::warn!("[cli_install] failed to write {}: {error}", target.path.display());
+            log::warn!(
+                "[cli_install] failed to write {}: {error}",
+                target.path.display()
+            );
             return TargetResult {
                 path: target.path.clone(),
                 outcome: Outcome::Failed(error.to_string()),
@@ -459,10 +462,8 @@ mod tests {
 
     impl TempTarget {
         fn new(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!(
-                "augur-cli-{}-{name}",
-                std::process::id()
-            ));
+            let path =
+                std::env::temp_dir().join(format!("augur-cli-{}-{name}", std::process::id()));
             let _ = std::fs::remove_dir_all(&path);
             std::fs::create_dir_all(&path).expect("temp dir");
             TempTarget(Some(RcTarget {
@@ -509,8 +510,7 @@ mod tests {
         assert!(!text.contains(COMMAND_NAME));
 
         // Removing again has nothing to do.
-        let nothing =
-            apply(target.0.as_ref().expect("live"), binary, Operation::Remove);
+        let nothing = apply(target.0.as_ref().expect("live"), binary, Operation::Remove);
         assert_eq!(nothing.outcome, Outcome::NotInstalled);
     }
 
@@ -524,7 +524,11 @@ mod tests {
             path: PathBuf::from("/dev/null/impossible/rc"),
             create: true,
         };
-        let result = apply(&target, Path::new("/apps/augur-git-tauri"), Operation::Install);
+        let result = apply(
+            &target,
+            Path::new("/apps/augur-git-tauri"),
+            Operation::Install,
+        );
         match result.outcome {
             Outcome::Failed(reason) => assert!(!reason.is_empty(), "a reason is carried"),
             other => panic!("expected a failure, got {other:?}"),
@@ -538,7 +542,11 @@ mod tests {
             path: PathBuf::from("/definitely/missing/config.fish"),
             create: false,
         };
-        let result = apply(&target, Path::new("/apps/augur-git-tauri"), Operation::Install);
+        let result = apply(
+            &target,
+            Path::new("/apps/augur-git-tauri"),
+            Operation::Install,
+        );
         assert_eq!(result.outcome, Outcome::NotInstalled);
     }
 }

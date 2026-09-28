@@ -58,6 +58,7 @@ bun install          # frontend dependencies
 bun run tauri:dev    # build the CLI companion, then run the app in dev mode
 bun run tauri:build  # produce a platform bundle
 bun run tauri:build -- --bundles app   # one platform's bundle only
+bun run format      # format TypeScript and Rust sources
 bun run typecheck    # TypeScript, no emit
 bun run test         # unit tests for the pure interface logic
 bun run test:e2e     # browser tests for the whole interface

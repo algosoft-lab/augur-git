@@ -7,20 +7,20 @@
  * which is then the default for the session.
  */
 
-import { useState } from "react";
+import { useState } from 'react';
 
-import { Icon } from "../../components/Icon";
-import { Menu, TextArea, type MenuItemSpec } from "../../components/controls";
-import type { CommitActionPreference } from "../../bridge/types";
-import { useStore, type RepoState } from "../../app/store";
-import { t } from "../../i18n/strings";
+import { Icon } from '../../components/Icon';
+import { Menu, TextArea, type MenuItemSpec } from '../../components/controls';
+import type { CommitActionPreference } from '../../bridge/types';
+import { useStore, type RepoState } from '../../app/store';
+import { t } from '../../i18n/strings';
 
 export function CommitPanel({ repo }: { repo: RepoState }) {
   const translate = useStore((state) => state.t);
   const preference = useStore((state) => state.config.view.commit_action);
   const setView = useStore((state) => state.setView);
   const runAction = useStore((state) => state.runAction);
-  const [message, setMessageText] = useState("");
+  const [message, setMessageText] = useState('');
 
   // Amending rewrites the previous commit, so either kind of staged change is
   // enough; a plain commit needs something staged.
@@ -32,61 +32,59 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
       return;
     }
     void runAction(repo.id, {
-      action: "commit",
+      action: 'commit',
       message,
-      amend: preference === "amend",
+      amend: preference === 'amend'
     });
-    setMessageText("");
+    setMessageText('');
   };
 
   // The menu offers two modes, so it marks the one in effect: opening it and
   // reading it should say what the button will do.
   const actionItems: MenuItemSpec[] = [
     {
-      id: "commit",
-      label: t(translate, "commit-action-commit"),
-      checked: preference === "commit",
+      id: 'commit',
+      label: t(translate, 'commit-action-commit'),
+      checked: preference === 'commit',
       onSelect: () => {
-        void setView({ commit_action: "commit" });
-      },
+        void setView({ commit_action: 'commit' });
+      }
     },
     {
-      id: "amend",
-      label: t(translate, "commit-action-amend"),
-      checked: preference === "amend",
+      id: 'amend',
+      label: t(translate, 'commit-action-amend'),
+      checked: preference === 'amend',
       onSelect: () => {
-        void setView({ commit_action: "amend" });
-      },
-    },
+        void setView({ commit_action: 'amend' });
+      }
+    }
   ];
 
   const label =
-    preference === "amend"
-      ? t(translate, "commit-amend-btn")
-      : t(translate, "commit-btn");
+    preference === 'amend' ? t(translate, 'commit-amend-btn') : t(translate, 'commit-btn');
 
   return (
     <div className="commit-panel" data-testid="commit-panel">
       <div className="commit-panel__header">
-        <span>{t(translate, "commit-title")}</span>
+        <span>{t(translate, 'commit-title')}</span>
       </div>
       <div className="commit-panel__body">
         <TextArea
           value={message}
           onChange={setMessageText}
-          placeholder={t(translate, "commit-placeholder")}
+          placeholder={t(translate, 'commit-placeholder')}
           disabled={repo.busy}
           minRows={2}
           maxRows={5}
           onSubmit={submit}
-          onEscape={() => setMessageText("")}
+          onEscape={() => setMessageText('')}
           testId="commit-message"
         />
         <div className="commit-panel__actions">
           <button
             type="button"
             className="tool-button tool-button--primary"
-            style={{ flex: "1 1 auto", justifyContent: "center" }}
+            style={{ flex: '1 1 auto', justifyContent: 'center' }}
             disabled={!canCommit}
             data-testid="commit-submit"
             onClick={submit}
@@ -101,7 +99,7 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
               className="tool-button tool-button--primary commit-panel__mode"
               disabled={repo.busy}
               data-testid="commit-mode-trigger"
-              aria-label={t(translate, "commit-action-amend")}
+              aria-label={t(translate, 'commit-action-amend')}
             >
               <Icon name="chevron-down" size={12} />
             </button>
@@ -112,12 +110,12 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
   );
 }
 
-function isStagedFile(file: RepoState["files"][number]): boolean {
-  return file.index !== " " && file.index !== "?";
+function isStagedFile(file: RepoState['files'][number]): boolean {
+  return file.index !== ' ' && file.index !== '?';
 }
 
 /** The two choices the split button offers, also used by the settings page. */
 export const COMMIT_ACTIONS: { value: CommitActionPreference; key: string }[] = [
-  { value: "commit", key: "commit-action-commit" },
-  { value: "amend", key: "commit-action-amend" },
+  { value: 'commit', key: 'commit-action-commit' },
+  { value: 'amend', key: 'commit-action-amend' }
 ];

@@ -8,25 +8,22 @@
  * a typed object id never comes from the list in the first place.
  */
 
-import type { CompareRevision } from "../../bridge/types";
+import type { CompareRevision } from '../../bridge/types';
 
 /** Filter refs case-insensitively and rank close name matches first. */
-export function filterRevisions(
-  options: CompareRevision[],
-  query: string,
-): CompareRevision[] {
+export function filterRevisions(options: CompareRevision[], query: string): CompareRevision[] {
   const needle = query.trim().toLowerCase();
   if (!needle) {
-    return options.filter((option) => option.kind !== "commit");
+    return options.filter((option) => option.kind !== 'commit');
   }
 
   const matches = options.flatMap((option, index) => {
-    if (option.kind === "commit") {
+    if (option.kind === 'commit') {
       return [];
     }
     const score = Math.min(
       fuzzyMatchScore(option.name, needle),
-      fuzzyMatchScore(option.full_name, needle),
+      fuzzyMatchScore(option.full_name, needle)
     );
     return Number.isFinite(score) ? [{ option, index, score }] : [];
   });
@@ -68,11 +65,11 @@ function fuzzyMatchScore(candidate: string, needle: string): number {
 
 export function isRevisionUnavailable(
   selected: CompareRevision | null,
-  options: CompareRevision[],
+  options: CompareRevision[]
 ): boolean {
   return (
     selected !== null &&
-    selected.kind !== "commit" &&
+    selected.kind !== 'commit' &&
     !options.some((option) => option.full_name === selected.full_name)
   );
 }

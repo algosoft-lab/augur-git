@@ -8,22 +8,22 @@
 
 // ===== Configuration =====
 
-export type LanguagePreference = "system" | "en-US" | "zh-CN";
+export type LanguagePreference = 'system' | 'en-US' | 'zh-CN';
 
 export type ThemePreference =
-  | "github-dark"
-  | "catppuccin-latte"
-  | "catppuccin-frappe"
-  | "catppuccin-macchiato"
-  | "catppuccin-mocha";
+  | 'github-dark'
+  | 'catppuccin-latte'
+  | 'catppuccin-frappe'
+  | 'catppuccin-macchiato'
+  | 'catppuccin-mocha';
 
-export type DiffLayoutPreference = "inline" | "side-by-side";
+export type DiffLayoutPreference = 'inline' | 'side-by-side';
 
-export type GraphHistoryPreference = "current-branch" | "all-branches";
+export type GraphHistoryPreference = 'current-branch' | 'all-branches';
 
-export type CommitActionPreference = "commit" | "amend";
+export type CommitActionPreference = 'commit' | 'amend';
 
-export type PullActionPreference = "merge" | "rebase";
+export type PullActionPreference = 'merge' | 'rebase';
 
 export interface ViewSettings {
   show_untracked: boolean;
@@ -43,7 +43,7 @@ export interface TypographySettings {
 }
 
 export interface LocationConfig {
-  kind: "local" | "wsl";
+  kind: 'local' | 'wsl';
   distro?: string;
 }
 
@@ -107,7 +107,7 @@ export interface BranchInfo {
 export interface CompareRevision {
   name: string;
   full_name: string;
-  kind: "local" | "remote" | "tag" | "commit";
+  kind: 'local' | 'remote' | 'tag' | 'commit';
 }
 
 export interface StashInfo {
@@ -135,14 +135,7 @@ export interface CommitMessage {
 }
 
 export type FileChangeStatus =
-  | "added"
-  | "copied"
-  | "deleted"
-  | "modified"
-  | "renamed"
-  | "typeChanged"
-  | "unmerged"
-  | "unknown";
+  'added' | 'copied' | 'deleted' | 'modified' | 'renamed' | 'typeChanged' | 'unmerged' | 'unknown';
 
 export interface FileChange {
   path: string;
@@ -156,10 +149,10 @@ export interface FileChange {
 }
 
 export type CheckoutTarget =
-  | { kind: "localBranch"; localBranch: string }
-  | { kind: "remoteBranch"; remoteBranch: string }
-  | { kind: "tag"; tag: string }
-  | { kind: "commit"; commit: string };
+  | { kind: 'localBranch'; localBranch: string }
+  | { kind: 'remoteBranch'; remoteBranch: string }
+  | { kind: 'tag'; tag: string }
+  | { kind: 'commit'; commit: string };
 
 export interface LogRow {
   oid: string;
@@ -173,7 +166,7 @@ export interface LogRow {
   parents: string[];
 }
 
-export type RefKind = "head" | "localBranch" | "remoteBranch" | "tag";
+export type RefKind = 'head' | 'localBranch' | 'remoteBranch' | 'tag';
 
 export interface RefLabel {
   name: string;
@@ -204,7 +197,7 @@ export interface SourceText {
   lines: string[];
 }
 
-export type DiffLineKind = "meta" | "hunk" | "add" | "del" | "context";
+export type DiffLineKind = 'meta' | 'hunk' | 'add' | 'del' | 'context';
 
 export interface DiffRow {
   kind: DiffLineKind;
@@ -243,9 +236,9 @@ export interface DiffPayload {
 /** The fields the viewer needs, named for the component that consumes them. */
 export type DiffDocument = DiffPayload;
 
-export type WorkingTreeDiffKind = "staged" | "unstaged";
-export type WorkingTreeAction = "stage" | "unstage" | "discard";
-export type WorkingTreeScopeKind = "file" | "all";
+export type WorkingTreeDiffKind = 'staged' | 'unstaged';
+export type WorkingTreeAction = 'stage' | 'unstage' | 'discard';
+export type WorkingTreeScopeKind = 'file' | 'all';
 
 export interface GitError {
   key: string;
@@ -253,41 +246,41 @@ export interface GitError {
 }
 
 export type CompareRevisionArg =
-  | { kind: "local"; name: string }
-  | { kind: "remote"; name: string }
-  | { kind: "tag"; name: string }
-  | { kind: "commit"; name: string };
+  | { kind: 'local'; name: string }
+  | { kind: 'remote'; name: string }
+  | { kind: 'tag'; name: string }
+  | { kind: 'commit'; name: string };
 
 export type GitAction =
-  | { action: "fetch" }
-  | { action: "pullMerge" }
-  | { action: "pullRebase" }
-  | { action: "push" }
-  | { action: "pushForce" }
-  | { action: "pushSetUpstream"; remote: string; branch: string }
-  | { action: "pushRenameRemote"; remote: string; old: string; new: string }
-  | { action: "pushDeleteRemote"; remote: string; branch: string }
-  | { action: "stash"; message: string }
-  | { action: "stashPop"; stashRef: string | null }
-  | { action: "stashDrop"; stashRef: string }
-  | { action: "applyPatch"; path: string }
-  | { action: "checkout"; target: CheckoutTarget }
-  | { action: "createBranch"; name: string }
-  | { action: "renameBranch"; old: string; new: string }
-  | { action: "deleteBranch"; name: string; force: boolean }
-  | { action: "deleteTag"; name: string }
-  | { action: "merge"; source: string; noFf: boolean }
-  | { action: "rebase"; source: string }
-  | { action: "abortMerge" }
-  | { action: "abortRebase" }
-  | { action: "commit"; message: string; amend: boolean }
-  | { action: "copyCommitMessage"; oid: string };
+  | { action: 'fetch' }
+  | { action: 'pullMerge' }
+  | { action: 'pullRebase' }
+  | { action: 'push' }
+  | { action: 'pushForce' }
+  | { action: 'pushSetUpstream'; remote: string; branch: string }
+  | { action: 'pushRenameRemote'; remote: string; old: string; new: string }
+  | { action: 'pushDeleteRemote'; remote: string; branch: string }
+  | { action: 'stash'; message: string }
+  | { action: 'stashPop'; stashRef: string | null }
+  | { action: 'stashDrop'; stashRef: string }
+  | { action: 'applyPatch'; path: string }
+  | { action: 'checkout'; target: CheckoutTarget }
+  | { action: 'createBranch'; name: string }
+  | { action: 'renameBranch'; old: string; new: string }
+  | { action: 'deleteBranch'; name: string; force: boolean }
+  | { action: 'deleteTag'; name: string }
+  | { action: 'merge'; source: string; noFf: boolean }
+  | { action: 'rebase'; source: string }
+  | { action: 'abortMerge' }
+  | { action: 'abortRebase' }
+  | { action: 'commit'; message: string; amend: boolean }
+  | { action: 'copyCommitMessage'; oid: string };
 
 // ===== Events =====
 
 export type RepoEvent =
   | {
-      type: "status";
+      type: 'status';
       branch: string;
       head: string | null;
       upstream: string | null;
@@ -296,71 +289,71 @@ export type RepoEvent =
       files: FileStatus[];
       branches: BranchInfo[];
     }
-  | { type: "logPage"; rows: LogRow[]; replace: boolean; hasMore: boolean }
-  | { type: "refs"; refs: RefsInfo }
+  | { type: 'logPage'; rows: LogRow[]; replace: boolean; hasMore: boolean }
+  | { type: 'refs'; refs: RefsInfo }
   | {
-      type: "commitFiles";
+      type: 'commitFiles';
       oid: string;
       files: FileChange[];
       merge_parent: string | null;
     }
-  | { type: "commitMessage"; oid: string; message: CommitMessage }
-  | { type: "fileDiff"; oid: string; file: FileChange; document: DiffDocument }
+  | { type: 'commitMessage'; oid: string; message: CommitMessage }
+  | { type: 'fileDiff'; oid: string; file: FileChange; document: DiffDocument }
   | {
-      type: "workingTreeFileDiff";
+      type: 'workingTreeFileDiff';
       requestId: number;
       kind: WorkingTreeDiffKind;
       file: FileStatus;
       document: DiffDocument;
     }
   | {
-      type: "workingTreeFileDiffError";
+      type: 'workingTreeFileDiffError';
       requestId: number;
       kind: WorkingTreeDiffKind;
       file: FileStatus;
       detail: string;
     }
   | {
-      type: "workingTreeOperationFinished";
+      type: 'workingTreeOperationFinished';
       requestId: number;
       action: WorkingTreeAction;
       scope: WorkingTreeScopeKind;
       success: boolean;
       detail: string;
     }
-  | { type: "branchCompareFiles"; requestId: number; files: FileChange[] }
+  | { type: 'branchCompareFiles'; requestId: number; files: FileChange[] }
   | {
-      type: "branchCompareFileDiff";
+      type: 'branchCompareFileDiff';
       requestId: number;
       file: FileChange;
       document: DiffDocument;
     }
   | {
-      type: "branchCompareError";
+      type: 'branchCompareError';
       requestId: number;
       file: FileChange | null;
       detail: string;
     }
-  | { type: "branchCompareFinished"; requestId: number }
+  | { type: 'branchCompareFinished'; requestId: number }
   | {
-      type: "branchComparePatchExported";
+      type: 'branchComparePatchExported';
       requestId: number;
       destination: string;
       bytes: number;
     }
-  | { type: "branchComparePatchError"; requestId: number; detail: string }
-  | { type: "commandStarted"; label: string; verb: string }
-  | { type: "commandDone"; label: string; success: boolean; message: string }
-  | { type: "openFailed"; error: GitError }
-  | { type: "statusError"; error: GitError }
-  | { type: "error"; error: GitError };
+  | { type: 'branchComparePatchError'; requestId: number; detail: string }
+  | { type: 'commandStarted'; label: string; verb: string }
+  | { type: 'commandDone'; label: string; success: boolean; message: string }
+  | { type: 'openFailed'; error: GitError }
+  | { type: 'statusError'; error: GitError }
+  | { type: 'error'; error: GitError };
 
 export type RepoEventEnvelope = RepoEvent & { repoId: number };
 
 export type AppEvent =
-  | { type: "settingsChanged" }
-  | { type: "workspaceChanged" }
-  | { type: "notice"; level: string; message: string };
+  | { type: 'settingsChanged' }
+  | { type: 'workspaceChanged' }
+  | { type: 'notice'; level: string; message: string };
 
 // ===== Commands =====
 
@@ -427,7 +420,7 @@ export interface RebaseProbe extends RebaseState {
   target_known: boolean;
 }
 
-export type CliOperation = "install" | "remove";
+export type CliOperation = 'install' | 'remove';
 
 export interface ChangeReport {
   operation: Operation;
@@ -435,7 +428,7 @@ export interface ChangeReport {
   fallback_binary: boolean;
 }
 
-export type Operation = "install" | "remove";
+export type Operation = 'install' | 'remove';
 
 /**
  * What happened to one shell configuration file.

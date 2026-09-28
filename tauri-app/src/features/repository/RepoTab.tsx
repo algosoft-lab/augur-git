@@ -7,25 +7,25 @@
  * application uses.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from 'react';
 
-import { Splitter } from "../../components/controls";
+import { Splitter } from '../../components/controls';
 import {
   MAX_DIFF_HEIGHT,
   MAX_RIGHT_PANEL_WIDTH,
   MAX_SIDEBAR_WIDTH,
   MIN_DIFF_HEIGHT,
   MIN_RIGHT_PANEL_WIDTH,
-  MIN_SIDEBAR_WIDTH,
-} from "./bounds";
-import { useStore, type RepoState } from "../../app/store";
-import { Sidebar } from "./Sidebar";
-import { Toolbar } from "./Toolbar";
-import { ChangesPanel } from "./ChangesPanel";
-import { CommitPanel } from "./CommitPanel";
-import { GraphView } from "../graph/GraphView";
-import { BottomPanel } from "../diff/BottomPanel";
-import { t } from "../../i18n/strings";
+  MIN_SIDEBAR_WIDTH
+} from './bounds';
+import { useStore, type RepoState } from '../../app/store';
+import { Sidebar } from './Sidebar';
+import { Toolbar } from './Toolbar';
+import { ChangesPanel } from './ChangesPanel';
+import { CommitPanel } from './CommitPanel';
+import { GraphView } from '../graph/GraphView';
+import { BottomPanel } from '../diff/BottomPanel';
+import { t } from '../../i18n/strings';
 
 /** Minimum height of the commit editor, matching the reference application. */
 const MIN_COMMIT_HEIGHT = 120;
@@ -66,10 +66,10 @@ export function RepoTab({ repo }: { repo: RepoState }) {
   // the preference changes. The tracked upstream is part of the scope, so a
   // repository that only learns its upstream after the first status is covered
   // by the key below.
-  const scopeKey = `${historyScope}:${repo.upstream ?? ""}`;
+  const scopeKey = `${historyScope}:${repo.upstream ?? ''}`;
   const lastScope = useRef<string | null>(null);
   useEffect(() => {
-    if (repo.status !== "ready") {
+    if (repo.status !== 'ready') {
       return;
     }
     if (lastScope.current === scopeKey) {
@@ -81,10 +81,7 @@ export function RepoTab({ repo }: { repo: RepoState }) {
 
   const maxDiffHeight = Math.max(
     MIN_DIFF_HEIGHT,
-    Math.min(
-      MAX_DIFF_HEIGHT,
-      size.height - TOOLBAR_HEIGHT - MIN_COMMIT_HEIGHT - DIFF_HANDLE,
-    ),
+    Math.min(MAX_DIFF_HEIGHT, size.height - TOOLBAR_HEIGHT - MIN_COMMIT_HEIGHT - DIFF_HANDLE)
   );
   const diffHeight =
     layout.diff_height === null
@@ -95,44 +92,27 @@ export function RepoTab({ repo }: { repo: RepoState }) {
     MIN_RIGHT_PANEL_WIDTH,
     Math.max(
       MIN_RIGHT_PANEL_WIDTH,
-      Math.min(
-        MAX_RIGHT_PANEL_WIDTH,
-        size.width - MIN_SIDEBAR_WIDTH - MIN_CENTER_WIDTH,
-      ),
-    ),
+      Math.min(MAX_RIGHT_PANEL_WIDTH, size.width - MIN_SIDEBAR_WIDTH - MIN_CENTER_WIDTH)
+    )
   );
   const sidebarMax = Math.max(
     MIN_SIDEBAR_WIDTH,
-    Math.min(
-      MAX_SIDEBAR_WIDTH,
-      size.width - rightPanelPreferred - MIN_CENTER_WIDTH,
-    ),
+    Math.min(MAX_SIDEBAR_WIDTH, size.width - rightPanelPreferred - MIN_CENTER_WIDTH)
   );
   const sidebarWidth = clamp(layout.sidebar_width, MIN_SIDEBAR_WIDTH, sidebarMax);
   const rightPanelMax = Math.max(
     MIN_RIGHT_PANEL_WIDTH,
-    Math.min(
-      MAX_RIGHT_PANEL_WIDTH,
-      size.width - sidebarWidth - MIN_CENTER_WIDTH,
-    ),
+    Math.min(MAX_RIGHT_PANEL_WIDTH, size.width - sidebarWidth - MIN_CENTER_WIDTH)
   );
-  const rightPanelWidth = clamp(
-    rightPanelPreferred,
-    MIN_RIGHT_PANEL_WIDTH,
-    rightPanelMax,
-  );
+  const rightPanelWidth = clamp(rightPanelPreferred, MIN_RIGHT_PANEL_WIDTH, rightPanelMax);
 
   return (
     <div className="repo" ref={repoRef} data-testid={`repo-${repo.id}`}>
-      <div
-        className="repo__sidebar"
-        style={{ width: sidebarWidth }}
-        data-testid="repo-sidebar"
-      >
+      <div className="repo__sidebar" style={{ width: sidebarWidth }} data-testid="repo-sidebar">
         <Sidebar repo={repo} refs={repo.refs} />
         <Splitter
           orientation="vertical"
-          label={t(translate, "sidebar-repo")}
+          label={t(translate, 'sidebar-repo')}
           testId="sidebar-splitter"
           onDragStart={() => {
             sidebarDragStart.current = sidebarWidth;
@@ -144,12 +124,9 @@ export function RepoTab({ repo }: { repo: RepoState }) {
                 MIN_SIDEBAR_WIDTH,
                 Math.max(
                   MIN_SIDEBAR_WIDTH,
-                  Math.min(
-                    MAX_SIDEBAR_WIDTH,
-                    size.width - rightPanelWidth - MIN_CENTER_WIDTH,
-                  ),
-                ),
-              ),
+                  Math.min(MAX_SIDEBAR_WIDTH, size.width - rightPanelWidth - MIN_CENTER_WIDTH)
+                )
+              )
             });
           }}
           onDragEnd={() => void persistLayout()}
@@ -169,7 +146,7 @@ export function RepoTab({ repo }: { repo: RepoState }) {
           onDrag={(delta) => {
             const next = diffDragStart.current - delta;
             previewLayout({
-              diff_height: clamp(next, MIN_DIFF_HEIGHT, maxDiffHeight),
+              diff_height: clamp(next, MIN_DIFF_HEIGHT, maxDiffHeight)
             });
           }}
           onDragEnd={() => void persistLayout()}
@@ -184,21 +161,15 @@ export function RepoTab({ repo }: { repo: RepoState }) {
         />
       </div>
 
-      <div
-        className="repo__right"
-        style={{ width: rightPanelWidth }}
-        data-testid="repo-right"
-      >
+      <div className="repo__right" style={{ width: rightPanelWidth }} data-testid="repo-right">
         <div className="right-panel">
           <CommitPanel repo={repo} />
-          <div
-            style={{ height: 1, flex: "0 0 auto", background: "var(--border)" }}
-          />
+          <div style={{ height: 1, flex: '0 0 auto', background: 'var(--border)' }} />
           <ChangesPanel repo={repo} />
         </div>
         <Splitter
           orientation="vertical"
-          label={t(translate, "changes-title")}
+          label={t(translate, 'changes-title')}
           testId="right-splitter"
           onDragStart={() => {
             rightPanelDragStart.current = rightPanelWidth;
@@ -210,12 +181,9 @@ export function RepoTab({ repo }: { repo: RepoState }) {
                 MIN_RIGHT_PANEL_WIDTH,
                 Math.max(
                   MIN_RIGHT_PANEL_WIDTH,
-                  Math.min(
-                    MAX_RIGHT_PANEL_WIDTH,
-                    size.width - sidebarWidth - MIN_CENTER_WIDTH,
-                  ),
-                ),
-              ),
+                  Math.min(MAX_RIGHT_PANEL_WIDTH, size.width - sidebarWidth - MIN_CENTER_WIDTH)
+                )
+              )
             });
           }}
           onDragEnd={() => void persistLayout()}

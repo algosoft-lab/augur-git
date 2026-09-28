@@ -1,35 +1,35 @@
 /** Inline SVG icons from the same Lucide set the reference application uses. */
 
-import type { ReactNode } from "react";
+import type { ReactNode } from 'react';
 
 export type IconName =
-  | "archive"
-  | "archive-restore"
-  | "check"
-  | "chevron-down"
-  | "chevron-right"
-  | "copy"
-  | "download"
-  | "file"
-  | "git-branch"
-  | "git-branch-plus"
-  | "git-commit-horizontal"
-  | "git-merge"
-  | "loader"
-  | "menu"
-  | "minus"
-  | "pencil"
-  | "plus"
-  | "refresh-cw"
-  | "search"
-  | "settings"
-  | "square"
-  | "tag"
-  | "trash-2"
-  | "triangle-alert"
-  | "undo"
-  | "upload"
-  | "x";
+  | 'archive'
+  | 'archive-restore'
+  | 'check'
+  | 'chevron-down'
+  | 'chevron-right'
+  | 'copy'
+  | 'download'
+  | 'file'
+  | 'git-branch'
+  | 'git-branch-plus'
+  | 'git-commit-horizontal'
+  | 'git-merge'
+  | 'loader'
+  | 'menu'
+  | 'minus'
+  | 'pencil'
+  | 'plus'
+  | 'refresh-cw'
+  | 'search'
+  | 'settings'
+  | 'square'
+  | 'tag'
+  | 'trash-2'
+  | 'triangle-alert'
+  | 'undo'
+  | 'upload'
+  | 'x';
 
 const PATHS: Record<IconName, ReactNode> = {
   archive: (
@@ -39,7 +39,7 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M10 13h4" />
     </>
   ),
-  "archive-restore": (
+  'archive-restore': (
     <>
       <rect x="2" y="4" width="20" height="5" rx="1" />
       <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9" />
@@ -48,8 +48,8 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   check: <path d="M20 6 9 17l-5-5" />,
-  "chevron-down": <path d="m6 9 6 6 6-6" />,
-  "chevron-right": <path d="m9 6 6 6-6 6" />,
+  'chevron-down': <path d="m6 9 6 6 6-6" />,
+  'chevron-right': <path d="m9 6 6 6-6 6" />,
   copy: (
     <>
       <rect x="9" y="9" width="12" height="12" rx="2" />
@@ -69,7 +69,7 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M14 2v5h5" />
     </>
   ),
-  "git-branch": (
+  'git-branch': (
     <>
       <path d="M6 3v12" />
       <circle cx="18" cy="6" r="3" />
@@ -77,7 +77,7 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M18 9a9 9 0 0 1-9 9" />
     </>
   ),
-  "git-branch-plus": (
+  'git-branch-plus': (
     <>
       <path d="M6 3v12" />
       <circle cx="18" cy="6" r="3" />
@@ -87,21 +87,23 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M18 -1v6" />
     </>
   ),
-  "git-commit-horizontal": (
+  'git-commit-horizontal': (
     <>
       <circle cx="12" cy="12" r="3" />
       <path d="M2 12h7" />
       <path d="M15 12h7" />
     </>
   ),
-  "git-merge": (
+  'git-merge': (
     <>
       <circle cx="18" cy="18" r="3" />
       <circle cx="6" cy="6" r="3" />
       <path d="M6 21V9a9 9 0 0 0 9 9" />
     </>
   ),
-  loader: <path d="M12 3v4M12 17v4M5.6 5.6l2.9 2.9M15.5 15.5l2.9 2.9M3 12h4M17 12h4M5.6 18.4l2.9-2.9M15.5 8.5l2.9-2.9" />,
+  loader: (
+    <path d="M12 3v4M12 17v4M5.6 5.6l2.9 2.9M15.5 15.5l2.9 2.9M3 12h4M17 12h4M5.6 18.4l2.9-2.9M15.5 8.5l2.9-2.9" />
+  ),
   menu: (
     <>
       <path d="M4 6h16" />
@@ -122,7 +124,7 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M5 12h14" />
     </>
   ),
-  "refresh-cw": (
+  'refresh-cw': (
     <>
       <path d="M21 12a9 9 0 0 0-15-6.7L3 8" />
       <path d="M3 3v5h5" />
@@ -149,7 +151,7 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M7 7h.01" />
     </>
   ),
-  "trash-2": (
+  'trash-2': (
     <>
       <path d="M3 6h18" />
       <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
@@ -157,7 +159,7 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M10 11v6M14 11v6" />
     </>
   ),
-  "triangle-alert": (
+  'triangle-alert': (
     <>
       <path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z" />
       <path d="M12 9v4" />
@@ -182,7 +184,7 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M18 6 6 18" />
       <path d="m6 6 12 12" />
     </>
-  ),
+  )
 };
 
 export interface IconProps {
@@ -206,7 +208,7 @@ export function Icon({ name, size = 14, className, title }: IconProps) {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden={title ? undefined : true}
-      role={title ? "img" : undefined}
+      role={title ? 'img' : undefined}
     >
       {title ? <title>{title}</title> : null}
       {PATHS[name]}

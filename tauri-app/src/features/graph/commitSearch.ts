@@ -6,27 +6,19 @@
  * typo, which is what the reference application does.
  */
 
-import type { LogRow } from "../../bridge/types";
+import type { LogRow } from '../../bridge/types';
 
-export type CommitSearchField = "subject" | "full";
+export type CommitSearchField = 'subject' | 'full';
 
-export function filterCommits(
-  rows: LogRow[],
-  query: string,
-  field: CommitSearchField,
-): LogRow[] {
+export function filterCommits(rows: LogRow[], query: string, field: CommitSearchField): LogRow[] {
   if (normalize(query).length === 0) {
     return rows;
   }
   return rows.filter((row) => matches(row, query, field));
 }
 
-export function matches(
-  row: LogRow,
-  query: string,
-  field: CommitSearchField,
-): boolean {
-  const haystack = field === "subject" ? row.subject : row.message;
+export function matches(row: LogRow, query: string, field: CommitSearchField): boolean {
+  const haystack = field === 'subject' ? row.subject : row.message;
   const needle = normalize(query);
   if (needle.length === 0) {
     return true;
@@ -35,9 +27,9 @@ export function matches(
 }
 
 function normalize(value: string): string {
-  let out = "";
+  let out = '';
   for (const character of value) {
-    if (/\s/.test(character) || character === "_" || character === "-") {
+    if (/\s/.test(character) || character === '_' || character === '-') {
       continue;
     }
     out += character.toLowerCase();

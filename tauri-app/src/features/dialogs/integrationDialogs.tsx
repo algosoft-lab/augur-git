@@ -9,14 +9,14 @@
  * the way out rather than only the way back.
  */
 
-import { useState } from "react";
-import { Icon } from "../../components/Icon";
-import { Checkbox, DialogCard } from "../../components/controls";
-import * as ipc from "../../bridge/ipc";
-import { integrationBlocked, localBranches, useStore } from "../../app/store";
-import { preflightRebase } from "../repository/Toolbar";
-import { t, ta } from "../../i18n/strings";
-import { useActiveRepoId } from "./useActiveRepo";
+import { useState } from 'react';
+import { Icon } from '../../components/Icon';
+import { Checkbox, DialogCard } from '../../components/controls';
+import * as ipc from '../../bridge/ipc';
+import { integrationBlocked, localBranches, useStore } from '../../app/store';
+import { preflightRebase } from '../repository/Toolbar';
+import { t, ta } from '../../i18n/strings';
+import { useActiveRepoId } from './useActiveRepo';
 
 export function MergeDialog({ noFf }: { noFf: boolean }) {
   const translate = useStore((state) => state.t);
@@ -25,7 +25,7 @@ export function MergeDialog({ noFf }: { noFf: boolean }) {
   const closeOverlay = useStore((state) => state.closeOverlay);
   const runAction = useStore((state) => state.runAction);
   const openOverlay = useStore((state) => state.openOverlay);
-  const [source, setSource] = useState(() => (repo ? localBranches(repo)[0] ?? "" : ""));
+  const [source, setSource] = useState(() => (repo ? (localBranches(repo)[0] ?? '') : ''));
   const [withNoFf, setWithNoFf] = useState(noFf);
   const [busy, setBusy] = useState(false);
 
@@ -47,16 +47,16 @@ export function MergeDialog({ noFf }: { noFf: boolean }) {
         closeOverlay();
         if (probe.merge_head) {
           openOverlay({
-            kind: "mergeConflict",
+            kind: 'mergeConflict',
             source,
-            detail: ta(useStore.getState().t, "merge-conflict-warning", { source }),
+            detail: ta(useStore.getState().t, 'merge-conflict-warning', { source })
           });
         }
         setBusy(false);
         return;
       }
       closeOverlay();
-      void runAction(repoId, { action: "merge", source, noFf: withNoFf });
+      void runAction(repoId, { action: 'merge', source, noFf: withNoFf });
     } catch (error) {
       useStore.getState().reportError(repoId, error);
       setBusy(false);
@@ -66,13 +66,13 @@ export function MergeDialog({ noFf }: { noFf: boolean }) {
   return (
     <DialogCard
       testId="merge-dialog"
-      title={ta(translate, "merge-title", { branch: repo?.branch ?? "" })}
+      title={ta(translate, 'merge-title', { branch: repo?.branch ?? '' })}
       icon={<Icon name="git-merge" size={16} />}
       onBackdrop={closeOverlay}
       body={
         <>
           <div className="row">
-            <span className="muted">{t(translate, "merge-source-label")}</span>
+            <span className="muted">{t(translate, 'merge-source-label')}</span>
             <select
               className="select__trigger"
               style={{ flex: 1 }}
@@ -90,7 +90,7 @@ export function MergeDialog({ noFf }: { noFf: boolean }) {
           <Checkbox
             checked={withNoFf}
             onChange={setWithNoFf}
-            label={t(translate, "merge-no-ff-label")}
+            label={t(translate, 'merge-no-ff-label')}
             testId="merge-no-ff"
           />
         </>
@@ -103,7 +103,7 @@ export function MergeDialog({ noFf }: { noFf: boolean }) {
             onClick={closeOverlay}
             data-testid="merge-dialog-cancel"
           >
-            {t(translate, "dialog-cancel")}
+            {t(translate, 'dialog-cancel')}
           </button>
           <button
             type="button"
@@ -112,7 +112,7 @@ export function MergeDialog({ noFf }: { noFf: boolean }) {
             onClick={() => void confirm()}
             data-testid="merge-dialog-confirm"
           >
-            {t(translate, "dialog-confirm")}
+            {t(translate, 'dialog-confirm')}
           </button>
         </>
       }
@@ -125,7 +125,7 @@ export function RebaseDialog() {
   const repoId = useActiveRepoId();
   const repo = useStore((state) => (repoId ? state.repos[repoId] : undefined));
   const closeOverlay = useStore((state) => state.closeOverlay);
-  const [source, setSource] = useState(() => (repo ? localBranches(repo)[0] ?? "" : ""));
+  const [source, setSource] = useState(() => (repo ? (localBranches(repo)[0] ?? '') : ''));
 
   const branches = repo ? localBranches(repo) : [];
 
@@ -142,16 +142,16 @@ export function RebaseDialog() {
   return (
     <DialogCard
       testId="rebase-dialog"
-      title={ta(translate, "rebase-title", { branch: repo?.branch ?? "" })}
+      title={ta(translate, 'rebase-title', { branch: repo?.branch ?? '' })}
       icon={<Icon name="git-commit-horizontal" size={16} />}
       onBackdrop={closeOverlay}
       body={
         <>
           <div className="status-conflict">
-            {ta(translate, "rebase-warning", { branch: repo?.branch ?? "" })}
+            {ta(translate, 'rebase-warning', { branch: repo?.branch ?? '' })}
           </div>
           <div className="row">
-            <span className="muted">{t(translate, "merge-source-label")}</span>
+            <span className="muted">{t(translate, 'merge-source-label')}</span>
             <select
               className="select__trigger"
               style={{ flex: 1 }}
@@ -176,7 +176,7 @@ export function RebaseDialog() {
             onClick={closeOverlay}
             data-testid="rebase-dialog-cancel"
           >
-            {t(translate, "dialog-cancel")}
+            {t(translate, 'dialog-cancel')}
           </button>
           <button
             type="button"
@@ -185,7 +185,7 @@ export function RebaseDialog() {
             onClick={() => void confirm()}
             data-testid="rebase-dialog-confirm"
           >
-            {t(translate, "dialog-confirm")}
+            {t(translate, 'dialog-confirm')}
           </button>
         </>
       }
@@ -193,13 +193,7 @@ export function RebaseDialog() {
   );
 }
 
-export function MergeConflictDialog({
-  source,
-  detail,
-}: {
-  source: string;
-  detail: string;
-}) {
+export function MergeConflictDialog({ source, detail }: { source: string; detail: string }) {
   const translate = useStore((state) => state.t);
   const repoId = useActiveRepoId();
   const closeOverlay = useStore((state) => state.closeOverlay);
@@ -210,19 +204,16 @@ export function MergeConflictDialog({
       testId="merge-conflict-dialog"
       title={
         <>
-          <Icon name="triangle-alert" size={16} />{" "}
-          {t(translate, "merge-conflict-title")}
+          <Icon name="triangle-alert" size={16} /> {t(translate, 'merge-conflict-title')}
         </>
       }
       onBackdrop={closeOverlay}
       body={
         <>
-          <div className="muted">
-            {ta(translate, "merge-conflict-warning", { source })}
-          </div>
+          <div className="muted">{ta(translate, 'merge-conflict-warning', { source })}</div>
           <pre
             className="status-conflict"
-            style={{ maxHeight: 180, overflow: "auto", margin: 0, fontSize: "0.7em" }}
+            style={{ maxHeight: 180, overflow: 'auto', margin: 0, fontSize: '0.7em' }}
             data-testid="merge-conflict-detail"
           >
             {detail}
@@ -237,24 +228,18 @@ export function MergeConflictDialog({
           onClick={() => {
             if (repoId) {
               closeOverlay();
-              void runAction(repoId, { action: "abortMerge" });
+              void runAction(repoId, { action: 'abortMerge' });
             }
           }}
         >
-          {t(translate, "merge-abort")}
+          {t(translate, 'merge-abort')}
         </button>
       }
     />
   );
 }
 
-export function RebaseConflictDialog({
-  detail,
-  source,
-}: {
-  detail: string;
-  source?: string;
-}) {
+export function RebaseConflictDialog({ detail, source }: { detail: string; source?: string }) {
   const translate = useStore((state) => state.t);
   const repoId = useActiveRepoId();
   const closeOverlay = useStore((state) => state.closeOverlay);
@@ -265,22 +250,21 @@ export function RebaseConflictDialog({
       testId="rebase-conflict-dialog"
       title={
         <>
-          <Icon name="triangle-alert" size={16} />{" "}
-          {t(translate, "rebase-conflict-title")}
+          <Icon name="triangle-alert" size={16} /> {t(translate, 'rebase-conflict-title')}
         </>
       }
       onBackdrop={closeOverlay}
       body={
         <>
           <div className="muted" data-testid="rebase-conflict-warning">
-            {ta(translate, "rebase-conflict-warning", {
+            {ta(translate, 'rebase-conflict-warning', {
               // A conflict raised by a pull rebase has no other source to name.
-              source: source ?? "pull --rebase",
+              source: source ?? 'pull --rebase'
             })}
           </div>
           <pre
             className="status-conflict"
-            style={{ maxHeight: 180, overflow: "auto", margin: 0, fontSize: "0.7em" }}
+            style={{ maxHeight: 180, overflow: 'auto', margin: 0, fontSize: '0.7em' }}
             data-testid="rebase-conflict-detail"
           >
             {detail}
@@ -295,11 +279,11 @@ export function RebaseConflictDialog({
           onClick={() => {
             if (repoId) {
               closeOverlay();
-              void runAction(repoId, { action: "abortRebase" });
+              void runAction(repoId, { action: 'abortRebase' });
             }
           }}
         >
-          {t(translate, "rebase-abort")}
+          {t(translate, 'rebase-abort')}
         </button>
       }
     />

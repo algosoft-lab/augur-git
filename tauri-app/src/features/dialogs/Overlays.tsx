@@ -8,27 +8,23 @@
  * a repository.
  */
 
-import { useStore, type Overlay } from "../../app/store";
-import { WslOpenDialog } from "./WslOpenDialog";
-import {
-  DeleteRefDialog,
-  DeleteRemoteBranchDialog,
-  NamedBranchDialog,
-} from "./branchDialogs";
+import { useStore, type Overlay } from '../../app/store';
+import { WslOpenDialog } from './WslOpenDialog';
+import { DeleteRefDialog, DeleteRemoteBranchDialog, NamedBranchDialog } from './branchDialogs';
 import {
   MergeConflictDialog,
   MergeDialog,
   RebaseConflictDialog,
-  RebaseDialog,
-} from "./integrationDialogs";
-import { DiscardDialog, StashDialog, StashDropDialog } from "./workingTreeDialogs";
-import { ForcePushDialog, PushUpstreamDialog } from "./pushDialogs";
-import { CliReportDialog, OperationErrorDialog } from "./reportDialogs";
+  RebaseDialog
+} from './integrationDialogs';
+import { DiscardDialog, StashDialog, StashDropDialog } from './workingTreeDialogs';
+import { ForcePushDialog, PushUpstreamDialog } from './pushDialogs';
+import { CliReportDialog, OperationErrorDialog } from './reportDialogs';
 
 export function Overlays({
   wslOpen,
   onWslOpenChange,
-  onOpenPaths,
+  onOpenPaths
 }: {
   wslOpen: boolean;
   onWslOpenChange: (open: boolean) => void;
@@ -42,12 +38,12 @@ export function Overlays({
         onOpen={async (distro, path) => {
           onWslOpenChange(false);
           await onOpenPaths([]);
-          await useStore.getState().openTab(path, { kind: "wsl", distro });
+          await useStore.getState().openTab(path, { kind: 'wsl', distro });
         }}
       />
     );
   }
-  if (overlay.kind === "none") {
+  if (overlay.kind === 'none') {
     return null;
   }
   return <OverlayBody overlay={overlay} />;
@@ -55,45 +51,35 @@ export function Overlays({
 
 function OverlayBody({ overlay }: { overlay: Overlay }) {
   switch (overlay.kind) {
-    case "newBranch":
+    case 'newBranch':
       return <NamedBranchDialog mode="newBranch" />;
-    case "renameBranch":
+    case 'renameBranch':
       return <NamedBranchDialog mode="renameBranch" old={overlay.old} />;
-    case "renameRemoteBranch":
+    case 'renameRemoteBranch':
       return (
-        <NamedBranchDialog
-          mode="renameRemoteBranch"
-          old={overlay.old}
-          remote={overlay.remote}
-        />
+        <NamedBranchDialog mode="renameRemoteBranch" old={overlay.old} remote={overlay.remote} />
       );
-    case "stash":
+    case 'stash':
       return <StashDialog />;
-    case "stashDrop":
+    case 'stashDrop':
       return <StashDropDialog reference={overlay.reference} />;
-    case "merge":
+    case 'merge':
       return <MergeDialog noFf={overlay.noFf} />;
-    case "rebase":
+    case 'rebase':
       return <RebaseDialog />;
-    case "deleteRef":
+    case 'deleteRef':
       return <DeleteRefDialog name={overlay.name} isTag={overlay.isTag} />;
-    case "deleteRemoteBranch":
-      return (
-        <DeleteRemoteBranchDialog remote={overlay.remote} branch={overlay.branch} />
-      );
-    case "forcePush":
+    case 'deleteRemoteBranch':
+      return <DeleteRemoteBranchDialog remote={overlay.remote} branch={overlay.branch} />;
+    case 'forcePush':
       return <ForcePushDialog />;
-    case "pushSetUpstream":
-      return (
-        <PushUpstreamDialog branch={overlay.branch} remote={overlay.remote} />
-      );
-    case "discard":
+    case 'pushSetUpstream':
+      return <PushUpstreamDialog branch={overlay.branch} remote={overlay.remote} />;
+    case 'discard':
       return <DiscardDialog overlay={overlay} />;
-    case "mergeConflict":
-      return (
-        <MergeConflictDialog source={overlay.source} detail={overlay.detail} />
-      );
-    case "mergeError":
+    case 'mergeConflict':
+      return <MergeConflictDialog source={overlay.source} detail={overlay.detail} />;
+    case 'mergeError':
       return (
         <OperationErrorDialog
           label={overlay.label}
@@ -101,9 +87,9 @@ function OverlayBody({ overlay }: { overlay: Overlay }) {
           titleKey="merge-error-title"
         />
       );
-    case "rebaseConflict":
+    case 'rebaseConflict':
       return <RebaseConflictDialog detail={overlay.detail} source={overlay.source} />;
-    case "rebaseError":
+    case 'rebaseError':
       return (
         <OperationErrorDialog
           label={overlay.label}
@@ -111,10 +97,8 @@ function OverlayBody({ overlay }: { overlay: Overlay }) {
           titleKey="merge-error-title"
         />
       );
-    case "cliReport":
-      return (
-        <CliReportDialog report={overlay.report} />
-      );
+    case 'cliReport':
+      return <CliReportDialog report={overlay.report} />;
     default:
       return null;
   }

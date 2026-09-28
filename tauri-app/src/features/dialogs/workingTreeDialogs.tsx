@@ -6,13 +6,13 @@
  * discarding lists the files because it cannot be undone.
  */
 
-import { useMemo, useState } from "react";
-import { Icon } from "../../components/Icon";
-import { DialogCard, TextInput } from "../../components/controls";
-import * as ipc from "../../bridge/ipc";
-import { Overlay, useStore } from "../../app/store";
-import { t, ta } from "../../i18n/strings";
-import { useActiveRepoId } from "./useActiveRepo";
+import { useMemo, useState } from 'react';
+import { Icon } from '../../components/Icon';
+import { DialogCard, TextInput } from '../../components/controls';
+import * as ipc from '../../bridge/ipc';
+import { Overlay, useStore } from '../../app/store';
+import { t, ta } from '../../i18n/strings';
+import { useActiveRepoId } from './useActiveRepo';
 
 export function StashDialog() {
   const translate = useStore((state) => state.t);
@@ -20,18 +20,18 @@ export function StashDialog() {
   const repo = useStore((state) => (repoId ? state.repos[repoId] : undefined));
   const closeOverlay = useStore((state) => state.closeOverlay);
   const runAction = useStore((state) => state.runAction);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState('');
 
   return (
     <DialogCard
       testId="stash-dialog"
-      title={t(translate, "stash-title")}
+      title={t(translate, 'stash-title')}
       icon={<Icon name="archive" size={16} />}
       onBackdrop={closeOverlay}
       body={
         <>
           <label className="settings__label" htmlFor="stash-message">
-            {t(translate, "stash-message-label")}
+            {t(translate, 'stash-message-label')}
           </label>
           <TextInput
             value={message}
@@ -41,13 +41,13 @@ export function StashDialog() {
             onSubmit={() => {
               if (repoId) {
                 closeOverlay();
-                void runAction(repoId, { action: "stash", message });
+                void runAction(repoId, { action: 'stash', message });
               }
             }}
             onEscape={closeOverlay}
           />
           <div className="settings__hint">
-            {ta(translate, "stash-hint", { count: repo?.stashableCount ?? 0 })}
+            {ta(translate, 'stash-hint', { count: repo?.stashableCount ?? 0 })}
           </div>
         </>
       }
@@ -59,7 +59,7 @@ export function StashDialog() {
             onClick={closeOverlay}
             data-testid="stash-dialog-cancel"
           >
-            {t(translate, "dialog-cancel")}
+            {t(translate, 'dialog-cancel')}
           </button>
           <button
             type="button"
@@ -68,11 +68,11 @@ export function StashDialog() {
             onClick={() => {
               if (repoId) {
                 closeOverlay();
-                void runAction(repoId, { action: "stash", message });
+                void runAction(repoId, { action: 'stash', message });
               }
             }}
           >
-            {t(translate, "dialog-confirm")}
+            {t(translate, 'dialog-confirm')}
           </button>
         </>
       }
@@ -89,14 +89,10 @@ export function StashDropDialog({ reference }: { reference: string }) {
   return (
     <DialogCard
       testId="stash-drop-dialog"
-      title={t(translate, "stash-drop-title")}
+      title={t(translate, 'stash-drop-title')}
       icon={<Icon name="trash-2" size={16} />}
       onBackdrop={closeOverlay}
-      body={
-        <div className="muted">
-          {ta(translate, "stash-drop-warning", { reference })}
-        </div>
-      }
+      body={<div className="muted">{ta(translate, 'stash-drop-warning', { reference })}</div>}
       footer={
         <>
           <button
@@ -105,7 +101,7 @@ export function StashDropDialog({ reference }: { reference: string }) {
             onClick={closeOverlay}
             data-testid="stash-drop-cancel"
           >
-            {t(translate, "dialog-cancel")}
+            {t(translate, 'dialog-cancel')}
           </button>
           <button
             type="button"
@@ -114,11 +110,11 @@ export function StashDropDialog({ reference }: { reference: string }) {
             onClick={() => {
               if (repoId) {
                 closeOverlay();
-                void runAction(repoId, { action: "stashDrop", stashRef: reference });
+                void runAction(repoId, { action: 'stashDrop', stashRef: reference });
               }
             }}
           >
-            {t(translate, "dialog-confirm")}
+            {t(translate, 'dialog-confirm')}
           </button>
         </>
       }
@@ -126,11 +122,7 @@ export function StashDropDialog({ reference }: { reference: string }) {
   );
 }
 
-export function DiscardDialog({
-  overlay,
-}: {
-  overlay: Extract<Overlay, { kind: "discard" }>;
-}) {
+export function DiscardDialog({ overlay }: { overlay: Extract<Overlay, { kind: 'discard' }> }) {
   const translate = useStore((state) => state.t);
   const repoId = useActiveRepoId();
   const repo = useStore((state) => (repoId ? state.repos[repoId] : undefined));
@@ -142,29 +134,27 @@ export function DiscardDialog({
       return [];
     }
     const staged = overlay.scope.staged;
-    return repo.files.filter(
-      (file) => (staged ? file.index !== " " : file.worktree !== " "),
-    );
+    return repo.files.filter((file) => (staged ? file.index !== ' ' : file.worktree !== ' '));
   }, [repo, overlay.scope.staged]);
 
   // Each warning names what is about to be destroyed, because "discard" alone
   // does not say whether one file or the whole tree is going.
   const warning =
     overlay.scope.all && files.length === 1
-      ? ta(translate, "discard-file-warning", { path: files[0]?.path ?? "" })
+      ? ta(translate, 'discard-file-warning', { path: files[0]?.path ?? '' })
       : overlay.trackedCount > 0
-        ? ta(translate, "discard-all-warning", {
+        ? ta(translate, 'discard-all-warning', {
             tracked: overlay.trackedCount,
-            untracked: overlay.untrackedCount,
+            untracked: overlay.untrackedCount
           })
-        : ta(translate, "discard-untracked-file-warning", {
-            path: files[0]?.path ?? "",
+        : ta(translate, 'discard-untracked-file-warning', {
+            path: files[0]?.path ?? ''
           });
 
   return (
     <DialogCard
       testId="discard-dialog"
-      title={t(translate, "discard-title")}
+      title={t(translate, 'discard-title')}
       icon={<Icon name="undo" size={16} />}
       onBackdrop={closeOverlay}
       body={
@@ -189,7 +179,7 @@ export function DiscardDialog({
             onClick={closeOverlay}
             data-testid="discard-cancel"
           >
-            {t(translate, "discard-cancel")}
+            {t(translate, 'discard-cancel')}
           </button>
           <button
             type="button"
@@ -202,12 +192,7 @@ export function DiscardDialog({
               }
               setBusy(true);
               try {
-                await ipc.workingTreeOperation(
-                  repoId,
-                  "discard",
-                  files,
-                  overlay.scope.all,
-                );
+                await ipc.workingTreeOperation(repoId, 'discard', files, overlay.scope.all);
                 useStore.getState().setBusy(repoId, true);
                 closeOverlay();
               } catch (error) {
@@ -216,7 +201,7 @@ export function DiscardDialog({
               }
             }}
           >
-            {t(translate, "discard-confirm")}
+            {t(translate, 'discard-confirm')}
           </button>
         </>
       }

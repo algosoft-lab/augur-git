@@ -301,11 +301,13 @@ mod tests {
             platforms: vec!["plan9".into()],
         };
         assert!(!binding.matches_platform(std::env::consts::OS));
-        assert!(ShortcutBinding {
-            platforms: Vec::new(),
-            ..binding
-        }
-        .matches_platform(std::env::consts::OS));
+        assert!(
+            ShortcutBinding {
+                platforms: Vec::new(),
+                ..binding
+            }
+            .matches_platform(std::env::consts::OS)
+        );
     }
 
     #[test]

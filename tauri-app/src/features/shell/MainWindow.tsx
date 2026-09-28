@@ -6,19 +6,19 @@
  * so both surfaces run exactly the same handler.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
 
-import { open } from "@tauri-apps/plugin-dialog";
+import { open } from '@tauri-apps/plugin-dialog';
 
-import * as ipc from "../../bridge/ipc";
-import type { ChangeReport } from "../../bridge/types";
-import { renderGitError, useStore } from "../../app/store";
-import { TitleBar } from "./TitleBar";
-import { StatusBar } from "./StatusBar";
-import { Welcome } from "./Welcome";
-import { RepoTab } from "../repository/RepoTab";
-import { Overlays } from "../dialogs/Overlays";
-import { t } from "../../i18n/strings";
+import * as ipc from '../../bridge/ipc';
+import type { ChangeReport } from '../../bridge/types';
+import { renderGitError, useStore } from '../../app/store';
+import { TitleBar } from './TitleBar';
+import { StatusBar } from './StatusBar';
+import { Welcome } from './Welcome';
+import { RepoTab } from '../repository/RepoTab';
+import { Overlays } from '../dialogs/Overlays';
+import { t } from '../../i18n/strings';
 
 export function MainWindow() {
   const translate = useStore((state) => state.t);
@@ -36,25 +36,25 @@ export function MainWindow() {
     const selected = await open({
       directory: true,
       multiple: false,
-      title: t(translate, "repo-folder-prompt"),
+      title: t(translate, 'repo-folder-prompt')
     });
-    if (typeof selected === "string") {
+    if (typeof selected === 'string') {
       await openPaths([selected]);
     }
   };
 
-  const installCli = async (operation: "install" | "remove") => {
+  const installCli = async (operation: 'install' | 'remove') => {
     try {
       const report: ChangeReport = await ipc.runCliInstaller(operation);
-      openOverlay({ kind: "cliReport", report });
+      openOverlay({ kind: 'cliReport', report });
     } catch (error) {
       // Localized, like everywhere else. Pasting the key produced a notice
       // reading `err-installer: ...`, which says what the key is called and
       // nothing about what happened.
       const failure = ipc.describeError(error);
       notify({
-        level: "error",
-        message: renderGitError(translate, failure.key, failure.detail),
+        level: 'error',
+        message: renderGitError(translate, failure.key, failure.detail)
       });
     }
   };
@@ -66,26 +66,25 @@ export function MainWindow() {
     // A new tab is a start page, not a folder dialog: it shows the recent
     // repositories and a repository opened into it takes the tab's slot.
     const onNewTab = () => addStartTab();
-    const onInstall = () => void installCli("install");
-    const onRemove = () => void installCli("remove");
-    window.addEventListener("augur:open-repository", onOpen);
-    window.addEventListener("augur:open-wsl-repository", onWsl);
-    window.addEventListener("augur:new-tab", onNewTab);
-    window.addEventListener("augur:install-cli", onInstall);
-    window.addEventListener("augur:remove-cli", onRemove);
+    const onInstall = () => void installCli('install');
+    const onRemove = () => void installCli('remove');
+    window.addEventListener('augur:open-repository', onOpen);
+    window.addEventListener('augur:open-wsl-repository', onWsl);
+    window.addEventListener('augur:new-tab', onNewTab);
+    window.addEventListener('augur:install-cli', onInstall);
+    window.addEventListener('augur:remove-cli', onRemove);
     return () => {
-      window.removeEventListener("augur:open-repository", onOpen);
-      window.removeEventListener("augur:open-wsl-repository", onWsl);
-      window.removeEventListener("augur:new-tab", onNewTab);
-      window.removeEventListener("augur:install-cli", onInstall);
-      window.removeEventListener("augur:remove-cli", onRemove);
+      window.removeEventListener('augur:open-repository', onOpen);
+      window.removeEventListener('augur:open-wsl-repository', onWsl);
+      window.removeEventListener('augur:new-tab', onNewTab);
+      window.removeEventListener('augur:install-cli', onInstall);
+      window.removeEventListener('augur:remove-cli', onRemove);
     };
   }, []);
 
   const activeTab = tabs.find((tab) => tab.key === activeTabKey) ?? null;
-  const activeRepo = activeTab && activeTab.repoId !== null
-    ? (repos[activeTab.repoId] ?? null)
-    : null;
+  const activeRepo =
+    activeTab && activeTab.repoId !== null ? (repos[activeTab.repoId] ?? null) : null;
 
   return (
     <div className="app">
@@ -93,18 +92,15 @@ export function MainWindow() {
         onOpenRepository={() => void pickFolder()}
         onOpenWslRepository={() => setWslOpen(true)}
         onNewTab={addStartTab}
-        onInstallCli={() => void installCli("install")}
-        onRemoveCli={() => void installCli("remove")}
+        onInstallCli={() => void installCli('install')}
+        onRemoveCli={() => void installCli('remove')}
       />
       {activeRepo ? (
         <RepoTab repo={activeRepo} />
       ) : (
         // A start page and a window with no tabs show the same page; the
         // difference is only that a start page holds a slot for a repository.
-        <div
-          className="app__page"
-          data-testid={activeTab ? "start-page" : "window-welcome"}
-        >
+        <div className="app__page" data-testid={activeTab ? 'start-page' : 'window-welcome'}>
           <Welcome
             onOpenRepository={() => void pickFolder()}
             onOpenWslRepository={() => setWslOpen(true)}
@@ -112,18 +108,14 @@ export function MainWindow() {
         </div>
       )}
       <StatusBar repo={activeRepo} />
-      <Overlays
-        wslOpen={wslOpen}
-        onWslOpenChange={setWslOpen}
-        onOpenPaths={openPaths}
-      />
+      <Overlays wslOpen={wslOpen} onWslOpenChange={setWslOpen} onOpenPaths={openPaths} />
       {notice ? (
         <div className={`notice notice--${notice.level}`} data-testid="notice">
           <span>{notice.message}</span>
           <button
             type="button"
             className="notice__close"
-            aria-label={t(translate, "notice-dismiss")}
+            aria-label={t(translate, 'notice-dismiss')}
             onClick={() => notify(null)}
           >
             ×

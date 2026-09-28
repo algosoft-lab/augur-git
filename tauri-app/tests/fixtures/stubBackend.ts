@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync } from 'node:fs';
 
 /**
  * A stub Tauri runtime for browser tests.
@@ -14,11 +14,11 @@ import { readFileSync } from "node:fs";
  * character-level ranges exercise inline highlighting.
  */
 
-import { fixtureRepo, secondFixtureRepo } from "./stubData";
-import type { StubLogRow, StubRepo } from "./stubTypes";
+import { fixtureRepo, secondFixtureRepo } from './stubData';
+import type { StubLogRow, StubRepo } from './stubTypes';
 
-export type { StubFile, StubRefs, StubRepo, StubStatus } from "./stubTypes";
-export { commitFiles, diffPayload, fixtureRepo, secondFixtureRepo } from "./stubData";
+export type { StubFile, StubRefs, StubRepo, StubStatus } from './stubTypes';
+export { commitFiles, diffPayload, fixtureRepo, secondFixtureRepo } from './stubData';
 
 /** The stub's mutable state, so a test can steer it. */
 export interface StubOptions {
@@ -99,13 +99,13 @@ export interface StubOptions {
     diff_font_size: number;
   }>;
   /** Strategy the toolbar Pull button uses. */
-  pullAction?: "merge" | "rebase";
+  pullAction?: 'merge' | 'rebase';
 }
 
 export const DEFAULT_OPTIONS: StubOptions = {
   open: [],
   available: [fixtureRepo(), secondFixtureRepo()],
-  failingActions: [],
+  failingActions: []
 };
 
 /**
@@ -118,14 +118,11 @@ export const DEFAULT_OPTIONS: StubOptions = {
  */
 export function catalog(overrides: Record<string, string> = {}): Record<string, string> {
   const file = readFileSync(
-    new URL(
-      "../../src-tauri/crates/augur-core/i18n/en-US.ftl",
-      import.meta.url,
-    ),
-    "utf8",
+    new URL('../../src-tauri/crates/augur-core/i18n/en-US.ftl', import.meta.url),
+    'utf8'
   );
   const entries: Record<string, string> = {};
-  for (const line of file.split("\n")) {
+  for (const line of file.split('\n')) {
     const match = /^([a-z0-9-]+) = (.*)$/.exec(line.trim());
     if (match) {
       entries[match[1]!] = match[2]!;
@@ -135,12 +132,9 @@ export function catalog(overrides: Record<string, string> = {}): Record<string, 
 }
 
 /** The script injected into the page before the application loads. */
-export function stubSource(
-  options: StubOptions,
-  overrides: Record<string, string> = {},
-): string {
+export function stubSource(options: StubOptions, overrides: Record<string, string> = {}): string {
   return `(${install.toString()})(${JSON.stringify(options)}, ${JSON.stringify(
-    catalog(overrides),
+    catalog(overrides)
   )});`;
 }
 
@@ -173,13 +167,10 @@ function install(
       diff_font_size: number;
     }>;
   },
-  catalog: Record<string, string>,
+  catalog: Record<string, string>
 ): void {
   const listeners = new Map<string, Set<(payload: unknown) => void>>();
-  const subscriptions = new Map<
-    number,
-    { event: string; listener: (payload: unknown) => void }
-  >();
+  const subscriptions = new Map<number, { event: string; listener: (payload: unknown) => void }>();
   const unregisterListener = (event: string, id: number) => {
     const subscription = subscriptions.get(id);
     if (subscription?.event === event) {
@@ -187,9 +178,9 @@ function install(
       subscriptions.delete(id);
     }
   };
-  Object.defineProperty(globalThis, "__TAURI_EVENT_PLUGIN_INTERNALS__", {
+  Object.defineProperty(globalThis, '__TAURI_EVENT_PLUGIN_INTERNALS__', {
     configurable: true,
-    value: { unregisterListener },
+    value: { unregisterListener }
   });
   const log: { cmd: string; args: unknown }[] = [];
   const failure = options.openFailure ?? null;
@@ -201,28 +192,28 @@ function install(
 
   const config = {
     schema_version: 1,
-    theme: "catppuccin-mocha",
-    language: "system",
+    theme: 'catppuccin-mocha',
+    language: 'system',
     view: {
       show_untracked: true,
       auto_follow: true,
-      diff_layout: "side-by-side",
-      graph_history: "all-branches",
+      diff_layout: 'side-by-side',
+      graph_history: 'all-branches',
       auto_refresh_on_focus: true,
-      commit_action: "commit",
-      pull_action: options.pullAction ?? "merge",
+      commit_action: 'commit',
+      pull_action: options.pullAction ?? 'merge'
     },
     typography: {
       ui_font_family: null,
       mono_font_family: null,
       ui_font_size: 16,
       diff_font_size: 16,
-      ...(options.typography ?? {}),
+      ...(options.typography ?? {})
     },
     recent_repos: [
-      { path: "/Users/dev/projects/augur-git", location: { kind: "local" } },
-      { path: "/Users/dev/projects/other-app", location: { kind: "local" } },
-    ],
+      { path: '/Users/dev/projects/augur-git', location: { kind: 'local' } },
+      { path: '/Users/dev/projects/other-app', location: { kind: 'local' } }
+    ]
   };
 
   const savedTabs = options.savedTabs ?? [];
@@ -230,37 +221,36 @@ function install(
     schema_version: 1,
     open_tabs: [
       ...options.open.map((repo) => ({ path: repo.path, location: repo.location })),
-      ...savedTabs.map((path) => ({ path, location: { kind: "local" } })),
+      ...savedTabs.map((path) => ({ path, location: { kind: 'local' } }))
     ],
-    active_tab:
-      options.savedActiveTab ?? options.open[0]?.path ?? savedTabs[0] ?? null,
+    active_tab: options.savedActiveTab ?? options.open[0]?.path ?? savedTabs[0] ?? null,
     layout: {
       sidebar_width: 250,
       right_panel_width: 320,
       diff_height: null,
       file_list_ratio: 0.25,
-      ...(options.layout ?? {}),
-    },
+      ...(options.layout ?? {})
+    }
   };
   try {
     Object.assign(
       workspace.layout,
-      JSON.parse(sessionStorage.getItem("augur-test-layout") ?? "{}"),
+      JSON.parse(sessionStorage.getItem('augur-test-layout') ?? '{}')
     );
   } catch {
-    sessionStorage.removeItem("augur-test-layout");
+    sessionStorage.removeItem('augur-test-layout');
   }
 
   const build = {
-    name: "Augur Git Tauri",
-    binary: "augur-git-tauri",
-    cli_command: "augurgit-tauri",
-    identifier: "com.augur.git.tauri",
-    version: "0.1.0",
-    authors: "Augur",
-    commit: "abc1234",
-    version_line: "0.1.0 (abc1234)",
-    platform: "macOS aarch64",
+    name: 'Augur Git Tauri',
+    binary: 'augur-git-tauri',
+    cli_command: 'augurgit-tauri',
+    identifier: 'com.augur.git.tauri',
+    version: '0.1.0',
+    authors: 'Augur',
+    commit: 'abc1234',
+    version_line: '0.1.0 (abc1234)',
+    platform: 'macOS aarch64'
   };
 
   let eventId = 0;
@@ -280,14 +270,14 @@ function install(
 
   /** Push the full status and refs snapshot a freshly opened repository has. */
   function announce(repo: StubRepo): void {
-    emit("augur://repo-event", { repoId: repo.id, type: "status", ...repo.status });
-    emit("augur://repo-event", { repoId: repo.id, type: "refs", refs: repo.refs });
-    emit("augur://repo-event", {
+    emit('augur://repo-event', { repoId: repo.id, type: 'status', ...repo.status });
+    emit('augur://repo-event', { repoId: repo.id, type: 'refs', refs: repo.refs });
+    emit('augur://repo-event', {
       repoId: repo.id,
-      type: "logPage",
+      type: 'logPage',
       rows: repo.rows,
       replace: true,
-      hasMore: false,
+      hasMore: false
     });
   }
 
@@ -295,14 +285,17 @@ function install(
    * A linear lane layout, which is enough for a browser test: the frontend only
    * draws what the backend sends.
    */
-  function graphLayout(rows: StubLogRow[]): { graph: unknown[]; labels: Record<string, unknown[]> } {
+  function graphLayout(rows: StubLogRow[]): {
+    graph: unknown[];
+    labels: Record<string, unknown[]>;
+  } {
     const graph = rows.map((row, index) => {
       const lane = row.parents.length > 1 ? 1 : 0;
       return {
         input_lanes: [{ oid: row.oid, color_index: lane }],
         output_lanes: row.parents.map((parent, order) => ({
           oid: parent,
-          color_index: order,
+          color_index: order
         })),
         parent_lanes: row.parents.map((_, order) => order),
         node_lane: 0,
@@ -311,24 +304,24 @@ function install(
         is_merge: row.parents.length > 1,
         has_incoming: index > 0,
         node_color: lane,
-        node_input_lanes: index > 0 ? [0] : [],
+        node_input_lanes: index > 0 ? [0] : []
       };
     });
     const labels: Record<string, unknown[]> = {};
     for (const row of rows) {
       const parsed: { name: string; kind: string }[] = [];
-      for (const piece of row.decorations.split(",").map((part) => part.trim())) {
+      for (const piece of row.decorations.split(',').map((part) => part.trim())) {
         if (piece.length === 0) {
           continue;
         }
-        if (piece.startsWith("HEAD")) {
-          parsed.push({ name: "HEAD", kind: "head" });
-        } else if (piece.startsWith("tag:")) {
-          parsed.push({ name: piece.slice(4), kind: "tag" });
-        } else if (piece.includes("/")) {
-          parsed.push({ name: piece, kind: "remoteBranch" });
+        if (piece.startsWith('HEAD')) {
+          parsed.push({ name: 'HEAD', kind: 'head' });
+        } else if (piece.startsWith('tag:')) {
+          parsed.push({ name: piece.slice(4), kind: 'tag' });
+        } else if (piece.includes('/')) {
+          parsed.push({ name: piece, kind: 'remoteBranch' });
         } else {
-          parsed.push({ name: piece, kind: "localBranch" });
+          parsed.push({ name: piece, kind: 'localBranch' });
         }
       }
       labels[row.oid] = parsed;
@@ -345,25 +338,25 @@ function install(
   function compareFiles(): Record<string, unknown>[] {
     return [
       {
-        path: "src/lib.rs",
+        path: 'src/lib.rs',
         old_path: null,
-        new_path: "src/lib.rs",
-        status: "modified",
+        new_path: 'src/lib.rs',
+        status: 'modified',
         old_blob: null,
         new_blob: null,
         added: 3,
-        deleted: 1,
+        deleted: 1
       },
       {
-        path: "src/new.rs",
+        path: 'src/new.rs',
         old_path: null,
-        new_path: "src/new.rs",
-        status: "added",
+        new_path: 'src/new.rs',
+        status: 'added',
         old_blob: null,
         new_blob: null,
         added: 40,
-        deleted: 0,
-      },
+        deleted: 0
+      }
     ];
   }
 
@@ -373,94 +366,94 @@ function install(
       language,
       rows: [
         {
-          kind: "hunk",
+          kind: 'hunk',
           old_no: null,
           new_no: null,
           old_text: null,
           new_text: null,
           old_line_index: null,
           new_line_index: null,
-          hunk_header: "@@ -10,6 +10,7 @@ fn run()",
+          hunk_header: '@@ -10,6 +10,7 @@ fn run()'
         },
         {
-          kind: "context",
+          kind: 'context',
           old_no: 10,
           new_no: 10,
-          old_text: "    let mut count = 0;",
-          new_text: "    let mut count = 0;",
+          old_text: '    let mut count = 0;',
+          new_text: '    let mut count = 0;',
           old_line_index: 0,
           new_line_index: 0,
-          hunk_header: null,
+          hunk_header: null
         },
         {
-          kind: "del",
+          kind: 'del',
           old_no: 11,
           new_no: null,
-          old_text: "    count += 1;",
+          old_text: '    count += 1;',
           new_text: null,
           old_line_index: 1,
           new_line_index: null,
-          hunk_header: null,
+          hunk_header: null
         },
         {
-          kind: "add",
+          kind: 'add',
           old_no: null,
           new_no: 11,
           old_text: null,
-          new_text: "    count += 2;",
+          new_text: '    count += 2;',
           old_line_index: null,
           new_line_index: 1,
-          hunk_header: null,
-        },
+          hunk_header: null
+        }
       ],
       aligned_rows: [
         {
-          kind: "hunk",
+          kind: 'hunk',
           old_no: null,
           new_no: null,
           old_text: null,
           new_text: null,
           old_line_index: null,
           new_line_index: null,
-          hunk_header: "@@ -10,6 +10,7 @@ fn run()",
+          hunk_header: '@@ -10,6 +10,7 @@ fn run()'
         },
         {
-          kind: "context",
+          kind: 'context',
           old_no: 10,
           new_no: 10,
-          old_text: "    let mut count = 0;",
-          new_text: "    let mut count = 0;",
+          old_text: '    let mut count = 0;',
+          new_text: '    let mut count = 0;',
           old_line_index: 0,
           new_line_index: 0,
-          hunk_header: null,
+          hunk_header: null
         },
         {
-          kind: "del",
+          kind: 'del',
           old_no: 11,
           new_no: null,
-          old_text: "    count += 1;",
+          old_text: '    count += 1;',
           new_text: null,
           old_line_index: 1,
           new_line_index: null,
-          hunk_header: null,
+          hunk_header: null
         },
         {
-          kind: "add",
+          kind: 'add',
           old_no: null,
           new_no: 11,
           old_text: null,
-          new_text: "    count += 2;",
+          new_text: '    count += 2;',
           old_line_index: null,
           new_line_index: 1,
-          hunk_header: null,
-        },
+          hunk_header: null
+        }
       ],
       old_source: null,
       new_source: null,
       inline_old: [[], [], [], []],
       inline_new: [[], [{ start: 13, end: 14 }]],
       binary: false,
-      copy_text: "diff --git a/x b/x\\n",
+      copy_text: 'diff --git a/x b/x\\n'
     };
   }
 
@@ -470,26 +463,26 @@ function install(
     take_pending_paths: () => (options.pendingPaths ?? []).splice(0),
 
     bootstrap: () => ({
-      window: "main",
+      window: 'main',
       config,
       workspace,
-      locale: "en-US",
+      locale: 'en-US',
       catalogs: catalog,
       shortcuts: {
-        resolved: [{ command: "app.quit", keys: ["CmdOrCtrl+Q"] }],
-        overrides: {},
+        resolved: [{ command: 'app.quit', keys: ['CmdOrCtrl+Q'] }],
+        overrides: {}
       },
       build,
       store_paths: [
-        "~/Library/Application Support/com.augur.git.tauri/settings.json",
-        "~/Library/Application Support/com.augur.git.tauri/workspace.json",
+        '~/Library/Application Support/com.augur.git.tauri/settings.json',
+        '~/Library/Application Support/com.augur.git.tauri/workspace.json'
       ],
       repositories: options.open.map((repo) => ({
         id: repo.id,
         path: repo.path,
-        location: repo.location,
+        location: repo.location
       })),
-      has_pending_paths: (options.pendingPaths ?? []).length > 0,
+      has_pending_paths: (options.pendingPaths ?? []).length > 0
     }),
 
     current_config: () => config,
@@ -513,7 +506,7 @@ function install(
         }
         return { id: repo.id, path: repo.path, location: repo.location };
       };
-      const settle = <T,>(value: T): T | Promise<T> =>
+      const settle = <T>(value: T): T | Promise<T> =>
         options.openDelay
           ? new Promise<T>((resolve) => setTimeout(() => resolve(value), options.openDelay))
           : value;
@@ -525,7 +518,7 @@ function install(
       const repo = {
         ...(options.available[opened] ?? options.available[0]),
         path: args.path,
-        location: args.location ?? { kind: "local" },
+        location: args.location ?? { kind: 'local' }
       } as StubRepo;
       opened += 1;
       return settle(adopt(repo));
@@ -536,8 +529,7 @@ function install(
       return null;
     },
 
-    repository_summary: (args: any) =>
-      options.open.find((repo) => repo.id === args.repoId) ?? null,
+    repository_summary: (args: any) => options.open.find((repo) => repo.id === args.repoId) ?? null,
 
     refresh_repository: (args: any) => {
       const repo = options.open.find((item) => item.id === args.repoId);
@@ -562,33 +554,33 @@ function install(
       if (!repo || !row) {
         return null;
       }
-      emit("augur://repo-event", {
+      emit('augur://repo-event', {
         repoId: repo.id,
-        type: "commitFiles",
+        type: 'commitFiles',
         oid: row.oid,
         files: [
           {
-            path: "src/lib.rs",
+            path: 'src/lib.rs',
             old_path: null,
-            new_path: "src/lib.rs",
-            status: "modified",
+            new_path: 'src/lib.rs',
+            status: 'modified',
             old_blob: null,
             new_blob: null,
             added: 4,
-            deleted: 1,
+            deleted: 1
           },
           {
-            path: "src/commands/repo.rs",
+            path: 'src/commands/repo.rs',
             old_path: null,
-            new_path: "src/commands/repo.rs",
-            status: "added",
+            new_path: 'src/commands/repo.rs',
+            status: 'added',
             old_blob: null,
             new_blob: null,
             added: 120,
-            deleted: 0,
-          },
+            deleted: 0
+          }
         ],
-        merge_parent: row.parents[1] ?? null,
+        merge_parent: row.parents[1] ?? null
       });
       return null;
     },
@@ -599,15 +591,15 @@ function install(
       if (!row) {
         return null;
       }
-      emit("augur://repo-event", {
+      emit('augur://repo-event', {
         repoId: repo.id,
-        type: "commitMessage",
+        type: 'commitMessage',
         oid: row.oid,
         message: {
           subject: row.subject,
-          body: row.message.split("\\n\\n").slice(1).join("\\n\\n"),
-          co_authors: [{ name: "Ada", email: "ada@example.com" }],
-        },
+          body: row.message.split('\\n\\n').slice(1).join('\\n\\n'),
+          co_authors: [{ name: 'Ada', email: 'ada@example.com' }]
+        }
       });
       return null;
     },
@@ -617,12 +609,12 @@ function install(
       if (!repo) {
         return null;
       }
-      emit("augur://repo-event", {
+      emit('augur://repo-event', {
         repoId: repo.id,
-        type: "fileDiff",
+        type: 'fileDiff',
         oid: args.oid,
         file: args.file,
-        document: diffFor(args.file.new_path, "rust"),
+        document: diffFor(args.file.new_path, 'rust')
       });
       return null;
     },
@@ -635,20 +627,23 @@ function install(
       }
       const failDetail = options.workingDiffFailure ?? null;
       const delay = options.workingDiffDelay ?? 30;
-      const document = diffFor(args.file.path, "rust");
+      const document = diffFor(args.file.path, 'rust');
       // A short delay makes the loading state observable, which is the point of
       // testing it in a browser.
-      setTimeout(() => {
-        emit("augur://repo-event", {
-          repoId: repo.id,
-          type: failDetail ? "workingTreeFileDiffError" : "workingTreeFileDiff",
-          requestId,
-          kind: args.kind,
-          file: args.file,
-          detail: failDetail ?? "",
-          document: failDetail ? undefined : document,
-        });
-      }, failDetail ? Math.max(delay, 400) : delay);
+      setTimeout(
+        () => {
+          emit('augur://repo-event', {
+            repoId: repo.id,
+            type: failDetail ? 'workingTreeFileDiffError' : 'workingTreeFileDiff',
+            requestId,
+            kind: args.kind,
+            file: args.file,
+            detail: failDetail ?? '',
+            document: failDetail ? undefined : document
+          });
+        },
+        failDetail ? Math.max(delay, 400) : delay
+      );
       return requestId;
     },
 
@@ -657,14 +652,14 @@ function install(
       const requestId = ++requestCounter;
       if (repo) {
         setTimeout(() => {
-          emit("augur://repo-event", {
+          emit('augur://repo-event', {
             repoId: repo.id,
-            type: "workingTreeOperationFinished",
+            type: 'workingTreeOperationFinished',
             requestId,
             action: args.action,
-            scope: { kind: "workingTree", staged: false, all: args.all },
+            scope: { kind: 'workingTree', staged: false, all: args.all },
             success: true,
-            detail: "",
+            detail: ''
           });
         }, 20);
       }
@@ -686,9 +681,7 @@ function install(
         author:
           args.totalWidth >=
           args.treeWidth + hash + author + date + 4 * gap + padRight + messageMin,
-        message:
-          args.totalWidth >=
-          args.treeWidth + hash + date + 3 * gap + padRight + messageMin,
+        message: args.totalWidth >= args.treeWidth + hash + date + 3 * gap + padRight + messageMin
       };
     },
 
@@ -700,53 +693,53 @@ function install(
       const name = args.action.action;
       const label =
         {
-          fetch: "fetch --all --prune",
-          pullMerge: "pull",
-          pullRebase: "pull --rebase",
-          push: "push",
-          pushForce: "push --force",
-          pushSetUpstream: "push --set-upstream",
-          pushRenameRemote: "push --rename",
-          pushDeleteRemote: "push --delete",
-          merge: "merge",
-          abortMerge: "merge --abort",
-          rebase: "rebase",
-          abortRebase: "rebase --abort",
-          checkout: "checkout",
-          createBranch: "branch",
-          copyCommitMessage: "copy-commit-message",
-          renameBranch: "branch -m",
-          deleteBranch: "branch -d",
-          deleteTag: "tag -d",
-          stash: "stash push",
-          stashPop: "stash pop",
-          stashDrop: "stash drop",
-          commit: "commit",
-          applyPatch: "apply",
+          fetch: 'fetch --all --prune',
+          pullMerge: 'pull',
+          pullRebase: 'pull --rebase',
+          push: 'push',
+          pushForce: 'push --force',
+          pushSetUpstream: 'push --set-upstream',
+          pushRenameRemote: 'push --rename',
+          pushDeleteRemote: 'push --delete',
+          merge: 'merge',
+          abortMerge: 'merge --abort',
+          rebase: 'rebase',
+          abortRebase: 'rebase --abort',
+          checkout: 'checkout',
+          createBranch: 'branch',
+          copyCommitMessage: 'copy-commit-message',
+          renameBranch: 'branch -m',
+          deleteBranch: 'branch -d',
+          deleteTag: 'tag -d',
+          stash: 'stash push',
+          stashPop: 'stash pop',
+          stashDrop: 'stash drop',
+          commit: 'commit',
+          applyPatch: 'apply'
         }[name] ?? name;
       const bad = failing.has(name);
       // The clipboard copy is exercised through the clipboard plugin, which the
       // stub records; the message body is what a success would copy.
-      const succeeded = name === "copyCommitMessage" ? false : !bad;
+      const succeeded = name === 'copyCommitMessage' ? false : !bad;
       const answer = () => {
         setTimeout(() => {
-          emit("augur://repo-event", {
+          emit('augur://repo-event', {
             repoId: repo.id,
-            type: "commandStarted",
+            type: 'commandStarted',
             label,
-            verb: "Working",
+            verb: 'Working'
           });
           setTimeout(() => {
-            emit("augur://repo-event", {
+            emit('augur://repo-event', {
               repoId: repo.id,
-              type: "commandDone",
+              type: 'commandDone',
               label,
               success: succeeded,
               message: succeeded
                 ? `Add the Tauri command surface\n\nWith a body.\n`
                 : bad
-                  ? "fatal: could not read from remote"
-                  : "fatal: clipboard unavailable",
+                  ? 'fatal: could not read from remote'
+                  : 'fatal: clipboard unavailable'
             });
           }, 10);
         }, 10);
@@ -760,20 +753,20 @@ function install(
     },
 
     probe_merge: () => ({
-      head: "abc1234",
+      head: 'abc1234',
       merge_head: null,
       rebase_in_progress: false,
       has_changes: false,
       has_conflicts: false,
       already_merged: false,
-      ...(options.probeMerge ?? {}),
+      ...(options.probeMerge ?? {})
     }),
 
     probe_rebase: () => ({
       other_operation_in_progress: false,
       rebase_in_progress: false,
       has_changes: false,
-      ...(options.probeRebase ?? {}),
+      ...(options.probeRebase ?? {})
     }),
 
     start_compare: () => {
@@ -781,46 +774,52 @@ function install(
       const requestId = compareRequest;
       setTimeout(() => {
         if (options.failCompare !== undefined) {
-          emit("augur://repo-event", {
+          emit('augur://repo-event', {
             repoId: 7,
-            type: "branchCompareError",
+            type: 'branchCompareError',
             requestId,
-            detail: options.failCompare,
+            detail: options.failCompare
           });
-          emit("augur://repo-event", {
+          emit('augur://repo-event', {
             repoId: 7,
-            type: "branchCompareFinished",
-            requestId,
+            type: 'branchCompareFinished',
+            requestId
           });
           return;
         }
-        emit("augur://repo-event", {
+        emit('augur://repo-event', {
           repoId: 7,
-          type: "branchCompareFiles",
+          type: 'branchCompareFiles',
           requestId,
-          files: compareFiles(),
+          files: compareFiles()
         });
         // The worker asks for each file's diff and answers one event per file,
         // which is what the aggregate view collects.
         const delay = options.compareDelay ?? 0;
         compareFiles().forEach((file, index) => {
-          setTimeout(() => {
-            emit("augur://repo-event", {
-              repoId: 7,
-              type: "branchCompareFileDiff",
-              requestId,
-              file,
-              document: diffFor(file.new_path, "rust"),
-            });
-          }, 12 + delay + index * (delay > 0 ? delay : 5));
+          setTimeout(
+            () => {
+              emit('augur://repo-event', {
+                repoId: 7,
+                type: 'branchCompareFileDiff',
+                requestId,
+                file,
+                document: diffFor(file.new_path, 'rust')
+              });
+            },
+            12 + delay + index * (delay > 0 ? delay : 5)
+          );
         });
-        setTimeout(() => {
-          emit("augur://repo-event", {
-            repoId: 7,
-            type: "branchCompareFinished",
-            requestId,
-          });
-        }, 22 + delay * 2);
+        setTimeout(
+          () => {
+            emit('augur://repo-event', {
+              repoId: 7,
+              type: 'branchCompareFinished',
+              requestId
+            });
+          },
+          22 + delay * 2
+        );
       }, 10);
       return options.compareReplyDelay
         ? new Promise((resolve) => setTimeout(() => resolve(requestId), options.compareReplyDelay))
@@ -831,38 +830,40 @@ function install(
     export_patch: () => ++compareRequest,
 
     list_font_families: () =>
-      options.fontFamilies ?? ["Inter", "Menlo", "Fira Code", "Source Sans 3"],
+      options.fontFamilies ?? ['Inter', 'Menlo', 'Fira Code', 'Source Sans 3'],
     theme_options: () => [
-      "github-dark",
-      "catppuccin-latte",
-      "catppuccin-frappe",
-      "catppuccin-macchiato",
-      "catppuccin-mocha",
+      'github-dark',
+      'catppuccin-latte',
+      'catppuccin-frappe',
+      'catppuccin-macchiato',
+      'catppuccin-mocha'
     ],
     // The shape is the backend's: the operation, one entry per configuration
     // file, and a failure carrying the reason.
     run_cli_installer: (args: any) => ({
       operation: args.operation,
       results:
-        args.operation === "install"
+        args.operation === 'install'
           ? [
-              { path: "~/.zshrc", outcome: { updated: null } },
-              { path: "~/.config/fish/config.fish", outcome: { unchanged: null } },
+              { path: '~/.zshrc', outcome: { updated: null } },
+              { path: '~/.config/fish/config.fish', outcome: { unchanged: null } },
               {
-                path: "~/.bash_profile",
-                outcome: { failed: "Permission denied" },
-              },
+                path: '~/.bash_profile',
+                outcome: { failed: 'Permission denied' }
+              }
             ]
           : [
-              { path: "~/.zshrc", outcome: { removed: null } },
-              { path: "~/.config/fish/config.fish", outcome: { notInstalled: null } },
+              { path: '~/.zshrc', outcome: { removed: null } },
+              { path: '~/.config/fish/config.fish', outcome: { notInstalled: null } }
             ],
-      fallback_binary: false,
+      fallback_binary: false
     }),
     list_wsl_distros: () =>
       options.wslDelay
-        ? new Promise((resolve) => setTimeout(() => resolve(["Ubuntu", "Debian"]), options.wslDelay))
-        : ["Ubuntu", "Debian"],
+        ? new Promise((resolve) =>
+            setTimeout(() => resolve(['Ubuntu', 'Debian']), options.wslDelay)
+          )
+        : ['Ubuntu', 'Debian'],
     probe_wsl_repository: () => null,
 
     set_language: (args: any) => {
@@ -891,7 +892,7 @@ function install(
     },
     set_layout: (args: any) => {
       Object.assign(workspace.layout, args.layout);
-      sessionStorage.setItem("augur-test-layout", JSON.stringify(workspace.layout));
+      sessionStorage.setItem('augur-test-layout', JSON.stringify(workspace.layout));
       return null;
     },
     set_workspace_tabs: (args: any) => {
@@ -900,32 +901,32 @@ function install(
       return null;
     },
     set_shortcut: (args: any) => ({
-      resolved: [{ command: args.command, keys: args.keys ?? ["CmdOrCtrl+Q"] }],
-      overrides: args.keys ? { [args.command]: args.keys } : {},
+      resolved: [{ command: args.command, keys: args.keys ?? ['CmdOrCtrl+Q'] }],
+      overrides: args.keys ? { [args.command]: args.keys } : {}
     }),
     validate_shortcut: (args: any) => {
-      if (typeof args.value !== "string" || args.value.trim().length === 0) {
-        return Promise.reject({ key: "err-invalid-shortcut", detail: args.value ?? "" });
+      if (typeof args.value !== 'string' || args.value.trim().length === 0) {
+        return Promise.reject({ key: 'err-invalid-shortcut', detail: args.value ?? '' });
       }
-      return args.value.split("+").map((part: string) => part.trim());
+      return args.value.split('+').map((part: string) => part.trim());
     },
     flush_state: () => null,
     open_about_window: () => null,
     open_settings_window: () => null,
-    open_compare_window: () => "compare-1",
+    open_compare_window: () => 'compare-1',
     close_compare_window: () => null,
     focus_main_window: () => null,
     request_open_paths: (args: any) => {
-      emit("augur://open-paths", { paths: args.paths });
+      emit('augur://open-paths', { paths: args.paths });
       return null;
-    },
+    }
   };
 
   // The plugin commands the interface reaches through the official JavaScript
   // packages. They are recorded rather than implemented, except for the dialog
   // picker, which returns the first available fixture.
   const pluginHandlers: Record<string, (args: any) => unknown> = {
-    "plugin:event|listen": (args: any) => {
+    'plugin:event|listen': (args: any) => {
       const set = listeners.get(args.event) ?? new Set();
       listeners.set(args.event, set);
       // `handler` is the identifier `transformCallback` allocated, which is the
@@ -938,36 +939,36 @@ function install(
       set.add(listener);
       return Promise.resolve(id);
     },
-    "plugin:event|unlisten": (args: any) => {
+    'plugin:event|unlisten': (args: any) => {
       unregisterListener(args.event, args.eventId);
       return null;
     },
-    "plugin:event|emit": (args: any) => {
+    'plugin:event|emit': (args: any) => {
       emit(args.event, args.payload);
       return null;
     },
-    "plugin:dialog|open": () => {
+    'plugin:dialog|open': () => {
       const next = options.available.find(
-        (repo) => !options.open.some((open) => open.path === repo.path),
+        (repo) => !options.open.some((open) => open.path === repo.path)
       );
       return next?.path ?? options.available[0]?.path ?? null;
     },
-    "plugin:dialog|save": () => "/tmp/compare.patch",
-    "plugin:clipboard-manager|write_text": () => null,
-    "plugin:clipboard-manager|read_text": () => "",
-    "plugin:window|show": () => null,
-    "plugin:window|destroy": () => null,
-    "plugin:window|start_dragging": () => null,
-    "plugin:window|toggle_maximize": () => null,
-    "plugin:window|is_maximized": () => false,
-    "plugin:opener|open_path": () => null,
+    'plugin:dialog|save': () => '/tmp/compare.patch',
+    'plugin:clipboard-manager|write_text': () => null,
+    'plugin:clipboard-manager|read_text': () => '',
+    'plugin:window|show': () => null,
+    'plugin:window|destroy': () => null,
+    'plugin:window|start_dragging': () => null,
+    'plugin:window|toggle_maximize': () => null,
+    'plugin:window|is_maximized': () => false,
+    'plugin:opener|open_path': () => null
   };
 
   let callbackId = 1;
   const callbacks = new Map<number, (payload: unknown) => void>();
 
   const internals = {
-    metadata: { currentWindow: { label: options.window ?? "main" } },
+    metadata: { currentWindow: { label: options.window ?? 'main' } },
     transformCallback(callback: (payload: unknown) => void, once = false): number {
       const id = callbackId;
       callbackId += 1;
@@ -981,7 +982,7 @@ function install(
       }
       Object.defineProperty(globalThis, `_${id}`, {
         configurable: true,
-        value: (payload: unknown) => callbacks.get(id)?.(payload),
+        value: (payload: unknown) => callbacks.get(id)?.(payload)
       });
       return id;
     },
@@ -1003,19 +1004,19 @@ function install(
       }
       // An unimplemented command is a real defect in a test: surface it rather
       // than resolving to undefined and failing somewhere else.
-      return Promise.reject({ key: "err-unknown", detail: cmd });
-    },
+      return Promise.reject({ key: 'err-unknown', detail: cmd });
+    }
   };
 
-  Object.defineProperty(globalThis, "__TAURI_INTERNALS__", {
+  Object.defineProperty(globalThis, '__TAURI_INTERNALS__', {
     configurable: true,
-    value: internals,
+    value: internals
   });
 
   // Exposed so a test can steer the stub and assert what the interface asked
   // for, which is how the command-label protocol and the open failure path are
   // covered.
-  Object.defineProperty(globalThis, "__STUB__", {
+  Object.defineProperty(globalThis, '__STUB__', {
     configurable: true,
     value: {
       log,
@@ -1028,7 +1029,7 @@ function install(
         if (repo) {
           announce(repo);
         }
-      },
-    },
+      }
+    }
   });
 }
