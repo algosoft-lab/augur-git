@@ -7,13 +7,19 @@
  * the export writes the full patch with a native save dialog.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 import { Icon } from "../../components/Icon";
-import { EmptyState, Spinner, TextInput } from "../../components/controls";
+import { EmptyState, Spinner } from "../../components/controls";
 import * as ipc from "../../bridge/ipc";
 import type {
   CompareRevision,
@@ -25,14 +31,9 @@ import { useStore, type RepoState } from "../../app/store";
 import { statBlocks, statusKey, statusModifier } from "../diff/fileMeta";
 import { DiffView, type DiffSection } from "../diff/DiffView";
 import { t, ta } from "../../i18n/strings";
-import { isRevisionUnavailable } from "./revisions";
+import { endpointRevision, RevisionPicker, type Endpoint } from "./RevisionPicker";
 import { IS_MACOS, WindowControls } from "../shell/WindowControls";
 import { handleTitleBarMouseDown } from "../shell/titleBarDrag";
-
-interface Endpoint {
-  input: string;
-  selected: CompareRevision | null;
-}
 
 type CompareEvent = Extract<
   RepoEventEnvelope,
@@ -76,8 +77,8 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
   );
   const diffLayout = useStore((state) => state.config.view.diff_layout);
 
-  const [base, setBase] = useState<Endpoint>({ input: "", selected: null });
-  const [target, setTarget] = useState<Endpoint>({ input: "", selected: null });
+  const [base, setBase] = useState<Endpoint>({ manualInput: "", selected: null });
+  const [target, setTarget] = useState<Endpoint>({ manualInput: "", selected: null });
   /**
    * The comparison this window is waiting for.
    *
@@ -261,8 +262,8 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
       if (repoId === null) {
         return;
       }
-      const left = nextBase.selected ?? fromManualInput(nextBase.input);
-      const right = nextTarget.selected ?? fromManualInput(nextTarget.input);
+      const left = endpointRevision(nextBase);
+      const right = endpointRevision(nextTarget);
       if (!left || !right) {
         activeGeneration.current += 1;
         pendingGeneration.current = null;
@@ -332,11 +333,11 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
         return;
       }
       preset.current = true;
-      setBase({ input: current.name, selected: current });
-      setTarget({ input: other.name, selected: other });
+      setBase({ manualInput: "", selected: current });
+      setTarget({ manualInput: "", selected: other });
       void run(
-        { input: current.name, selected: current },
-        { input: other.name, selected: other },
+        { manualInput: "", selected: current },
+        { manualInput: "", selected: other },
       );
     }).catch((error: unknown) => {
       if (listenerGeneration === subscriptionGeneration.current) {
@@ -346,23 +347,13 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
     });
   }, [repoId, repo, run]);
 
-  const subjects = useMemo(
-    () => new Map((repo?.logRows ?? []).map((row) => [row.oid, row.subject])),
-    [repo?.logRows],
-  );
-
-  // The reference offers the loaded commits alongside the refs, with the recent
-  // ones first, so a comparison does not have to be between named branches.
+  // Commits are entered as object IDs in manual mode; the list contains named refs.
   const offered = useMemo<CompareRevision[]>(
-    () => [
-      ...(repo?.refs.comparison_revisions ?? []),
-      ...(repo?.logRows ?? []).map<CompareRevision>((row) => ({
-        name: row.short,
-        full_name: row.oid,
-        kind: "commit",
-      })),
-    ],
-    [repo?.refs.comparison_revisions, repo?.logRows],
+    () =>
+      (repo?.refs.comparison_revisions ?? []).filter(
+        (revision) => revision.kind === "local" || revision.kind === "remote" || revision.kind === "tag",
+      ),
+    [repo?.refs.comparison_revisions],
   );
 
   if (repoId === null || !repo) {
@@ -375,7 +366,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
   }
 
   const canRun = (endpoint: Endpoint) =>
-    endpoint.selected !== null || fromManualInput(endpoint.input) !== null;
+    endpointRevision(endpoint) !== null;
 
   /**
    * A comparison that failed as a whole, before any file could be listed.
@@ -398,7 +389,6 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           label={t(translate, "branch-compare-base")}
           endpoint={base}
           options={offered}
-          subjects={subjects}
           onChange={(next) => {
             setBase(next);
             void run(next, target);
@@ -423,7 +413,6 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           label={t(translate, "branch-compare-target")}
           endpoint={target}
           options={offered}
-          subjects={subjects}
           onChange={(next) => {
             setTarget(next);
             void run(base, next);
@@ -463,8 +452,8 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           }
           data-testid="compare-export"
           onClick={async () => {
-            const left = base.selected ?? fromManualInput(base.input);
-            const right = target.selected ?? fromManualInput(target.input);
+            const left = endpointRevision(base);
+            const right = endpointRevision(target);
             if (repoId === null || !left || !right) {
               return;
             }
@@ -664,273 +653,6 @@ export function suggestedPatchFilename(base: CompareRevision, target: CompareRev
     return "comparison.patch";
   }
   return `${left}-to-${right}.patch`;
-}
-
-/** The catalog key naming a revision's kind. */
-function kindKey(kind: CompareRevision["kind"]): string {
-  switch (kind) {
-    case "local":
-      return "branch-compare-local";
-    case "remote":
-      return "branch-compare-remote";
-    case "tag":
-      return "branch-compare-tag";
-    default:
-      return "branch-compare-commit";
-  }
-}
-
-/**
- * The suggestion label the reference builds: a kind prefix, the name, and the
- * commit subject when there is one, so a commit is recognisable in the list.
- */
-function optionLabel(
-  option: CompareRevision,
-  subject: string | undefined,
-  translate: (key: string) => string,
-): string {
-  const prefix = translate(kindKey(option.kind));
-  return subject
-    ? `${prefix} · ${option.name} · ${subject}`
-    : `${prefix} · ${option.name}`;
-}
-
-/** Turn typed text into a revision, accepting a 7 to 64 digit object id. */
-function fromManualInput(input: string): CompareRevision | null {
-  const text = input.trim();
-  if (text.length < 7 || text.length > 64) {
-    return null;
-  }
-  if (!/^[0-9a-fA-F]+$/.test(text)) {
-    return null;
-  }
-  return { name: text, full_name: text, kind: "commit" };
-}
-
-function RevisionPicker({
-  label,
-  endpoint,
-  options,
-  subjects,
-  onChange,
-}: {
-  label: string;
-  endpoint: Endpoint;
-  options: CompareRevision[];
-  /** Commit subjects by object id, so a commit is recognisable in the list. */
-  subjects: Map<string, string>;
-  onChange: (next: Endpoint) => void;
-}) {
-  const subjectFor = (option: CompareRevision) => subjects.get(option.full_name);
-  const translate = useStore((state) => state.t);
-  const [open, setOpen] = useState(false);
-  const [highlighted, setHighlighted] = useState(0);
-  // Free-form entry: the suggestions are suppressed while it is on.
-  const [manualOnly, setManualOnly] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const query = endpoint.input;
-  const filtered = options.filter((option) => {
-    if (!query) {
-      return true;
-    }
-    const needle = query.toLowerCase();
-    return (
-      option.name.toLowerCase().includes(needle) ||
-      option.full_name.toLowerCase().includes(needle)
-    );
-  });
-  const manual = fromManualInput(query);
-  const invalid = query.length > 0 && !manual && !endpoint.selected && filtered.length === 0;
-  const unavailable = isRevisionUnavailable(endpoint.selected, options);
-
-  // The list is a popup, so a click elsewhere or an Escape dismisses it.
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const onPointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-    };
-  }, [open]);
-
-  // The highlight follows what is typed, so it is never past the end.
-  useEffect(() => {
-    setHighlighted(0);
-  }, [query]);
-
-  /**
-   * The picker's own keys.
-   *
-   * On the root rather than on the document, so the behaviour is the same
-   * whether or not the list is open when the key is pressed, and so it cannot
-   * run twice for one keystroke.
-   */
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Escape") {
-      setOpen(false);
-      return;
-    }
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      if (manualOnly) {
-        return;
-      }
-      // Prevented so the caret does not jump to the ends of the field.
-      event.preventDefault();
-      setOpen(true);
-      setHighlighted((current) => {
-        if (filtered.length === 0) {
-          return 0;
-        }
-        const step = event.key === "ArrowDown" ? 1 : -1;
-        return (current + step + filtered.length) % filtered.length;
-      });
-      return;
-    }
-    // Enter takes the highlighted entry, which is why a list opened with the
-    // arrows is usable without ever touching the pointer.
-    if (event.key === "Enter") {
-      if (manualOnly) {
-        return;
-      }
-      const choice = filtered[highlighted];
-      if (choice) {
-        event.preventDefault();
-        onChange({ input: choice.name, selected: choice });
-        setOpen(false);
-      }
-    }
-  };
-
-  return (
-    <div className="compare__picker" ref={rootRef} onKeyDown={onKeyDown}>
-      <span className="compare__picker-label">{label}</span>
-      <div className="compare__picker-input">
-        <TextInput
-          value={query}
-          size="small"
-          monospace
-          testId={`compare-input-${label}`}
-          onChange={(value) => onChange({ input: value, selected: null })}
-          onSubmit={() => setOpen(true)}
-          placeholder={t(translate, "branch-compare-revision-placeholder")}
-        />
-        {/* Free-form entry, for a revision no list can offer. The suggestion
-            list is suppressed while it is on, because a list that keeps
-            changing under a typed object id is not a list. */}
-        <label
-          className="switch"
-          data-testid={`compare-manual-${label}`}
-          title={t(translate, "branch-compare-manual-input")}
-        >
-          <input
-            type="checkbox"
-            checked={manualOnly}
-            onChange={(event) => {
-              setManualOnly(event.target.checked);
-              setOpen(false);
-            }}
-          />
-          <span>{t(translate, "branch-compare-manual-input")}</span>
-        </label>
-        {open && !manualOnly ? (
-          <div className="compare__picker-options">
-            {filtered.length === 0 && !manual ? (
-              <div className="compare__picker-section">
-                {t(translate, "branch-compare-no-matches")}
-              </div>
-            ) : null}
-            {(["local", "remote", "tag", "commit"] as const).map((kind) => {
-              const group = filtered.filter((option) => option.kind === kind);
-              if (group.length === 0) {
-                return null;
-              }
-              return (
-                <div key={kind}>
-                  <div className="compare__picker-section">
-                    {t(
-                      translate,
-                      kind === "local"
-                        ? "branch-compare-branches"
-                        : kind === "remote"
-                          ? "branch-compare-remote"
-                          : kind === "tag"
-                            ? "branch-compare-tags"
-                            : "branch-compare-commits",
-                    )}
-                  </div>
-                  {group.map((option) => (
-                    <button
-                      key={option.full_name}
-                      type="button"
-                      className={`compare__picker-option${
-                        filtered[highlighted] === option ? " is-highlighted" : ""
-                      }`}
-                      data-testid={`compare-option-${option.kind}-${option.full_name}`}
-                      onClick={() => {
-                        onChange({ input: option.name, selected: option });
-                        setOpen(false);
-                      }}
-                    >
-                      <Icon
-                        name={
-                          option.kind === "commit"
-                            ? "git-commit-horizontal"
-                            : "git-branch"
-                        }
-                        size={11}
-                      />
-                      {optionLabel(option, subjectFor(option), translate)}
-                    </button>
-                  ))}
-                </div>
-              );
-            })}
-            {manual ? (
-              <button
-                type="button"
-                className="compare__picker-option"
-                data-testid="compare-use-commit"
-                onClick={() => {
-                  onChange({ input: manual.name, selected: manual });
-                  setOpen(false);
-                }}
-              >
-                <Icon name="git-commit-horizontal" size={11} />
-                {ta(translate, "branch-compare-use-commit", { sha: manual.name })}
-              </button>
-            ) : null}
-            {invalid ? (
-              <div className="compare__picker-error">
-                {t(translate, "branch-compare-invalid-revision")}
-              </div>
-            ) : null}
-            {unavailable ? (
-              <div
-                className="compare__picker-error"
-                data-testid={`compare-unavailable-${label}`}
-              >
-                {t(translate, "branch-compare-revision-unavailable")}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-        <button
-          type="button"
-          className="tool-button tool-button--compact"
-          data-testid={`compare-toggle-${label}`}
-          onClick={() => setOpen((value) => !value)}
-        >
-          <Icon name="chevron-down" size={11} />
-        </button>
-      </div>
-    </div>
-  );
 }
 
 export { ta };

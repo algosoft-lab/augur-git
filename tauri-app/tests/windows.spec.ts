@@ -169,21 +169,39 @@ test.describe("comparison window", () => {
     await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
 
     await page.getByTestId("compare-input-Base").fill("");
-    await page.getByTestId("compare-toggle-Base").click();
     const picker = page.locator(".compare__picker-options");
     await expect(picker).toContainText("Branches");
     await expect(picker).toContainText("remote");
     await expect(picker).toContainText("Tags");
 
-    // Every entry says what kind of thing it is, so a remote branch and a local
-    // one are distinguishable and a commit carries its subject.
+    // The list contains named refs only; commit IDs are entered manually.
     const options = page.locator(".compare__picker-option");
+    await expect(options).toHaveCount(4);
     await expect(options.nth(0)).toHaveText("local · master");
     await expect(options.nth(2)).toHaveText("remote · origin/master");
     await expect(options.nth(3)).toHaveText("tag · v1.1.0");
-    await expect(options.nth(4)).toContainText(
-      "commit · 13c6ef3 · Add the Tauri command surface",
-    );
+    await expect(page.getByTestId("compare-use-commit")).toHaveCount(0);
+  });
+
+  test("keeps the dropdown fully visible in narrow and regular windows", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
+
+    for (const viewport of [
+      { width: 900, height: 560 },
+      { width: 1280, height: 800 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.getByTestId("compare-toggle-Base").click();
+      const menu = page.getByTestId("compare-options-Base");
+      await expect(menu).toBeVisible();
+      const box = await menu.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+      await page.getByTestId("compare-option-local-refs/heads/feature/tauri").click();
+    }
   });
 
   test("counts the documents as a comparison streams in", async ({ page }) => {
@@ -213,27 +231,41 @@ test.describe("comparison window", () => {
   }) => {
     await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
 
-    // A typed object id is a revision like any other, so the export is offered
-    // for it; what cannot be exported is an endpoint that names nothing.
+    await page.getByTestId("compare-manual-Target").click();
+    // A valid manual SHA starts a comparison and makes the ref-to-commit patch
+    // exportable once its streamed result is complete.
     await page.getByTestId("compare-input-Target").fill(
       "0123456789abcdef0123456789abcdef01234567",
     );
+    await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
     await expect(page.getByTestId("compare-export")).toBeEnabled();
-    await page.getByTestId("compare-input-Target").fill("not a revision");
+    await page.getByTestId("compare-input-Target").fill("not-a-sha");
     await expect(page.getByTestId("compare-export")).toBeDisabled();
   });
 
-  test("suppresses the suggestions when free-form entry is on", async ({ page }) => {
+  test("manual mode accepts only a commit SHA", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
 
-    // A list that keeps changing under a typed object id is not a list.
+    const countComparisons = () =>
+      page.evaluate(
+        () => (window as any).__STUB__.log.filter((entry: any) => entry.cmd === "start_compare").length,
+      );
+    const before = await countComparisons();
     await page.getByTestId("compare-toggle-Base").click();
     await expect(page.locator(".compare__picker-options")).toBeVisible();
     await page.getByTestId("compare-manual-Base").click();
     await expect(page.locator(".compare__picker-options")).toHaveCount(0);
-    // The field still takes the text.
     await page.getByTestId("compare-input-Base").fill("release/1.2");
     await expect(page.getByTestId("compare-input-Base")).toHaveValue("release/1.2");
+    await expect(page.getByTestId("compare-manual-error-Base")).toContainText("commit SHA");
+    expect(await countComparisons()).toBe(before);
+
+    await page.getByTestId("compare-input-Base").fill(
+      "0123456789abcdef0123456789abcdef01234567",
+    );
+    await expect.poll(countComparisons).toBe(before + 1);
+    await expect(page.getByTestId("compare-progress")).toHaveCount(0);
+    await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
   });
 
   test("picks a revision with the keyboard alone", async ({ page }) => {
@@ -277,15 +309,26 @@ test.describe("comparison window", () => {
     await expect(input).toHaveValue("master");
   });
 
-  test("filters the offered revisions as the user types", async ({ page }) => {
+  test("fuzzy search preserves the current comparison until a ref is selected", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
 
-    await page.getByTestId("compare-input-Base").fill("v1.1");
-    await page.getByTestId("compare-toggle-Base").click();
+    const countComparisons = () =>
+      page.evaluate(
+        () => (window as any).__STUB__.log.filter((entry: any) => entry.cmd === "start_compare").length,
+      );
+    await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
+    const before = await countComparisons();
+
+    await page.getByTestId("compare-input-Base").fill("FTau");
 
     const picker = page.locator(".compare__picker-options");
-    await expect(picker).toContainText("v1.1.0");
+    await expect(page.getByTestId("compare-option-local-refs/heads/feature/tauri")).toBeVisible();
     await expect(picker).not.toContainText("origin/master");
+    expect(await countComparisons()).toBe(before);
+
+    await page.getByTestId("compare-option-local-refs/heads/feature/tauri").click();
+    await expect.poll(countComparisons).toBe(before + 1);
+    await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
   });
 
   test("closes the settings surface on a click outside", async ({ page }) => {
@@ -305,20 +348,18 @@ test.describe("comparison window", () => {
     await expect(page.getByTestId("settings-overlay")).toBeVisible();
   });
 
-  test("accepts a typed object id", async ({ page }) => {
+  test("manual SHA input rejects short values and accepts a full object ID", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
 
+    await page.getByTestId("compare-manual-Base").click();
     const input = page.getByTestId("compare-input-Base");
-    // Too short to be an object id, so the picker says so rather than guessing.
     await input.fill("abc");
-    await page.getByTestId("compare-toggle-Base").click();
-    await expect(page.locator(".compare__picker-error")).toBeVisible();
-    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("compare-manual-error-Base")).toBeVisible();
+    await expect(page.getByTestId("compare-run")).toBeDisabled();
 
-    // A full-length hexadecimal id is offered as a commit.
     await input.fill("0123456789abcdef0123456789abcdef01234567");
-    await page.getByTestId("compare-toggle-Base").click();
-    await expect(page.getByTestId("compare-use-commit")).toBeVisible();
+    await expect(page.getByTestId("compare-manual-error-Base")).toHaveCount(0);
+    await expect(page.getByTestId("compare-run")).toBeEnabled();
   });
 
   test("supersedes an in-flight comparison when a new pair is chosen", async ({
@@ -345,16 +386,50 @@ test.describe("comparison window", () => {
 
     // Choosing a different target starts a second comparison. The backend
     // treats the new request id as the current generation, so the first one's
-    // remaining answers are dropped rather than appended. The picker filters by
-    // what is already chosen, so it is cleared first.
+    // remaining answers are dropped rather than appended. Clearing the closed
+    // field opens the full list for this selection.
     await page.getByTestId("compare-input-Target").fill("");
-    await page.getByTestId("compare-toggle-Target").click();
     await page.getByTestId("compare-option-remote-refs/remotes/origin/master").click();
 
     // The file list is replaced, not appended to, and the three picks after the
     // automatic one each started exactly one comparison.
     await expect(page.getByTestId("compare-file-src/lib.rs")).toHaveCount(1);
     expect(await countComparisons()).toBe(before + 3);
+  });
+
+  test("a newer manual SHA supersedes older in-flight SHA comparisons", async ({
+    page,
+  }) => {
+    const stub = await boot(page, {
+      open: [fixtureRepo()],
+      window: "compare",
+      repoId: 7,
+      compareDelay: 120,
+    });
+    const countComparisons = () =>
+      page.evaluate(
+        () => (window as any).__STUB__.log.filter((entry: any) => entry.cmd === "start_compare").length,
+      );
+    await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
+    await expect(page.getByTestId("compare-progress")).toHaveCount(0);
+    const before = await countComparisons();
+
+    await page.getByTestId("compare-manual-Target").click();
+    const input = page.getByTestId("compare-input-Target");
+    await input.fill("1111111111111111111111111111111111111111");
+    await input.fill("2222222222222222222222222222222222222222");
+    await expect.poll(countComparisons).toBe(before + 2);
+    await expect(page.getByTestId("compare-progress")).toHaveCount(0);
+    await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
+
+    await stub.emit("augur://repo-event", {
+      repoId: 7,
+      type: "branchCompareError",
+      requestId: before + 1,
+      detail: "stale comparison error",
+    });
+    await expect(page.getByTestId("compare-request-error")).toHaveCount(0);
+    await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
   });
 
   test("reports a repository that is no longer open", async ({ page }) => {
