@@ -694,23 +694,6 @@ button {
   flex: 0 0 auto;
 }
 
-/*
- * The author initials, centred on the node. Positioned by the row's own left
- * offset rather than by percentage, because the node's column is a fixed 24
- * pixels and the row's width varies with the window.
- */
-.graph-row__initials {
-  position: absolute;
-  top: 3px;
-  width: 24px;
-  height: 30px;
-  font-size: calc(var(--ui-font-size) * 0.8125);
-  line-height: 30px;
-  text-align: center;
-  pointer-events: none;
-  user-select: none;
-}
-
 .graph-row__hash {
   flex: 0 0 auto;
   width: 60px;

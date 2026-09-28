@@ -17,15 +17,7 @@ import type { GraphRow, LogRow, RefLabel } from '../../bridge/types';
 import { useStore, type RepoState } from '../../app/store';
 import { LANE_COLORS } from '../../styles/themes';
 import { t, ta } from '../../i18n/strings';
-import {
-  COL_WIDTH,
-  GRAPH_LEFT_PAD,
-  GraphSvg,
-  ROW_HEIGHT,
-  authorInitials,
-  type LaneGeometry
-} from './GraphSvg';
-import { initialsTextColor, useResolvedLaneColors } from './laneColors';
+import { COL_WIDTH, GRAPH_LEFT_PAD, GraphSvg, ROW_HEIGHT, type LaneGeometry } from './GraphSvg';
 import { filterCommits, type CommitSearchField } from './commitSearch';
 
 /** Rows from the end of the list that trigger the next page request. */
@@ -38,7 +30,6 @@ export function laneAreaWidth(laneCount: number): number {
 
 export function GraphView({ repo }: { repo: RepoState }) {
   const translate = useStore((state) => state.t);
-  const theme = useStore((state) => state.config.theme);
   const selectCommit = useStore((state) => state.selectCommit);
   const clearCommit = useStore((state) => state.clearCommit);
   const runAction = useStore((state) => state.runAction);
@@ -54,10 +45,6 @@ export function GraphView({ repo }: { repo: RepoState }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(900);
   const requestedPages = useRef(new Set<string>());
-  // Only the initials need a resolved colour; the lanes themselves are painted
-  // with the custom properties, so a theme change repaints them for free.
-  const resolvedLanes = useResolvedLaneColors(theme);
-
   // The layout is recomputed whenever the visible rows change. Filtering is
   // local, so the layout only has to follow what is displayed.
   const visibleRows = useMemo(
@@ -251,7 +238,6 @@ export function GraphView({ repo }: { repo: RepoState }) {
                 graphRow={graphRow}
                 labels={layout.labels[row.oid] ?? []}
                 laneWidth={laneWidth}
-                resolvedLanes={resolvedLanes}
                 selected={selected}
                 showsAuthor={showsAuthor}
                 showsMessage={showsMessage}
@@ -303,7 +289,6 @@ function GraphRowView({
   graphRow,
   labels,
   laneWidth,
-  resolvedLanes,
   selected,
   showsAuthor,
   showsMessage,
@@ -320,8 +305,6 @@ function GraphRowView({
   graphRow: GraphRow | undefined;
   labels: RefLabel[];
   laneWidth: number;
-  /** Lane colours resolved to real values, for the initials' contrast. */
-  resolvedLanes: (string | null)[];
   selected: boolean;
   showsAuthor: boolean;
   showsMessage: boolean;
@@ -396,30 +379,7 @@ function GraphRowView({
         onMouseLeave={() => onHover(null)}
       >
         {geometry ? (
-          <>
-            <GraphSvg geometry={geometry} laneColors={LANE_COLORS} width={laneWidth} />
-            {/*
-             * The author initials sit on top of the node. On a hollow node they
-             * are the theme foreground; on the filled HEAD node they have to
-             * contrast with the lane fill, so their colour follows the fill's
-             * luminance.
-             */}
-            <span
-              className="graph-row__initials"
-              data-testid={`graph-initials-${row.short}`}
-              style={{
-                left: GRAPH_LEFT_PAD + geometry.nodeLane * COL_WIDTH + COL_WIDTH / 2 - 12,
-                color: geometry.isHead
-                  ? initialsTextColor(
-                      resolvedLanes[geometry.colorIndex % resolvedLanes.length] ?? '',
-                      'var(--foreground)'
-                    )
-                  : 'var(--foreground)'
-              }}
-            >
-              {authorInitials(row.author)}
-            </span>
-          </>
+          <GraphSvg geometry={geometry} laneColors={LANE_COLORS} width={laneWidth} />
         ) : (
           <span className="graph-row__lanes" style={{ width: laneWidth }} />
         )}

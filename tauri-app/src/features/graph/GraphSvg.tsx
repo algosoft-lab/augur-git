@@ -2,10 +2,8 @@
  * Commit-graph lane drawing.
  *
  * The lane layout itself is computed in Rust and arrives as `GraphRow` data, so
- * this module only turns that data into SVG paths. Geometry follows the
- * reference application: 36px rows, 24px lanes, a 12px left pad, a hollow node
- * for an ordinary commit and a filled one for HEAD, and rounded orthogonal
- * turns between lanes.
+ * this module only turns that data into SVG paths. Rows are 36px tall, lanes
+ * are 24px wide, and each commit is marked by a small circle on its lane.
  */
 
 /** Row height, matching the row component. */
@@ -14,8 +12,8 @@ export const ROW_HEIGHT = 36;
 export const COL_WIDTH = 24;
 /** Left padding before the first lane center. */
 export const GRAPH_LEFT_PAD = 12;
-/** Node diameter. */
-export const NODE_RADIUS = 12;
+/** Commit marker radius. */
+export const NODE_RADIUS = 4;
 const STROKE_WIDTH = 1.5;
 const TURN_RADIUS = 6;
 
@@ -142,11 +140,6 @@ export function GraphSvg({ geometry, laneColors, width }: GraphSvgProps) {
       />
     </svg>
   );
-}
-
-/** The first two characters of an author name, as the reference shows them. */
-export function authorInitials(author: string): string {
-  return [...author].slice(0, 2).join('');
 }
 
 /** A rounded orthogonal route from `fromX` to `toX` at `midY`. */
