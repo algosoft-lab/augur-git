@@ -27,7 +27,7 @@ fn resolved_title(language: &LanguagePreference, key: &str) -> String {
     augur_core::i18n::text(augur_core::i18n::resolve(language), key)
 }
 
-/// The five bundled themes, in settings-list order.
+/// The bundled themes, in settings-list order.
 #[tauri::command]
 pub fn theme_options() -> Vec<ThemePreference> {
     ThemePreference::ALL.to_vec()

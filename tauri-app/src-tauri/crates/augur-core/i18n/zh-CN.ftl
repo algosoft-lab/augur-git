@@ -356,6 +356,7 @@ diff-font-size-title = Diff 字号
 diff-font-size-description = 调整 Diff 视图中的文字大小。
 font-system-default = 系统默认
 font-search-placeholder = 搜索已安装字体…
+theme-search-placeholder = 搜索主题…
 agent-current-profile-title = Git 操作使用的当前 Agent
 agent-current-profile-description = AI 提交及后续 AI Git 操作会使用此配置。该选择对所有仓库生效。
 agent-add-agent = 添加 Agent
@@ -510,10 +511,10 @@ pull-action-merge = 合并
 pull-action-rebase = 变基
 pull-action-description = 工具栏拉取按钮整合上游分支的方式。变基会把本地提交重放到上游之上。
 theme-github-dark = GitHub Dark
-theme-catppuccin-latte = Latte
-theme-catppuccin-frappe = Frappé
-theme-catppuccin-macchiato = Macchiato
-theme-catppuccin-mocha = Mocha
+theme-catppuccin-latte = Catppuccin Latte
+theme-catppuccin-frappe = Catppuccin Frappé
+theme-catppuccin-macchiato = Catppuccin Macchiato
+theme-catppuccin-mocha = Catppuccin Mocha
 
 # ===== WSL 打开对话框（仅 Windows） =====
 wsl-open-title = 打开 WSL 仓库

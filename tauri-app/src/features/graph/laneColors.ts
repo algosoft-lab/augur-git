@@ -13,16 +13,16 @@ import { LANE_COLORS } from '../../styles/themes';
 
 /** The custom property each lane colour is written as. */
 const LANE_VARIABLES = [
-  '--base-blue',
-  '--base-green',
-  '--warning-background',
-  '--base-red',
-  null,
-  null,
-  null,
-  null,
-  null,
-  null
+  '--graph-lane-1',
+  '--graph-lane-2',
+  '--graph-lane-3',
+  '--graph-lane-4',
+  '--graph-lane-5',
+  '--graph-lane-6',
+  '--graph-lane-7',
+  '--graph-lane-8',
+  '--graph-lane-9',
+  '--graph-lane-10'
 ];
 
 /** Parse `#rgb`, `#rrggbb`, or `rgb(r, g, b)` into channels. */

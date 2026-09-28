@@ -1,17 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
+import { ADDITIONAL_THEME_NAMES, THEME_GROUPS, THEME_PREFERENCES } from '../styles/theme-catalog';
+import { additionalThemeColors } from '../styles/popular-theme-seeds';
 import { applyTheme, cssFontFamily, cssVariable, THEMES } from '../styles/themes';
 import { tokenize, grammarFor } from '../features/diff/highlight';
 
 describe('theme tokens', () => {
-  it('publishes the five bundled themes', () => {
-    expect(Object.keys(THEMES).sort()).toEqual([
-      'catppuccin-frappe',
-      'catppuccin-latte',
-      'catppuccin-macchiato',
-      'catppuccin-mocha',
-      'github-dark'
-    ]);
+  it('publishes all 32 themes with no duplicate preference keys', () => {
+    expect(THEME_PREFERENCES).toHaveLength(32);
+    expect(new Set(THEME_PREFERENCES).size).toBe(THEME_PREFERENCES.length);
+    expect(Object.keys(THEMES).sort()).toEqual([...THEME_PREFERENCES].sort());
+    expect(Object.keys(additionalThemeColors)).toHaveLength(27);
+    expect(ADDITIONAL_THEME_NAMES.map(([, name]) => name).sort()).toEqual(
+      Object.keys(additionalThemeColors).sort()
+    );
+    expect(THEME_GROUPS.flatMap((group) => group.themes)).toHaveLength(32);
   });
 
   it('gives every theme the same color set so no rule can be missing one', () => {
@@ -25,6 +28,43 @@ describe('theme tokens', () => {
     expect(THEMES['github-dark']!.mode).toBe('dark');
     expect(THEMES['catppuccin-latte']!.mode).toBe('light');
     expect(THEMES['catppuccin-mocha']!.mode).toBe('dark');
+    expect(THEMES['tokyo-night-light']!.mode).toBe('light');
+    expect(THEMES['github-light-default']!.mode).toBe('light');
+  });
+
+  it('uses valid palette tokens, readable text, and distinct graph lanes', () => {
+    const luminance = (color: string): number => {
+      const channels = color
+        .slice(1)
+        .match(/.{2}/gu)
+        ?.map((channel) => Number.parseInt(channel, 16) / 255)
+        .map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+      if (!channels || channels.length !== 3) throw new Error(`Invalid color: ${color}`);
+      return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
+    };
+    const contrastRatio = (foreground: string, background: string): number => {
+      const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+      return ((values[0] ?? 0) + 0.05) / ((values[1] ?? 0) + 0.05);
+    };
+
+    for (const [name, theme] of Object.entries(THEMES)) {
+      for (const color of Object.values(theme.colors)) {
+        expect(color, name).toMatch(/^#[0-9a-f]{6}$/iu);
+      }
+      expect(
+        contrastRatio(theme.colors.foreground!, theme.colors.background!),
+        name
+      ).toBeGreaterThanOrEqual(4.5);
+      expect(
+        contrastRatio(theme.colors['accent.foreground']!, theme.colors['accent.background']!),
+        name
+      ).toBeGreaterThanOrEqual(4.5);
+      expect(
+        new Set(Array.from({ length: 10 }, (_, index) => theme.colors[`graph.lane.${index + 1}`]))
+          .size,
+        name
+      ).toBe(10);
+    }
   });
 
   it('turns a dotted catalog key into a CSS variable', () => {

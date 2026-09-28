@@ -17,11 +17,11 @@ import * as ipc from '../../bridge/ipc';
 import type {
   DiffLayoutPreference,
   GraphHistoryPreference,
-  LanguagePreference,
-  ThemePreference
+  LanguagePreference
 } from '../../bridge/types';
 import { useStore } from '../../app/store';
 import { t, ta } from '../../i18n/strings';
+import { THEME_GROUPS } from '../../styles/theme-catalog';
 import { IS_MACOS, WindowControls } from '../shell/WindowControls';
 import { handleTitleBarMouseDown } from '../shell/titleBarDrag';
 
@@ -32,14 +32,6 @@ const SECTIONS: { id: Section; key: string }[] = [
   { id: 'appearance', key: 'settings-appearance' },
   { id: 'layout', key: 'settings-layout' },
   { id: 'shortcuts', key: 'settings-shortcuts' }
-];
-
-const THEMES: { value: ThemePreference; key: string }[] = [
-  { value: 'github-dark', key: 'theme-github-dark' },
-  { value: 'catppuccin-latte', key: 'theme-catppuccin-latte' },
-  { value: 'catppuccin-frappe', key: 'theme-catppuccin-frappe' },
-  { value: 'catppuccin-macchiato', key: 'theme-catppuccin-macchiato' },
-  { value: 'catppuccin-mocha', key: 'theme-catppuccin-mocha' }
 ];
 
 const LANGUAGES: { value: LanguagePreference; key: string }[] = [
@@ -194,10 +186,15 @@ function AppearanceSection({ fonts }: { fonts: string[] }) {
         <Select
           value={theme}
           testId="settings-theme"
-          options={THEMES.map((entry) => ({
-            value: entry.value,
-            label: t(translate, entry.key)
-          }))}
+          searchable
+          searchPlaceholder={t(translate, 'theme-search-placeholder')}
+          options={THEME_GROUPS.flatMap((group) =>
+            group.themes.map((entry) => ({
+              value: entry.value,
+              label: entry.labelKey ? t(translate, entry.labelKey) : entry.name,
+              group: group.name
+            }))
+          )}
           onChange={(value) => void setTheme(value)}
         />
       </div>

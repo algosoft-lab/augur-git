@@ -363,6 +363,7 @@ diff-font-size-title = Diff font size
 diff-font-size-description = Adjust the size of text inside diff views.
 font-system-default = System default
 font-search-placeholder = Search installed fonts…
+theme-search-placeholder = Search themes…
 agent-current-profile-title = Current Agent for Git operations
 agent-current-profile-description = Commit by AI and future AI Git operations use this profile. The selection is shared by all repositories.
 agent-add-agent = Add Agent
@@ -517,10 +518,10 @@ pull-action-merge = Merge
 pull-action-rebase = Rebase
 pull-action-description = How the toolbar Pull button integrates the upstream branch. Rebase replays local commits on top of it.
 theme-github-dark = GitHub Dark
-theme-catppuccin-latte = Latte
-theme-catppuccin-frappe = Frappé
-theme-catppuccin-macchiato = Macchiato
-theme-catppuccin-mocha = Mocha
+theme-catppuccin-latte = Catppuccin Latte
+theme-catppuccin-frappe = Catppuccin Frappé
+theme-catppuccin-macchiato = Catppuccin Macchiato
+theme-catppuccin-mocha = Catppuccin Mocha
 
 # ===== WSL open dialog (Windows only) =====
 wsl-open-title = Open WSL Repository

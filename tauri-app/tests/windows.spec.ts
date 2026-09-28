@@ -548,6 +548,32 @@ test.describe('settings window', () => {
       .toBe('"Source Sans 3"');
   });
 
+  test('searches grouped themes and applies a new light theme immediately', async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()], window: 'settings' });
+    await page.getByTestId('settings-nav-appearance').click();
+    await page.getByTestId('settings-theme').click();
+
+    const search = page.getByRole('textbox', { name: 'Search themes…' });
+    await search.fill('Tokyo Night');
+    await expect(page.getByTestId('select-option-tokyo-night')).toBeVisible();
+    await expect(page.getByTestId('select-option-tokyo-night-storm')).toBeVisible();
+    await expect(page.getByTestId('select-option-tokyo-night-light')).toBeVisible();
+    await expect(page.getByRole('option')).toHaveCount(3);
+
+    await page.getByTestId('select-option-tokyo-night-light').click();
+    await expect(page.locator('html')).toHaveAttribute('data-mode', 'light');
+    await expect
+      .poll(() =>
+        page
+          .locator('html')
+          .evaluate((element) => getComputedStyle(element).getPropertyValue('--background').trim())
+      )
+      .toBe('#e6e7ed');
+    const setTheme = (await stub.commands()).filter((entry) => entry.cmd === 'set_theme');
+    expect(setTheme).toHaveLength(1);
+    expect((setTheme[0]!.args as any).theme).toBe('tokyo-night-light');
+  });
+
   test('shows a saved font that is not in the discovered system list', async ({ page }) => {
     await boot(page, {
       open: [fixtureRepo()],

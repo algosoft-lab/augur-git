@@ -53,6 +53,60 @@ pub enum ThemePreference {
     CatppuccinMacchiato,
     #[serde(rename = "catppuccin-mocha")]
     CatppuccinMocha,
+    #[serde(rename = "dracula")]
+    Dracula,
+    #[serde(rename = "tokyo-night")]
+    TokyoNight,
+    #[serde(rename = "tokyo-night-storm")]
+    TokyoNightStorm,
+    #[serde(rename = "tokyo-night-light")]
+    TokyoNightLight,
+    #[serde(rename = "gruvbox-dark")]
+    GruvboxDark,
+    #[serde(rename = "gruvbox-light")]
+    GruvboxLight,
+    #[serde(rename = "nord")]
+    Nord,
+    #[serde(rename = "solarized-dark")]
+    SolarizedDark,
+    #[serde(rename = "solarized-light")]
+    SolarizedLight,
+    #[serde(rename = "rose-pine")]
+    RosePine,
+    #[serde(rename = "rose-pine-moon")]
+    RosePineMoon,
+    #[serde(rename = "rose-pine-dawn")]
+    RosePineDawn,
+    #[serde(rename = "ayu-dark")]
+    AyuDark,
+    #[serde(rename = "ayu-mirage")]
+    AyuMirage,
+    #[serde(rename = "ayu-light")]
+    AyuLight,
+    #[serde(rename = "kanagawa-wave")]
+    KanagawaWave,
+    #[serde(rename = "kanagawa-lotus")]
+    KanagawaLotus,
+    #[serde(rename = "github-dark-default")]
+    GitHubDarkDefault,
+    #[serde(rename = "github-light-default")]
+    GitHubLightDefault,
+    #[serde(rename = "atom-one-dark")]
+    AtomOneDark,
+    #[serde(rename = "atom-one-light")]
+    AtomOneLight,
+    #[serde(rename = "everforest-dark")]
+    EverforestDark,
+    #[serde(rename = "everforest-light")]
+    EverforestLight,
+    #[serde(rename = "night-owl")]
+    NightOwl,
+    #[serde(rename = "light-owl")]
+    LightOwl,
+    #[serde(rename = "claude-dark")]
+    ClaudeDark,
+    #[serde(rename = "claude-light")]
+    ClaudeLight,
 }
 
 impl Default for ThemePreference {
@@ -63,12 +117,39 @@ impl Default for ThemePreference {
 
 impl ThemePreference {
     /// Every preference in the order the settings list shows them.
-    pub const ALL: [ThemePreference; 5] = [
+    pub const ALL: [ThemePreference; 32] = [
         ThemePreference::GitHubDark,
+        ThemePreference::GitHubDarkDefault,
+        ThemePreference::GitHubLightDefault,
         ThemePreference::CatppuccinLatte,
         ThemePreference::CatppuccinFrappe,
         ThemePreference::CatppuccinMacchiato,
         ThemePreference::CatppuccinMocha,
+        ThemePreference::Dracula,
+        ThemePreference::TokyoNight,
+        ThemePreference::TokyoNightStorm,
+        ThemePreference::TokyoNightLight,
+        ThemePreference::GruvboxDark,
+        ThemePreference::GruvboxLight,
+        ThemePreference::Nord,
+        ThemePreference::SolarizedDark,
+        ThemePreference::SolarizedLight,
+        ThemePreference::RosePine,
+        ThemePreference::RosePineMoon,
+        ThemePreference::RosePineDawn,
+        ThemePreference::AyuDark,
+        ThemePreference::AyuMirage,
+        ThemePreference::AyuLight,
+        ThemePreference::KanagawaWave,
+        ThemePreference::KanagawaLotus,
+        ThemePreference::AtomOneDark,
+        ThemePreference::AtomOneLight,
+        ThemePreference::EverforestDark,
+        ThemePreference::EverforestLight,
+        ThemePreference::NightOwl,
+        ThemePreference::LightOwl,
+        ThemePreference::ClaudeDark,
+        ThemePreference::ClaudeLight,
     ];
 
     /// Stable key shared by the preference and the theme catalog.
@@ -79,6 +160,33 @@ impl ThemePreference {
             Self::CatppuccinFrappe => "catppuccin-frappe",
             Self::CatppuccinMacchiato => "catppuccin-macchiato",
             Self::CatppuccinMocha => "catppuccin-mocha",
+            Self::Dracula => "dracula",
+            Self::TokyoNight => "tokyo-night",
+            Self::TokyoNightStorm => "tokyo-night-storm",
+            Self::TokyoNightLight => "tokyo-night-light",
+            Self::GruvboxDark => "gruvbox-dark",
+            Self::GruvboxLight => "gruvbox-light",
+            Self::Nord => "nord",
+            Self::SolarizedDark => "solarized-dark",
+            Self::SolarizedLight => "solarized-light",
+            Self::RosePine => "rose-pine",
+            Self::RosePineMoon => "rose-pine-moon",
+            Self::RosePineDawn => "rose-pine-dawn",
+            Self::AyuDark => "ayu-dark",
+            Self::AyuMirage => "ayu-mirage",
+            Self::AyuLight => "ayu-light",
+            Self::KanagawaWave => "kanagawa-wave",
+            Self::KanagawaLotus => "kanagawa-lotus",
+            Self::GitHubDarkDefault => "github-dark-default",
+            Self::GitHubLightDefault => "github-light-default",
+            Self::AtomOneDark => "atom-one-dark",
+            Self::AtomOneLight => "atom-one-light",
+            Self::EverforestDark => "everforest-dark",
+            Self::EverforestLight => "everforest-light",
+            Self::NightOwl => "night-owl",
+            Self::LightOwl => "light-owl",
+            Self::ClaudeDark => "claude-dark",
+            Self::ClaudeLight => "claude-light",
         }
     }
 }
@@ -529,6 +637,57 @@ mod tests {
         assert_eq!(config.theme, ThemePreference::GitHubDark);
         assert_eq!(config.view, ViewSettings::default());
         assert_eq!(config.typography, TypographySettings::default());
+    }
+
+    #[test]
+    fn theme_preferences_have_unique_stable_keys_and_round_trip() {
+        let keys: Vec<_> = ThemePreference::ALL.map(ThemePreference::key).into();
+        let unique: std::collections::HashSet<_> = keys.iter().copied().collect();
+        let expected = [
+            "github-dark",
+            "github-dark-default",
+            "github-light-default",
+            "catppuccin-latte",
+            "catppuccin-frappe",
+            "catppuccin-macchiato",
+            "catppuccin-mocha",
+            "dracula",
+            "tokyo-night",
+            "tokyo-night-storm",
+            "tokyo-night-light",
+            "gruvbox-dark",
+            "gruvbox-light",
+            "nord",
+            "solarized-dark",
+            "solarized-light",
+            "rose-pine",
+            "rose-pine-moon",
+            "rose-pine-dawn",
+            "ayu-dark",
+            "ayu-mirage",
+            "ayu-light",
+            "kanagawa-wave",
+            "kanagawa-lotus",
+            "atom-one-dark",
+            "atom-one-light",
+            "everforest-dark",
+            "everforest-light",
+            "night-owl",
+            "light-owl",
+            "claude-dark",
+            "claude-light",
+        ];
+        assert_eq!(keys.len(), 32);
+        assert_eq!(unique.len(), keys.len());
+        assert_eq!(ThemePreference::ALL.len(), keys.len());
+        assert_eq!(keys.as_slice(), expected.as_slice());
+
+        for preference in ThemePreference::ALL {
+            let serialized = serde_json::to_string(&preference).unwrap();
+            assert_eq!(serialized, format!("\"{}\"", preference.key()));
+            let parsed: ThemePreference = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(parsed, preference);
+        }
     }
 
     #[test]

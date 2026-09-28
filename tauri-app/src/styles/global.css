@@ -1153,7 +1153,7 @@ button {
 }
 
 .token-type {
-  color: #a371f7;
+  color: var(--base-purple);
 }
 
 .token-function {

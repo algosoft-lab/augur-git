@@ -297,6 +297,7 @@ function slug(label: string): string {
 export interface SelectOption<T> {
   value: T;
   label: string;
+  group?: string;
 }
 
 /** A compact select matching the settings controls. */
@@ -326,6 +327,7 @@ export function Select<T extends string | number | boolean>({
 
   useEffect(() => {
     if (!open) {
+      setQuery('');
       return;
     }
     const onPointerDown = (event: MouseEvent) => {
@@ -338,8 +340,23 @@ export function Select<T extends string | number | boolean>({
   }, [open]);
 
   const filtered = query
-    ? options.filter((option) => option.label.toLowerCase().includes(query.toLowerCase()))
+    ? options.filter((option) =>
+        `${option.group ?? ''} ${option.label}`.toLowerCase().includes(query.toLowerCase())
+      )
     : options;
+  const groupedOptions = filtered.reduce<Array<{ name: string; options: SelectOption<T>[] }>>(
+    (groups, option) => {
+      const name = option.group ?? '';
+      const last = groups[groups.length - 1];
+      if (last?.name === name) {
+        last.options.push(option);
+      } else {
+        groups.push({ name, options: [option] });
+      }
+      return groups;
+    },
+    []
+  );
 
   return (
     <div className="select" ref={rootRef}>
@@ -383,22 +400,35 @@ export function Select<T extends string | number | boolean>({
               />
             </div>
           ) : null}
-          {filtered.map((option) => (
-            <button
-              key={String(option.value)}
-              type="button"
-              role="option"
-              data-testid={`select-option-${slug(option.label)}`}
-              aria-selected={option.value === value}
-              className={`select__option${option.value === value ? ' is-selected' : ''}`}
-              onClick={() => {
-                onChange(option.value);
-                setOpen(false);
-                setQuery('');
-              }}
+          {groupedOptions.map((group, groupIndex) => (
+            <div
+              key={`${group.name}-${groupIndex}`}
+              role={group.name ? 'group' : undefined}
+              aria-label={group.name || undefined}
             >
-              {option.label}
-            </button>
+              {group.name ? (
+                <div className="select__group-label" role="presentation">
+                  {group.name}
+                </div>
+              ) : null}
+              {group.options.map((option) => (
+                <button
+                  key={String(option.value)}
+                  type="button"
+                  role="option"
+                  data-testid={`select-option-${slug(option.label)}`}
+                  aria-selected={option.value === value}
+                  className={`select__option${option.value === value ? ' is-selected' : ''}`}
+                  onClick={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                    setQuery('');
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           ))}
           {filtered.length === 0 ? <div className="select__empty">—</div> : null}
         </div>

@@ -1,19 +1,20 @@
 /**
- * The five bundled themes.
+ * Bundled theme definitions and runtime CSS variables.
  *
- * The values are a transcription of the reference application's theme catalog so
- * the two products look identical. Every color becomes a CSS custom property,
- * which keeps the stylesheets free of theme conditionals.
+ * Every color becomes a CSS custom property, which keeps the stylesheets free
+ * of theme conditionals.
  */
 
 import type { ThemePreference } from '../bridge/types';
+import { ADDITIONAL_THEME_NAMES } from './theme-catalog';
+import { additionalThemeColors } from './popular-theme-seeds';
 
 export interface ThemeDefinition {
   mode: 'light' | 'dark';
   colors: Record<string, string>;
 }
 
-export const THEMES: Record<ThemePreference, ThemeDefinition> = {
+const EXISTING_THEMES = {
   'github-dark': {
     mode: 'dark',
     colors: {
@@ -146,6 +147,169 @@ export const THEMES: Record<ThemePreference, ThemeDefinition> = {
   }
 };
 
+type ExistingThemePreference = keyof typeof EXISTING_THEMES;
+type AddedThemePreference = Exclude<ThemePreference, ExistingThemePreference>;
+
+const LEGACY_GRAPH_LANES = [
+  '#a371f7',
+  '#39c5cf',
+  '#e06c9f',
+  '#7dba00',
+  '#d19a66',
+  '#4993f0'
+] as const;
+
+function existingGraphLanes(colors: {
+  'base.blue': string;
+  'base.green': string;
+  'warning.background': string;
+  'base.red': string;
+}): string[] {
+  return [
+    colors['base.blue'],
+    colors['base.green'],
+    colors['warning.background'],
+    colors['base.red'],
+    ...LEGACY_GRAPH_LANES
+  ];
+}
+
+const existingThemesWithGraphColors = Object.fromEntries(
+  Object.entries(EXISTING_THEMES).map(([key, definition]) => [
+    key,
+    {
+      ...definition,
+      colors: {
+        ...definition.colors,
+        'base.purple': '#a371f7',
+        ...Object.fromEntries(
+          existingGraphLanes(definition.colors).map((color, index) => [
+            `graph.lane.${index + 1}`,
+            color
+          ])
+        )
+      }
+    }
+  ])
+) as unknown as Record<ExistingThemePreference, ThemeDefinition>;
+
+type SourceTheme = (typeof additionalThemeColors)[keyof typeof additionalThemeColors];
+
+function hexToRgb(value: string): [number, number, number] {
+  const hex = value.slice(1);
+  return [
+    Number.parseInt(hex.slice(0, 2), 16),
+    Number.parseInt(hex.slice(2, 4), 16),
+    Number.parseInt(hex.slice(4, 6), 16)
+  ];
+}
+
+function rgbToHex(channels: [number, number, number]): string {
+  return `#${channels
+    .map((channel) =>
+      Math.round(Math.min(255, Math.max(0, channel)))
+        .toString(16)
+        .padStart(2, '0')
+    )
+    .join('')}`;
+}
+
+function mix(from: string, toward: string, weight: number): string {
+  const start = hexToRgb(from);
+  const end = hexToRgb(toward);
+  return rgbToHex([
+    start[0] + (end[0] - start[0]) * weight,
+    start[1] + (end[1] - start[1]) * weight,
+    start[2] + (end[2] - start[2]) * weight
+  ]);
+}
+
+function isDark(color: string): boolean {
+  const [red, green, blue] = hexToRgb(color);
+  return (red * 299 + green * 587 + blue * 114) / 1000 < 128;
+}
+
+function relativeLuminance(color: string): number {
+  const channels = hexToRgb(color).map((value) => value / 255);
+  const linear = (value: number) =>
+    value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  return (
+    0.2126 * linear(channels[0]!) + 0.7152 * linear(channels[1]!) + 0.0722 * linear(channels[2]!)
+  );
+}
+
+function graphLaneColors(colors: SourceTheme, dark: boolean): string[] {
+  const ansi = colors.ansi!;
+  const indices = [4, 5, 2, 6, 1, 3, 12, 13, 10, 14];
+  const toward = dark ? '#ffffff' : '#000000';
+  const lanes: string[] = [];
+  for (const index of indices) {
+    const source = ansi[index]!;
+    let lane = source;
+    for (let step = 1; lanes.includes(lane) && step <= 9; step += 1) {
+      lane = mix(source, toward, step / 10);
+    }
+    lanes.push(lane);
+  }
+  return lanes;
+}
+
+function makeTheme(colors: SourceTheme): ThemeDefinition {
+  const dark = isDark(colors.background);
+  const accent = colors.accent ?? colors.bright ?? (dark ? '#89b4fa' : '#1e66f5');
+  const danger = colors.danger ?? (dark ? '#f38ba8' : '#d20f39');
+  const ansi = colors.ansi!;
+  const panel = colors.panel ?? mix(colors.background, colors.foreground, 0.03);
+  const panelAlt = colors.panelAlt ?? mix(panel, colors.foreground, 0.05);
+  const border = colors.border ?? mix(colors.background, colors.foreground, 0.16);
+  const borderStrong = colors.borderStrong ?? mix(colors.background, colors.foreground, 0.26);
+  const foregroundOnAccent = relativeLuminance(accent) > 0.179 ? '#000000' : '#ffffff';
+  const lanes = graphLaneColors(colors, dark);
+
+  return {
+    mode: dark ? 'dark' : 'light',
+    colors: {
+      background: colors.background,
+      foreground: colors.foreground,
+      border,
+      'tab_bar.background': panel,
+      'title_bar.background': panel,
+      'input.border': panelAlt,
+      'list.hover.background': colors.hover ?? panelAlt,
+      'list.active.background':
+        colors.selection ?? mix(colors.background, accent, dark ? 0.28 : 0.35),
+      'muted.foreground': colors.textMuted ?? mix(colors.foreground, colors.background, 0.4),
+      'table.head.foreground':
+        colors.textDim ?? colors.textMuted ?? mix(colors.foreground, colors.background, 0.12),
+      'base.blue': ansi[4]!,
+      'base.purple': ansi[5]!,
+      'accent.background': accent,
+      'accent.foreground': foregroundOnAccent,
+      'base.green': ansi[2]!,
+      'base.red': danger,
+      'warning.background': ansi[3]!,
+      'drag.border': accent,
+      'primary.background': accent,
+      'primary.foreground': foregroundOnAccent,
+      'switch.background': borderStrong,
+      'switch.thumb.background': colors.foreground,
+      ...Object.fromEntries(lanes.map((color, index) => [`graph.lane.${index + 1}`, color]))
+    }
+  };
+}
+
+const addedThemes = Object.fromEntries(
+  ADDITIONAL_THEME_NAMES.map(([preference, name]) => [
+    preference,
+    makeTheme(additionalThemeColors[name]!)
+  ])
+) as Record<AddedThemePreference, ThemeDefinition>;
+
+export const THEMES: Record<ThemePreference, ThemeDefinition> = {
+  ...existingThemesWithGraphColors,
+  ...addedThemes
+};
+
 /**
  * CSS variable name for one catalog key.
  *
@@ -221,15 +385,7 @@ export const DEFAULT_TYPOGRAPHY = {
 };
 
 /** The ten lane colors the commit graph cycles through. */
-export const LANE_COLORS = [
-  'var(--base-blue)',
-  'var(--base-green)',
-  'var(--warning-background)',
-  'var(--base-red)',
-  '#a371f7',
-  '#39c5cf',
-  '#e06c9f',
-  '#7dba00',
-  '#d19a66',
-  '#4993f0'
-];
+export const LANE_COLORS = Array.from(
+  { length: 10 },
+  (_, index) => `var(--graph-lane-${index + 1})`
+);

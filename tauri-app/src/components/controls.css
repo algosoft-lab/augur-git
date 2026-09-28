@@ -324,6 +324,13 @@
   background: var(--list-hover-background);
 }
 
+.select__group-label {
+  padding: 5px 8px 2px;
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.68);
+  font-weight: 600;
+}
+
 .select__option.is-selected {
   background: var(--list-active-background);
 }

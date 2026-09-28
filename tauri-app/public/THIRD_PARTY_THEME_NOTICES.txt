@@ -1,0 +1,90 @@
+Augur Git Tauri includes adapted color palette data for the following themes. These palettes are
+adaptations of upstream color values; upstream projects are not affiliated with Augur Git.
+
+Dracula
+Source: https://github.com/dracula/iterm/tree/e5749bcd07764ad6e154038892b118ea45f88cc0
+Copyright (c) 2013-present Dracula Theme
+
+Tokyo Night, Tokyo Night Storm, Tokyo Night Light
+Source: https://github.com/tokyo-night/tokyo-night-vscode-theme/tree/7c0f11eaef322f293621ca7befe462214b7ea468
+Copyright (c) 2018-present Enkia
+
+Gruvbox Dark, Gruvbox Light
+Source: https://github.com/morhetz/gruvbox/tree/ef8864bb42bf244f0295d1c5a403b27e3d139695
+Attribution: morhetz. The upstream README declares the MIT/X11 license.
+
+Nord
+Source: https://github.com/nordtheme/nord/tree/1cef71605416a222e57225b544540ce0fcec18d4
+Copyright (c) 2016-present Sven Greb
+
+Solarized Dark, Solarized Light
+Source: https://github.com/altercation/solarized/tree/62f656a02f93c5190a8753159e34b385588d5ff3
+Copyright (c) 2011 Ethan Schoonover
+
+Rosé Pine, Rosé Pine Moon, Rosé Pine Dawn
+Source: https://github.com/rose-pine/neovim/tree/ff483051a47e27d84bdef47703538df1ed9f4a47
+Copyright (c) 2023 Rosé Pine
+
+Ayu Dark, Ayu Mirage, Ayu Light
+Source: https://github.com/ayu-theme/ayu-colors/tree/e3f44fdf2a1c83e3f183d4e8acd40c6a452dcb1c
+Copyright (c) Konstantin Pschera <me@kons.ch> (kons.ch)
+
+Kanagawa Wave, Kanagawa Lotus
+Source: https://github.com/rebelot/kanagawa.nvim/tree/bb85e4bfc8d89b0e62c8fa53ccdd13d12e2f77b3
+Copyright (c) 2021 Tommaso Laurenzi
+
+GitHub Dark Default, GitHub Light Default
+Source: https://github.com/primer/github-vscode-theme/tree/cd78e5e4e7bcf132a6f428ae0f32264bb1b729cf
+Copyright (c) 2020 Primer
+
+Atom One Dark
+Source: https://github.com/atom/one-dark-syntax/tree/9c96f4454362267ac45322063e193ccf9d2debb1
+Copyright (c) 2016 GitHub Inc.
+
+Atom One Light
+Source: https://github.com/atom/one-light-syntax/tree/d84579027410c576086dfca14d934c4bd74b0438
+Copyright (c) 2016 GitHub Inc.
+
+Everforest Dark, Everforest Light
+Source: https://github.com/sainnhe/everforest-vscode/tree/b17f8affe9096f18d209caf2fc26322490e55857
+Copyright (c) 2020 sainnhe
+
+Night Owl, Light Owl
+Source: https://github.com/sdras/night-owl-vscode-theme/tree/cc291eba7976b20d7c66bde6883c27b902196b07
+Copyright (c) 2018 Sarah Drasner
+
+Claude Dark, Claude Light
+Source: https://github.com/mbadolato/iTerm2-Color-Schemes/tree/99d9701ba3cf4a06d24eea6ca4f25a64656b446b/schemes
+Original theme: https://github.com/zanehu-ai/ghostty-claude-theme/tree/ca572e2532bc34e41ce91051867b2f15cb164596
+Copyright (c) 2026 techfitmaster (original Claude theme)
+Copyright (c) 2011 to Present Mark Badolato (iTerm2-Color-Schemes collection)
+
+The themes are unofficial community adaptations. Claude and Anthropic are trademarks of Anthropic, PBC.
+Augur Git is not affiliated with, endorsed by, or sponsored by Anthropic.
+
+Tinted Theming terminal-palette reference
+Source: https://github.com/tinted-theming/schemes/tree/50f6e3b93a8f62db9d839f8b79a709c1bbdaac53
+Copyright (c) 2022 Tinted Theming
+
+MIT License
+
+Copyright (c) 2026 techfitmaster
+Copyright (c) 2011 to Present Mark Badolato
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

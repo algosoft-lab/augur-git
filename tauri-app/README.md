@@ -170,3 +170,6 @@ resolved store paths.
 
 This application is licensed under the [Apache License 2.0](LICENSE). The
 license file is included here so the application can be packaged independently.
+Built-in theme sources and third-party notices are listed in
+[`docs/theme-sources.md`](docs/theme-sources.md) and
+[`public/THIRD_PARTY_THEME_NOTICES.txt`](public/THIRD_PARTY_THEME_NOTICES.txt).
