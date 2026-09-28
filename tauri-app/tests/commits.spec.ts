@@ -11,6 +11,21 @@ import { boot, fixtureRepo, rightClick, secondFixtureRepo } from "./harness";
  */
 
 test.describe("commit selection", () => {
+  test("waits for a user selection instead of showing a permanent commit placeholder", async ({
+    page,
+  }) => {
+    await boot(page, { open: [fixtureRepo()] });
+
+    await expect(page.getByTestId("bottom-no-commit-state")).toBeVisible();
+    await expect(page.getByTestId("bottom-panel")).toContainText("No commit selected");
+    await expect(page.getByTestId("diff-hunk")).toHaveCount(0);
+
+    await page.locator(".graph-row").first().click();
+    await expect(page.getByTestId("bottom-commit-hash")).toHaveText("13c6ef3");
+    await expect(page.getByTestId("bottom-no-commit-state")).toHaveCount(0);
+    await expect(page.getByTestId("bottom-panel")).not.toContainText("No commit selected");
+  });
+
   test("loads a commit's files and then its diff", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
@@ -76,7 +91,114 @@ test.describe("commit selection", () => {
     await expect(page.getByTestId("bottom-file-src/lib.rs")).toHaveClass(/is-selected/);
     await expect(page.getByTestId("diff-file-header")).toHaveCount(0);
     const firstRow = page.locator('[data-testid="diff-row"]').first();
-    await expect(firstRow.locator(".diff__text")).toHaveCount(1);
+    await expect(firstRow.locator(".diff__side")).toHaveCount(2);
+    await expect(firstRow.locator(".diff__text")).toHaveCount(2);
+  });
+
+  test("aligns diff columns and preserves tab and wide-character advances", async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()] });
+    await page.setViewportSize({ width: 1800, height: 1000 });
+    await page.locator(".graph-row").first().click();
+    await page.getByTestId("bottom-file-src/lib.rs").click();
+    await expect(page.getByTestId("diff-row").first()).toBeVisible();
+
+    const selection = (await stub.commands()).find((entry) => entry.cmd === "select_commit")!;
+    const oid = String((selection.args as any).oid);
+    const code = `\tconst label = "${"界".repeat(100)}";`;
+    await stub.emit("augur://repo-event", {
+      repoId: 7,
+      type: "fileDiff",
+      oid,
+      file: {
+        path: "src/lib.rs",
+        old_path: null,
+        new_path: "src/lib.rs",
+        status: "modified",
+        old_blob: null,
+        new_blob: null,
+        added: 1,
+        deleted: 1,
+      },
+      document: {
+        path: "src/lib.rs",
+        language: "rust",
+        rows: [
+          {
+            kind: "hunk",
+            old_no: null,
+            new_no: null,
+            old_text: null,
+            new_text: null,
+            old_line_index: null,
+            new_line_index: null,
+            hunk_header: "@@ -1 +1 @@",
+          },
+          {
+            kind: "context",
+            old_no: 1,
+            new_no: 1,
+            old_text: code,
+            new_text: code,
+            old_line_index: 0,
+            new_line_index: 0,
+            hunk_header: null,
+          },
+        ],
+        aligned_rows: [
+          {
+            kind: "hunk",
+            old_no: null,
+            new_no: null,
+            old_text: null,
+            new_text: null,
+            old_line_index: null,
+            new_line_index: null,
+            hunk_header: "@@ -1 +1 @@",
+          },
+          {
+            kind: "context",
+            old_no: 1,
+            new_no: 1,
+            old_text: code,
+            new_text: code,
+            old_line_index: 0,
+            new_line_index: 0,
+            hunk_header: null,
+          },
+        ],
+        old_source: null,
+        new_source: null,
+        inline_old: [[]],
+        inline_new: [[]],
+        binary: false,
+        copy_text: "",
+      },
+    });
+
+    const metrics = await page.locator(".diff__row--split").evaluate((row) => {
+      const sides = [...row.querySelectorAll<HTMLElement>(".diff__side")];
+      const codeCell = sides[0]!.querySelector<HTMLElement>(".diff__text")!;
+      const gutter = sides[0]!.querySelector<HTMLElement>(".diff__gutter")!;
+      const hunk = document.querySelector<HTMLElement>(".diff__hunk");
+      return {
+        widths: sides.map((side) => side.getBoundingClientRect().width),
+        fontSize: getComputedStyle(codeCell).fontSize,
+        lineHeight: getComputedStyle(row).lineHeight,
+        gutterWidth: gutter.getBoundingClientRect().width,
+        tabSize: getComputedStyle(codeCell).tabSize,
+        scrolls: codeCell.scrollWidth > codeCell.clientWidth,
+        text: codeCell.textContent,
+        hunkFontSize: hunk ? getComputedStyle(hunk).fontSize : null,
+      };
+    });
+    expect(Math.abs(metrics.widths[0]! - metrics.widths[1]!)).toBeLessThanOrEqual(1);
+    expect(metrics.fontSize).toBe("12px");
+    expect(metrics.lineHeight).toBe("22px");
+    expect(metrics.gutterWidth).toBe(42);
+    expect(metrics.tabSize).toBe("4");
+    expect(metrics.scrolls).toBe(true);
+    expect(metrics.text).toBe(code);
+    expect(metrics.hunkFontSize).toBe("11px");
   });
 
   test("drops a diff that arrives after the selection moved on", async ({ page }) => {
@@ -128,6 +250,41 @@ test.describe("commit selection", () => {
 
     await expect(page.getByTestId("diff-view")).toContainText("count += 2");
     await expect(page.getByTestId("diff-view")).not.toContainText("@@ -1 +1 @@");
+  });
+
+  test("drops a late file list for a commit that is no longer selected", async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()] });
+    const rows = page.locator(".graph-row");
+    await rows.nth(0).click();
+    await expect(page.getByTestId("bottom-file-src/lib.rs")).toBeVisible();
+    const oldSelection = (await stub.commands()).filter((entry) => entry.cmd === "select_commit")[0]!;
+    const oldOid = String((oldSelection.args as any).oid);
+
+    await rows.nth(1).click();
+    await expect(page.getByTestId("bottom-panel")).toContainText(
+      await rows.nth(1).locator(".graph-row__subject").innerText(),
+    );
+    await stub.emit("augur://repo-event", {
+      repoId: 7,
+      type: "commitFiles",
+      oid: oldOid,
+      files: [
+        {
+          path: "stale-only.rs",
+          old_path: null,
+          new_path: "stale-only.rs",
+          status: "modified",
+          old_blob: null,
+          new_blob: null,
+          added: 1,
+          deleted: 0,
+        },
+      ],
+      merge_parent: null,
+    });
+
+    await expect(page.getByTestId("bottom-file-stale-only.rs")).toHaveCount(0);
+    await expect(page.getByTestId("bottom-panel")).not.toContainText("No commit selected");
   });
 
   test("clears the selection back to the placeholder", async ({ page }) => {

@@ -254,6 +254,7 @@ pub fn open_compare_window(
         .inner_size(1280.0, 820.0)
         .min_inner_size(900.0, 560.0)
         .resizable(true)
+        .decorations(cfg!(target_os = "macos"))
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
         .build()

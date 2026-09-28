@@ -259,33 +259,32 @@ function DiffRowView({
   if (row.kind === "hunk") {
     return (
       <div className="diff__row diff__row--hunk" data-testid="diff-hunk">
-        <span className="diff__gutter" />
-        <span className="diff__gutter" />
-        <span className="diff__marker" />
-        <span className="diff__text">{row.hunk_header}</span>
+        <span className="diff__hunk">{row.hunk_header}</span>
       </div>
     );
   }
 
   if (layout === "side-by-side") {
+    const oldModifier = row.old_text === null ? "" : row.kind === "del" ? " diff__side--del" : "";
+    const newModifier = row.new_text === null ? "" : row.kind === "add" ? " diff__side--add" : "";
     return (
-      <div className="diff__row" data-testid="diff-row">
-        <span className="diff__gutter">{row.old_no ?? ""}</span>
-        <span
-          className={`diff__text diff__text--old${row.old_text === null ? " is-empty" : ""}`}
-        >
-          {row.old_text === null
-            ? ""
-            : highlight(row.old_text, document.language, oldRanges(ranges, row))}
-        </span>
-        <span className="diff__gutter">{row.new_no ?? ""}</span>
-        <span
-          className={`diff__text diff__text--new${row.new_text === null ? " is-empty" : ""}`}
-        >
-          {row.new_text === null
-            ? ""
-            : highlight(row.new_text, document.language, newRanges(ranges, row))}
-        </span>
+      <div className="diff__row diff__row--split" data-testid="diff-row">
+        <div className={`diff__side diff__side--old${oldModifier}`}>
+          <span className="diff__gutter">{row.old_no ?? ""}</span>
+          <span className="diff__text diff__text--old">
+            {row.old_text === null
+              ? ""
+              : highlight(row.old_text, document.language, oldRanges(ranges, row))}
+          </span>
+        </div>
+        <div className={`diff__side diff__side--new${newModifier}`}>
+          <span className="diff__gutter">{row.new_no ?? ""}</span>
+          <span className="diff__text diff__text--new">
+            {row.new_text === null
+              ? ""
+              : highlight(row.new_text, document.language, newRanges(ranges, row))}
+          </span>
+        </div>
       </div>
     );
   }

@@ -1,8 +1,8 @@
 /* Application layout.
  *
- * The window is a vertical stack: title bar, tab bar, repository content, and
- * status bar. The repository content is a three-column row with the commit
- * graph and bottom diff in the middle, matching the reference application.
+ * The window is a vertical stack: a combined title and tab bar, repository
+ * content, and status bar. The repository content is a three-column row with
+ * the commit graph and bottom diff in the middle.
  */
 
 * {
@@ -69,14 +69,16 @@ button {
 
 .title-bar {
   display: flex;
-  height: 30px;
+  min-width: 0;
+  height: 36px;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 0 8px;
   background: var(--title-bar-background);
   border-bottom: 1px solid var(--border);
   user-select: none;
+  -webkit-app-region: no-drag;
 }
 
 /* Leave room for the macOS traffic lights under the overlay title bar. */
@@ -84,41 +86,121 @@ button {
   padding-left: 78px;
 }
 
+.title-bar > * {
+  -webkit-app-region: no-drag;
+}
+
+.title-bar__menu-trigger {
+  width: 28px;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
 .title-bar__drag {
-  flex: 1 1 auto;
+  min-width: 12px;
+  flex: 1 1 0;
   align-self: stretch;
+  -webkit-app-region: drag;
 }
 
 .title-bar__brand {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
   font-size: calc(var(--ui-font-size) * 0.7);
   font-weight: 600;
   color: var(--muted-foreground);
   white-space: nowrap;
 }
 
-.title-bar__brand img {
-  width: 14px;
-  height: 14px;
+.title-bar__settings {
+  width: 26px;
+  height: 26px;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.window-controls {
+  display: flex;
+  height: 100%;
+  align-items: stretch;
+  flex: 0 0 auto;
+  margin: 0 -8px 0 2px;
+}
+
+.window-controls__button {
+  display: inline-flex;
+  width: 42px;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.window-controls__button:hover {
+  background: var(--list-hover-background);
+  color: var(--foreground);
+}
+
+.window-controls__button--close:hover {
+  background: var(--base-red);
+  color: #fff;
+}
+
+.window-titlebar {
+  display: flex;
+  min-width: 0;
+  height: 36px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  background: var(--title-bar-background);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  -webkit-app-region: no-drag;
+}
+
+.window-titlebar > * {
+  -webkit-app-region: no-drag;
+}
+
+.window-titlebar--macos {
+  padding-left: 78px;
+}
+
+.window-titlebar__drag {
+  min-width: 12px;
+  flex: 1 1 auto;
+  align-self: stretch;
+  -webkit-app-region: drag;
 }
 
 /* ===== Tab bar ===== */
 
 .tab-bar {
   display: flex;
-  height: 30px;
-  flex: 0 0 auto;
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  max-width: 65%;
   align-items: stretch;
-  background: var(--tab-bar-background);
-  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-app-region: no-drag;
+}
+
+.tab-bar::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {
   display: inline-flex;
-  max-width: 220px;
-  min-width: 90px;
+  max-width: min(220px, 36vw);
+  min-width: 82px;
+  flex: 0 1 180px;
   align-items: center;
   gap: 6px;
   padding: 0 8px;
@@ -129,6 +211,7 @@ button {
   font: inherit;
   font-size: calc(var(--ui-font-size) * 0.75);
   cursor: pointer;
+  -webkit-app-region: no-drag;
 }
 
 .tab.is-active {
@@ -191,6 +274,7 @@ button {
 .tab-bar__new {
   display: inline-flex;
   width: 28px;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   border: none;
@@ -363,6 +447,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding-inline: 8px;
   border-radius: 4px;
 }
 
@@ -443,7 +528,7 @@ button {
   height: 22px;
   align-items: center;
   gap: 4px;
-  padding: 0 4px;
+  padding: 0 8px;
   border-radius: 4px;
   background: transparent;
   color: var(--foreground);
@@ -910,12 +995,15 @@ button {
 
 .diff__row {
   display: flex;
+  width: 100%;
   min-height: 22px;
   align-items: stretch;
   font-family: var(--mono-font-family);
-  font-size: var(--diff-font-size);
+  font-size: calc(var(--diff-font-size) * 0.75);
   line-height: 22px;
   white-space: pre;
+  tab-size: 4;
+  font-variant-ligatures: none;
 }
 
 /* A file header inside a multi-document view. */
@@ -929,7 +1017,7 @@ button {
   background: var(--tab-bar-background);
   color: var(--muted-foreground);
   font-family: var(--mono-font-family);
-  font-size: calc(var(--diff-font-size) * 0.9167);
+  font-size: calc(var(--diff-font-size) * 0.6875);
 }
 
 .diff__note {
@@ -940,7 +1028,7 @@ button {
   padding: 0 8px;
   color: var(--muted-foreground);
   font-family: var(--mono-font-family);
-  font-size: calc(var(--diff-font-size) * 0.9167);
+  font-size: calc(var(--diff-font-size) * 0.6875);
 }
 
 .diff__row--add {
@@ -956,12 +1044,29 @@ button {
   color: var(--base-blue);
 }
 
+.diff__hunk {
+  width: 100%;
+  height: 22px;
+  padding: 0 8px;
+  overflow-x: auto;
+  color: var(--base-blue);
+  font-family: var(--mono-font-family);
+  font-size: calc(var(--diff-font-size) * 0.6875);
+  line-height: 22px;
+  white-space: pre;
+  scrollbar-width: none;
+}
+
+.diff__hunk::-webkit-scrollbar {
+  display: none;
+}
+
 .diff__gutter {
   width: 42px;
   flex: 0 0 auto;
   padding: 0 4px;
   color: color-mix(in srgb, var(--muted-foreground) 72%, transparent);
-  font-size: calc(var(--diff-font-size) * 0.9167);
+  font-size: calc(var(--diff-font-size) * 0.6875);
   text-align: right;
   white-space: nowrap;
   user-select: none;
@@ -970,7 +1075,7 @@ button {
 .diff__marker {
   width: 18px;
   flex: 0 0 auto;
-  font-size: calc(var(--diff-font-size) * 0.9167);
+  font-size: calc(var(--diff-font-size) * 0.75);
   text-align: center;
   user-select: none;
 }
@@ -987,22 +1092,50 @@ button {
   flex: 1 1 auto;
   min-width: 0;
   padding-right: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
   overflow-wrap: normal;
+  scrollbar-width: none;
 }
 
-/* In the side-by-side layout the two halves sit in one row, so each is given
- * half the width and overflows on its own. */
+.diff__text::-webkit-scrollbar {
+  display: none;
+}
+
+.diff__row--split {
+  overflow: hidden;
+}
+
+.diff__side {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 50%;
+  overflow: hidden;
+}
+
+.diff__side--old {
+  border-right: 1px solid var(--border);
+}
+
+.diff__side--add {
+  background: color-mix(in srgb, var(--base-green) 14%, transparent);
+}
+
+.diff__side--del {
+  background: color-mix(in srgb, var(--base-red) 14%, transparent);
+}
+
 .diff--split .diff__row {
   overflow: hidden;
 }
 
-.diff--split .diff__text {
-  overflow-x: auto;
-  scrollbar-width: none;
+.diff--split .diff__side .diff__text {
+  padding-right: 6px;
 }
 
-.diff--split .diff__text::-webkit-scrollbar {
-  display: none;
+.diff--split .diff__side .diff__gutter {
+  width: 42px;
+  flex-basis: 42px;
 }
 
 .diff__text mark {
@@ -1513,26 +1646,33 @@ button {
 
 .compare__header {
   display: flex;
-  height: 36px;
+  min-width: 0;
+  height: 40px;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
-  padding: 0 8px;
+  gap: 6px;
+  padding: 0 12px;
   background: var(--tab-bar-background);
   border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
 }
 
-/* The panel title the reference sets in its title bar: a step above the
-   picker labels in size and weight, so the row reads as titled content. */
+.compare__header::-webkit-scrollbar {
+  display: none;
+}
+
+/* The title occupies a dedicated draggable row above the picker controls. */
 .compare__title {
   flex: 0 0 auto;
-  font-size: calc(var(--ui-font-size) * 0.75);
+  font-size: calc(var(--ui-font-size) * 0.8125);
   font-weight: 600;
 }
 
 .compare__picker {
   display: flex;
-  min-width: 240px;
+  min-width: 260px;
   flex: 1 1 0;
   align-items: center;
   gap: 6px;
@@ -1551,13 +1691,6 @@ button {
   flex: 1 1 auto;
 }
 
-/* The entry the keyboard is on. The same tint as a hover, so the pointer and
- * the keyboard agree about where the selection is. */
-.compare__picker-option.is-highlighted,
-.compare__picker-option:hover {
-  background: var(--list-active-background);
-}
-
 .compare__picker-options {
   position: absolute;
   z-index: 40;
@@ -1571,13 +1704,6 @@ button {
   border-radius: 6px;
   background: var(--background);
   box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
-}
-
-/* The entry the keyboard is on. The same tint as a hover, so the pointer and
- * the keyboard agree about where the selection is. */
-.compare__picker-option.is-highlighted,
-.compare__picker-option:hover {
-  background: var(--list-active-background);
 }
 
 .compare__picker-option {
@@ -1596,8 +1722,6 @@ button {
   cursor: pointer;
 }
 
-/* The entry the keyboard is on. The same tint as a hover, so the pointer and
- * the keyboard agree about where the selection is. */
 .compare__picker-option.is-highlighted,
 .compare__picker-option:hover {
   background: var(--list-active-background);
@@ -1618,10 +1742,6 @@ button {
   font-size: calc(var(--ui-font-size) * 0.625);
   white-space: nowrap;
   cursor: pointer;
-}
-
-.compare__picker-input {
-  flex-wrap: wrap;
 }
 
 .compare__picker-section {
@@ -1653,6 +1773,11 @@ button {
 
 .compare__status--error {
   color: var(--base-red);
+}
+
+.compare > .empty-state {
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 /* ===== Notices ===== */

@@ -43,6 +43,8 @@ export interface BootOptions {
   open?: StubRepo[];
   /** Milliseconds the comparison's per-file diffs take to arrive. */
   compareDelay?: number;
+  /** Hold `start_compare` replies while streaming the matching events first. */
+  compareReplyDelay?: number;
   /** Make every comparison fail as a whole with this detail. */
   failCompare?: string;
   /**
@@ -60,6 +62,15 @@ export interface BootOptions {
    * is enough to reach a Windows-only surface from a Chromium test on macOS.
    */
   windows?: boolean;
+  /** Report macOS so the native-menu title bar can be verified. */
+  macos?: boolean;
+  /** Initial persisted pane geometry for restart and resize checks. */
+  layout?: Partial<{
+    sidebar_width: number;
+    right_panel_width: number;
+    diff_height: number | null;
+    file_list_ratio: number;
+  }>;
   /**
    * Paths the backend is holding because the window was not listening when they
    * arrived, which is the state a launch with a path argument produces.
@@ -96,6 +107,7 @@ function optionsFor(options: BootOptions): StubOptions {
   return {
     open: options.open ?? [],
     compareDelay: options.compareDelay,
+    compareReplyDelay: options.compareReplyDelay,
     failCompare: options.failCompare,
     refusals: options.refusals,
     workingDiffFailure: options.workingDiffFailure,
@@ -110,6 +122,7 @@ function optionsFor(options: BootOptions): StubOptions {
     actionDelay: options.actionDelay,
     openDelay: options.openDelay,
     wslDelay: options.wslDelay,
+    layout: options.layout,
   };
 }
 
@@ -123,13 +136,10 @@ export async function boot(
   if (role === "compare" && options.repoId !== undefined) {
     params.set("repo", String(options.repoId));
   }
-  if (options.windows) {
-    await page.addInitScript(() => {
-      Object.defineProperty(navigator, "platform", {
-        value: "Win32",
-        configurable: true,
-      });
-    });
+  if (options.windows || options.macos) {
+    await page.addInitScript((platform) => {
+      Object.defineProperty(navigator, "platform", { value: platform, configurable: true });
+    }, options.macos ? "MacIntel" : "Win32");
   }
   await page.addInitScript(stubSource(optionsFor(options)));
   await page.goto(`/?${params.toString()}`);

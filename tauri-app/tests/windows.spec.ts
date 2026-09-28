@@ -18,6 +18,38 @@ test.describe("comparison window", () => {
     );
   });
 
+  test("keeps custom window controls above the compare inputs on Windows", async ({ page }) => {
+    await boot(page, {
+      open: [fixtureRepo()],
+      window: "compare",
+      repoId: 7,
+      windows: true,
+    });
+    const titlebar = await page.locator(".window-titlebar").boundingBox();
+    const controls = await page.getByTestId("window-controls").boundingBox();
+    const header = await page.locator(".compare__header").boundingBox();
+    const base = await page.getByTestId("compare-input-Base").boundingBox();
+    expect(titlebar).not.toBeNull();
+    expect(controls).not.toBeNull();
+    expect(header).not.toBeNull();
+    expect(base).not.toBeNull();
+    expect(controls!.y + controls!.height).toBeLessThanOrEqual(header!.y);
+    expect(base!.y).toBeGreaterThanOrEqual(header!.y);
+    await expect(page.getByTestId("window-close")).toBeVisible();
+  });
+
+  test("uses native-menu spacing on macOS and keeps tabs in the title bar", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()], macos: true });
+    await expect(page.getByTestId("title-bar")).toHaveClass(/title-bar--macos/);
+    await expect(page.getByTestId("tab-bar")).toBeVisible();
+    await expect(page.getByTestId("menu-file-trigger")).toHaveCount(0);
+    await expect(page.getByTestId("window-controls")).toHaveCount(0);
+    const titlebar = await page.getByTestId("title-bar").boundingBox();
+    const tabs = await page.getByTestId("tab-bar").boundingBox();
+    expect(tabs!.y).toBe(titlebar!.y);
+    expect(tabs!.height).toBe(titlebar!.height - 1);
+  });
+
   test("compares two revisions and lists the files", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()], window: "compare", repoId: 7 });
     await expect(page.getByTestId("compare-window")).toBeVisible();
@@ -36,6 +68,22 @@ test.describe("comparison window", () => {
     // files it found.
     await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
     await expect(page.getByTestId("compare-file-src/new.rs")).toBeVisible();
+  });
+
+  test("replays comparison events emitted before the command reply", async ({ page }) => {
+    await boot(page, {
+      open: [fixtureRepo()],
+      window: "compare",
+      repoId: 7,
+      compareReplyDelay: 90,
+    });
+
+    // The fixture emits its file list, per-file diffs, and finished event while
+    // start_compare is still waiting to return the request id.
+    await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
+    await expect(page.getByTestId("diff-file-header")).toHaveCount(2);
+    await expect(page.getByTestId("compare-progress")).toHaveCount(0);
+    await expect(page.getByTestId("compare-diff")).toContainText("count += 2");
   });
 
   test("reports a comparison that failed as a whole, not as no changes", async ({
@@ -88,6 +136,17 @@ test.describe("comparison window", () => {
     await expect(page.getByTestId("compare-file-src/lib.rs")).toBeVisible();
     await expect(page.getByTestId("diff-file-header")).toHaveCount(1);
     await expect(page.getByTestId("diff-file-header")).toContainText("src/new.rs");
+    const starts = await page.evaluate(
+      () => (window as any).__STUB__.log.filter((entry: any) => entry.cmd === "start_compare").length,
+    );
+    // Selecting a file only narrows the current result; it must not restart Git.
+    await page.getByTestId("compare-file-src/lib.rs").click();
+    await expect(page.getByTestId("diff-file-header")).toContainText("src/lib.rs");
+    expect(
+      await page.evaluate(
+        () => (window as any).__STUB__.log.filter((entry: any) => entry.cmd === "start_compare").length,
+      ),
+    ).toBe(starts);
   });
 
   test("groups the offered revisions by kind, each named by its kind", async ({
@@ -286,7 +345,8 @@ test.describe("comparison window", () => {
 
   test("reports a repository that is no longer open", async ({ page }) => {
     await boot(page, { window: "compare", repoId: 404 });
-    await expect(page.getByTestId("compare-window")).toHaveCount(0);
+    await expect(page.getByTestId("compare-title")).toBeVisible();
+    await expect(page.locator(".compare")).toContainText("This repository tab is no longer open.");
   });
 });
 
@@ -438,8 +498,9 @@ test.describe("the About window", () => {
 
 test.describe("the in-window menu", () => {
   test("opens a repository from the menu", async ({ page }) => {
-    const stub = await boot(page);
+    const stub = await boot(page, { windows: true });
     await page.getByTestId("menu-file-trigger").click();
+    await page.getByTestId("menu-file-file").click();
     await page.getByTestId("menu-file-open-repository").click();
     await expect(page.getByTestId("repo-7")).toBeVisible();
     expect((await stub.commandNames()).filter((c) => c === "open_repository")).toHaveLength(1);
@@ -448,8 +509,9 @@ test.describe("the in-window menu", () => {
   test("reports an install per file, with the reason for a failure", async ({
     page,
   }) => {
-    await boot(page);
+    await boot(page, { windows: true });
     await page.getByTestId("menu-file-trigger").click();
+    await page.getByTestId("menu-file-file").click();
     await page.getByTestId("menu-file-install-cli").click();
 
     const report = page.getByTestId("cli-report-dialog");
@@ -464,8 +526,9 @@ test.describe("the in-window menu", () => {
   });
 
   test("reports a removal as removed, not added", async ({ page }) => {
-    await boot(page);
+    await boot(page, { windows: true });
     await page.getByTestId("menu-file-trigger").click();
+    await page.getByTestId("menu-file-file").click();
     await page.getByTestId("menu-file-remove-cli").click();
 
     // Reusing the install wording after a removal would tell the person the
@@ -477,11 +540,22 @@ test.describe("the in-window menu", () => {
   });
 
   test("lists the recent repositories", async ({ page }) => {
-    await boot(page);
+    await boot(page, { windows: true });
     await page.getByTestId("menu-file-trigger").click();
-    const menu = page.getByTestId("menu-file");
-    await expect(menu).toContainText("augur-git");
-    await expect(menu).toContainText("other-app");
+    await page.getByTestId("menu-file-file").click();
+    await page.getByTestId("menu-file-recent-repositories").click();
+    const recent = page.getByTestId("menu-file-recent-repositories-submenu");
+    await expect(recent).toContainText("augur-git");
+    await expect(recent).toContainText("other-app");
+  });
+
+  test("keeps the branch and settings actions beside the tabs", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()], windows: true });
+    await expect(page.getByTestId("tab-bar")).toBeVisible();
+    await expect(page.getByTestId("title-branch")).toHaveText("master");
+    await page.getByTestId("title-settings").click();
+    await expect(page.getByTestId("settings-overlay")).toBeVisible();
+    await expect(page.getByTestId("window-controls")).toBeVisible();
   });
 });
 

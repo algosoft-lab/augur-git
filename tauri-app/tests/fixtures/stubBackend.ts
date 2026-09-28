@@ -31,6 +31,8 @@ export interface StubOptions {
    * they are in flight, so a test that wants to see it needs them to be slow.
    */
   compareDelay?: number;
+  /** Hold command replies until after early comparison events were emitted. */
+  compareReplyDelay?: number;
 
   /**
    * Make every comparison fail as a whole with this detail.
@@ -73,6 +75,13 @@ export interface StubOptions {
   openDelay?: number;
   /** How long the WSL distribution list takes to arrive. */
   wslDelay?: number;
+  /** Initial pane geometry returned by bootstrap. */
+  layout?: Partial<{
+    sidebar_width: number;
+    right_panel_width: number;
+    diff_height: number | null;
+    file_list_ratio: number;
+  }>;
 }
 
 export const DEFAULT_OPTIONS: StubOptions = {
@@ -126,10 +135,36 @@ function install(
     failingActions?: string[];
     probeMerge?: Record<string, unknown>;
     probeRebase?: Record<string, unknown>;
+    compareDelay?: number;
+    compareReplyDelay?: number;
+    workingDiffFailure?: string;
+    workingDiffDelay?: number;
+    refusals?: Record<string, { key: string; detail: string }>;
+    layout?: Partial<{
+      sidebar_width: number;
+      right_panel_width: number;
+      diff_height: number | null;
+      file_list_ratio: number;
+    }>;
   },
   catalog: Record<string, string>,
 ): void {
   const listeners = new Map<string, Set<(payload: unknown) => void>>();
+  const subscriptions = new Map<
+    number,
+    { event: string; listener: (payload: unknown) => void }
+  >();
+  const unregisterListener = (event: string, id: number) => {
+    const subscription = subscriptions.get(id);
+    if (subscription?.event === event) {
+      listeners.get(event)?.delete(subscription.listener);
+      subscriptions.delete(id);
+    }
+  };
+  Object.defineProperty(globalThis, "__TAURI_EVENT_PLUGIN_INTERNALS__", {
+    configurable: true,
+    value: { unregisterListener },
+  });
   const log: { cmd: string; args: unknown }[] = [];
   const failure = options.openFailure ?? null;
   const failing = new Set(options.failingActions ?? []);
@@ -175,8 +210,17 @@ function install(
       right_panel_width: 320,
       diff_height: null,
       file_list_ratio: 0.25,
+      ...(options.layout ?? {}),
     },
   };
+  try {
+    Object.assign(
+      workspace.layout,
+      JSON.parse(sessionStorage.getItem("augur-test-layout") ?? "{}"),
+    );
+  } catch {
+    sessionStorage.removeItem("augur-test-layout");
+  }
 
   const build = {
     name: "Augur Git Tauri",
@@ -749,7 +793,9 @@ function install(
           });
         }, 22 + delay * 2);
       }, 10);
-      return requestId;
+      return options.compareReplyDelay
+        ? new Promise((resolve) => setTimeout(() => resolve(requestId), options.compareReplyDelay))
+        : requestId;
     },
 
     cancel_compare: () => null,
@@ -815,6 +861,7 @@ function install(
     },
     set_layout: (args: any) => {
       Object.assign(workspace.layout, args.layout);
+      sessionStorage.setItem("augur-test-layout", JSON.stringify(workspace.layout));
       return null;
     },
     set_workspace_tabs: (args: any) => {
@@ -853,15 +900,15 @@ function install(
       // `handler` is the identifier `transformCallback` allocated, which is the
       // name the property is defined under on the global object.
       const id = args.handler;
-      set.add((payload: unknown) => {
+      const listener = (payload: unknown) => {
         (globalThis as any)[`_${id}`]?.(payload);
-      });
+      };
+      subscriptions.set(id, { event: args.event, listener });
+      set.add(listener);
       return Promise.resolve(id);
     },
     "plugin:event|unlisten": (args: any) => {
-      // Unlistening is a no-op here: a page's subscriptions live as long as the
-      // document, and every test drives a fresh page.
-      void args;
+      unregisterListener(args.event, args.eventId);
       return null;
     },
     "plugin:event|emit": (args: any) => {

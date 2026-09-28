@@ -76,6 +76,7 @@ export interface RepoState {
 
   selected: CommitSelection | null;
   commitFiles: FileChange[];
+  commitFilesLoading: boolean;
   commitMergeParent: string | null;
   commitMessages: Record<string, CommitMessage>;
   /** Which file the bottom panel is focused on, if any. */
@@ -130,6 +131,7 @@ export function emptyRepo(
 
     selected: null,
     commitFiles: [],
+    commitFilesLoading: false,
     commitMergeParent: null,
     commitMessages: {},
     pane: { kind: "none" },
@@ -305,9 +307,13 @@ export function applyRepoEvent(
     case "refs":
       return { ...state, refs: event.refs };
     case "commitFiles":
+      if (state.selected?.oid !== event.oid || state.pane.kind !== "commit") {
+        return state;
+      }
       return {
         ...state,
         commitFiles: event.files,
+        commitFilesLoading: false,
         commitMergeParent: event.merge_parent,
       };
     case "commitMessage":
@@ -319,7 +325,7 @@ export function applyRepoEvent(
       // An answer for a commit that is no longer selected is stale; an answer
       // for any file of the selected commit is kept, because the panel shows
       // them all until one is focused.
-      if (state.pane.kind !== "commit") {
+      if (state.pane.kind !== "commit" || state.selected?.oid !== event.oid) {
         return state;
       }
       const path = event.file.new_path;

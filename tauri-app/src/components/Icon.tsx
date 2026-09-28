@@ -23,6 +23,7 @@ export type IconName =
   | "refresh-cw"
   | "search"
   | "settings"
+  | "square"
   | "tag"
   | "trash-2"
   | "triangle-alert"
@@ -135,6 +136,7 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="m20 20-3.5-3.5" />
     </>
   ),
+  square: <rect x="4" y="4" width="16" height="16" rx="1.5" />,
   settings: (
     <>
       <circle cx="12" cy="12" r="3" />

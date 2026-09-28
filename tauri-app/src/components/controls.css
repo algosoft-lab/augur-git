@@ -285,6 +285,23 @@
   cursor: pointer;
 }
 
+.menu__group {
+  position: relative;
+}
+
+.menu__item--submenu {
+  justify-content: flex-start;
+}
+
+.menu__item--submenu > span:nth-child(2) {
+  flex: 1 1 auto;
+}
+
+.menu__submenu-arrow {
+  margin-left: auto;
+  color: var(--muted-foreground);
+}
+
 .select__option:hover,
 .menu__item:hover:not(:disabled) {
   background: var(--list-hover-background);
@@ -325,6 +342,22 @@
   left: 0;
   min-width: 200px;
   padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+}
+
+.menu__submenu {
+  position: absolute;
+  z-index: 51;
+  top: -5px;
+  left: calc(100% + 4px);
+  min-width: 210px;
+  max-width: min(360px, 45vw);
+  max-height: min(70vh, 560px);
+  padding: 4px;
+  overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--background);
@@ -404,8 +437,11 @@
 
 .splitter {
   position: relative;
+  z-index: 1;
   flex: 0 0 auto;
   background: var(--border);
+  touch-action: none;
+  user-select: none;
 }
 
 .splitter--vertical {
@@ -418,24 +454,25 @@
   cursor: row-resize;
 }
 
-/* Widen the hit area to 5px, centered on the 1px rule. */
+/* Keep the visible rule thin while making the drag target easy to catch. */
 .splitter::after {
   position: absolute;
   content: "";
+  touch-action: none;
 }
 
 .splitter--vertical::after {
   top: 0;
   bottom: 0;
-  left: -2px;
-  width: 5px;
+  left: -3px;
+  width: 7px;
 }
 
 .splitter--horizontal::after {
   right: 0;
   left: 0;
-  top: -1px;
-  height: 3px;
+  top: -3px;
+  height: 7px;
 }
 
 .splitter:hover,

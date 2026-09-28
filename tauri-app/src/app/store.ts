@@ -205,6 +205,8 @@ interface AppStore {
   notify: (notice: Notice | null) => void;
 
   updateLayout: (layout: Partial<LayoutSettings>) => Promise<void>;
+  previewLayout: (layout: Partial<LayoutSettings>) => void;
+  persistLayout: () => Promise<void>;
   setLanguage: (language: AppConfig["language"]) => Promise<void>;
   setTheme: (theme: AppConfig["theme"]) => Promise<void>;
   setDiffLayout: (layout: DiffLayoutPreference) => Promise<void>;
@@ -729,6 +731,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
           ...repo,
           selected: { oid, short, subject },
           commitFiles: [],
+          commitFilesLoading: true,
           commitMergeParent: null,
           // Every changed file is shown until one is chosen, matching the
           // reference application.
@@ -752,6 +755,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
           ...repo,
           selected: null,
           commitFiles: [],
+          commitFilesLoading: false,
           commitMergeParent: null,
           pane: { kind: "none" },
           commitDiffs: {},
@@ -872,6 +876,15 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     const layout: LayoutSettings = { ...get().workspace.layout, ...patch };
     set({ workspace: { ...get().workspace, layout } });
     await ipc.setLayout(layout);
+  },
+
+  previewLayout(patch) {
+    const layout: LayoutSettings = { ...get().workspace.layout, ...patch };
+    set({ workspace: { ...get().workspace, layout } });
+  },
+
+  async persistLayout() {
+    await ipc.setLayout(get().workspace.layout);
   },
 
   async setLanguage(language) {

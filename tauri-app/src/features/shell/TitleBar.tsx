@@ -11,9 +11,8 @@ import * as ipc from "../../bridge/ipc";
 import { Menu, type MenuItemSpec } from "../../components/controls";
 import { useStore } from "../../app/store";
 import { t } from "../../i18n/strings";
-
-const IS_MACOS =
-  typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+import { TabBar } from "./TabBar";
+import { IS_MACOS, WindowControls } from "./WindowControls";
 
 export function TitleBar({
   onOpenRepository,
@@ -46,8 +45,8 @@ export function TitleBar({
   const setSettingsOpen = useStore((state) => state.setSettingsOpen);
 
   const recentItems: MenuItemSpec[] = recent.length
-    ? recent.map((repo) => ({
-        id: `recent-${repo.path}`,
+    ? recent.map((repo, index) => ({
+        id: `recent-${index}`,
         label:
           repo.location.kind === "wsl"
             ? `${repo.location.distro} · ${repo.path}`
@@ -96,13 +95,12 @@ export function TitleBar({
       onSelect: onRemoveCli,
     },
     {
-      id: "recent",
+      id: "recent-repositories",
       label: t(translate, "menu-recent-repositories"),
       icon: <Icon name="git-branch" />,
       separatorBefore: true,
-      disabled: true,
+      children: recentItems,
     },
-    ...recentItems.map((item) => ({ ...item, separatorBefore: false })),
   ];
 
   const editItems: MenuItemSpec[] = [
@@ -125,42 +123,51 @@ export function TitleBar({
     },
   ];
 
+  const menuItems: MenuItemSpec[] = [
+    { id: "file", label: t(translate, "menu-file"), children: fileItems },
+    { id: "edit", label: t(translate, "menu-edit"), children: editItems },
+    { id: "help", label: t(translate, "menu-help"), children: helpItems },
+    {
+      id: "quit",
+      label: t(translate, "menu-quit"),
+      danger: true,
+      separatorBefore: true,
+      onSelect: async () => {
+        await ipc.flushState();
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().close();
+      },
+    },
+  ];
+
   return (
     <div
       className={`title-bar${IS_MACOS ? " title-bar--macos" : ""}`}
-      data-tauri-drag-region
       data-testid="title-bar"
+      onDoubleClick={(event) => {
+        const target = event.target as HTMLElement;
+        if (IS_MACOS || target.closest("button, [role=tab], .menu")) {
+          return;
+        }
+        void import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
+          getCurrentWindow().toggleMaximize(),
+        );
+      }}
     >
-      <Menu items={fileItems} testId="menu-file">
-        <button
-          type="button"
-          className="tool-button tool-button--compact"
-          title={t(translate, "menu-open")}
-          aria-label={t(translate, "menu-open")}
-        >
-          <Icon name="menu" size={15} />
-        </button>
-      </Menu>
-      <Menu items={editItems} testId="menu-edit">
-        <button
-          type="button"
-          className="tool-button tool-button--compact"
-          title={t(translate, "menu-edit")}
-        >
-          {t(translate, "menu-edit")}
-        </button>
-      </Menu>
-      <Menu items={helpItems} testId="menu-help">
-        <button
-          type="button"
-          className="tool-button tool-button--compact"
-          title={t(translate, "menu-help")}
-        >
-          {t(translate, "menu-help")}
-        </button>
-      </Menu>
-      {/* The branch of the active repository, which is also the way back to the
-          branch list: clicking it expands that section and highlights it. */}
+      {!IS_MACOS ? (
+        <Menu items={menuItems} testId="menu-file">
+          <button
+            type="button"
+            className="tool-button tool-button--compact title-bar__menu-trigger"
+            title={t(translate, "menu-open")}
+            aria-label={t(translate, "menu-open")}
+          >
+            <Icon name="menu" size={15} />
+          </button>
+        </Menu>
+      ) : null}
+      <TabBar onNewTab={onNewTab} />
+      <div className="title-bar__drag" data-tauri-drag-region />
       {branch ? (
         <button
           type="button"
@@ -173,11 +180,18 @@ export function TitleBar({
           <span>{branch}</span>
         </button>
       ) : null}
-      <div className="title-bar__drag" data-tauri-drag-region />
-      <div className="title-bar__brand">
-        <img src="/logo.svg" alt="" />
-        <span>{build?.name ?? "Augur Git Tauri"}</span>
-      </div>
+      <button
+        type="button"
+        className="tool-button tool-button--compact title-bar__settings"
+        data-testid="title-settings"
+        title={t(translate, "menu-settings")}
+        aria-label={t(translate, "menu-settings")}
+        onClick={() => setSettingsOpen(true)}
+      >
+        <Icon name="settings" size={14} />
+      </button>
+      {build?.name ? <span className="title-bar__brand">{build.name}</span> : null}
+      <WindowControls flushBeforeClose />
     </div>
   );
 }

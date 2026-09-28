@@ -13,7 +13,6 @@ import { open } from "@tauri-apps/plugin-dialog";
 import * as ipc from "../../bridge/ipc";
 import type { ChangeReport } from "../../bridge/types";
 import { renderGitError, useStore } from "../../app/store";
-import { TabBar } from "./TabBar";
 import { TitleBar } from "./TitleBar";
 import { StatusBar } from "./StatusBar";
 import { Welcome } from "./Welcome";
@@ -100,7 +99,6 @@ export function MainWindow() {
         onRemoveCli={() => void installCli("remove")}
         onShowBranches={() => useStore.getState().flashBranches()}
       />
-      <TabBar onNewTab={addStartTab} />
       {activeRepo ? (
         <RepoTab repo={activeRepo} />
       ) : (

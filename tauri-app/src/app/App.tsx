@@ -199,6 +199,15 @@ async function refreshConfig(): Promise<void> {
 /** Route a native menu activation to the same action the in-window menu uses. */
 async function handleMenuAction(id: string): Promise<void> {
   const state = useStore.getState();
+  if (id.startsWith("menu.recent.")) {
+    const indexText = id.slice("menu.recent.".length);
+    const index = /^\d+$/.test(indexText) ? Number(indexText) : -1;
+    const repository = Number.isInteger(index) ? state.config.recent_repos[index] : undefined;
+    if (repository) {
+      await state.openTab(repository.path, repository.location);
+    }
+    return;
+  }
   // The in-window menu dispatches the same DOM events, so both surfaces run one
   // handler.
   switch (id) {

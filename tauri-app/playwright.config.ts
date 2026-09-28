@@ -1,5 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const requestedPort = Number(process.env.AUGUR_TEST_PORT);
+const port =
+  Number.isInteger(requestedPort) && requestedPort >= 1024 && requestedPort <= 65535
+    ? requestedPort
+    : 1420;
+
 /**
  * Browser tests for the webview.
  *
@@ -16,7 +22,7 @@ export default defineConfig({
   retries: 0,
   reporter: process.env.CI ? "line" : [["list"]],
   use: {
-    baseURL: "http://127.0.0.1:1420",
+    baseURL: `http://127.0.0.1:${port}`,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
@@ -30,8 +36,8 @@ export default defineConfig({
     // Bound to IPv4 explicitly: the dev server otherwise listens on whatever
     // `localhost` resolves to first, which is not always the loopback address
     // the test runner polls.
-    command: "bun run dev --port 1420 --strictPort --host 127.0.0.1",
-    url: "http://127.0.0.1:1420",
+    command: `bun run dev --port ${port} --strictPort --host 127.0.0.1`,
+    url: `http://127.0.0.1:${port}`,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },

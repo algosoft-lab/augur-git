@@ -426,6 +426,7 @@ export function Slider({ value, min, max, step = 1, onChange, testId }: SliderPr
 export interface MenuItemSpec {
   id: string;
   label: string;
+  children?: MenuItemSpec[];
   icon?: ReactNode;
   disabled?: boolean;
   danger?: boolean;
@@ -450,6 +451,7 @@ export interface MenuProps {
 /** A dropdown menu. The trigger is supplied as the single child. */
 export function Menu({ items, align = "start", testId, children }: MenuProps) {
   const [open, setOpen] = useState(false);
+  const [openPath, setOpenPath] = useState<string[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -463,7 +465,11 @@ export function Menu({ items, align = "start", testId, children }: MenuProps) {
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setOpen(false);
+        if (openPath.length > 0) {
+          setOpenPath((current) => current.slice(0, -1));
+        } else {
+          setOpen(false);
+        }
       }
     };
     document.addEventListener("mousedown", onPointerDown);
@@ -472,16 +478,94 @@ export function Menu({ items, align = "start", testId, children }: MenuProps) {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open]);
+  }, [open, openPath]);
+
+  const renderItems = (entries: MenuItemSpec[], prefix: string, parents: string[] = []) =>
+    entries.map((item) => (
+      <div
+        key={item.id}
+        className={`menu__group${item.children ? " menu__group--submenu" : ""}`}
+        onMouseEnter={() => {
+          if (item.children) {
+            setOpenPath((current) => [...current.slice(0, parents.length), item.id]);
+          } else {
+            setOpenPath((current) => current.slice(0, parents.length));
+          }
+        }}
+      >
+        {item.separatorBefore ? <div className="menu__separator" /> : null}
+        {item.children ? (
+          <>
+            <button
+              type="button"
+              role="menuitem"
+              aria-haspopup="menu"
+              aria-expanded={openPath[parents.length] === item.id}
+              data-testid={`${prefix}-${item.id}`}
+              className="menu__item menu__item--submenu"
+              disabled={item.disabled}
+              onClick={() =>
+                setOpenPath((current) => [...current.slice(0, parents.length), item.id])
+              }
+              onKeyDown={(event) => {
+                if (event.key === "ArrowRight") {
+                  event.preventDefault();
+                  setOpenPath((current) => [...current.slice(0, parents.length), item.id]);
+                } else if (event.key === "ArrowLeft") {
+                  event.preventDefault();
+                  setOpenPath((current) => current.slice(0, parents.length));
+                }
+              }}
+            >
+              {item.icon ? <span className="menu__icon">{item.icon}</span> : null}
+              <span>{item.label}</span>
+              <Icon name="chevron-right" size={11} className="menu__submenu-arrow" />
+            </button>
+            {openPath[parents.length] === item.id ? (
+              <div className="menu__submenu" role="menu" data-testid={`${prefix}-${item.id}-submenu`}>
+                {renderItems(item.children, prefix, [...parents, item.id])}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <button
+            type="button"
+            role="menuitem"
+            data-testid={`${prefix}-${item.id}`}
+            className={[
+              "menu__item",
+              item.disabled ? "is-disabled" : "",
+              item.danger ? "is-danger" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            disabled={item.disabled}
+            onClick={() => {
+              setOpen(false);
+              setOpenPath([]);
+              item.onSelect?.();
+            }}
+          >
+            {item.icon ? <span className="menu__icon">{item.icon}</span> : null}
+            <span>{item.label}</span>
+            {item.checked ? <Icon name="check" size={12} className="menu__check" /> : null}
+          </button>
+        )}
+      </div>
+    ));
 
   return (
     <div className={`menu${align === "end" ? " menu--end" : ""}`} ref={rootRef}>
       <span
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => {
+          setOpen((current) => !current);
+          setOpenPath([]);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             setOpen((current) => !current);
+            setOpenPath([]);
           }
         }}
         role="button"
@@ -494,34 +578,7 @@ export function Menu({ items, align = "start", testId, children }: MenuProps) {
       </span>
       {open ? (
         <div className="menu__list" role="menu" data-testid={testId}>
-          {items.map((item) => (
-            <div key={item.id} className="menu__group">
-              {item.separatorBefore ? <div className="menu__separator" /> : null}
-              <button
-                type="button"
-                role="menuitem"
-                data-testid={`${testId ?? "menu"}-${item.id}`}
-                className={[
-                  "menu__item",
-                  item.disabled ? "is-disabled" : "",
-                  item.danger ? "is-danger" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                disabled={item.disabled}
-                onClick={() => {
-                  setOpen(false);
-                  item.onSelect?.();
-                }}
-              >
-                {item.icon ? <span className="menu__icon">{item.icon}</span> : null}
-                <span>{item.label}</span>
-                {item.checked ? (
-                  <Icon name="check" size={12} className="menu__check" />
-                ) : null}
-              </button>
-            </div>
-          ))}
+          {renderItems(items, testId ?? "menu")}
         </div>
       ) : null}
     </div>
@@ -790,8 +847,8 @@ export function VirtualList<T>({
 
 export interface SplitterProps {
   orientation: "vertical" | "horizontal";
+  onDragStart?: () => void;
   onDrag: (delta: number) => void;
-  /** Called with the total travelled distance when the drag ends. */
   onDragEnd?: () => void;
   testId?: string;
   label?: string;
@@ -800,18 +857,19 @@ export interface SplitterProps {
 /**
  * A drag handle between panes.
  *
- * The handle is a 5px hit area over a 1px rule, matching the reference
+ * The handle is a 7px hit area over a 1px rule, matching the reference
  * application, and turns the drag border color while it is held.
  */
 export function Splitter({
   orientation,
+  onDragStart,
   onDrag,
   onDragEnd,
   testId,
   label,
 }: SplitterProps) {
   const [active, setActive] = useState(false);
-  const origin = useRef(0);
+  const start = useRef(0);
 
   return (
     <div
@@ -824,26 +882,30 @@ export function Splitter({
       role="separator"
       aria-label={label}
       aria-orientation={orientation === "vertical" ? "vertical" : "horizontal"}
-      onMouseDown={(event) => {
+      onPointerDown={(event) => {
+        if (event.button !== 0) {
+          return;
+        }
         event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
         setActive(true);
-        origin.current = orientation === "vertical" ? event.clientX : event.clientY;
+        start.current = orientation === "vertical" ? event.clientX : event.clientY;
+        onDragStart?.();
       }}
-      onMouseMove={(event) => {
+      onPointerMove={(event) => {
         if (!active) {
           return;
         }
         const current = orientation === "vertical" ? event.clientX : event.clientY;
-        onDrag(current - origin.current);
-        origin.current = current;
+        onDrag(current - start.current);
       }}
-      onMouseUp={() => {
+      onPointerUp={() => {
         if (active) {
           setActive(false);
           onDragEnd?.();
         }
       }}
-      onMouseLeave={() => {
+      onPointerCancel={() => {
         if (active) {
           setActive(false);
           onDragEnd?.();

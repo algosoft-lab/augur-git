@@ -1,9 +1,7 @@
 //! The native application menu.
 //!
-//! macOS renders the first menu in the system menu bar; the other platforms get
-//! a menu bar inside the window. The in-window hamburger menu is built by the
-//! webview so it can show the recent repository list, but both surfaces use the
-//! same identifiers and the same accelerator for every command.
+//! macOS renders the menu in the system menu bar. Windows and Linux use the
+//! webview's in-window hamburger menu and custom title bar.
 //!
 //! The menu is rebuilt whenever the language or the shortcut overrides change,
 //! so labels and key equivalents never drift from the settings page.
@@ -13,6 +11,7 @@ use tauri::menu::{
 };
 use tauri::{AppHandle, Emitter, Runtime};
 
+use augur_core::config::RecentRepo;
 use augur_core::i18n::{self, Locale};
 use augur_core::keymap::ResolvedShortcut;
 
@@ -29,6 +28,7 @@ pub mod ids {
     pub const SETTINGS: &str = "menu.settings";
     pub const ABOUT: &str = "menu.about";
     pub const QUIT: &str = "menu.quit";
+    pub const RECENT_PREFIX: &str = "menu.recent.";
 }
 
 /// Translate a stored accelerator into the spelling the platform menu expects.
@@ -95,8 +95,16 @@ fn normalize_key(key: &str) -> Option<String> {
 }
 
 /// Build and install the native menu for the given language and shortcuts.
-pub fn install<R: Runtime>(app: &AppHandle<R>, locale: Locale, shortcuts: &[ResolvedShortcut]) {
-    match build(app, locale, shortcuts) {
+pub fn install<R: Runtime>(
+    app: &AppHandle<R>,
+    locale: Locale,
+    shortcuts: &[ResolvedShortcut],
+    recent: &[RecentRepo],
+) {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    match build(app, locale, shortcuts, recent) {
         Ok(menu) => {
             if let Err(error) = app.set_menu(menu) {
                 log::error!("[menu] failed to install the native menu: {error}");
@@ -110,6 +118,7 @@ fn build<R: Runtime>(
     app: &AppHandle<R>,
     locale: Locale,
     shortcuts: &[ResolvedShortcut],
+    recent: &[RecentRepo],
 ) -> tauri::Result<Menu<R>> {
     let quit_accelerator = shortcuts
         .iter()
@@ -147,6 +156,35 @@ fn build<R: Runtime>(
     let quit = quit_builder.build(app)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let separator_two = PredefinedMenuItem::separator(app)?;
+    let separator_three = PredefinedMenuItem::separator(app)?;
+
+    let recent_items: Vec<_> = if recent.is_empty() {
+        vec![MenuItemBuilder::with_id(
+            "menu.recent.empty",
+            i18n::text(locale, "menu-no-recent-repositories"),
+        )
+        .enabled(false)
+        .build(app)?]
+    } else {
+        recent
+            .iter()
+            .enumerate()
+            .map(|(index, repo)| {
+                MenuItemBuilder::with_id(
+                    format!("{}{index}", ids::RECENT_PREFIX),
+                    repo.location.label(&repo.path),
+                )
+                .build(app)
+            })
+            .collect::<tauri::Result<Vec<_>>>()?
+    };
+    let recent_refs: Vec<&dyn IsMenuItem<R>> = recent_items
+        .iter()
+        .map(|item| item as &dyn IsMenuItem<R>)
+        .collect();
+    let recent_menu = SubmenuBuilder::new(app, i18n::text(locale, "menu-recent-repositories"))
+        .items(&recent_refs)
+        .build()?;
 
     let mut file_items: Vec<&dyn IsMenuItem<R>> = vec![&open_repository];
     if cfg!(windows) {
@@ -156,8 +194,10 @@ fn build<R: Runtime>(
     file_items.push(&separator);
     file_items.push(&install_cli);
     file_items.push(&remove_cli);
+    file_items.push(&separator_two);
+    file_items.push(&recent_menu);
     if !cfg!(target_os = "macos") {
-        file_items.push(&separator_two);
+        file_items.push(&separator_three);
         file_items.push(&quit);
     }
 
@@ -194,7 +234,8 @@ fn build<R: Runtime>(
 /// so the webview receives the activation, writes the final snapshot, and then
 /// asks the backend to exit.
 pub fn dispatch<R: Runtime>(app: &AppHandle<R>, id: &str) {
-    let _ = app.emit(
+    let _ = app.emit_to(
+        "main",
         MENU_EVENT,
         MenuActivation {
             id: id.to_string(),

@@ -91,6 +91,9 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
 
             let report = persistence::LoadReport::default();
             app.manage(AppState::new(handle.clone(), report));
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_decorations(cfg!(target_os = "macos"));
+            }
             log::info!(
                 "[startup] state ready; store files: {:?}",
                 app.state::<AppState>().persistence().store_paths()
@@ -192,7 +195,7 @@ fn rebuild_menu(app: &tauri::AppHandle) {
     let config = persistence.config();
     let locale = i18n::resolve(&config.language);
     let shortcuts = persistence.resolved_shortcuts();
-    menu::install(app, locale, &shortcuts);
+    menu::install(app, locale, &shortcuts, &config.recent_repos);
 }
 
 /// Write logs to stdout in a debug build and to the platform log directory

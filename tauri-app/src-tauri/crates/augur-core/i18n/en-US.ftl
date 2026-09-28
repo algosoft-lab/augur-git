@@ -36,6 +36,10 @@ menu-about = About Augur Git
 menu-quit = Quit
 menu-install-cli = Install augurgit CLI…
 menu-remove-cli = Remove augurgit CLI…
+window-minimize = Minimize
+window-maximize = Maximize
+window-restore = Restore
+window-close = Close window
 cli-dialog-title = augurgit-tauri CLI
 cli-install-updated = Added the augurgit command to
 cli-install-unchanged = Already installed and up to date in
@@ -214,6 +218,8 @@ commit-action-ai = Commit by AI
 
 # ===== Bottom panel (selected commit file list + file diff) =====
 bottom-no-commit = No commit selected
+bottom-loading-commit = Loading commit diff…
+bottom-clear-selection = Clear selection
 bottom-merge-empty = Merge commit has no changes relative to its first parent
 bottom-no-changes = This commit has no file changes
 bottom-no-file = Select a file on the left to view its diff
@@ -255,6 +261,7 @@ branch-compare-export-patch = Save patch
 branch-compare-export-saving = Saving patch
 branch-compare-export-success = Patch saved to { $path }
 branch-compare-export-error = Unable to save patch: { $detail }
+branch-compare-copy-success = Diff copied
 
 # ===== Branch operations (toolbar Branch menu) =====
 menu-branch-new = New Branch…

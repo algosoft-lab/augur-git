@@ -21,6 +21,7 @@
         "minWidth": 860,
         "minHeight": 480,
         "resizable": true,
+        "decorations": false,
         "fullscreen": false,
         "visible": true,
         "dragDropEnabled": true,

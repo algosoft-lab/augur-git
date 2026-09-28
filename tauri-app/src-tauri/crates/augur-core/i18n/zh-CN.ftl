@@ -29,6 +29,10 @@ menu-about = 关于 Augur Git
 menu-quit = 退出
 menu-install-cli = 安装 augurgit 命令行…
 menu-remove-cli = 移除 augurgit 命令行…
+window-minimize = 最小化
+window-maximize = 最大化
+window-restore = 还原
+window-close = 关闭窗口
 cli-dialog-title = augurgit-tauri 命令行
 cli-install-updated = 已添加 augurgit 命令到
 cli-install-unchanged = 已是最新，无需修改
@@ -207,6 +211,8 @@ commit-action-ai = AI 提交
 
 # ===== 底部面板（选中提交文件清单 + 单文件 diff） =====
 bottom-no-commit = 未选择提交
+bottom-loading-commit = 正在加载提交 diff…
+bottom-clear-selection = 清除选择
 bottom-merge-empty = 合并提交相对第一父提交没有文件变化
 bottom-no-changes = 此提交没有文件变化
 bottom-no-file = 点击左侧文件查看 diff
@@ -248,6 +254,7 @@ branch-compare-export-patch = 保存 Patch
 branch-compare-export-saving = 正在保存 Patch
 branch-compare-export-success = Patch 已保存到 { $path }
 branch-compare-export-error = 无法保存 Patch：{ $detail }
+branch-compare-copy-success = 已复制差异
 
 # ===== 分支操作（工具栏 Branch 菜单） =====
 menu-branch-new = 新建分支…

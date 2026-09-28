@@ -15,16 +15,61 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Icon } from "../../components/Icon";
 import { EmptyState, Spinner, TextInput } from "../../components/controls";
 import * as ipc from "../../bridge/ipc";
-import type { CompareRevision, DiffPayload, FileChange } from "../../bridge/types";
+import type {
+  CompareRevision,
+  DiffPayload,
+  FileChange,
+  RepoEventEnvelope,
+} from "../../bridge/types";
 import { useStore, type RepoState } from "../../app/store";
 import { statBlocks, statusKey, statusModifier } from "../diff/fileMeta";
 import { DiffView, type DiffSection } from "../diff/DiffView";
 import { t, ta } from "../../i18n/strings";
 import { isRevisionUnavailable } from "./revisions";
+import { IS_MACOS, WindowControls } from "../shell/WindowControls";
 
 interface Endpoint {
   input: string;
   selected: CompareRevision | null;
+}
+
+type CompareEvent = Extract<
+  RepoEventEnvelope,
+  {
+    type:
+      | "branchCompareFiles"
+      | "branchCompareFileDiff"
+      | "branchCompareError"
+      | "branchCompareFinished"
+      | "branchComparePatchExported"
+      | "branchComparePatchError";
+  }
+>;
+
+function isCompareEvent(event: RepoEventEnvelope): event is CompareEvent {
+  return event.type.startsWith("branchCompare");
+}
+
+function CompareTitleBar({ title }: { title: string }) {
+  return (
+    <div
+      className={`window-titlebar${IS_MACOS ? " window-titlebar--macos" : ""}`}
+      onDoubleClick={(event) => {
+        const target = event.target as HTMLElement;
+        if (!IS_MACOS && !target.closest("button, input, .compare__picker")) {
+          void import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
+            getCurrentWindow().toggleMaximize(),
+          );
+        }
+      }}
+    >
+      <span className="compare__title" data-testid="compare-title">
+        {title}
+      </span>
+      <div className="window-titlebar__drag" data-tauri-drag-region />
+      <WindowControls />
+    </div>
+  );
 }
 
 export function CompareWindow({ repoId }: { repoId: number | null }) {
@@ -52,18 +97,27 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
   const [finished, setFinished] = useState(false);
   const [exportState, setExportState] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(true);
-  const requested = useRef(new Set<number>());
+  const activeGeneration = useRef(0);
+  const pendingGeneration = useRef<number | null>(null);
+  const bufferedEvents = useRef<CompareEvent[]>([]);
+  const consumeEvent = useRef<(event: CompareEvent) => void>(() => {});
+  const subscriptionReady = useRef<Promise<void>>(Promise.resolve());
+  const subscriptionGeneration = useRef(0);
+  const translateRef = useRef(translate);
+  translateRef.current = translate;
 
-  // Compare events carry the request id, so a stale answer is dropped here.
+  // Compare events are buffered while the command reply assigns the request id.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     if (repoId === null) {
       return;
     }
-    void ipc.onRepoEvent((event) => {
-      if (event.repoId !== repoId) {
-        return;
-      }
+    const generation = ++subscriptionGeneration.current;
+    let resolveReady: () => void = () => {};
+    subscriptionReady.current = new Promise((resolve) => {
+      resolveReady = resolve;
+    });
+    consumeEvent.current = (event) => {
       switch (event.type) {
         case "branchCompareFiles":
           if (event.requestId !== requestId.current) {
@@ -89,9 +143,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
             delete next[event.file.new_path];
             return next;
           });
-          setSelected((current) =>
-            current === null ? event.file : current,
-          );
+          setSelected((current) => current ?? event.file);
           break;
         case "branchCompareError":
           if (event.requestId !== requestId.current) {
@@ -114,43 +166,100 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           setFinished(true);
           break;
         case "branchComparePatchExported":
-          if (event.requestId !== requestId.current) {
-            return;
+          if (event.requestId === requestId.current) {
+            setExportState(
+              ta(translateRef.current, "branch-compare-export-success", {
+                path: event.destination,
+              }),
+            );
           }
-          setExportState(
-            ta(translate, "branch-compare-export-success", {
-              path: event.destination,
-            }),
-          );
           break;
         case "branchComparePatchError":
-          if (event.requestId !== requestId.current) {
-            return;
+          if (event.requestId === requestId.current) {
+            setExportState(
+              ta(translateRef.current, "branch-compare-export-error", { detail: event.detail }),
+            );
           }
-          setExportState(
-            ta(translate, "branch-compare-export-error", { detail: event.detail }),
-          );
-          break;
-        default:
           break;
       }
+    };
+    void ipc.onRepoEvent((event) => {
+      if (event.repoId !== repoId || !isCompareEvent(event)) {
+        return;
+      }
+      if (event.requestId === requestId.current) {
+        consumeEvent.current(event);
+      } else if (pendingGeneration.current !== null) {
+        bufferedEvents.current = [...bufferedEvents.current, event].slice(-256);
+      }
     }).then((stop) => {
+      if (subscriptionGeneration.current !== generation) {
+        stop();
+        return;
+      }
       unlisten = stop;
+      resolveReady();
     });
-    return () => unlisten?.();
-    // Deliberately not depending on the request id: the handler reads it from
-    // the ref, so re-subscribing on every comparison would leave a window in
-    // which an event arrives with nobody listening.
-  }, [repoId, translate]);
+    return () => {
+      if (subscriptionGeneration.current === generation) {
+        subscriptionGeneration.current += 1;
+      }
+      resolveReady();
+      unlisten?.();
+    };
+  }, [repoId]);
 
   // Close the window's request when it goes away.
   useEffect(() => {
     return () => {
       if (repoId !== null) {
+        activeGeneration.current += 1;
+        pendingGeneration.current = null;
+        requestId.current = 0;
         void ipc.cancelCompare(repoId);
       }
     };
   }, [repoId]);
+
+  const trackRequest = useCallback(async (start: () => Promise<number>) => {
+    const generation = activeGeneration.current + 1;
+    const listenerGeneration = subscriptionGeneration.current;
+    activeGeneration.current = generation;
+    pendingGeneration.current = generation;
+    bufferedEvents.current = [];
+    requestId.current = 0;
+    await subscriptionReady.current;
+    if (
+      generation !== activeGeneration.current ||
+      listenerGeneration !== subscriptionGeneration.current
+    ) {
+      return null;
+    }
+    let id: number;
+    try {
+      id = await start();
+    } catch (error) {
+      if (generation !== activeGeneration.current) {
+        return null;
+      }
+      pendingGeneration.current = null;
+      bufferedEvents.current = [];
+      throw error;
+    }
+    if (generation !== activeGeneration.current) {
+      return null;
+    }
+    requestId.current = id;
+    pendingGeneration.current = null;
+    const early = bufferedEvents.current;
+    bufferedEvents.current = [];
+    for (const event of early) {
+      if (event.requestId === id) {
+        consumeEvent.current(event);
+      }
+    }
+    return id;
+  }, []);
 
   const run = useCallback(
     async (nextBase: Endpoint, nextTarget: Endpoint) => {
@@ -160,14 +269,37 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
       const left = nextBase.selected ?? fromManualInput(nextBase.input);
       const right = nextTarget.selected ?? fromManualInput(nextTarget.input);
       if (!left || !right) {
+        activeGeneration.current += 1;
+        pendingGeneration.current = null;
+        bufferedEvents.current = [];
+        requestId.current = 0;
+        setFiles([]);
+        setSelected(null);
+        setDocuments({});
+        setErrors({});
+        setLoading(false);
+        setFinished(false);
+        void ipc.cancelCompare(repoId);
         return;
       }
-      requested.current.clear();
+      setFiles([]);
+      setSelected(null);
+      setDocuments({});
+      setErrors({});
+      setLoading(true);
+      setFinished(false);
       setExportState(null);
-      const id = await ipc.startCompare(repoId, left, right);
-      requestId.current = id;
+      try {
+        await trackRequest(() => ipc.startCompare(repoId, left, right));
+      } catch (error) {
+        if (pendingGeneration.current !== null) {
+          pendingGeneration.current = null;
+        }
+        setLoading(false);
+        setErrors({ "": String(error) });
+      }
     },
-    [repoId],
+    [repoId, trackRequest],
   );
 
   // The aggregate row sits above the list rather than replacing it, so choosing
@@ -182,14 +314,6 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
         .filter((entry): entry is DiffSection => entry !== null),
     [files, documents],
   );
-
-  if (repoId === null || !repo) {
-    return (
-      <div className="app">
-        <EmptyState message={t(translate, "err-repo-closed")} />
-      </div>
-    );
-  }
 
   // The reference pre-selects the current branch as the base and the first
   // other revision as the target, so the window opens with something to read.
@@ -207,30 +331,49 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
     if (!current || !other) {
       return;
     }
-    preset.current = true;
-    setBase({ input: current.name, selected: current });
-    setTarget({ input: other.name, selected: other });
-    void run({ input: current.name, selected: current }, { input: other.name, selected: other });
+    const listenerGeneration = subscriptionGeneration.current;
+    void (async () => {
+      await subscriptionReady.current;
+      if (preset.current || listenerGeneration !== subscriptionGeneration.current) {
+        return;
+      }
+      preset.current = true;
+      setBase({ input: current.name, selected: current });
+      setTarget({ input: other.name, selected: other });
+      void run(
+        { input: current.name, selected: current },
+        { input: other.name, selected: other },
+      );
+    })();
   }, [repoId, repo, run]);
 
   const subjects = useMemo(
-    () => new Map(repo.logRows.map((row) => [row.oid, row.subject])),
-    [repo.logRows],
+    () => new Map((repo?.logRows ?? []).map((row) => [row.oid, row.subject])),
+    [repo?.logRows],
   );
 
   // The reference offers the loaded commits alongside the refs, with the recent
   // ones first, so a comparison does not have to be between named branches.
   const offered = useMemo<CompareRevision[]>(
     () => [
-      ...repo.refs.comparison_revisions,
-      ...repo.logRows.map<CompareRevision>((row) => ({
+      ...(repo?.refs.comparison_revisions ?? []),
+      ...(repo?.logRows ?? []).map<CompareRevision>((row) => ({
         name: row.short,
         full_name: row.oid,
         kind: "commit",
       })),
     ],
-    [repo.refs.comparison_revisions, repo.logRows],
+    [repo?.refs.comparison_revisions, repo?.logRows],
   );
+
+  if (repoId === null || !repo) {
+    return (
+      <div className="compare" data-testid="compare-window">
+        <CompareTitleBar title={t(translate, "branch-compare-title")} />
+        <EmptyState message={t(translate, "err-repo-closed")} />
+      </div>
+    );
+  }
 
   const canRun = (endpoint: Endpoint) =>
     endpoint.selected !== null || fromManualInput(endpoint.input) !== null;
@@ -250,12 +393,8 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
 
   return (
     <div className="compare" data-testid="compare-window">
-      <div className="compare__header" data-tauri-drag-region>
-        {/* The reference titles the panel inside the window, under the native
-            title bar, so the picker row carries a label of its own. */}
-        <span className="compare__title" data-testid="compare-title">
-          {t(translate, "branch-compare-title")}
-        </span>
+      <CompareTitleBar title={t(translate, "branch-compare-title")} />
+      <div className="compare__header">
         <RevisionPicker
           label={t(translate, "branch-compare-base")}
           endpoint={base}
@@ -320,6 +459,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
           disabled={
             !canRun(base) ||
             !canRun(target) ||
+            loading ||
             (finished && files.length === 0)
           }
           data-testid="compare-export"
@@ -336,9 +476,12 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
             if (typeof destination !== "string") {
               return;
             }
-            const id = await ipc.exportPatch(repoId, left, right, destination);
-            requestId.current = id;
             setExportState(t(translate, "branch-compare-export-saving"));
+            try {
+              await trackRequest(() => ipc.exportPatch(repoId, left, right, destination));
+            } catch (error) {
+              setExportState(ta(translate, "branch-compare-export-error", { detail: String(error) }));
+            }
           }}
         >
           {t(translate, "branch-compare-export-patch")}
@@ -347,7 +490,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
       <div className="compare__body">
         <div
           className="bottom__files"
-          style={{ width: "25%", minWidth: 140 }}
+          style={{ width: "25%", minWidth: 200 }}
           data-testid="compare-file-list"
         >
           <div style={{ overflowY: "auto" }}>
@@ -383,13 +526,6 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
                       // off the aggregate row.
                       setShowAll(false);
                       setSelected(file);
-                      if (repoId !== null) {
-                        const left = base.selected ?? fromManualInput(base.input);
-                        const right = target.selected ?? fromManualInput(target.input);
-                        if (left && right) {
-                          void ipc.startCompare(repoId, left, right);
-                        }
-                      }
                     }}
                   >
                     <span
@@ -449,14 +585,19 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
               type="button"
               className="tool-button tool-button--compact"
               data-testid="compare-copy"
+              disabled={!selected || !documents[selected.new_path]}
+              title={t(translate, "diff-copy-tooltip")}
+              aria-label={t(translate, "diff-copy-tooltip")}
               onClick={() => {
                 const document = selected ? documents[selected.new_path] : undefined;
                 if (document) {
-                  void writeText(document.copy_text);
+                  void writeText(document.copy_text).then(() => {
+                    setExportState(t(translate, "branch-compare-copy-success"));
+                  });
                 }
               }}
             >
-              {t(translate, "context-copied")}
+              <Icon name="copy" size={12} />
             </button>
           </div>
           <DiffView

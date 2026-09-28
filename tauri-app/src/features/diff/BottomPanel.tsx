@@ -24,10 +24,12 @@ export function BottomPanel({
   repo,
   height,
   onFileListRatioChange,
+  onFileListRatioChangeEnd,
 }: {
   repo: RepoState;
   height: number | null;
   onFileListRatioChange: (ratio: number) => void;
+  onFileListRatioChangeEnd: () => void;
 }) {
   const translate = useStore((state) => state.t);
   const layout = useStore((state) => state.config.view.diff_layout);
@@ -38,6 +40,7 @@ export function BottomPanel({
   const [width, setWidth] = useState(1000);
   const bodyRef = useRef<HTMLDivElement>(null);
   const requested = useRef(new Set<string>());
+  const fileListDragStart = useRef(ratio);
 
   const pane = repo.pane;
   const commit = repo.selected;
@@ -97,6 +100,11 @@ export function BottomPanel({
     }
     return [];
   }, [pane, repo.commitFiles, repo.commitDiffs, repo.workingDocument]);
+
+  const commitLoading =
+    pane.kind === "commit" &&
+    (repo.commitFilesLoading ||
+      sections.length < (pane.file ? 1 : repo.commitFiles.length));
 
   const title = (() => {
     if (pane.kind === "working") {
@@ -161,6 +169,22 @@ export function BottomPanel({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [sections, repo.id]);
 
+  if (pane.kind === "none") {
+    return (
+      <div
+        className={`bottom${height !== null ? " bottom--fixed" : ""}`}
+        style={height !== null ? { height } : undefined}
+        data-testid="bottom-panel"
+      >
+        <EmptyState
+          icon={<Icon name="git-commit-horizontal" />}
+          message={t(translate, "bottom-no-commit")}
+          testId="bottom-no-commit-state"
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className={`bottom${height !== null ? " bottom--fixed" : ""}`}
@@ -176,14 +200,16 @@ export function BottomPanel({
         >
           <Icon name={collapsed ? "chevron-right" : "chevron-down"} size={11} />
         </button>
-        <span className="bottom__toolbar-title" title={title}>
-          {title}
-        </span>
+        {commit ? (
+          <span className="mono bottom__commit-hash" data-testid="bottom-commit-hash">
+            {commit.short}
+          </span>
+        ) : null}
+        <span className="bottom__toolbar-title" title={title}>{title}</span>
         <span className="bottom__toolbar-spacer" />
         {repo.commitMergeParent && pane.kind === "commit" ? (
           <span className="muted">{t(translate, "diff-merge-first-parent")}</span>
         ) : null}
-        {commit ? <span className="mono muted">{commit.short}</span> : null}
         {/* The commit's own totals, so the size of the change is readable
             without summing the file list. */}
         {pane.kind === "commit" && commitTotals ? (
@@ -220,9 +246,11 @@ export function BottomPanel({
             type="button"
             className="tool-button tool-button--compact"
             data-testid="bottom-clear-commit"
+            title={t(translate, "bottom-clear-selection")}
+            aria-label={t(translate, "bottom-clear-selection")}
             onClick={() => clearCommit(repo.id)}
           >
-            {t(translate, "bottom-no-commit")}
+            <Icon name="x" size={11} />
           </button>
         ) : null}
       </div>
@@ -246,10 +274,16 @@ export function BottomPanel({
               orientation="vertical"
               label="resize file list"
               testId="bottom-file-splitter"
+              onDragStart={() => {
+                fileListDragStart.current = ratio;
+              }}
               onDrag={(delta) => {
                 const total = Math.max(1, bodyRef.current?.clientWidth ?? 600);
-                onFileListRatioChange(clampRatio(ratio + delta / total));
+                onFileListRatioChange(
+                  clampRatio(fileListDragStart.current + delta / total),
+                );
               }}
+              onDragEnd={onFileListRatioChangeEnd}
             />
           </>
         )}
@@ -257,15 +291,13 @@ export function BottomPanel({
           sections={sections}
           layout={layout}
           forceInline={narrow}
-          loading={pane.kind === "working" ? repo.workingLoading : false}
           error={pane.kind === "working" ? repo.workingError : null}
           // A bare spinner and a bare error both read as a broken panel; the
           // reference names both states.
-          loadingMessage={
-            pane.kind === "working"
-              ? t(translate, "diff-working-tree-loading")
-              : undefined
-          }
+          loading={pane.kind === "working" ? repo.workingLoading : commitLoading}
+          loadingMessage={pane.kind === "working"
+            ? t(translate, "diff-working-tree-loading")
+            : commitLoading ? t(translate, "bottom-loading-commit") : undefined}
           errorLabel={
             pane.kind === "working" ? t(translate, "diff-working-tree-error") : undefined
           }
