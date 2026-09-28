@@ -223,13 +223,20 @@ pub fn open_about_window(app: AppHandle, state: State<'_, AppState>) -> Result<(
         let _ = window.set_focus();
         return Ok(());
     }
-    WebviewWindowBuilder::new(&app, label, WebviewUrl::App("index.html?window=about".into()))
-        .title(resolved_title(&state.settings().config.language, "app-name"))
-        .inner_size(400.0, 340.0)
-        .min_inner_size(400.0, 340.0)
-        .resizable(false)
+    let builder = WebviewWindowBuilder::new(
+        &app,
+        label,
+        WebviewUrl::App("index.html?window=about".into()),
+    )
+    .title(resolved_title(&state.settings().config.language, "app-name"))
+    .inner_size(400.0, 340.0)
+    .min_inner_size(400.0, 340.0)
+    .resizable(false);
+    #[cfg(target_os = "macos")]
+    let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true)
+        .hidden_title(true);
+    builder
         .build()
         .map_err(|error| CommandError::new("err-window", error.to_string()))?;
     Ok(())
@@ -249,14 +256,17 @@ pub fn open_compare_window(
         return Ok(label);
     }
     let url = WebviewUrl::App(format!("index.html?window=compare&repo={repo_id}").into());
-    let window = WebviewWindowBuilder::new(&app, &label, url)
+    let builder = WebviewWindowBuilder::new(&app, &label, url)
         .title(resolved_title(&state.settings().config.language, "compare-window-title"))
         .inner_size(1280.0, 820.0)
         .min_inner_size(900.0, 560.0)
         .resizable(true)
-        .decorations(cfg!(target_os = "macos"))
+        .decorations(cfg!(target_os = "macos"));
+    #[cfg(target_os = "macos")]
+    let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true)
+        .hidden_title(true);
+    let window = builder
         .build()
         .map_err(|error| CommandError::new("err-window", error.to_string()))?;
     // The window starts hidden and is revealed by the webview once the first

@@ -31,11 +31,12 @@ fn main() {
 /// Path of the sidecar the bundle manifest expects, for the target being built.
 ///
 /// `TAURI_ENV_TARGET_TRIPLE` is only set by `tauri_build`, which runs after
-/// this function, so the triple is reconstructed from the `CARGO_CFG_*`
-/// variables Cargo provides to build scripts. `rustc -vV` is the fallback.
+/// this function. Cargo instead always provides `TARGET` to build scripts, and
+/// that is the same Rust target triple `tauri_build` uses to name sidecar
+/// resources, so `target_triple` reads it first.
 fn sidecar_path() -> Option<PathBuf> {
     let triple = target_triple()?;
-    let name = if cfg!(windows) {
+    let name = if triple.contains("windows") {
         format!("augurgit-tauri-{triple}.exe")
     } else {
         format!("augurgit-tauri-{triple}")
@@ -44,33 +45,35 @@ fn sidecar_path() -> Option<PathBuf> {
 }
 
 fn target_triple() -> Option<String> {
+    // Cargo always sets `TARGET` for build scripts, so this is the normal path.
+    if let Ok(triple) = std::env::var("TARGET")
+        && !triple.is_empty()
+    {
+        return Some(triple);
+    }
+    // Fallback for the unlikely case where `TARGET` is missing: reconstruct the
+    // triple from the `CARGO_CFG_*` variables Cargo provides. The vendor field
+    // is `apple` on macOS, `pc` on Windows, and `unknown` on every other
+    // desktop platform (Linux, the BSDs), which is the part that must not be
+    // dropped: Tauri names the sidecar after the full Rust triple.
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").ok()?;
     let os = std::env::var("CARGO_CFG_TARGET_OS").ok()?;
     let env = std::env::var("CARGO_CFG_TARGET_ENV").ok().unwrap_or_default();
     let abi = std::env::var("CARGO_CFG_TARGET_ABI").ok();
-    let arch = match arch.as_str() {
-        "x86_64" => "x86_64",
-        "aarch64" => "aarch64",
-        other => other,
+    let vendor = match os.as_str() {
+        "macos" => "apple",
+        "windows" => "pc",
+        _ => "unknown",
     };
-    let os = match os.as_str() {
-        "macos" => "apple-darwin",
-        "windows" => {
-            if let Some(abi) = abi.as_deref() {
-                return Some(format!("{arch}-pc-windows-{abi}"));
-            }
-            "windows"
-        }
-        other => other,
-    };
-    if os == "apple-darwin" {
-        return Some(format!("{arch}-{os}"));
+    let mut triple = format!("{arch}-{vendor}-{os}");
+    if let Some(abi) = abi.as_deref().filter(|abi| !abi.is_empty()) {
+        triple.push('-');
+        triple.push_str(abi);
+    } else if !env.is_empty() {
+        triple.push('-');
+        triple.push_str(&env);
     }
-    if env.is_empty() {
-        Some(format!("{arch}-{os}"))
-    } else {
-        Some(format!("{arch}-{os}-{env}"))
-    }
+    Some(triple)
 }
 
 fn ensure_sidecar() {
