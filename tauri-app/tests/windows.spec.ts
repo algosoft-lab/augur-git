@@ -37,7 +37,14 @@ test.describe('comparison window', () => {
   });
 
   test('drags the compare title text and maximizes on a double click', async ({ page }) => {
-    const stub = await boot(page, { open: [fixtureRepo()], window: 'compare', repoId: 7 });
+    // Dragging is a JS handler on Windows and Linux, and a native drag region
+    // on macOS that the browser stub cannot simulate, so pin the platform.
+    const stub = await boot(page, {
+      open: [fixtureRepo()],
+      window: 'compare',
+      repoId: 7,
+      windows: true
+    });
     const title = page.getByTestId('compare-title');
 
     await title.click();
@@ -427,7 +434,12 @@ test.describe('custom title bar', () => {
   test('drags from empty tab-bar space while keeping its controls interactive', async ({
     page
   }) => {
-    const stub = await boot(page, { open: [fixtureRepo(), secondFixtureRepo()] });
+    // Dragging is a JS handler on Windows and Linux, and a native drag region
+    // on macOS that the browser stub cannot simulate, so pin the platform.
+    const stub = await boot(page, {
+      open: [fixtureRepo(), secondFixtureRepo()],
+      windows: true
+    });
     const countCommands = async (cmd: string) =>
       (await stub.commands()).filter((entry) => entry.cmd === cmd).length;
 
@@ -467,7 +479,9 @@ test.describe('custom title bar', () => {
   test('drags the main window from its blank region and leaves controls clickable', async ({
     page
   }) => {
-    const stub = await boot(page, { open: [fixtureRepo()] });
+    // Dragging is a JS handler on Windows and Linux, and a native drag region
+    // on macOS that the browser stub cannot simulate, so pin the platform.
+    const stub = await boot(page, { open: [fixtureRepo()], windows: true });
     const dragCount = async () =>
       (await stub.commands()).filter((entry) => entry.cmd === 'plugin:window|start_dragging')
         .length;
