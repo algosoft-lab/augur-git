@@ -191,6 +191,7 @@ button {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
+  cursor: default;
   -webkit-app-region: no-drag;
 }
 

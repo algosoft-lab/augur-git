@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { boot, fixtureRepo } from "./harness";
+import { boot, fixtureRepo, secondFixtureRepo } from "./harness";
 
 /**
  * The standalone comparison window and the settings surface.
@@ -365,6 +365,50 @@ test.describe("comparison window", () => {
 });
 
 test.describe("custom title bar", () => {
+  test("drags from empty tab-bar space while keeping its controls interactive", async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo(), secondFixtureRepo()] });
+    const countCommands = async (cmd: string) =>
+      (await stub.commands()).filter((entry) => entry.cmd === cmd).length;
+
+    const tabBar = page.getByTestId("tab-bar");
+    const tabBarBox = await tabBar.boundingBox();
+    const newTabBox = await page.getByTestId("tab-new").boundingBox();
+    expect(tabBarBox).not.toBeNull();
+    expect(newTabBox).not.toBeNull();
+    const blankX = tabBarBox!.x + tabBarBox!.width - 8;
+    const blankY = tabBarBox!.y + tabBarBox!.height / 2;
+    expect(blankX).toBeGreaterThan(newTabBox!.x + newTabBox!.width);
+    expect(await tabBar.evaluate((element) => getComputedStyle(element).cursor)).toBe(
+      "default",
+    );
+
+    await page.mouse.click(blankX, blankY);
+    await expect.poll(() => countCommands("plugin:window|start_dragging")).toBe(1);
+
+    await page.mouse.dblclick(blankX, blankY);
+    await expect.poll(() => countCommands("plugin:window|toggle_maximize")).toBe(1);
+    await expect.poll(() => countCommands("plugin:window|start_dragging")).toBe(2);
+
+    await page.locator(".tab__label").first().click();
+    await page.locator(".tab__close").first().click();
+    await page.getByTestId("tab-new").click();
+    await expect.poll(() => countCommands("plugin:window|start_dragging")).toBe(2);
+  });
+
+  test("marks only the empty tab-bar surface as draggable on macOS", async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()], macos: true });
+    const tabBar = page.getByTestId("tab-bar");
+
+    await expect(tabBar).toHaveAttribute("data-tauri-drag-region", "true");
+    await expect(page.locator(".tab")).not.toHaveAttribute("data-tauri-drag-region");
+    await expect(page.locator(".tab__close")).not.toHaveAttribute(
+      "data-tauri-drag-region",
+    );
+    await expect(page.getByTestId("tab-new")).not.toHaveAttribute(
+      "data-tauri-drag-region",
+    );
+  });
+
   test("drags the main window from its blank region and leaves controls clickable", async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
     const dragCount = async () =>

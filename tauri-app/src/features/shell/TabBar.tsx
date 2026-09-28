@@ -9,6 +9,7 @@
 import { Icon } from "../../components/Icon";
 import { useStore } from "../../app/store";
 import { t } from "../../i18n/strings";
+import { IS_MACOS } from "./WindowControls";
 
 export function TabBar({ onNewTab }: { onNewTab: () => void }) {
   const translate = useStore((state) => state.t);
@@ -19,7 +20,12 @@ export function TabBar({ onNewTab }: { onNewTab: () => void }) {
   const closeTab = useStore((state) => state.closeTab);
 
   return (
-    <div className="tab-bar" role="tablist" data-testid="tab-bar">
+    <div
+      className="tab-bar"
+      role="tablist"
+      data-testid="tab-bar"
+      {...(IS_MACOS ? { "data-tauri-drag-region": true } : {})}
+    >
       {tabs.map((tab) => {
         const repo = tab.repoId === null ? undefined : repos[tab.repoId];
         const state = repo?.status ?? "loading";

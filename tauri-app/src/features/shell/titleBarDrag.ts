@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { IS_MACOS } from "./WindowControls";
 
 const NON_DRAG_SELECTOR =
-  "button, input, textarea, select, a, [role=tab], [role=tablist], .menu, .compare__picker";
+  "button, input, textarea, select, a, [role=tab], .menu, .compare__picker";
 
 export function handleTitleBarMouseDown(event: MouseEvent<HTMLElement>): void {
   if (IS_MACOS || event.button !== 0) {
