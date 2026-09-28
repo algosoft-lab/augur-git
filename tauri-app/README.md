@@ -63,6 +63,9 @@ bun run typecheck    # TypeScript, no emit
 bun run test         # unit tests for the pure interface logic
 bun run test:e2e     # browser tests for the whole interface
 bun run test:all     # all three, in order
+bun run package:windows # Windows x86-64 NSIS installer
+bun run package:macos   # macOS ARM64 app and DMG
+bun run package:linux   # Linux x86-64 AppImage, Debian package, and raw archive
 cargo test --manifest-path src-tauri/Cargo.toml   # Rust unit tests
 ```
 
@@ -73,6 +76,21 @@ That script compiles the `augurgit-tauri` companion and copies it to
 `src-tauri/binaries/`, where the Tauri bundler expects a sidecar. A bare
 `cargo build` has no such hook, so `build.rs` writes a clearly labelled
 placeholder instead; the real binary is only ever produced by the bun scripts.
+
+## Packaging
+
+The platform packaging commands require the matching host and architecture:
+Windows x86-64, macOS ARM64, or Linux x86-64. They write artifacts to
+`packaging/out/`. Windows packaging requires NSIS. Linux packaging
+requires the Tauri 2 development libraries, including GTK 3 and WebKitGTK 4.1.
+The AppImage build runs with extraction mode for hosts without FUSE. The raw
+Linux `.tar.gz` contains the GUI and CLI executables but relies on compatible
+system GTK 3 and WebKitGTK 4.1 runtime libraries.
+
+The macOS packaging command builds the ARM64 app bundle, verifies its
+ad-hoc signature, and creates the DMG with `hdiutil` so it can run without a
+Finder session. The app is not notarized; macOS may ask users to approve it
+before its first launch.
 
 On macOS the `.app` bundle is produced by either form, and the `.dmg` is a
 wrapper around the same `.app`. The wrapper is produced by Tauri's

@@ -9,6 +9,7 @@ dist-ssr/
 # Rust build output for this application's independent Rust workspace.
 /src-tauri/target/
 /src-tauri/gen/
+/packaging/out/
 
 # The CLI companion is produced by `bun run sidecar`; only the placeholder the
 # build script writes when running plain `cargo build` lands here.
