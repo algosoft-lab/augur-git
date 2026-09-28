@@ -490,16 +490,38 @@ export interface MenuProps {
 /** A dropdown menu. The trigger is supplied as the single child. */
 export function Menu({ items, align = 'start', testId, children }: MenuProps) {
   const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const [openPath, setOpenPath] = useState<string[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const close = useCallback(() => {
+    setOpen(false);
+    setOpenPath([]);
+  }, []);
+
+  const toggle = () => {
+    if (open) {
+      close();
+      return;
+    }
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+    setOpenPath([]);
+    setOpen(true);
+    setPosition({ x: rect.left, y: rect.bottom + 2 });
+  };
 
   useEffect(() => {
     if (!open) {
       return;
     }
     const onPointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
+        close();
       }
     };
     const onKeyDown = (event: KeyboardEvent) => {
@@ -507,17 +529,49 @@ export function Menu({ items, align = 'start', testId, children }: MenuProps) {
         if (openPath.length > 0) {
           setOpenPath((current) => current.slice(0, -1));
         } else {
-          setOpen(false);
+          close();
         }
       }
     };
+    // The list is fixed-positioned once portaled out of the trigger, so any
+    // scroll or resize would leave it anchored to a stale spot; closing is
+    // simpler and matches the context menu.
+    const reposition = () => close();
     document.addEventListener('mousedown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
     return () => {
       document.removeEventListener('mousedown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('resize', reposition);
     };
-  }, [open, openPath]);
+  }, [open, openPath.length, close]);
+
+  // The list's real size is only known once it has mounted, so alignment and
+  // the viewport clamp run after layout: keep the aligned edge on the trigger,
+  // flip up at the bottom edge, and pull the left edge inside the window.
+  useLayoutEffect(() => {
+    if (!position || !menuRef.current) {
+      return;
+    }
+    const rect = menuRef.current.getBoundingClientRect();
+    const margin = 8;
+    let x = align === 'end' ? position.x - rect.width : position.x;
+    let y = position.y;
+    if (y + rect.height > window.innerHeight - margin) {
+      const trigger = rootRef.current?.getBoundingClientRect();
+      y = Math.max(margin, (trigger?.top ?? margin) - rect.height - 6);
+    }
+    if (x + rect.width > window.innerWidth - margin) {
+      x = window.innerWidth - rect.width - margin;
+    }
+    x = Math.max(margin, x);
+    if (x !== position.x || y !== position.y) {
+      setPosition({ x, y });
+    }
+  }, [position, align]);
 
   const renderItems = (entries: MenuItemSpec[], prefix: string, parents: string[] = []) =>
     entries.map((item) => (
@@ -600,15 +654,11 @@ export function Menu({ items, align = 'start', testId, children }: MenuProps) {
   return (
     <div className={`menu${align === 'end' ? ' menu--end' : ''}`} ref={rootRef}>
       <span
-        onClick={() => {
-          setOpen((current) => !current);
-          setOpenPath([]);
-        }}
+        onClick={toggle}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            setOpen((current) => !current);
-            setOpenPath([]);
+            toggle();
           }
         }}
         role="button"
@@ -619,11 +669,23 @@ export function Menu({ items, align = 'start', testId, children }: MenuProps) {
       >
         {children}
       </span>
-      {open ? (
-        <div className="menu__list" role="menu" data-testid={testId}>
-          {renderItems(items, testId ?? 'menu')}
-        </div>
-      ) : null}
+      {open && position
+        ? createPortal(
+            // Portaled out of the trigger because hosts like the toolbar are
+            // scroll containers, and a scroll container clips every absolute
+            // descendant: the menu would open into an invisible strip.
+            <div
+              className="menu__list menu__list--fixed"
+              role="menu"
+              data-testid={testId}
+              ref={menuRef}
+              style={{ left: position.x, top: position.y }}
+            >
+              {renderItems(items, testId ?? 'menu')}
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }

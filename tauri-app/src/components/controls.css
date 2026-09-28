@@ -393,6 +393,14 @@
   left: auto;
 }
 
+/* The portaled list positions itself with inline left/top, so the anchored
+ * offsets that serve the in-flow list must not apply. */
+.menu__list--fixed {
+  position: fixed;
+  top: auto;
+  left: auto;
+}
+
 .context-menu {
   position: fixed;
   min-width: 200px;
@@ -481,7 +489,7 @@
 /* Keep the visible rule thin while making the drag target easy to catch. */
 .splitter::after {
   position: absolute;
-  content: "";
+  content: '';
   touch-action: none;
 }
 
