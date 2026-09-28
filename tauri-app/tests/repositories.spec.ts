@@ -326,6 +326,58 @@ test.describe("repositories", () => {
     await expect(page.getByTestId("welcome")).toHaveCount(0);
   });
 
+  test("comes back on the tab the workspace was saved with", async ({ page }) => {
+    // Three tabs are saved and the active one is not the first of them. The
+    // window has to come back on the tab the person left, and it has to fill
+    // that one in before the tabs behind it, because everything visible while
+    // it waits belongs to the tab that is on screen.
+    await boot(page, {
+      savedTabs: [
+        "/Users/dev/projects/augur-git",
+        "/Users/dev/projects/other-app",
+        "/Users/dev/projects/third-app",
+      ],
+      savedActiveTab: "/Users/dev/projects/other-app",
+    });
+
+    // No tab is clicked, and the selected tab is already filled in.
+    await expect(page.getByTestId("repo-9")).toBeVisible();
+    await expect(page.getByTestId("branch-trunk")).toBeVisible();
+    await expect(page.getByTestId("welcome")).toHaveCount(0);
+    await expect(page.locator(".tab")).toHaveCount(3);
+    await expect(page.locator(".tab__label")).toHaveText([
+      "augur-git",
+      "other-app",
+      "third-app",
+    ]);
+    await expect(page.locator(".tab.is-active .tab__label")).toHaveText("other-app");
+
+    // The tab on screen is opened first, rather than last: restoring the rest of
+    // the list behind it is what used to leave the window showing an empty tab.
+    expect(
+      await page.evaluate(() =>
+        (window as any).__STUB__.log
+          .filter((entry: any) => entry.cmd === "open_repository")
+          .map((entry: any) => entry.args.path),
+      ),
+    ).toEqual([
+      "/Users/dev/projects/other-app",
+      "/Users/dev/projects/augur-git",
+      "/Users/dev/projects/third-app",
+    ]);
+
+    // And it is asked for a snapshot once the list is in place, so a first
+    // snapshot lost to the subscription arriving late is recovered rather than
+    // waiting for a click.
+    expect(
+      await page.evaluate(() =>
+        (window as any).__STUB__.log
+          .filter((entry: any) => entry.cmd === "refresh_repository")
+          .map((entry: any) => entry.args.repoId),
+      ),
+    ).toContain(9);
+  });
+
   test("opens one tab when the same folder arrives twice", async ({ page }) => {
     // Two drops in quick succession, or a drop racing a menu item, both reach
     // the tab list before either has finished opening. The claim is taken

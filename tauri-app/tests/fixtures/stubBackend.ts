@@ -51,6 +51,13 @@ export interface StubOptions {
    * opened by this window.
    */
   savedTabs?: string[];
+  /**
+   * The key the saved workspace records as its active tab.
+   *
+   * A launch that saved several tabs comes back on the one it was left on, which
+   * is not necessarily the first one in the list.
+   */
+  savedActiveTab?: string;
   /** Repositories handed out by `open_repository`, in order. */
   available: StubRepo[];
   /** Fail `open_repository` with this key instead of succeeding. */
@@ -142,6 +149,7 @@ function install(
     open: StubRepo[];
     available: StubRepo[];
     savedTabs?: string[];
+    savedActiveTab?: string;
     openFailure?: { key: string; detail: string };
     failingActions?: string[];
     probeMerge?: Record<string, unknown>;
@@ -224,7 +232,8 @@ function install(
       ...options.open.map((repo) => ({ path: repo.path, location: repo.location })),
       ...savedTabs.map((path) => ({ path, location: { kind: "local" } })),
     ],
-    active_tab: options.open[0]?.path ?? null,
+    active_tab:
+      options.savedActiveTab ?? options.open[0]?.path ?? savedTabs[0] ?? null,
     layout: {
       sidebar_width: 250,
       right_panel_width: 320,

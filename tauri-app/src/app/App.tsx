@@ -61,15 +61,26 @@ export function App() {
     const boot = async () => {
       try {
         const store = useStore.getState();
+        // A teardown can land before a subscription has resolved, and the
+        // listener it produced would then never be removed, so a strict-mode
+        // remount would leave a second copy of every handler behind.
+        const subscribe = async (pending: Promise<() => void>) => {
+          const stop = await pending;
+          if (cancelled) {
+            stop();
+            return;
+          }
+          unlisteners.push(stop);
+        };
         // Subscriptions first: an event that arrives while the interface is
         // still loading must not be dropped on the floor.
-        unlisteners.push(
-          await ipc.onRepoEvent((event) => {
+        await subscribe(
+          ipc.onRepoEvent((event) => {
             useStore.getState().applyEvent(event.repoId, event);
           }),
         );
-        unlisteners.push(
-          await ipc.onAppEvent((event) => {
+        await subscribe(
+          ipc.onAppEvent((event) => {
             if (event.type === "settingsChanged") {
               void refreshConfig();
             } else if (event.type === "workspaceChanged") {
@@ -82,23 +93,23 @@ export function App() {
             }
           }),
         );
-        unlisteners.push(
-          await ipc.onOpenPaths((paths) => {
+        await subscribe(
+          ipc.onOpenPaths((paths) => {
             void useStore.getState().openPaths(paths);
           }),
         );
-        unlisteners.push(
-          await ipc.onDropPaths((paths) => {
+        await subscribe(
+          ipc.onDropPaths((paths) => {
             void useStore.getState().openPaths(paths);
           }),
         );
-        unlisteners.push(
-          await ipc.onMenuEvent((id) => {
+        await subscribe(
+          ipc.onMenuEvent((id) => {
             void handleMenuAction(id);
           }),
         );
-        unlisteners.push(
-          await ipc.onWindowFocus(() => {
+        await subscribe(
+          ipc.onWindowFocus(() => {
             onWindowFocus();
           }),
         );

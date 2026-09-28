@@ -87,6 +87,13 @@ export interface BootOptions {
    * this window has to open them.
    */
   savedTabs?: string[];
+  /**
+   * The key the saved workspace records as its active tab.
+   *
+   * Defaults to the first saved tab, as a launch that opened its first
+   * repository last would have left it.
+   */
+  savedActiveTab?: string;
   /** The pool `open_repository` hands out. */
   available?: StubRepo[];
   /** Reject `open_repository` with this error. */
@@ -120,6 +127,7 @@ function optionsFor(options: BootOptions): StubOptions {
     workingDiffDelay: options.workingDiffDelay,
     pendingPaths: options.pendingPaths,
     savedTabs: options.savedTabs,
+    savedActiveTab: options.savedActiveTab,
     available: options.available ?? [fixtureRepo(), secondFixtureRepo()],
     openFailure: options.openFailure,
     failingActions: options.failingActions,

@@ -116,6 +116,18 @@ export interface Notice {
   message: string;
 }
 
+/** How a tab that is being opened affects the active tab. */
+export interface OpenOptions {
+  /**
+   * Whether opening this tab should also make it the active one.
+   *
+   * A person opens a tab to look at it, so this defaults to true. Restoring the
+   * saved workspace opens tabs in order to fill them in, and the tab the window
+   * is about to show has to stay the active one.
+   */
+  activate?: boolean;
+}
+
 interface AppStore {
   ready: boolean;
   role: WindowRole;
@@ -153,7 +165,11 @@ interface AppStore {
   // ===== actions =====
   initialize: (role: WindowRole, compareRepoId: number | null) => Promise<void>;
   setTranslator: (locale: string, catalog: Record<string, string>) => void;
-  openTab: (path: string, location?: LocationConfig) => Promise<void>;
+  openTab: (
+    path: string,
+    location?: LocationConfig,
+    options?: OpenOptions,
+  ) => Promise<void>;
   openPaths: (paths: string[]) => Promise<void>;
   closeTab: (key: string) => Promise<void>;
   selectTab: (key: string) => Promise<void>;
@@ -291,9 +307,144 @@ async function startOpen(
       get().applyEvent(summary.id, event);
     }
   }
-  persistTabs(key);
+  // The active tab is recorded rather than assumed to be this one: a tab opened
+  // in the background while the workspace is being restored must not overwrite
+  // the tab the window is showing.
+  persistTabs(get().activeTabKey);
 }
 
+/**
+ * The in-flight first boot.
+ *
+ * React's strict mode runs the start-up effect twice, and a second
+ * `initialize` would rebuild the tab list out of the bootstrap response and
+ * discard the repositories the first one is still opening. A window's role and
+ * compare target are read once and never change, so the second caller waits for
+ * the first instead of starting the whole restore again.
+ */
+let booting: Promise<void> | null = null;
+
+/**
+ * Load the saved state and give every tab a repository.
+ *
+ * The backend keeps no repository open across launches, so the saved tab list
+ * arrives as claims: paths with nothing behind them. The tab the workspace was
+ * saved with is opened first, so the window the person is about to look at fills
+ * in before the tabs behind it, and no tab is activated on the way, because the
+ * saved selection is what the window should show.
+ */
+async function restoreSession(
+  role: WindowRole,
+  compareRepoId: number | null,
+): Promise<void> {
+  const boot = await ipc.bootstrap();
+  const locale = resolveLocale(boot.config.language, systemLanguage());
+  set({
+    role,
+    compareRepoId,
+    build: boot.build,
+    config: boot.config,
+    workspace: boot.workspace,
+    shortcuts: boot.shortcuts,
+    storePaths: boot.store_paths,
+    locale,
+    t: createTranslator(boot.catalogs),
+  });
+
+  // Every already-open repository is re-adopted so a reloaded window
+  // resubscribes to a worker it does not own.
+  const staged = useStore.getState();
+  const repos: Record<number, RepoState> = {};
+  for (const summary of boot.repositories) {
+    repos[summary.id] = adopt(staged, summary.id, summary.path, summary.location);
+  }
+  const { pendingEvents } = staged;
+  for (const summary of boot.repositories) {
+    delete pendingEvents[summary.id];
+  }
+  const tabs: TabEntry[] = boot.workspace.open_tabs.map((tab) => {
+    const key = tabKey(tab.path, tab.location);
+    const existing = boot.repositories.find(
+      (summary) => tabKey(summary.path, summary.location) === key,
+    );
+    return {
+      key,
+      repoId: existing?.id ?? null,
+      path: tab.path,
+      location: tab.location,
+      // A restored tab is saved, unlike one that is still being opened.
+      persisted: true,
+    };
+  });
+
+  // A path handed over by the command line can arrive before the bootstrap
+  // response, and that tab must survive: replacing the list with the saved one
+  // would drop it and then reopen the same repository as a second tab.
+  for (const open of staged.tabs) {
+    if (!tabs.some((tab) => tab.key === open.key)) {
+      tabs.push(open);
+    }
+  }
+  const activeTabKey =
+    boot.workspace.active_tab && tabs.some((tab) => tab.key === boot.workspace.active_tab)
+      ? boot.workspace.active_tab
+      : (staged.activeTabKey ?? tabs[0]?.key ?? null);
+  set({ repos, tabs, activeTabKey, ready: true });
+
+  // Windows opened without a repository argument still need the tab list, so
+  // missing sessions are started here.
+  const pending = tabs.filter((tab) => tab.repoId === null);
+  const shown = pending.findIndex((tab) => tab.key === activeTabKey);
+  if (shown > 0) {
+    pending.unshift(...pending.splice(shown, 1));
+  }
+  for (const tab of pending) {
+    await get().openTab(tab.path, tab.location, { activate: false });
+  }
+
+  // Paths handed over before this window was listening, which the bootstrap
+  // said are waiting. Collected here rather than delivered as an event,
+  // because an event emitted before the subscription exists is lost. One of
+  // them is the reason the window was opened, so it is the tab it shows.
+  let handed: string | null = null;
+  if (boot.has_pending_paths) {
+    for (const path of await ipc.takePendingPaths()) {
+      const key = tabKey(path, { kind: "local" });
+      await get().openTab(path, { kind: "local" });
+      // A path the backend refuses to open releases its tab again, and then the
+      // tab the workspace was saved with is the one left to show.
+      if (get().tabs.some((entry) => entry.key === key && entry.repoId !== null)) {
+        handed = key;
+      }
+    }
+  }
+
+  // An adopted repository has a worker this window did not start, so nothing
+  // will be pushed until it asks, and a repository this window did start can
+  // have had its first snapshot lost to a subscription that was not yet there.
+  // Without this a restored tab can sit empty until it is clicked.
+  if (role === "compare" && compareRepoId !== null) {
+    if (get().repos[compareRepoId]) {
+      await get().refresh(compareRepoId);
+    }
+    return;
+  }
+  const wanted = handed ?? activeTabKey;
+  if (!wanted) {
+    return;
+  }
+  const tab = get().tabs.find((entry) => entry.key === wanted);
+  if (!tab || tab.repoId === null) {
+    return;
+  }
+  if (get().activeTabKey === wanted) {
+    await get().refresh(tab.repoId);
+    return;
+  }
+  // Selecting also records the choice, so the window does not come back on a
+  // different tab next time.
+  await get().selectTab(wanted);
+}
 
 /**
  * Create a repository's state and fold in any events that arrived first.
@@ -398,103 +549,30 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
   aboutOpen: false,
 
   async initialize(role, compareRepoId) {
-    const boot = await ipc.bootstrap();
-    const locale = resolveLocale(boot.config.language, systemLanguage());
-    set({
-      role,
-      compareRepoId,
-      build: boot.build,
-      config: boot.config,
-      workspace: boot.workspace,
-      shortcuts: boot.shortcuts,
-      storePaths: boot.store_paths,
-      locale,
-      t: createTranslator(boot.catalogs),
-    });
-
-    // Every already-open repository is re-adopted so a reloaded window
-    // resubscribes to a worker it does not own.
-    const staged = useStore.getState();
-    const repos: Record<number, RepoState> = {};
-    for (const summary of boot.repositories) {
-      repos[summary.id] = adopt(staged, summary.id, summary.path, summary.location);
+    if (get().ready) {
+      return;
     }
-    const { pendingEvents } = staged;
-    for (const summary of boot.repositories) {
-      delete pendingEvents[summary.id];
+    if (!booting) {
+      booting = restoreSession(role, compareRepoId).finally(() => {
+        booting = null;
+      });
     }
-    const tabs: TabEntry[] = boot.workspace.open_tabs.map((tab) => {
-      const key = tabKey(tab.path, tab.location);
-      const existing = boot.repositories.find(
-        (summary) => tabKey(summary.path, summary.location) === key,
-      );
-      return {
-        key,
-        repoId: existing?.id ?? null,
-        path: tab.path,
-        location: tab.location,
-        // A restored tab is saved, unlike one that is still being opened.
-        persisted: true,
-      };
-    });
-
-    // A path handed over by the command line can arrive before the bootstrap
-    // response, and that tab must survive: replacing the list with the saved one
-    // would drop it and then reopen the same repository as a second tab.
-    for (const open of staged.tabs) {
-      if (!tabs.some((tab) => tab.key === open.key)) {
-        tabs.push(open);
-      }
-    }
-    const activeTabKey =
-      boot.workspace.active_tab && tabs.some((tab) => tab.key === boot.workspace.active_tab)
-        ? boot.workspace.active_tab
-        : (staged.activeTabKey ?? tabs[0]?.key ?? null);
-    set({ repos, tabs, activeTabKey, ready: true });
-
-    // Windows opened without a repository argument still need the tab list, so
-    // missing sessions are started here.
-    for (const tab of tabs) {
-      if (tab.repoId === null) {
-        await get().openTab(tab.path, tab.location);
-      }
-    }
-
-    // Paths handed over before this window was listening, which the bootstrap
-    // said are waiting. Collected here rather than delivered as an event,
-    // because an event emitted before the subscription exists is lost.
-    if (boot.has_pending_paths) {
-      const handed = await ipc.takePendingPaths();
-      for (const path of handed) {
-        await get().openTab(path, { kind: "local" });
-      }
-    }
-
-    // An adopted repository has a worker this window did not start, so nothing
-    // will be pushed until it asks. Without this a window that boots while a
-    // repository is already open shows it blank forever. Only the repository
-    // this window is about to display is requested; a background tab fills in
-    // when it is selected.
-    if (role === "compare" && compareRepoId !== null && repos[compareRepoId]) {
-      await get().refresh(compareRepoId);
-    } else if (boot.workspace.active_tab) {
-      const active = tabs.find((entry) => entry.key === boot.workspace.active_tab);
-      if (active && active.repoId !== null) {
-        await get().refresh(active.repoId);
-      }
-    }
+    await booting;
   },
 
   setTranslator(locale, catalog) {
     set({ locale, t: createTranslator(catalog) });
   },
 
-  async openTab(path, location) {
+  async openTab(path, location, options) {
+    const activate = options?.activate ?? true;
     const target: LocationConfig = location ?? { kind: "local" };
     const key = tabKey(path, target);
     const existing = get().tabs.find((tab) => tab.key === key);
     if (existing && existing.repoId !== null) {
-      await get().selectTab(key);
+      if (activate) {
+        await get().selectTab(key);
+      }
       return;
     }
 
@@ -507,7 +585,9 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       // Something else is opening this very repository, so wait for it rather
       // than starting a second worker for the same path.
       await inFlight;
-      await get().selectTab(key);
+      if (activate) {
+        await get().selectTab(key);
+      }
       return;
     }
 
@@ -516,7 +596,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     // synchronously too, so two callers cannot both decide to start.
     set((state) => {
       if (state.tabs.some((tab) => tab.key === key)) {
-        return { activeTabKey: key };
+        return activate ? { activeTabKey: key } : {};
       }
       // A start page is a slot waiting for a repository, so it is filled rather
       // than left behind with a second tab beside it.
@@ -528,7 +608,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       } else {
         tabs.push(claim);
       }
-      return { tabs, activeTabKey: key };
+      return activate ? { tabs, activeTabKey: key } : { tabs };
     });
     const pending = startOpen(key, path, target);
     opening.set(key, pending);
@@ -537,7 +617,9 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     } finally {
       opening.delete(key);
     }
-    await get().selectTab(key);
+    if (activate) {
+      await get().selectTab(key);
+    }
   },
 
   async openPaths(paths) {

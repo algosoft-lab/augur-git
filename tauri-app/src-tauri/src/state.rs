@@ -123,7 +123,11 @@ impl AppState {
                     location: location.clone(),
                 });
             }
-            workspace.active_tab = Some(key);
+            // The active tab is not moved here. The webview owns the tab list
+            // and says which tab it is showing; a window restoring its saved
+            // workspace opens several repositories in a row, and letting each
+            // one claim the selection would leave the window on whichever tab
+            // happened to be opened last.
         });
         persistence.update_settings(|settings| {
             settings.config.push_recent(&path, &location);
