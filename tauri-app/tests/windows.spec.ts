@@ -16,6 +16,20 @@ test.describe('comparison window', () => {
     await expect(page.getByTestId('compare-title')).toHaveText('Revision comparison');
   });
 
+  test('asks the backend for a standalone window from the toolbar', async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()] });
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+
+    await page.getByTestId('toolbar-compare').click();
+
+    // The comparison lives in its own native window, so the main window only
+    // asks the backend to open it and never mounts a surface of its own.
+    await expect(page.getByTestId('compare-window')).toHaveCount(0);
+    const calls = (await stub.commands()).filter((entry) => entry.cmd === 'open_compare_window');
+    expect(calls).toHaveLength(1);
+    expect((calls[0]!.args as any).repoId).toBe(7);
+  });
+
   test('keeps custom window controls above the compare inputs on Windows', async ({ page }) => {
     await boot(page, {
       open: [fixtureRepo()],
@@ -737,6 +751,16 @@ test.describe('the in-window menu', () => {
     await page.getByTestId('menu-file-edit').click();
     await page.getByTestId('menu-file-settings').click();
     expect(await stub.commandNames()).toContain('open_settings_window');
+  });
+
+  test('opens About from the Help menu on the welcome page', async ({ page }) => {
+    const stub = await boot(page, { windows: true });
+
+    await page.getByTestId('menu-file-trigger').click();
+    await page.getByTestId('menu-file-help').click();
+    await page.getByTestId('menu-file-about').click();
+
+    expect(await stub.commandNames()).toContain('open_about_window');
   });
 
   test('opens settings from the title-bar gear on the welcome page', async ({ page }) => {

@@ -202,23 +202,26 @@ pub fn flush_state(state: State<'_, AppState>) {
 }
 
 /// The About window, opened once and focused on repeat requests.
+///
+/// Async so the window is created off the webview UI thread: on Windows a
+/// synchronous command runs reentrantly inside `WebMessageReceived`, and the
+/// nested message pump wry uses while creating the WebView2 controller leaves
+/// the controller's widget tree uninitialized — a blank, uncloseable window.
 #[tauri::command]
-pub fn open_about_window(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+pub async fn open_about_window(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     let label = "about";
     if let Some(window) = app.get_webview_window(label) {
         let _ = window.unminimize();
         let _ = window.set_focus();
         return Ok(());
     }
+    let title = resolved_title(&state.settings().config.language, "app-name");
     let builder = WebviewWindowBuilder::new(
         &app,
         label,
         WebviewUrl::App("index.html?window=about".into()),
     )
-    .title(resolved_title(
-        &state.settings().config.language,
-        "app-name",
-    ))
+    .title(title)
     .inner_size(400.0, 340.0)
     .min_inner_size(400.0, 340.0)
     .resizable(false);
@@ -233,23 +236,23 @@ pub fn open_about_window(app: AppHandle, state: State<'_, AppState>) -> Result<(
 }
 
 /// The settings window, opened once and focused on repeat requests.
+///
+/// Async for the same Windows reentrancy reason as `open_about_window`.
 #[tauri::command]
-pub fn open_settings_window(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+pub async fn open_settings_window(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     let label = "settings";
     if let Some(window) = app.get_webview_window(label) {
         let _ = window.unminimize();
         let _ = window.set_focus();
         return Ok(());
     }
+    let title = resolved_title(&state.settings().config.language, "settings-title");
     let builder = WebviewWindowBuilder::new(
         &app,
         label,
         WebviewUrl::App("index.html?window=settings".into()),
     )
-    .title(resolved_title(
-        &state.settings().config.language,
-        "settings-title",
-    ))
+    .title(title)
     .inner_size(780.0, 560.0)
     .min_inner_size(780.0, 560.0)
     .resizable(false)
@@ -265,8 +268,10 @@ pub fn open_settings_window(app: AppHandle, state: State<'_, AppState>) -> Resul
 }
 
 /// The standalone comparison window for one repository.
+///
+/// Async for the same Windows reentrancy reason as `open_about_window`.
 #[tauri::command]
-pub fn open_compare_window(
+pub async fn open_compare_window(
     app: AppHandle,
     state: State<'_, AppState>,
     repo_id: u64,
@@ -277,12 +282,10 @@ pub fn open_compare_window(
         let _ = window.set_focus();
         return Ok(label);
     }
+    let title = resolved_title(&state.settings().config.language, "compare-window-title");
     let url = WebviewUrl::App(format!("index.html?window=compare&repo={repo_id}").into());
     let builder = WebviewWindowBuilder::new(&app, &label, url)
-        .title(resolved_title(
-            &state.settings().config.language,
-            "compare-window-title",
-        ))
+        .title(title)
         .inner_size(1280.0, 820.0)
         .min_inner_size(900.0, 560.0)
         .resizable(true)
@@ -397,5 +400,28 @@ mod tests {
             resolved_title(&LanguagePreference::English, "app-name"),
             "Augur Git Tauri"
         );
+    }
+
+    /// Commands that build a webview window must stay async.
+    ///
+    /// On Windows a synchronous command runs reentrantly inside the webview's
+    /// `WebMessageReceived` callback, and the window created from that context
+    /// is born with an invisible, zero-sized WebView2 controller: it shows a
+    /// blank page nothing can navigate. Nothing in the type system enforces
+    /// the async declaration, so the source shape is asserted instead.
+    #[test]
+    fn window_building_commands_are_async() {
+        let source = include_str!("app.rs");
+        for name in [
+            "open_about_window",
+            "open_settings_window",
+            "open_compare_window",
+        ] {
+            let declaration = format!("pub async fn {name}");
+            assert!(
+                source.contains(&declaration),
+                "{name} must be declared async: a synchronous window-creating command breaks the webview on Windows"
+            );
+        }
     }
 }
