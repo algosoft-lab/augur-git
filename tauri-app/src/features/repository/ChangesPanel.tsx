@@ -100,78 +100,80 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
           {total}
         </span>
       </div>
-      {groups.length === 0 ? (
-        <div className="empty-state" style={{ minHeight: 120 }}>
-          <span className="empty-state__message">{t(translate, 'changes-empty')}</span>
-        </div>
-      ) : null}
-      {groups.map((group) => {
-        const stagedGroup = group.key === 'staged';
-        const isCollapsed = collapsed.includes(group.key);
-        return (
-          <div key={group.key}>
-            <div className="changes__row-group changes__section-header">
-              <button
-                type="button"
-                className="changes__section-header"
-                style={{ flex: '1 1 auto' }}
-                aria-expanded={!isCollapsed}
-                onClick={() => toggle(group.key)}
-                data-testid={`changes-toggle-${group.key}`}
-              >
-                <Icon name={isCollapsed ? 'chevron-right' : 'chevron-down'} size={12} />
-                <span className="changes__section-title">{t(translate, group.titleKey)}</span>
-                <span className="changes__section-count">{group.files.length}</span>
-              </button>
-              {stagedGroup ? (
-                <IconButton
-                  icon={<Icon name="minus" size={12} />}
-                  tooltip={t(translate, 'changes-unstage-all')}
-                  disabled={busy}
-                  onClick={() => void operate('unstage', group.files, true)}
-                  testId="changes-unstage-all"
-                />
-              ) : (
-                <>
-                  <IconButton
-                    icon={<Icon name="undo" size={12} />}
-                    tooltip={t(translate, 'changes-discard-all')}
-                    disabled={busy || repo.hasConflicts}
-                    onClick={() => void operate('discard', group.files, true)}
-                    testId="changes-discard-all"
-                  />
-                  <IconButton
-                    icon={<Icon name="plus" size={12} />}
-                    tooltip={t(translate, 'changes-stage-all')}
-                    disabled={busy || repo.hasConflicts}
-                    onClick={() => void operate('stage', group.files, true)}
-                    testId="changes-stage-all"
-                  />
-                </>
-              )}
-            </div>
-            {isCollapsed
-              ? null
-              : group.files.map((file) => (
-                  <FileRow
-                    key={`${group.key}-${file.path}`}
-                    repo={repo}
-                    file={file}
-                    staged={stagedGroup}
-                    selected={
-                      repo.pane.kind === 'working' &&
-                      repo.pane.staged === stagedGroup &&
-                      repo.pane.file.path === file.path
-                    }
-                    onSelect={() => {
-                      void selectWorkingFile(repo.id, stagedGroup, file);
-                    }}
-                    onOperate={(action) => void operate(action, [file], false)}
-                  />
-                ))}
+      <div className="changes__scroll" data-testid="changes-scroll">
+        {groups.length === 0 ? (
+          <div className="empty-state" style={{ minHeight: 120 }}>
+            <span className="empty-state__message">{t(translate, 'changes-empty')}</span>
           </div>
-        );
-      })}
+        ) : null}
+        {groups.map((group) => {
+          const stagedGroup = group.key === 'staged';
+          const isCollapsed = collapsed.includes(group.key);
+          return (
+            <div key={group.key}>
+              <div className="changes__row-group changes__section-header">
+                <button
+                  type="button"
+                  className="changes__section-header"
+                  style={{ flex: '1 1 auto' }}
+                  aria-expanded={!isCollapsed}
+                  onClick={() => toggle(group.key)}
+                  data-testid={`changes-toggle-${group.key}`}
+                >
+                  <Icon name={isCollapsed ? 'chevron-right' : 'chevron-down'} size={12} />
+                  <span className="changes__section-title">{t(translate, group.titleKey)}</span>
+                  <span className="changes__section-count">{group.files.length}</span>
+                </button>
+                {stagedGroup ? (
+                  <IconButton
+                    icon={<Icon name="minus" size={12} />}
+                    tooltip={t(translate, 'changes-unstage-all')}
+                    disabled={busy}
+                    onClick={() => void operate('unstage', group.files, true)}
+                    testId="changes-unstage-all"
+                  />
+                ) : (
+                  <>
+                    <IconButton
+                      icon={<Icon name="undo" size={12} />}
+                      tooltip={t(translate, 'changes-discard-all')}
+                      disabled={busy || repo.hasConflicts}
+                      onClick={() => void operate('discard', group.files, true)}
+                      testId="changes-discard-all"
+                    />
+                    <IconButton
+                      icon={<Icon name="plus" size={12} />}
+                      tooltip={t(translate, 'changes-stage-all')}
+                      disabled={busy || repo.hasConflicts}
+                      onClick={() => void operate('stage', group.files, true)}
+                      testId="changes-stage-all"
+                    />
+                  </>
+                )}
+              </div>
+              {isCollapsed
+                ? null
+                : group.files.map((file) => (
+                    <FileRow
+                      key={`${group.key}-${file.path}`}
+                      repo={repo}
+                      file={file}
+                      staged={stagedGroup}
+                      selected={
+                        repo.pane.kind === 'working' &&
+                        repo.pane.staged === stagedGroup &&
+                        repo.pane.file.path === file.path
+                      }
+                      onSelect={() => {
+                        void selectWorkingFile(repo.id, stagedGroup, file);
+                      }}
+                      onOperate={(action) => void operate(action, [file], false)}
+                    />
+                  ))}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

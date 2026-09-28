@@ -1246,6 +1246,12 @@ button {
   overflow: hidden;
 }
 
+.changes__scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
 .changes__section-header {
   display: flex;
   width: 100%;

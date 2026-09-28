@@ -9,6 +9,39 @@ import { boot, expect, fixtureRepo, rightClick, secondFixtureRepo, test } from '
  */
 
 test.describe('repositories', () => {
+  test('scrolls a long working-tree list while keeping its header fixed', async ({ page }) => {
+    const repo = fixtureRepo();
+    repo.status.files = Array.from({ length: 80 }, (_, index) => ({
+      index: ' ',
+      worktree: 'M',
+      path: `src/generated-${index}.ts`,
+      old_path: null
+    }));
+    await boot(page, { open: [repo] });
+
+    const list = page.getByTestId('changes-scroll');
+    const header = page.getByTestId('changes-header');
+    const headerYBefore = (await header.boundingBox())!.y;
+    const lastFile = page.getByTestId('changes-file-src/generated-79.ts');
+
+    const scrollMetrics = await list.evaluate((element) => {
+      const scrollable = element as HTMLElement;
+      return {
+        clientHeight: scrollable.clientHeight,
+        scrollHeight: scrollable.scrollHeight
+      };
+    });
+    expect(scrollMetrics.scrollHeight).toBeGreaterThan(scrollMetrics.clientHeight);
+
+    await list.evaluate((element) => {
+      const scrollable = element as HTMLElement;
+      scrollable.scrollTop = scrollable.scrollHeight;
+    });
+    await expect(lastFile).toBeInViewport();
+    await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    expect((await header.boundingBox())!.y).toBe(headerYBefore);
+  });
+
   test('shows the welcome page when nothing is open', async ({ page }) => {
     await boot(page);
     await expect(page.getByTestId('welcome')).toBeVisible();
