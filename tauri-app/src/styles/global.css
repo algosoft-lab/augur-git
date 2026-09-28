@@ -209,6 +209,7 @@ button {
   padding: 0 8px;
   border: none;
   border-right: 1px solid var(--border);
+  border-radius: 10px;
   background: transparent;
   color: var(--muted-foreground);
   font: inherit;
