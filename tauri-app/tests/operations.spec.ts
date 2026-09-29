@@ -55,7 +55,7 @@ test.describe('toolbar operations', () => {
     await expect(page.getByTestId('status-message')).toContainText(LABELS.fetch ?? '');
   });
 
-  test('pulls with a merge by default', async ({ page }) => {
+  test('pulls with a rebase by default', async ({ page }) => {
     // A conflict blocks the integration actions, so the clean fixture is the
     // one that can reach the button.
     const stub = await boot(page, { open: [cleanRepo()] });
@@ -63,10 +63,13 @@ test.describe('toolbar operations', () => {
 
     await page.getByTestId('toolbar-pull').click();
 
-    await expect(page.getByTestId('status-message')).toContainText(LABELS.pullMerge ?? '');
+    await expect(page.getByTestId('status-message')).toContainText(LABELS.pullRebase ?? '');
+    expect((await stub.commandNames()).filter((command) => command === 'probe_rebase')).toHaveLength(
+      1
+    );
     const actions = (await stub.commands()).filter((entry) => entry.cmd === 'run_action');
     expect(actions).toHaveLength(1);
-    expect((actions[0]!.args as any).action.action).toBe('pullMerge');
+    expect((actions[0]!.args as any).action.action).toBe('pullRebase');
   });
 
   test('pulls with a rebase when the preference asks for it', async ({ page }) => {

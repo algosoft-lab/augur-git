@@ -22,7 +22,7 @@ test.describe('application shortcuts', () => {
   test('runs repository commands and keeps shortcuts out of the commit editor', async ({
     page
   }) => {
-    const stub = await boot(page, { open: [withoutConflicts()] });
+    const stub = await boot(page, { open: [withoutConflicts()], pullAction: 'merge' });
     const refreshCount = (await stub.commands()).filter(
       (entry) => entry.cmd === 'refresh_repository'
     ).length;
@@ -95,7 +95,7 @@ test.describe('application shortcuts', () => {
   test('routes Pull and Push without an upstream through their existing flows', async ({
     page
   }) => {
-    const stub = await boot(page, { open: [secondFixtureRepo()] });
+    const stub = await boot(page, { open: [secondFixtureRepo()], pullAction: 'merge' });
     await page.getByTestId('graph-header').click();
 
     await page.keyboard.press('p');
@@ -122,7 +122,7 @@ test.describe('application shortcuts', () => {
   });
 
   test('checks out focused refs and toggles staging on the focused file', async ({ page }) => {
-    const stub = await boot(page, { open: [withoutConflicts()], actionDelay: 40 });
+    const stub = await boot(page, { open: [withoutConflicts()], actionDelay: 300 });
 
     for (const testId of [
       'branch-feature/tauri',

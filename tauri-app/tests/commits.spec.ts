@@ -105,7 +105,7 @@ test.describe('commit selection', () => {
   });
 
   test('aligns diff columns and preserves tab and wide-character advances', async ({ page }) => {
-    const stub = await boot(page, { open: [fixtureRepo()] });
+    const stub = await boot(page, { open: [fixtureRepo()], diffLayout: 'side-by-side' });
     await page.setViewportSize({ width: 1800, height: 1000 });
     await page.locator('.graph-row').first().click();
     await page.getByTestId('bottom-file-src/lib.rs').click();
