@@ -11,7 +11,8 @@ test.describe('provider-neutral Agent prompts', () => {
   }) => {
     const stub = await boot(page, { open: [repoWithoutConflicts()] });
 
-    await page.getByTestId('agent-prompt-commit').click();
+    await page.getByTestId('commit-mode-trigger').click();
+    await page.getByTestId('commit-mode-copy-ai-commit-prompt').click();
 
     const request = (await stub.commands()).find((entry) => entry.cmd === 'generate_agent_prompt');
     expect(request?.args).toEqual({
@@ -29,7 +30,8 @@ test.describe('provider-neutral Agent prompts', () => {
 
     await page.locator("button[data-testid='commit-mode-trigger']").click();
     await page.getByTestId('commit-mode-amend').click();
-    await page.getByTestId('agent-prompt-commit').click();
+    await page.getByTestId('commit-mode-trigger').click();
+    await page.getByTestId('commit-mode-copy-ai-commit-prompt').click();
 
     const request = (await stub.commands()).find((entry) => entry.cmd === 'generate_agent_prompt');
     expect(request?.args).toMatchObject({ request: { kind: 'commit', amend: true } });
@@ -100,7 +102,8 @@ test.describe('provider-neutral Agent prompts', () => {
       }
     });
 
-    await page.getByTestId('agent-prompt-commit').click();
+    await page.getByTestId('commit-mode-trigger').click();
+    await page.getByTestId('commit-mode-copy-ai-commit-prompt').click();
 
     await expect(page.getByTestId('status-message')).toContainText(
       'Could not copy the prompt to the clipboard'
@@ -206,7 +209,8 @@ test.describe('provider-neutral Agent prompts', () => {
     const stub = await boot(page, { open: [first, second] });
 
     await page.getByTestId(`tab-${second.path}`).click();
-    await page.getByTestId('agent-prompt-commit').click();
+    await page.getByTestId('commit-mode-trigger').click();
+    await page.getByTestId('commit-mode-copy-ai-commit-prompt').click();
 
     const request = (await stub.commands()).find((entry) => entry.cmd === 'generate_agent_prompt');
     expect(request?.args).toEqual({

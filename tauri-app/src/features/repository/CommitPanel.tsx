@@ -32,6 +32,7 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
   // enough; a plain commit needs something staged.
   const hasStaged = repo.files.some(isStagedFile);
   const canCommit = !repo.busy && hasStaged && message.trim().length > 0;
+  const canCopyPrompt = !repo.busy && !repo.hasConflicts && repo.files.length > 0;
 
   const submit = () => {
     if (!canCommit) {
@@ -63,6 +64,18 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
       onSelect: () => {
         void setView({ commit_action: 'amend' });
       }
+    },
+    {
+      id: 'copy-ai-commit-prompt',
+      label: t(translate, preference === 'amend' ? 'agent-prompt-amend' : 'agent-prompt-commit'),
+      icon: <Icon name="copy" size={12} />,
+      disabled: !canCopyPrompt,
+      separatorBefore: true,
+      onSelect: () =>
+        void copyAgentPrompt(repo.id, {
+          kind: 'commit',
+          amend: preference === 'amend'
+        })
     }
   ];
 
@@ -73,21 +86,6 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
     <div className="commit-panel" data-testid="commit-panel">
       <div className="commit-panel__header">
         <span>{t(translate, 'commit-title')}</span>
-        <button
-          type="button"
-          className="tool-button tool-button--compact"
-          disabled={repo.busy || repo.hasConflicts || repo.files.length === 0}
-          data-testid="agent-prompt-commit"
-          onClick={() =>
-            void copyAgentPrompt(repo.id, {
-              kind: 'commit',
-              amend: preference === 'amend'
-            })
-          }
-        >
-          <Icon name="copy" size={11} />
-          {t(translate, preference === 'amend' ? 'agent-prompt-amend' : 'agent-prompt-commit')}
-        </button>
       </div>
       <div className="commit-panel__body">
         <TextArea
