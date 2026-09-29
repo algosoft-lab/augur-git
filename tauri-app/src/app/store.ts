@@ -515,20 +515,25 @@ async function restoreSession(role: WindowRole, compareRepoId: number | null): P
   for (const summary of boot.repositories) {
     delete pendingEvents[summary.id];
   }
-  const tabs: TabEntry[] = boot.workspace.open_tabs.map((tab) => {
+  const restoredTabs = new Map<string, TabEntry>();
+  for (const tab of boot.workspace.open_tabs) {
     const key = tabKey(tab.path, tab.location);
+    if (restoredTabs.has(key)) {
+      continue;
+    }
     const existing = boot.repositories.find(
       (summary) => tabKey(summary.path, summary.location) === key
     );
-    return {
+    restoredTabs.set(key, {
       key,
       repoId: existing?.id ?? null,
       path: tab.path,
       location: tab.location,
       // A restored tab is saved, unlike one that is still being opened.
       persisted: true
-    };
-  });
+    });
+  }
+  const tabs = [...restoredTabs.values()];
 
   // A path handed over by the command line can arrive before the bootstrap
   // response, and that tab must survive: replacing the list with the saved one

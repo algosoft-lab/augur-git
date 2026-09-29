@@ -160,6 +160,8 @@ test.describe('repositories', () => {
       savedActiveTab: first.path
     });
 
+    await expect(page.locator('.tab')).toHaveCount(2);
+
     await expect.poll(async () =>
       page.evaluate(() => {
         const entries = (window as any).__STUB__.log.filter(
