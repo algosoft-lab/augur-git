@@ -560,9 +560,11 @@ function GraphRowView({
         onClick={onSelect}
         onDoubleClick={onShowMessage}
         onMouseEnter={(event) => {
-          // No preview while a menu is up: rows crossed on the way to a menu
-          // item would each flash one behind it.
-          if (hasOpenPopup()) {
+          // The preview is a sidecar affordance: the desktop list already
+          // shows every column, so hovering a row there stays passive. And no
+          // preview while a menu is up either: rows crossed on the way to a
+          // menu item would each flash one behind it.
+          if (!compact || hasOpenPopup()) {
             return;
           }
           onHover(row.oid, event.clientX, event.clientY);
@@ -627,7 +629,11 @@ function GraphRowView({
 }
 
 /**
- * The preview shown while a row is hovered.
+ * The preview shown while a sidecar row is hovered.
+ *
+ * Only the compact sidecar rows get it: the desktop list already shows the
+ * subject, the author, and the date, so a floating preview there would only
+ * cover them up.
  *
  * It appears on the first hover rather than the second: the hover is what asks
  * the backend for the message, and until it arrives the preview says it is

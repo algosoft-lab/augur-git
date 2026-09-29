@@ -177,6 +177,81 @@ test.describe('Sidecar mode', () => {
     await expect(page.locator('.graph-row')).toHaveCount(1);
   });
 
+  test('previews commits on hover, retires the preview for the context menu, and anchors it after a deep scroll', async ({
+    page
+  }) => {
+    await boot(page, { open: [longFixtureRepo()] });
+    await page.setViewportSize({ width: 360, height: 480 });
+    await page.getByTestId('title-sidecar-toggle').click();
+    await page.getByTestId('sidecar-nav-history').click();
+
+    const row = page.locator('.graph-row').first();
+    await row.hover();
+    const preview = page.getByTestId('commit-preview');
+    await expect(preview).toBeVisible();
+    await expect(preview.locator('.commit-preview__meta')).toBeVisible();
+
+    // The menu opens at the same cursor anchor as the preview, so the preview
+    // retires rather than the two stacking over each other.
+    const box = (await row.boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, {
+      button: 'right'
+    });
+    const menu = page.locator('.context-menu');
+    await expect(menu).toBeVisible();
+    await expect(preview).toHaveCount(0);
+
+    // Rows crossed while the menu is up show no preview behind it either. The
+    // pointer is driven directly because the menu covers the row's centre and
+    // a locator hover would refuse to move over it.
+    const below = (await page.locator('.graph-row').nth(1).boundingBox())!;
+    await page.mouse.move(below.x + below.width / 2, below.y + below.height / 2);
+    await expect(preview).toHaveCount(0);
+
+    // Closing the menu leaves the preview gone; the next hover brings it back,
+    // the way a native tooltip behaves.
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await row.hover();
+    await expect(preview).toBeVisible();
+
+    // A deep scroll used to fling the preview far below the hovered row: it
+    // was absolutely positioned against the virtual list's transformed window
+    // instead of the viewport. The pointer leaves the list first, so no stale
+    // hover survives the scroll. The scroll puts the target row near the top
+    // of the list, away from the bottom edge where the flip-up would move the
+    // preview off the cursor.
+    await page.getByTestId('commit-search').hover();
+    const list = page.getByTestId('graph-list');
+    await list.evaluate((element) => {
+      element.scrollTop = 70 * 22;
+    });
+    await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(70 * 22);
+
+    const deepRow = page.locator('.graph-row', { hasText: 'Long history commit 74' });
+    await expect(deepRow).toBeVisible();
+    const deepBox = (await deepRow.boundingBox())!;
+    const cursor = { x: deepBox.x + deepBox.width / 2, y: deepBox.y + deepBox.height / 2 };
+    await page.mouse.move(cursor.x, cursor.y);
+
+    await expect(preview).toBeVisible();
+    // The narrow window clamps the preview's left edge to stay inside the
+    // viewport, so only the vertical anchor is expected at the cursor: the old
+    // displacement bug flung the preview below the hovered row.
+    const previewBox = (await preview.boundingBox())!;
+    expect(Math.abs(previewBox.y - cursor.y)).toBeLessThanOrEqual(2);
+    const previewFits = await preview.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return (
+        bounds.left >= 0 &&
+        bounds.top >= 0 &&
+        bounds.right <= window.innerWidth &&
+        bounds.bottom <= window.innerHeight
+      );
+    });
+    expect(previewFits).toBe(true);
+  });
+
   test('clears a commit draft only after a successful commit', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
     await page.setViewportSize({ width: 520, height: 480 });

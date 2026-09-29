@@ -515,63 +515,18 @@ test.describe('commit selection', () => {
     await expect(page.getByTestId('status-message')).toContainText('Failed to copy commit message');
   });
 
-  test('previews a commit on the first hover, and asks for its message', async ({ page }) => {
+  test('keeps the hover preview out of desktop mode', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
 
-    // The first hover asks the backend, rather than waiting for a visit that
-    // already cached the message.
+    // The desktop list already shows the subject, the author, and the date, so
+    // hovering a row stays passive: no preview, and no message fetched for it.
     await page.locator('.graph-row').first().hover();
-    const preview = page.getByTestId('commit-preview');
-    await expect(preview).toBeVisible();
+    await expect(page.getByTestId('commit-preview')).toHaveCount(0);
     expect(
       await stub
         .commands()
         .then((all) => all.filter((entry) => entry.cmd === 'request_commit_message'))
-    ).not.toHaveLength(0);
-
-    // The preview identifies the commit before it shows anything else: a body
-    // of text with no hash and no decorations is not identifiable.
-    await expect(preview.getByTestId('commit-preview-label')).toHaveText('Commit message');
-    await expect(preview.locator('.commit-preview__hash')).toHaveText('13c6ef3');
-    await expect(preview.locator('.commit-preview__subject')).toHaveText(
-      'Add the Tauri command surface'
-    );
-    await expect(preview.locator('.commit-preview__meta')).toContainText('Author Lihao');
-    await expect(preview.locator('.commit-preview__meta')).toContainText('Date ');
-
-    // The preview goes away with the hover.
-    await page.locator('.graph__search').hover();
-    await expect(preview).toHaveCount(0);
-  });
-
-  test('retires the hover preview while the context menu is open', async ({ page }) => {
-    await boot(page, { open: [fixtureRepo()] });
-
-    const row = page.locator('.graph-row').first();
-    await row.hover();
-    const preview = page.getByTestId('commit-preview');
-    await expect(preview).toBeVisible();
-
-    // The menu opens at the same cursor anchor as the preview, so the preview
-    // retires rather than the two stacking over each other.
-    await rightClick(page, '.graph-row');
-    const menu = page.locator('.context-menu');
-    await expect(menu).toBeVisible();
-    await expect(preview).toHaveCount(0);
-
-    // Rows crossed while the menu is up show no preview behind it either. The
-    // pointer is driven directly because the menu covers the row's centre and
-    // a locator hover would refuse to move over it.
-    const below = (await page.locator('.graph-row').nth(1).boundingBox())!;
-    await page.mouse.move(below.x + below.width / 2, below.y + below.height / 2);
-    await expect(preview).toHaveCount(0);
-
-    // Closing the menu leaves the preview gone; the next hover brings it back,
-    // the way a native tooltip behaves.
-    await page.keyboard.press('Escape');
-    await expect(menu).toHaveCount(0);
-    await row.hover();
-    await expect(preview).toBeVisible();
+    ).toHaveLength(0);
   });
 
   test('shows the commit message dialog on request', async ({ page }) => {
@@ -656,31 +611,6 @@ test.describe('commit selection', () => {
       .toBeLessThanOrEqual(792);
     const flipped = (await menu.boundingBox())!;
     expect(flipped.y).toBeLessThan(780);
-  });
-
-  test('previews a commit at the cursor after scrolling deep', async ({ page }) => {
-    await boot(page, { open: [longFixtureRepo()] });
-
-    // A deep scroll used to fling the preview far below the hovered row: it
-    // was absolutely positioned against the virtual list's transformed window
-    // instead of the viewport.
-    const list = page.getByTestId('graph-list');
-    await list.evaluate((element) => {
-      element.scrollTop = 72 * 36;
-    });
-    await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(72 * 36);
-
-    const row = page.locator('.graph-row', { hasText: 'Long history commit 74' });
-    await expect(row).toBeVisible();
-    const box = (await row.boundingBox())!;
-    const cursor = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-    await page.mouse.move(cursor.x, cursor.y);
-
-    const preview = page.getByTestId('commit-preview');
-    await expect(preview).toBeVisible();
-    const previewBox = (await preview.boundingBox())!;
-    expect(Math.abs(previewBox.x - cursor.x)).toBeLessThanOrEqual(2);
-    expect(Math.abs(previewBox.y - cursor.y)).toBeLessThanOrEqual(2);
   });
 
   test("copies a commit's diff from the button and the keyboard", async ({ page }) => {
