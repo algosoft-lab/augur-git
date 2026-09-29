@@ -6,6 +6,7 @@
 //! single-instance lock, so a second launch never produces a second window.
 
 use tauri::{Emitter, Listener, Manager, RunEvent, WindowEvent};
+use tauri_plugin_window_state::StateFlags;
 
 pub mod auto_refresh;
 pub mod commands;
@@ -34,6 +35,8 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
         // a window-state entry left by an older build would otherwise shrink it.
         .plugin(
             tauri_plugin_window_state::Builder::default()
+                // Saved decorations from older builds must not override each window's configuration.
+                .with_state_flags(StateFlags::all() & !StateFlags::DECORATIONS)
                 .skip_initial_state("settings")
                 .build(),
         )

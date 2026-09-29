@@ -1,8 +1,7 @@
 /**
  * The title bar: the in-window menu, tabs, drag region, app name, and controls.
  *
- * macOS renders the traffic lights over the content because the window uses an
- * overlay title bar, so the bar reserves space for them.
+ * The main window draws its own macOS traffic lights inside the tab row.
  */
 
 import { Icon } from '../../components/Icon';
