@@ -28,8 +28,6 @@ pub struct RepoSession {
     location: LocationConfig,
     repo: GitRepo,
     handle: GitHandle,
-    /// Identity of the most recent working-tree diff request.
-    working_diff: AtomicU64,
     /// Identity of the most recent working-tree mutation.
     working_operation: AtomicU64,
     /// Identity of the most recent revision comparison.
@@ -56,7 +54,6 @@ impl RepoSession {
             location,
             repo,
             handle,
-            working_diff: AtomicU64::new(0),
             working_operation: AtomicU64::new(0),
             compare_request: AtomicU64::new(0),
         };
@@ -111,15 +108,14 @@ impl RepoSession {
         self.handle.commit_file_diff(oid, merge_parent, file);
     }
 
-    /// Request a working-tree diff and return the id the answer will carry.
+    /// Request a working-tree diff using the caller's event-correlation id.
     pub fn working_tree_diff(
         &self,
+        request_id: u64,
         kind: augur_core::git::WorkingTreeDiffKind,
         file: FileStatus,
-    ) -> u64 {
-        let request_id = self.working_diff.fetch_add(1, Ordering::Relaxed) + 1;
+    ) {
         self.handle.working_tree_file_diff(request_id, kind, file);
-        request_id
     }
 
     /// Apply a staged/working-tree mutation and return the result id.

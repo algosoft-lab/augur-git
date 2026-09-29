@@ -54,6 +54,8 @@ export interface DiffViewProps {
    */
   loadingMessage?: string;
   errorLabel?: string;
+  /** A non-blocking refresh state shown while an older diff remains visible. */
+  statusMessage?: { kind: 'refreshing' | 'warning'; text: string } | null;
   testId?: string;
   emptyMessage?: string;
   /** Title of the toolbar above a multi-document view. */
@@ -97,6 +99,7 @@ export function DiffView({
   error,
   loadingMessage,
   errorLabel,
+  statusMessage,
   testId,
   emptyMessage,
   header,
@@ -177,6 +180,14 @@ export function DiffView({
 
   return (
     <div className="diff" data-testid={testId}>
+      {statusMessage ? (
+        <div
+          className={`diff__status diff__status--${statusMessage.kind}`}
+          data-testid={`diff-${statusMessage.kind === 'warning' ? 'refresh-error' : 'refreshing'}`}
+        >
+          {statusMessage.text}
+        </div>
+      ) : null}
       {header ? (
         <div className="bottom__toolbar">
           <span className="bottom__toolbar-title">{header}</span>

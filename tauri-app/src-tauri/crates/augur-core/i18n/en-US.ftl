@@ -214,6 +214,9 @@ diff-working-tree-staged = Staged
 diff-working-tree-changes = Changes
 diff-working-tree-loading = Loading working-tree diff…
 diff-working-tree-error = Unable to load working-tree diff
+diff-working-tree-refreshing = Updating working-tree diff…
+diff-working-tree-refresh-failed = Refresh failed; showing the last loaded diff: { $error }
+diff-working-tree-timeout = Timed out while loading working-tree diff.
 
 # ===== Revision comparison =====
 branch-compare-title = Revision comparison

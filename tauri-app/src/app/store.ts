@@ -25,7 +25,8 @@ import type {
   RepoEvent,
   RepoSummary,
   ShortcutState,
-  WorkspaceState
+  WorkspaceState,
+  WorkingTreeDiffKind
 } from '../bridge/types';
 import { createTranslator, resolveLocale, type Translator } from '../i18n';
 import {
@@ -239,6 +240,73 @@ const opening = new Map<string, Promise<void>>();
  * like the in-flight opens.
  */
 const integrationSources = new Map<number, string>();
+
+const WORKING_DIFF_TIMEOUT_MS = 30_000;
+const workingDiffTimeouts = new Map<number, ReturnType<typeof setTimeout>>();
+let nextWorkingDiffRequestId = Math.floor(Math.random() * 2 ** 32) * 2 ** 21;
+
+function allocateWorkingDiffRequestId(previous: number): number {
+  nextWorkingDiffRequestId = Math.max(nextWorkingDiffRequestId + 1, previous + 1);
+  return nextWorkingDiffRequestId;
+}
+
+function clearWorkingDiffTimeout(repoId: number): void {
+  const timeout = workingDiffTimeouts.get(repoId);
+  if (timeout !== undefined) {
+    clearTimeout(timeout);
+    workingDiffTimeouts.delete(repoId);
+  }
+}
+
+function requestWorkingDiff(
+  repoId: number,
+  requestId: number,
+  kind: WorkingTreeDiffKind,
+  file: FileStatus
+): void {
+  clearWorkingDiffTimeout(repoId);
+  const timeout = setTimeout(() => {
+    workingDiffTimeouts.delete(repoId);
+    const repo = get().repos[repoId];
+    if (!repo || repo.pane.kind !== 'working' || repo.workingInFlight !== requestId) {
+      return;
+    }
+    set({
+      repos: {
+        ...get().repos,
+        [repoId]: {
+          ...repo,
+          workingInFlight: null,
+          workingRefreshPending: false,
+          workingLoading: false,
+          workingError: get().t('diff-working-tree-timeout')
+        }
+      }
+    });
+  }, WORKING_DIFF_TIMEOUT_MS);
+  workingDiffTimeouts.set(repoId, timeout);
+
+  void ipc.loadWorkingTreeDiff(repoId, requestId, kind, file).catch((error) => {
+    const repo = get().repos[repoId];
+    if (!repo || repo.workingInFlight !== requestId) {
+      return;
+    }
+    clearWorkingDiffTimeout(repoId);
+    const failure = ipc.describeError(error);
+    set({
+      repos: {
+        ...get().repos,
+        [repoId]: {
+          ...repo,
+          workingInFlight: null,
+          workingRefreshPending: false,
+          workingLoading: false,
+          workingError: renderGitError(get().t, failure.key, failure.detail)
+        }
+      }
+    });
+  });
+}
 
 /** Merge-shaped commands whose failure can stop on conflicts. */
 const MERGE_CONFLICT_LABELS = new Set(['merge', 'merge --no-ff', 'pull']);
@@ -718,6 +786,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       }
       // A start page has no repository behind it, so there is nothing to release.
       if (tab.repoId !== null) {
+        clearWorkingDiffTimeout(tab.repoId);
         const repos = { ...state.repos };
         delete repos[tab.repoId];
         const pendingEvents = { ...state.pendingEvents };
@@ -822,6 +891,16 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       if (next !== repo) {
         set({ repos: { ...state.repos, [repoId]: next } });
       }
+      if (
+        next !== repo &&
+        (event.type === 'workingTreeFileDiff' || event.type === 'workingTreeFileDiffError')
+      ) {
+        const refreshAgain = repo.workingRefreshPending;
+        clearWorkingDiffTimeout(repoId);
+        if (refreshAgain) {
+          void get().refreshWorkingDiff(repoId);
+        }
+      }
       if (event.type === 'status') {
         void get().refreshWorkingDiff(repoId);
       }
@@ -849,25 +928,25 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       const state = get();
       const activeTab = state.tabs.find((tab) => tab.key === state.activeTabKey);
       const repo = state.repos[repoId];
-      if (
-        !repo ||
-        activeTab?.repoId !== repoId ||
-        repo.pane.kind !== 'working'
-      ) {
+      if (!repo || activeTab?.repoId !== repoId || repo.pane.kind !== 'working') {
         return;
       }
 
       const pane = repo.pane;
       const file = repo.files.find(
-        (entry) => entry.path === pane.file.path || entry.old_path === pane.file.path
+        (entry) =>
+          (entry.path === pane.file.path || entry.old_path === pane.file.path) &&
+          (pane.staged ? isStaged(entry) : entry.worktree !== ' ' || isConflicted(entry))
       );
       if (!file) {
+        clearWorkingDiffTimeout(repoId);
         set({
           repos: {
             ...get().repos,
             [repoId]: {
               ...repo,
-              workingRequest: repo.workingRequest + 1,
+              workingInFlight: null,
+              workingRefreshPending: false,
               pane: { kind: 'none' },
               workingDocument: null,
               workingLoading: false,
@@ -878,40 +957,38 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
         return;
       }
 
-      const requestId = repo.workingRequest + 1;
+      const sameFileIdentity = pane.file.path === file.path && pane.file.old_path === file.old_path;
+      if (repo.workingInFlight !== null && sameFileIdentity) {
+        set({
+          repos: {
+            ...get().repos,
+            [repoId]: {
+              ...repo,
+              pane: { ...pane, file },
+              workingRefreshPending: true
+            }
+          }
+        });
+        return;
+      }
+
+      clearWorkingDiffTimeout(repoId);
+      const requestId = allocateWorkingDiffRequestId(repo.workingRequest);
+      const kind: WorkingTreeDiffKind = pane.staged ? 'staged' : 'unstaged';
       set({
         repos: {
           ...get().repos,
           [repoId]: {
             ...repo,
             workingRequest: requestId,
+            workingInFlight: requestId,
+            workingRefreshPending: false,
             pane: { ...pane, file },
-            workingLoading: repo.workingDocument === null,
-            workingError: null
+            workingLoading: repo.workingDocument === null && repo.workingError === null
           }
         }
       });
-      try {
-        const assigned = await ipc.loadWorkingTreeDiff(
-          repoId,
-          pane.staged ? 'staged' : 'unstaged',
-          file
-        );
-        const current = get().repos[repoId];
-        if (current?.workingRequest === requestId) {
-          set({
-            repos: {
-              ...get().repos,
-              [repoId]: {
-                ...current,
-                workingRequest: Math.max(current.workingRequest, assigned)
-              }
-            }
-          });
-        }
-      } catch {
-        // A background diff refresh can race with closing the repository.
-      }
+      requestWorkingDiff(repoId, requestId, kind, file);
     },
 
     setBusy(repoId, busy) {
@@ -944,6 +1021,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       if (!repo) {
         return;
       }
+      clearWorkingDiffTimeout(repoId);
       set({
         repos: {
           ...get().repos,
@@ -953,6 +1031,11 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
             commitFiles: [],
             commitFilesLoading: true,
             commitMergeParent: null,
+            workingInFlight: null,
+            workingRefreshPending: false,
+            workingLoading: false,
+            workingError: null,
+            workingDocument: null,
             // Every changed file is shown until one is chosen, matching the
             // reference application.
             pane: { kind: 'commit', file: null },
@@ -989,13 +1072,17 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       if (!repo) {
         return;
       }
-      const requestId = repo.workingRequest + 1;
+      clearWorkingDiffTimeout(repoId);
+      const requestId = allocateWorkingDiffRequestId(repo.workingRequest);
+      const kind: WorkingTreeDiffKind = staged ? 'staged' : 'unstaged';
       set({
         repos: {
           ...get().repos,
           [repoId]: {
             ...repo,
             workingRequest: requestId,
+            workingInFlight: requestId,
+            workingRefreshPending: false,
             pane: { kind: 'working', staged, file },
             workingDocument: null,
             workingLoading: true,
@@ -1003,39 +1090,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
           }
         }
       });
-      try {
-        const assigned = await ipc.loadWorkingTreeDiff(
-          repoId,
-          staged ? 'staged' : 'unstaged',
-          file
-        );
-        // The backend allocates the id, so adopt it: a later request makes any
-        // answer still in flight stale.
-        const current = get().repos[repoId];
-        if (current) {
-          set({
-            repos: {
-              ...get().repos,
-              [repoId]: { ...current, workingRequest: Math.max(current.workingRequest, assigned) }
-            }
-          });
-        }
-      } catch (error) {
-        const failure = ipc.describeError(error);
-        const current = get().repos[repoId];
-        if (current) {
-          set({
-            repos: {
-              ...get().repos,
-              [repoId]: {
-                ...current,
-                workingLoading: false,
-                workingError: failure.detail
-              }
-            }
-          });
-        }
-      }
+      requestWorkingDiff(repoId, requestId, kind, file);
     },
 
     async selectCommitFile(repoId, file) {

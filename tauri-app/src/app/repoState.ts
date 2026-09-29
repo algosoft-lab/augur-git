@@ -92,8 +92,12 @@ export interface RepoState {
   workingDocument: DiffDocument | null;
   workingLoading: boolean;
   workingError: string | null;
-  /** Newest working-tree diff request; older answers are ignored. */
+  /** Monotonic frontend id used to correlate working-tree diff answers. */
   workingRequest: number;
+  /** Request currently awaited for the selected working-tree file. */
+  workingInFlight: number | null;
+  /** A status refresh arrived while the selected file's diff was in flight. */
+  workingRefreshPending: boolean;
 
   busy: boolean;
   busyVerb: string | null;
@@ -136,6 +140,8 @@ export function emptyRepo(id: number, path: string, location: LocationConfig): R
     workingLoading: false,
     workingError: null,
     workingRequest: 0,
+    workingInFlight: null,
+    workingRefreshPending: false,
 
     busy: false,
     busyVerb: null,
@@ -322,29 +328,45 @@ export function applyRepoEvent(
       };
     }
     case 'workingTreeFileDiff': {
-      // A late answer for a file the user already moved away from is dropped.
-      if (event.requestId !== state.workingRequest) {
+      if (event.requestId !== state.workingInFlight) {
         return state;
       }
-      if (state.pane.kind !== 'working' || state.pane.file.path !== event.file.path) {
+      if (
+        state.pane.kind !== 'working' ||
+        state.pane.staged !== (event.kind === 'staged') ||
+        (state.pane.file.path !== event.file.path &&
+          state.pane.file.path !== event.file.old_path &&
+          state.pane.file.old_path !== event.file.path)
+      ) {
         return state;
       }
       return {
         ...state,
         workingDocument: event.document,
         workingLoading: false,
-        workingError: null
+        workingError: null,
+        workingInFlight: null
       };
     }
     case 'workingTreeFileDiffError': {
-      if (event.requestId !== state.workingRequest) {
+      if (event.requestId !== state.workingInFlight) {
+        return state;
+      }
+      if (
+        state.pane.kind !== 'working' ||
+        state.pane.staged !== (event.kind === 'staged') ||
+        (state.pane.file.path !== event.file.path &&
+          state.pane.file.path !== event.file.old_path &&
+          state.pane.file.old_path !== event.file.path)
+      ) {
         return state;
       }
       return {
         ...state,
         workingLoading: false,
         workingError: event.detail,
-        workingDocument: null
+        workingInFlight: null,
+        workingRefreshPending: false
       };
     }
     case 'workingTreeOperationFinished': {

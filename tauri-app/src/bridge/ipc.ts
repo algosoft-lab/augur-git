@@ -120,10 +120,11 @@ export async function loadCommitFileDiff(
 
 export async function loadWorkingTreeDiff(
   repoId: number,
+  requestId: number,
   kind: WorkingTreeDiffKind,
   file: FileStatus
-): Promise<number> {
-  return invoke<number>('load_working_tree_diff', { repoId, kind, file });
+): Promise<void> {
+  return invoke<void>('load_working_tree_diff', { repoId, requestId, kind, file });
 }
 
 export async function workingTreeOperation(

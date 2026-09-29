@@ -1032,6 +1032,21 @@ button {
   overflow: hidden;
 }
 
+.diff__status {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.diff__status--refreshing {
+  color: var(--muted-foreground);
+}
+
+.diff__status--warning {
+  color: var(--base-yellow);
+}
+
 .diff__row {
   display: flex;
   width: 100%;

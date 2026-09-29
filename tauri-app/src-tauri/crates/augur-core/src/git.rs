@@ -795,22 +795,15 @@ fn worker_loop(
     loop {
         match cmd_rx.recv_timeout(Duration::from_millis(20)) {
             Ok(GitCommand::Refresh) => refresh_all(&repo, &event_tx, &mut log_state, false),
-            Ok(GitCommand::AutoRefresh) => loop {
-                let requested =
-                    auto_refresh_state.fetch_and(AUTO_REFRESH_PENDING, Ordering::AcqRel);
+            Ok(GitCommand::AutoRefresh) => {
+                // Changes arriving during Git work queue a fresh command at the tail.
+                let requested = auto_refresh_state.swap(0, Ordering::AcqRel);
                 if requested & AUTO_REFRESH_FULL != 0 {
                     refresh_all(&repo, &event_tx, &mut log_state, true);
                 } else if requested & AUTO_REFRESH_STATUS != 0 {
                     refresh_status(&repo, &event_tx, true);
                 }
-
-                if auto_refresh_state
-                    .compare_exchange(AUTO_REFRESH_PENDING, 0, Ordering::AcqRel, Ordering::Acquire)
-                    .is_ok()
-                {
-                    break;
-                }
-            },
+            }
             Ok(GitCommand::LogQuery { scope }) => {
                 commit_log::set_scope(&repo, &mut log_state, scope, &event_tx);
             }

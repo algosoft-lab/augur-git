@@ -224,6 +224,128 @@ test.describe('toolbar operations', () => {
     await expect(page.getByTestId('diff-loading-label')).toHaveCount(0);
   });
 
+  test('keeps the last completed diff visible during repeated status refreshes', async ({
+    page
+  }) => {
+    const repo = fixtureRepo();
+    const stub = await boot(page, { open: [repo], workingDiffDelay: 600 });
+    await page.getByTestId('changes-file-src/main.rs').first().click();
+
+    let statusEventsSent = 0;
+    const statusFlood = (async () => {
+      for (let index = 0; index < 12; index += 1) {
+        await stub.emit('augur://repo-event', {
+          repoId: repo.id,
+          type: 'status',
+          ...repo.status
+        });
+        statusEventsSent += 1;
+        await page.waitForTimeout(80);
+      }
+    })();
+
+    await expect(page.getByTestId('diff-hunk').first()).toBeVisible({ timeout: 2_000 });
+    const eventsWhenDiffAppeared = statusEventsSent;
+    await expect(page.getByTestId('diff-refreshing')).toBeVisible();
+    await statusFlood;
+
+    expect(eventsWhenDiffAppeared).toBeGreaterThan(2);
+    const requests = (await stub.commands()).filter(
+      (entry) => entry.cmd === 'load_working_tree_diff'
+    );
+    expect(requests.length).toBeLessThanOrEqual(4);
+  });
+
+  test('ignores an older diff after switching from staged to unstaged content', async ({
+    page
+  }) => {
+    const repo = fixtureRepo();
+    const stub = await boot(page, {
+      open: [repo],
+      workingDiffDelay: 250,
+      workingDiffFirstFailure: 'fatal: stale staged response'
+    });
+    const partialFile = page.getByTestId('changes-file-src/partial.rs');
+    await partialFile.first().click();
+    await partialFile.last().click();
+
+    await expect(page.getByTestId('diff-hunk').first()).toBeVisible();
+    await expect(page.getByTestId('diff-error')).toHaveCount(0);
+    const requests = (await stub.commands()).filter(
+      (entry) => entry.cmd === 'load_working_tree_diff'
+    );
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.args.kind).toBe('staged');
+    expect(requests[1]?.args.kind).toBe('unstaged');
+    expect(requests[1]?.args.requestId).toBeGreaterThan(requests[0]?.args.requestId as number);
+  });
+
+  test('drops the selected diff when status removes its file', async ({ page }) => {
+    const repo = fixtureRepo();
+    const stub = await boot(page, { open: [repo], workingDiffDelay: 500 });
+    await page.getByTestId('changes-file-src/main.rs').first().click();
+
+    await stub.emit('augur://repo-event', {
+      repoId: repo.id,
+      type: 'status',
+      ...repo.status,
+      files: repo.status.files.filter((file) => file.path !== 'src/main.rs')
+    });
+
+    await expect(page.getByTestId('diff-loading-label')).toHaveCount(0);
+    await page.waitForTimeout(550);
+    await expect(page.getByTestId('diff-hunk')).toHaveCount(0);
+    await expect(page.getByTestId('diff-error')).toHaveCount(0);
+  });
+
+  test('keeps the last successful diff visible when a refresh fails', async ({ page }) => {
+    const repo = fixtureRepo();
+    const stub = await boot(page, {
+      open: [repo],
+      workingDiffFailureAfterFirst: 'fatal: unable to read the working tree'
+    });
+    await page.getByTestId('changes-file-src/main.rs').first().click();
+    await expect(page.getByTestId('diff-hunk').first()).toBeVisible();
+
+    await stub.emit('augur://repo-event', {
+      repoId: repo.id,
+      type: 'status',
+      ...repo.status
+    });
+
+    await expect(page.getByTestId('diff-refresh-error')).toContainText(
+      'fatal: unable to read the working tree'
+    );
+    await expect(page.getByTestId('diff-hunk').first()).toBeVisible();
+  });
+
+  test('ends loading when a diff request never returns', async ({ page }) => {
+    await page.clock.install();
+    await boot(page, { open: [fixtureRepo()], workingDiffNeverResponds: true });
+    await page.getByTestId('changes-file-src/main.rs').first().click();
+    await expect(page.getByTestId('diff-loading-label')).toBeVisible();
+
+    await page.clock.fastForward(30_001);
+
+    await expect(page.getByTestId('diff-error-label')).toHaveText(
+      'Unable to load working-tree diff'
+    );
+    await expect(page.getByTestId('diff-error')).toContainText('Timed out');
+  });
+
+  test('reports a rejected diff request instead of leaving it loading', async ({ page }) => {
+    await boot(page, {
+      open: [fixtureRepo()],
+      refusals: {
+        load_working_tree_diff: { key: 'err-git-run', detail: 'fatal: request was refused' }
+      }
+    });
+
+    await page.getByTestId('changes-file-src/main.rs').first().click();
+
+    await expect(page.getByTestId('diff-error')).toContainText('fatal: request was refused');
+  });
+
   test("puts a heading above a failed working-tree diff's reason", async ({ page }) => {
     await boot(page, {
       open: [fixtureRepo()],

@@ -59,6 +59,12 @@ export interface BootOptions {
   workingDiffFailure?: string;
   /** How long a working-tree file diff takes to arrive. */
   workingDiffDelay?: number;
+  /** Fail working-tree diff requests after the first with this detail. */
+  workingDiffFailureAfterFirst?: string;
+  /** Fail only the first working-tree diff request with this detail. */
+  workingDiffFirstFailure?: string;
+  /** Leave working-tree diff requests unanswered to verify timeout handling. */
+  workingDiffNeverResponds?: boolean;
   /**
    * Report the browser as Windows, so the platform-only entry points render.
    *
@@ -129,7 +135,10 @@ function optionsFor(options: BootOptions): StubOptions {
     failCompare: options.failCompare,
     refusals: options.refusals,
     workingDiffFailure: options.workingDiffFailure,
+    workingDiffFirstFailure: options.workingDiffFirstFailure,
+    workingDiffFailureAfterFirst: options.workingDiffFailureAfterFirst,
     workingDiffDelay: options.workingDiffDelay,
+    workingDiffNeverResponds: options.workingDiffNeverResponds,
     pendingPaths: options.pendingPaths,
     savedTabs: options.savedTabs,
     savedActiveTab: options.savedActiveTab,

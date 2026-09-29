@@ -240,16 +240,19 @@ pub fn load_commit_file_diff(
         .ok_or_else(|| CommandError::missing_repo(repo_id))
 }
 
-/// Request a staged or working-tree diff and return the id the answer carries.
+/// Request a staged or working-tree diff using the caller's request id.
 #[tauri::command]
 pub fn load_working_tree_diff(
     state: State<'_, AppState>,
     repo_id: u64,
+    request_id: u64,
     kind: WorkingTreeDiffKind,
     file: FileStatus,
-) -> Result<u64> {
+) -> Result<()> {
     state
-        .with_repo(repo_id, |session| session.working_tree_diff(kind, file))
+        .with_repo(repo_id, |session| {
+            session.working_tree_diff(request_id, kind, file)
+        })
         .ok_or_else(|| CommandError::missing_repo(repo_id))
 }
 

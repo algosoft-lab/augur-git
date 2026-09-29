@@ -404,6 +404,65 @@ fn a_working_tree_file_diff_names_the_side_it_read() {
 }
 
 #[test]
+fn sustained_automatic_refresh_does_not_starve_a_working_tree_diff() {
+    require_git!();
+    let mut sandbox = Sandbox::new().expect("sandbox");
+    sandbox
+        .write("src/main.rs", "fn main() {\n    let count = 7;\n}\n")
+        .unwrap();
+    sandbox.open();
+    sandbox
+        .wait_for(|event| matches!(event, GitEvent::Status { .. }))
+        .expect("the initial status snapshot");
+
+    let handle = sandbox.handle().clone();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let refresh_handle = handle.clone();
+    let refresh_stop = stop.clone();
+    let refresher = std::thread::spawn(move || {
+        while !refresh_stop.load(std::sync::atomic::Ordering::Relaxed) {
+            refresh_handle.refresh_automatically(false);
+            std::thread::yield_now();
+        }
+    });
+    sandbox
+        .wait_for(|event| matches!(event, GitEvent::Status { .. }))
+        .expect("an automatic status refresh while the refresher is active");
+
+    handle.working_tree_file_diff(
+        42,
+        WorkingTreeDiffKind::Unstaged,
+        FileStatus {
+            index: ' ',
+            worktree: 'M',
+            path: "src/main.rs".to_string(),
+            old_path: None,
+        },
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut request_id = None;
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        match sandbox.events.recv_timeout(remaining) {
+            Ok(GitEvent::WorkingTreeFileDiff { request_id: id, .. }) => {
+                request_id = Some(id);
+                break;
+            }
+            Ok(_) => {}
+            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    refresher.join().expect("refresh request thread exits");
+    assert_eq!(
+        request_id,
+        Some(42),
+        "the queued diff is eventually delivered"
+    );
+}
+
+#[test]
 fn refs_report_branches_tags_and_an_empty_stash_list() {
     require_git!();
     let mut sandbox = Sandbox::new().expect("sandbox");

@@ -210,6 +210,9 @@ diff-working-tree-staged = 暂存
 diff-working-tree-changes = 变更
 diff-working-tree-loading = 正在加载工作区 diff…
 diff-working-tree-error = 无法加载工作区 diff
+diff-working-tree-refreshing = 正在更新工作区 diff…
+diff-working-tree-refresh-failed = 更新失败，仍显示上次加载的 diff：{ $error }
+diff-working-tree-timeout = 加载工作区 diff 超时。
 
 # ===== 版本比较 =====
 branch-compare-title = 版本比较

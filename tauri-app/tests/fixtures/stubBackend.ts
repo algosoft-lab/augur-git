@@ -88,6 +88,16 @@ export interface StubOptions {
   openDelay?: number;
   /** How long the WSL distribution list takes to arrive. */
   wslDelay?: number;
+  /** Make every working-tree diff fail with this detail. */
+  workingDiffFailure?: string;
+  /** Fail only the first working-tree diff request with this detail. */
+  workingDiffFirstFailure?: string;
+  /** Fail working-tree diff requests after the first with this detail. */
+  workingDiffFailureAfterFirst?: string;
+  /** Delay working-tree diff events to make loading and refresh states observable. */
+  workingDiffDelay?: number;
+  /** Leave working-tree diff requests unanswered so the timeout path can be tested. */
+  workingDiffNeverResponds?: boolean;
   /** Initial pane geometry returned by bootstrap. */
   layout?: Partial<{
     sidebar_width: number;
@@ -158,7 +168,10 @@ function install(
     compareDelay?: number;
     compareReplyDelay?: number;
     workingDiffFailure?: string;
+    workingDiffFirstFailure?: string;
+    workingDiffFailureAfterFirst?: string;
     workingDiffDelay?: number;
+    workingDiffNeverResponds?: boolean;
     refusals?: Record<string, { key: string; detail: string }>;
     layout?: Partial<{
       sidebar_width: number;
@@ -196,6 +209,7 @@ function install(
   const refusals = options.refusals ?? {};
   let opened = 0;
   let requestCounter = 0;
+  let workingDiffCalls = 0;
   let compareRequest = 0;
   let maximized = false;
 
@@ -673,11 +687,19 @@ function install(
 
     load_working_tree_diff: (args: any) => {
       const repo = options.open.find((item) => item.id === args.repoId);
-      const requestId = ++requestCounter;
+      workingDiffCalls += 1;
       if (!repo) {
-        return requestId;
+        return null;
       }
-      const failDetail = options.workingDiffFailure ?? null;
+      if (options.workingDiffNeverResponds) {
+        return null;
+      }
+      const requestId = args.requestId as number;
+      const failDetail =
+        options.workingDiffFailure ??
+        (workingDiffCalls === 1
+          ? (options.workingDiffFirstFailure ?? null)
+          : (options.workingDiffFailureAfterFirst ?? null));
       const delay = options.workingDiffDelay ?? 30;
       const document = diffFor(args.file.path, 'rust');
       // A short delay makes the loading state observable, which is the point of
@@ -696,7 +718,7 @@ function install(
         },
         failDetail ? Math.max(delay, 400) : delay
       );
-      return requestId;
+      return null;
     },
 
     working_tree_operation: (args: any) => {

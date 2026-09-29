@@ -18,7 +18,7 @@ import * as ipc from '../../bridge/ipc';
 import { statBlocks, statusKey, statusModifier } from './fileMeta';
 import { useStore, type RepoState } from '../../app/store';
 import { DiffView, NARROW_WIDTH, type DiffSection } from './DiffView';
-import { t } from '../../i18n/strings';
+import { ta, t } from '../../i18n/strings';
 
 export function BottomPanel({
   repo,
@@ -282,7 +282,7 @@ export function BottomPanel({
           sections={sections}
           layout={layout}
           forceInline={narrow}
-          error={pane.kind === 'working' ? repo.workingError : null}
+          error={pane.kind === 'working' && !repo.workingDocument ? repo.workingError : null}
           // A bare spinner and a bare error both read as a broken panel; the
           // reference names both states.
           loading={pane.kind === 'working' ? repo.workingLoading : commitLoading}
@@ -294,6 +294,23 @@ export function BottomPanel({
                 : undefined
           }
           errorLabel={pane.kind === 'working' ? t(translate, 'diff-working-tree-error') : undefined}
+          statusMessage={
+            pane.kind === 'working' && repo.workingDocument
+              ? repo.workingInFlight !== null
+                ? {
+                    kind: 'refreshing',
+                    text: t(translate, 'diff-working-tree-refreshing')
+                  }
+                : repo.workingError
+                  ? {
+                      kind: 'warning',
+                      text: ta(translate, 'diff-working-tree-refresh-failed', {
+                        error: repo.workingError.split('\n')[0] ?? repo.workingError
+                      })
+                    }
+                  : null
+              : null
+          }
           testId="diff-view"
           header={multiFile ? t(translate, 'diff-all-files') : undefined}
           emptyMessage={
