@@ -26,6 +26,8 @@ export interface StubApi {
   emit(event: string, payload: unknown): Promise<void>;
   /** Re-announce a repository's status, refs, and log page. */
   announce(repoId: number): Promise<void>;
+  /** Change the stubbed window maximize state and emit a native resize event. */
+  setMaximized(value: boolean): Promise<void>;
 }
 
 declare global {
@@ -33,6 +35,7 @@ declare global {
     __STUB__: {
       log: { cmd: string; args: Record<string, unknown> }[];
       emit(name: string, payload: unknown): void;
+      setMaximized(value: boolean): void;
       announce(repoId: number): void;
     };
   }
@@ -190,6 +193,12 @@ export async function boot(page: Page, options: BootOptions = {}): Promise<StubA
     },
     async announce(repoId) {
       await page.evaluate((id) => window.__STUB__.announce(id), repoId);
+    },
+    async setMaximized(value) {
+      await page.evaluate((maximized) => {
+        window.__STUB__.setMaximized(maximized);
+        window.__STUB__.emit('tauri://resize', { width: 1280, height: 800 });
+      }, value);
     }
   };
 }

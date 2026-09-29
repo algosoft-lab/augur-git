@@ -116,6 +116,7 @@ export function TitleBar({
       data-testid="title-bar"
       onMouseDown={handleTitleBarMouseDown}
     >
+      {IS_MACOS ? <WindowControls flushBeforeClose macosStyle /> : null}
       {!IS_MACOS ? (
         <Menu items={menuItems} testId="menu-file">
           <button
@@ -148,7 +149,7 @@ export function TitleBar({
       >
         <Icon name="settings" size={14} />
       </button>
-      <WindowControls flushBeforeClose />
+      {!IS_MACOS ? <WindowControls flushBeforeClose /> : null}
     </div>
   );
 }

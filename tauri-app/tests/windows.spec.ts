@@ -144,16 +144,82 @@ test.describe('comparison window', () => {
       .toBe(true);
   });
 
-  test('uses native-menu spacing on macOS and keeps tabs in the title bar', async ({ page }) => {
+  test('places custom window controls before the tabs on macOS', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()], macos: true });
     await expect(page.getByTestId('title-bar')).toHaveClass(/title-bar--macos/);
     await expect(page.getByTestId('tab-bar')).toBeVisible();
     await expect(page.getByTestId('menu-file-trigger')).toHaveCount(0);
-    await expect(page.getByTestId('window-controls')).toHaveCount(0);
+    await expect(page.getByTestId('window-controls')).toHaveClass(/window-controls--macos/);
+    await expect(page.getByTestId('window-close')).toBeVisible();
+    await expect(page.getByTestId('window-minimize')).toBeVisible();
+    await expect(page.getByTestId('window-toggle-maximize')).toBeVisible();
     const titlebar = await page.getByTestId('title-bar').boundingBox();
+    const controls = await page.getByTestId('window-controls').boundingBox();
     const tabs = await page.getByTestId('tab-bar').boundingBox();
+    const brand = await page.locator('.title-bar__brand').boundingBox();
+    expect(controls!.x).toBe(titlebar!.x + 8);
+    expect(brand!.x).toBeGreaterThanOrEqual(controls!.x + controls!.width);
     expect(tabs!.y).toBe(titlebar!.y);
     expect(tabs!.height).toBe(titlebar!.height - 1);
+    await expect(page.getByTestId('window-controls')).not.toHaveAttribute('data-tauri-drag-region');
+  });
+
+  test('shows macOS window controls on the welcome page and preserves their actions', async ({
+    page
+  }) => {
+    const stub = await boot(page, { macos: true });
+    await expect(page.getByTestId('welcome')).toBeVisible();
+    await expect(page.getByTestId('window-controls')).toBeVisible();
+    await expect
+      .poll(async () =>
+        (await stub.commands()).some(
+          (entry) => entry.cmd === 'plugin:event|listen' && entry.args.event === 'tauri://resize'
+        )
+      )
+      .toBe(true);
+
+    await stub.setMaximized(true);
+    await expect(page.getByTestId('window-toggle-maximize')).toHaveAttribute(
+      'aria-label',
+      'Restore'
+    );
+    await stub.setMaximized(false);
+    await expect(page.getByTestId('window-toggle-maximize')).toHaveAttribute(
+      'aria-label',
+      'Maximize'
+    );
+
+    await page.getByTestId('window-minimize').click();
+    await expect
+      .poll(async () =>
+        (await stub.commands()).filter((entry) => entry.cmd === 'plugin:window|minimize')
+      )
+      .toHaveLength(1);
+
+    await page.getByTestId('window-toggle-maximize').click();
+    await expect(page.getByTestId('window-toggle-maximize')).toHaveAttribute(
+      'aria-label',
+      'Restore'
+    );
+    await page.getByTestId('window-toggle-maximize').click();
+    await expect(page.getByTestId('window-toggle-maximize')).toHaveAttribute(
+      'aria-label',
+      'Maximize'
+    );
+    expect(
+      (await stub.commands()).filter((entry) => entry.cmd === 'plugin:window|toggle_maximize')
+    ).toHaveLength(2);
+
+    await page.getByTestId('window-close').click();
+    await expect
+      .poll(async () =>
+        (await stub.commands()).some((entry) => entry.cmd === 'plugin:window|close')
+      )
+      .toBe(true);
+    const commands = await stub.commands();
+    expect(commands.findIndex((entry) => entry.cmd === 'flush_state')).toBeLessThan(
+      commands.findIndex((entry) => entry.cmd === 'plugin:window|close')
+    );
   });
 
   test('compares two revisions and lists the files', async ({ page }) => {

@@ -197,6 +197,7 @@ function install(
   let opened = 0;
   let requestCounter = 0;
   let compareRequest = 0;
+  let maximized = false;
 
   const config = {
     schema_version: 1,
@@ -1058,9 +1059,14 @@ function install(
     'plugin:clipboard-manager|read_text': () => '',
     'plugin:window|show': () => null,
     'plugin:window|destroy': () => null,
+    'plugin:window|close': () => null,
+    'plugin:window|minimize': () => null,
     'plugin:window|start_dragging': () => null,
-    'plugin:window|toggle_maximize': () => null,
-    'plugin:window|is_maximized': () => false,
+    'plugin:window|toggle_maximize': () => {
+      maximized = !maximized;
+      return null;
+    },
+    'plugin:window|is_maximized': () => maximized,
     'plugin:opener|open_path': () => null
   };
 
@@ -1121,6 +1127,9 @@ function install(
     value: {
       log,
       emit,
+      setMaximized: (value: boolean) => {
+        maximized = value;
+      },
       options,
       config,
       workspace,

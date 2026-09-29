@@ -104,11 +104,6 @@ button {
   -webkit-app-region: no-drag;
 }
 
-/* Leave room for the macOS traffic lights under the overlay title bar. */
-.title-bar--macos {
-  padding-left: 78px;
-}
-
 .title-bar > * {
   -webkit-app-region: no-drag;
 }
@@ -194,6 +189,56 @@ button {
   color: #fff;
 }
 
+.window-controls--macos {
+  height: 24px;
+  align-items: center;
+  gap: 5px;
+  margin: 0 2px 0 0;
+}
+
+.window-controls__button--macos {
+  position: relative;
+  width: 20px;
+  height: 24px;
+  border-radius: 4px;
+  color: rgb(0 0 0 / 68%);
+}
+
+.window-controls__button--macos::before {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgb(0 0 0 / 14%);
+  border-radius: 50%;
+  content: '';
+}
+
+.window-controls__button--macos-close::before {
+  background: #ff5f57;
+}
+
+.window-controls__button--macos-minimize::before {
+  background: #febc2e;
+}
+
+.window-controls__button--macos-maximize::before {
+  background: #28c840;
+}
+
+.window-controls__button--macos svg {
+  z-index: 1;
+  opacity: 0;
+}
+
+.window-controls__button--macos:hover::before {
+  filter: brightness(0.94);
+}
+
+.window-controls__button--macos:hover svg,
+.window-controls__button--macos:focus-visible svg {
+  opacity: 1;
+}
+
 .window-titlebar {
   display: flex;
   min-width: 0;
@@ -256,11 +301,7 @@ button {
   padding: 0 8px;
   border: none;
   border-radius: 10px;
-  background: color-mix(
-    in srgb,
-    var(--background) 55%,
-    var(--title-bar-background)
-  );
+  background: color-mix(in srgb, var(--background) 55%, var(--title-bar-background));
   color: var(--muted-foreground);
   font: inherit;
   font-size: calc(var(--ui-font-size) * 0.75);

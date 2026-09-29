@@ -99,7 +99,6 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             let report = persistence::LoadReport::default();
             app.manage(AppState::new(handle.clone(), report));
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_decorations(cfg!(target_os = "macos"));
                 if let Ok(focused) = window.is_focused() {
                     app.state::<AppState>().set_main_window_focused(focused);
                 }
