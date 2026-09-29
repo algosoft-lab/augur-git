@@ -13,6 +13,7 @@ import type { UnlistenFn } from '@tauri-apps/api/event';
 import type {
   AppConfig,
   AppEvent,
+  AgentPromptRequest,
   Bootstrap,
   CommitActionPreference,
   CommitMessage,
@@ -143,6 +144,13 @@ export async function workingTreeOperation(
 
 export async function runAction(repoId: number, action: GitAction): Promise<void> {
   return invoke<void>('run_action', { repoId, action });
+}
+
+export async function generateAgentPrompt(
+  repoId: number,
+  request: AgentPromptRequest
+): Promise<string> {
+  return invoke<string>('generate_agent_prompt', { repoId, request });
 }
 
 export async function startCompare(

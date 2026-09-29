@@ -17,6 +17,7 @@ import { integrationBlocked, localBranches, useStore } from '../../app/store';
 import { preflightRebase } from '../repository/Toolbar';
 import { t, ta } from '../../i18n/strings';
 import { useActiveRepoId } from './useActiveRepo';
+import { copyAgentPrompt } from '../agentPrompt/copyAgentPrompt';
 
 export function MergeDialog({ noFf }: { noFf: boolean }) {
   const translate = useStore((state) => state.t);
@@ -100,6 +101,17 @@ export function MergeDialog({ noFf }: { noFf: boolean }) {
           <button
             type="button"
             className="tool-button"
+            disabled={!source || busy}
+            onClick={() =>
+              repoId && void copyAgentPrompt(repoId, { kind: 'merge', source, noFf: withNoFf })
+            }
+            data-testid="merge-copy-prompt"
+          >
+            <Icon name="copy" size={12} /> {t(translate, 'agent-prompt-merge')}
+          </button>
+          <button
+            type="button"
+            className="tool-button"
             onClick={closeOverlay}
             data-testid="merge-dialog-cancel"
           >
@@ -173,6 +185,15 @@ export function RebaseDialog() {
           <button
             type="button"
             className="tool-button"
+            disabled={!source}
+            onClick={() => repoId && void copyAgentPrompt(repoId, { kind: 'rebase', source })}
+            data-testid="rebase-copy-prompt"
+          >
+            <Icon name="copy" size={12} /> {t(translate, 'agent-prompt-rebase')}
+          </button>
+          <button
+            type="button"
+            className="tool-button"
             onClick={closeOverlay}
             data-testid="rebase-dialog-cancel"
           >
@@ -221,19 +242,32 @@ export function MergeConflictDialog({ source, detail }: { source: string; detail
         </>
       }
       footer={
-        <button
-          type="button"
-          className="tool-button tool-button--danger"
-          data-testid="merge-abort"
-          onClick={() => {
-            if (repoId) {
-              closeOverlay();
-              void runAction(repoId, { action: 'abortMerge' });
+        <>
+          <button
+            type="button"
+            className="tool-button"
+            disabled={!repoId}
+            data-testid="merge-conflict-copy-prompt"
+            onClick={() =>
+              repoId && void copyAgentPrompt(repoId, { kind: 'resolveConflicts', origin: 'merge' })
             }
-          }}
-        >
-          {t(translate, 'merge-abort')}
-        </button>
+          >
+            <Icon name="copy" size={12} /> {t(translate, 'merge-conflict-copy-prompt')}
+          </button>
+          <button
+            type="button"
+            className="tool-button tool-button--danger"
+            data-testid="merge-abort"
+            onClick={() => {
+              if (repoId) {
+                closeOverlay();
+                void runAction(repoId, { action: 'abortMerge' });
+              }
+            }}
+          >
+            {t(translate, 'merge-abort')}
+          </button>
+        </>
       }
     />
   );
@@ -281,19 +315,32 @@ export function RebaseConflictDialog({
         </>
       }
       footer={
-        <button
-          type="button"
-          className="tool-button tool-button--danger"
-          data-testid="rebase-abort"
-          onClick={() => {
-            if (repoId) {
-              closeOverlay();
-              void runAction(repoId, { action: 'abortRebase' });
+        <>
+          <button
+            type="button"
+            className="tool-button"
+            disabled={!repoId}
+            data-testid="rebase-conflict-copy-prompt"
+            onClick={() =>
+              repoId && void copyAgentPrompt(repoId, { kind: 'resolveConflicts', origin: 'rebase' })
             }
-          }}
-        >
-          {t(translate, 'rebase-abort')}
-        </button>
+          >
+            <Icon name="copy" size={12} /> {t(translate, 'rebase-conflict-copy-prompt')}
+          </button>
+          <button
+            type="button"
+            className="tool-button tool-button--danger"
+            data-testid="rebase-abort"
+            onClick={() => {
+              if (repoId) {
+                closeOverlay();
+                void runAction(repoId, { action: 'abortRebase' });
+              }
+            }}
+          >
+            {t(translate, 'rebase-abort')}
+          </button>
+        </>
       }
     />
   );
@@ -302,7 +349,7 @@ export function RebaseConflictDialog({
 /**
  * A stash pop that stopped on conflicts has no merge to abort: Git keeps the
  * stash entry, so the way back is resetting the worktree, and the way forward
- * is resolving the conflicts and committing them.
+ * is resolving the conflicts while retaining the changes in the worktree.
  */
 export function StashPopConflictDialog({ detail }: { detail: string }) {
   const translate = useStore((state) => state.t);
@@ -334,19 +381,33 @@ export function StashPopConflictDialog({ detail }: { detail: string }) {
         </>
       }
       footer={
-        <button
-          type="button"
-          className="tool-button tool-button--danger"
-          data-testid="stash-pop-abort"
-          onClick={() => {
-            if (repoId) {
-              closeOverlay();
-              void runAction(repoId, { action: 'abortStashApply' });
+        <>
+          <button
+            type="button"
+            className="tool-button"
+            disabled={!repoId}
+            data-testid="stash-pop-conflict-copy-prompt"
+            onClick={() =>
+              repoId &&
+              void copyAgentPrompt(repoId, { kind: 'resolveConflicts', origin: 'stashPop' })
             }
-          }}
-        >
-          {t(translate, 'stash-pop-abort')}
-        </button>
+          >
+            <Icon name="copy" size={12} /> {t(translate, 'stash-pop-conflict-copy-prompt')}
+          </button>
+          <button
+            type="button"
+            className="tool-button tool-button--danger"
+            data-testid="stash-pop-abort"
+            onClick={() => {
+              if (repoId) {
+                closeOverlay();
+                void runAction(repoId, { action: 'abortStashApply' });
+              }
+            }}
+          >
+            {t(translate, 'stash-pop-abort')}
+          </button>
+        </>
       }
     />
   );

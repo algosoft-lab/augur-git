@@ -204,6 +204,7 @@ function install(
     value: { unregisterListener }
   });
   const log: { cmd: string; args: unknown }[] = [];
+  let clipboard = '';
   const failure = options.openFailure ?? null;
   const failing = new Set(options.failingActions ?? []);
   const refusals = options.refusals ?? {};
@@ -607,6 +608,14 @@ function install(
         }
       }
       return null;
+    },
+
+    generate_agent_prompt: (args: any) => {
+      const repo = options.open.find((item) => item.id === args.repoId);
+      if (!repo) {
+        return Promise.reject({ key: 'err-repo-closed', detail: String(args.repoId) });
+      }
+      return `Repository: ${repo.path}\nRequest: ${JSON.stringify(args.request)}`;
     },
 
     set_auto_refresh_target: () => null,
@@ -1070,14 +1079,26 @@ function install(
       emit(args.event, args.payload);
       return null;
     },
-    'plugin:dialog|open': () => {
+    'plugin:dialog|open': (args: any) => {
+      const filters = args?.options?.filters ?? args?.filters ?? [];
+      if (
+        filters.some(
+          (filter: any) =>
+            filter.extensions?.includes('patch') || filter.extensions?.includes('diff')
+        )
+      ) {
+        return '/tmp/agent-prompt.patch';
+      }
       const next = options.available.find(
         (repo) => !options.open.some((open) => open.path === repo.path)
       );
       return next?.path ?? options.available[0]?.path ?? null;
     },
     'plugin:dialog|save': () => '/tmp/compare.patch',
-    'plugin:clipboard-manager|write_text': () => null,
+    'plugin:clipboard-manager|write_text': (args: any) => {
+      clipboard = args.text;
+      return null;
+    },
     'plugin:clipboard-manager|read_text': () => '',
     'plugin:window|show': () => null,
     'plugin:window|destroy': () => null,
@@ -1148,6 +1169,9 @@ function install(
     configurable: true,
     value: {
       log,
+      get clipboard() {
+        return clipboard;
+      },
       emit,
       setMaximized: (value: boolean) => {
         maximized = value;

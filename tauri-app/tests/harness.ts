@@ -28,12 +28,15 @@ export interface StubApi {
   announce(repoId: number): Promise<void>;
   /** Change the stubbed window maximize state and emit a native resize event. */
   setMaximized(value: boolean): Promise<void>;
+  /** Read the last text the app wrote to the clipboard. */
+  clipboard(): Promise<string>;
 }
 
 declare global {
   interface Window {
     __STUB__: {
       log: { cmd: string; args: Record<string, unknown> }[];
+      clipboard: string;
       emit(name: string, payload: unknown): void;
       setMaximized(value: boolean): void;
       announce(repoId: number): void;
@@ -208,6 +211,9 @@ export async function boot(page: Page, options: BootOptions = {}): Promise<StubA
         window.__STUB__.setMaximized(maximized);
         window.__STUB__.emit('tauri://resize', { width: 1280, height: 800 });
       }, value);
+    },
+    async clipboard() {
+      return page.evaluate(() => window.__STUB__.clipboard);
     }
   };
 }

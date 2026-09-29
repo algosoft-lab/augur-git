@@ -14,6 +14,7 @@ import { Menu, TextArea, type MenuItemSpec } from '../../components/controls';
 import type { CommitActionPreference } from '../../bridge/types';
 import { useStore, type RepoState } from '../../app/store';
 import { t } from '../../i18n/strings';
+import { copyAgentPrompt } from '../agentPrompt/copyAgentPrompt';
 
 export function CommitPanel({ repo }: { repo: RepoState }) {
   const translate = useStore((state) => state.t);
@@ -72,6 +73,21 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
     <div className="commit-panel" data-testid="commit-panel">
       <div className="commit-panel__header">
         <span>{t(translate, 'commit-title')}</span>
+        <button
+          type="button"
+          className="tool-button tool-button--compact"
+          disabled={repo.busy || repo.hasConflicts || repo.files.length === 0}
+          data-testid="agent-prompt-commit"
+          onClick={() =>
+            void copyAgentPrompt(repo.id, {
+              kind: 'commit',
+              amend: preference === 'amend'
+            })
+          }
+        >
+          <Icon name="copy" size={11} />
+          {t(translate, preference === 'amend' ? 'agent-prompt-amend' : 'agent-prompt-commit')}
+        </button>
       </div>
       <div className="commit-panel__body">
         <TextArea

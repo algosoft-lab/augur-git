@@ -74,6 +74,14 @@ export interface LocationConfig {
   distro?: string;
 }
 
+export type AgentPromptRequest =
+  | { kind: 'commit'; amend: boolean }
+  | { kind: 'merge'; source: string; noFf: boolean }
+  | { kind: 'rebase'; source: string }
+  | { kind: 'pull'; rebase: boolean }
+  | { kind: 'resolveConflicts'; origin?: 'merge' | 'rebase' | 'stashPop' }
+  | { kind: 'applyPatch'; path: string; failure?: string };
+
 export interface RecentRepo {
   path: string;
   location: LocationConfig;

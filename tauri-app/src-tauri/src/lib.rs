@@ -44,6 +44,7 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(log_plugin())
         .invoke_handler(tauri::generate_handler![
+            commands::agent_prompt::generate_agent_prompt,
             commands::repo::bootstrap,
             commands::repo::open_repository,
             commands::repo::close_repository,

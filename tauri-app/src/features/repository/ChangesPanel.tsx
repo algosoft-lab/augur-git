@@ -28,6 +28,7 @@ import {
 } from '../../app/store';
 import { t } from '../../i18n/strings';
 import { hasOpenPopup, keysForCommand, matchesShortcut, moveListFocus } from '../../app/keyboard';
+import { copyAgentPrompt } from '../agentPrompt/copyAgentPrompt';
 
 interface Group {
   key: 'staged' | 'changes';
@@ -98,6 +99,18 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
     <div className="changes" data-testid={groups.length ? 'changes-panel' : 'changes-empty'}>
       <div className="panel-header panel-header--compact" data-testid="changes-header">
         <span>{t(translate, 'changes-title')}</span>
+        {repo.hasConflicts ? (
+          <button
+            type="button"
+            className="tool-button tool-button--compact"
+            disabled={busy}
+            data-testid="agent-prompt-resolve-conflicts"
+            onClick={() => void copyAgentPrompt(repo.id, { kind: 'resolveConflicts' })}
+          >
+            <Icon name="copy" size={11} />
+            {t(translate, 'agent-prompt-resolve-conflicts')}
+          </button>
+        ) : null}
         <span className="panel-header__count" data-testid="changes-total">
           {total}
         </span>

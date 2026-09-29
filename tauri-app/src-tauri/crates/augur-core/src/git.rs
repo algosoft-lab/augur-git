@@ -36,6 +36,7 @@ pub use crate::diff::{
 use crate::diff::{merge_numstat, parse_numstat, parse_raw_records};
 use crate::graph::LogRow;
 
+pub mod agent_prompt;
 pub mod branch_compare;
 mod commit_log;
 pub mod location;
@@ -1390,6 +1391,14 @@ fn run_status(
         ));
     }
     parse_status(&output.stdout)
+}
+
+/// Read the current branch, upstream, and full working-tree file list without
+/// allowing Git to refresh and write the index.
+pub fn read_working_tree_status(
+    repo: &GitRepo,
+) -> Result<(String, Option<String>, Vec<FileStatus>, usize, usize), GitError> {
+    run_status(repo, true)
 }
 
 /// Parse `git status --porcelain=v1 -z -b` output.

@@ -76,6 +76,7 @@ impl RebaseState {
 pub fn probe_repo_state(repo: &GitRepo) -> Result<RepoState, String> {
     let output = git_command_in_repo(repo)
         .args([
+            "--no-optional-locks",
             "status",
             "--porcelain=v2",
             "--branch",

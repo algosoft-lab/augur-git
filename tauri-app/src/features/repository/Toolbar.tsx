@@ -7,14 +7,16 @@
  * reference application applies.
  */
 
+import { useEffect, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 
 import { Icon } from '../../components/Icon';
-import { Menu, ToolButton, type MenuItemSpec } from '../../components/controls';
+import { DialogCard, Menu, ToolButton, type MenuItemSpec } from '../../components/controls';
 import * as ipc from '../../bridge/ipc';
 import { hasLocalBranches, useStore, type RepoState } from '../../app/store';
 import { firstLine } from '../../app/repoState';
 import { t, ta } from '../../i18n/strings';
+import { copyAgentPrompt } from '../agentPrompt/copyAgentPrompt';
 
 export function Toolbar({ repo }: { repo: RepoState }) {
   const translate = useStore((state) => state.t);
@@ -25,6 +27,23 @@ export function Toolbar({ repo }: { repo: RepoState }) {
   const blocked = repo.hasConflicts;
   const network = hasRemote && !repo.busy;
   const pull = network && !blocked;
+  const [patchInFlight, setPatchInFlight] = useState<{ repoId: number; path: string } | null>(null);
+  const [patchFailure, setPatchFailure] = useState<{
+    repoId: number;
+    path: string;
+    detail: string;
+  } | null>(null);
+  const pullRebase = useStore((state) => state.config.view.pull_action === 'rebase');
+
+  useEffect(() => {
+    if (patchInFlight === null || patchInFlight.repoId !== repo.id || repo.busy) {
+      return;
+    }
+    if (repo.message?.ok === false) {
+      setPatchFailure({ ...patchInFlight, detail: repo.message.text });
+    }
+    setPatchInFlight(null);
+  }, [patchInFlight, repo.busy, repo.message]);
 
   const branchItems: MenuItemSpec[] = [
     {
@@ -87,7 +106,16 @@ export function Toolbar({ repo }: { repo: RepoState }) {
       disabled: blocked,
       separatorBefore: true,
       onSelect: () => {
-        void pickAndApplyPatch(repo.id);
+        void pickAndApplyPatch(repo.id, setPatchInFlight);
+      }
+    },
+    {
+      id: 'apply-patch-ai',
+      label: t(translate, 'agent-prompt-apply-patch'),
+      icon: <Icon name="copy" />,
+      disabled: blocked || repo.busy,
+      onSelect: () => {
+        void pickAndCopyPatchPrompt(repo.id);
       }
     }
   ];
@@ -116,6 +144,14 @@ export function Toolbar({ repo }: { repo: RepoState }) {
         disabled={!pull}
         testId="toolbar-pull"
         onClick={() => triggerPull(repo)}
+      />
+      <ToolButton
+        icon={<Icon name="copy" />}
+        tooltip={t(translate, 'agent-prompt-pull')}
+        compact
+        disabled={!pull}
+        testId="agent-prompt-pull"
+        onClick={() => void copyAgentPrompt(repo.id, { kind: 'pull', rebase: pullRebase })}
       />
       <ToolButton
         label={t(translate, 'toolbar-push')}
@@ -159,6 +195,49 @@ export function Toolbar({ repo }: { repo: RepoState }) {
         testId="toolbar-refresh"
         onClick={() => void refresh(repo.id)}
       />
+      {patchFailure?.repoId === repo.id ? (
+        <DialogCard
+          testId="patch-prompt-error"
+          title={
+            <>
+              <Icon name="triangle-alert" size={16} />{' '}
+              {t(translate, 'agent-prompt-apply-patch-error-title')}
+            </>
+          }
+          onBackdrop={() => setPatchFailure(null)}
+          body={
+            <div className="mono muted" data-testid="patch-prompt-error-detail">
+              {patchFailure.detail}
+            </div>
+          }
+          footer={
+            <>
+              <button
+                type="button"
+                className="tool-button"
+                onClick={() => setPatchFailure(null)}
+                data-testid="patch-prompt-error-close"
+              >
+                {t(translate, 'rebase-error-close')}
+              </button>
+              <button
+                type="button"
+                className="tool-button tool-button--primary"
+                data-testid="patch-prompt-error-copy"
+                onClick={() =>
+                  void copyAgentPrompt(repo.id, {
+                    kind: 'applyPatch',
+                    path: patchFailure.path,
+                    failure: patchFailure.detail
+                  })
+                }
+              >
+                <Icon name="copy" size={12} /> {t(translate, 'agent-prompt-apply-patch')}
+              </button>
+            </>
+          }
+        />
+      ) : null}
     </div>
   );
 }
@@ -208,17 +287,33 @@ export function triggerPush(repo: RepoState): void {
 }
 
 /** Ask for a patch file and apply it. Plain `git apply` is atomic. */
-async function pickAndApplyPatch(repoId: number): Promise<void> {
+async function choosePatchFile(): Promise<string | null> {
   const selected = await open({
     multiple: false,
     directory: false,
     title: useStore.getState().t('menu-apply-patch-prompt'),
     filters: [{ name: 'Patch', extensions: ['patch', 'diff'] }]
   });
-  if (typeof selected !== 'string') {
+  return typeof selected === 'string' ? selected : null;
+}
+
+async function pickAndApplyPatch(
+  repoId: number,
+  onQueued: (action: { repoId: number; path: string }) => void
+): Promise<void> {
+  const selected = await choosePatchFile();
+  if (!selected) {
     return;
   }
   await useStore.getState().runAction(repoId, { action: 'applyPatch', path: selected });
+  onQueued({ repoId, path: selected });
+}
+
+async function pickAndCopyPatchPrompt(repoId: number): Promise<void> {
+  const selected = await choosePatchFile();
+  if (selected) {
+    await copyAgentPrompt(repoId, { kind: 'applyPatch', path: selected });
+  }
 }
 
 /**
