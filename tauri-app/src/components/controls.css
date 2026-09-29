@@ -433,6 +433,10 @@
   box-shadow: 0 16px 48px rgb(0 0 0 / 36%);
 }
 
+.dialog--commit-message {
+  width: calc(36em + 32px);
+}
+
 .dialog__title {
   display: flex;
   align-items: center;
@@ -441,6 +445,10 @@
   font-size: calc(var(--ui-font-size) * 0.875);
   font-weight: 600;
   color: var(--foreground);
+}
+
+.dialog__title--close {
+  justify-content: space-between;
 }
 
 .dialog__icon {

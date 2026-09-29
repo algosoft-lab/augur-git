@@ -413,17 +413,17 @@ function GraphRowView({
 
   const entries = [
     {
+      id: 'show-message',
+      label: t(translate, 'context-show-commit-message'),
+      icon: <Icon name="file" size={12} />,
+      onSelect: onShowMessage
+    },
+    {
       id: 'checkout',
       label: t(translate, 'context-checkout'),
       icon: <Icon name="git-branch" size={12} />,
       disabled: repo.busy,
       onSelect: onCheckout
-    },
-    {
-      id: 'copy-oid',
-      label: t(translate, 'context-copy-commit'),
-      icon: <Icon name="copy" size={12} />,
-      onSelect: onCopyOid
     },
     {
       id: 'copy-message',
@@ -435,10 +435,10 @@ function GraphRowView({
       onSelect: onCopyMessage
     },
     {
-      id: 'show-message',
-      label: t(translate, 'context-show-commit-message'),
-      icon: <Icon name="file" size={12} />,
-      onSelect: onShowMessage
+      id: 'copy-oid',
+      label: t(translate, 'context-copy-commit'),
+      icon: <Icon name="copy" size={12} />,
+      onSelect: onCopyOid
     }
   ];
 
@@ -462,6 +462,7 @@ function GraphRowView({
         data-keyboard-list-item
         data-testid={`graph-row-${row.short}`}
         onClick={onSelect}
+        onDoubleClick={onShowMessage}
         onMouseEnter={(event) => {
           // No preview while a menu is up: rows crossed on the way to a menu
           // item would each flash one behind it.
@@ -653,8 +654,19 @@ function CommitMessageDialog({
         }
       }}
     >
-      <div className="dialog" role="dialog" aria-modal="true" data-testid="commit-message-dialog">
-        <div className="dialog__title">{t(translate, 'commit-message-dialog-title')}</div>
+      <div className="dialog dialog--commit-message" role="dialog" aria-modal="true" data-testid="commit-message-dialog">
+        <div className="dialog__title dialog__title--close">
+          <span>{t(translate, 'commit-message-dialog-title')}</span>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onClose}
+            aria-label={t(translate, 'settings-close')}
+            data-testid="commit-message-close"
+          >
+            <Icon name="x" size={14} />
+          </button>
+        </div>
         <div className="dialog__body">
           {/* The hash and the decorations come first, as in the reference: they
               identify the commit, and a body of text without them is not
@@ -697,16 +709,6 @@ function CommitMessageDialog({
               {t(translate, 'commit-message-loading')}
             </div>
           )}
-        </div>
-        <div className="dialog__footer">
-          <button
-            type="button"
-            className="tool-button tool-button--primary"
-            onClick={onClose}
-            data-testid="commit-message-close"
-          >
-            {t(translate, 'dialog-cancel')}
-          </button>
         </div>
       </div>
     </div>

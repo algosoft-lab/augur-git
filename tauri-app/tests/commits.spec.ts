@@ -480,6 +480,22 @@ test.describe('commit selection', () => {
     await expect(page.getByTestId('bottom-panel')).toContainText('Changes');
   });
 
+  test('shows commit actions in the requested order', async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()] });
+
+    await rightClick(page, '.graph-row');
+
+    const menuItems = await page
+      .locator('.context-menu [role="menuitem"]')
+      .evaluateAll((items) => items.map((item) => item.getAttribute('data-testid')));
+    expect(menuItems).toEqual([
+      'context-show-message',
+      'context-checkout',
+      'context-copy-message',
+      'context-copy-oid'
+    ]);
+  });
+
   test('copies the commit message to the clipboard', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
 
