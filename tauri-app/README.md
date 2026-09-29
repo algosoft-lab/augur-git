@@ -5,13 +5,13 @@ an independently maintained application with its own frontend, Rust workspace,
 assets, dependency manifests and lock files, build configuration, bundle
 identity, and runtime settings.
 
-The GPUI application in `gpui-app/` is a separate implementation. The two
-applications share no source files, assets, dependency manifests or lock files,
-build configuration, or runtime settings. Each resolves dependencies from its
-own manifests. Their configuration formats are incompatible; this application
-does not read, import, migrate, or write GPUI settings. It can be installed
-alongside the GPUI application because it has its own bundle and command
-identities.
+The legacy application in `gpui-app/` is a separate implementation built with
+GPUI. The two applications share no source files, assets, dependency manifests
+or lock files, build configuration, or runtime settings. Each resolves
+dependencies from its own manifests. Their configuration formats are
+incompatible; this application does not read, import, migrate, or write GPUI
+settings. It can be installed alongside the legacy application because it has
+its own bundle and command identities.
 
 ## Layout
 

@@ -1,11 +1,11 @@
-# Augur Git GPUI
+# Augur Git Legacy
 
 > **Legacy application:** active development is focused on the
-> [Tauri application](../tauri-app/README.md). This GPUI implementation is
-> retained for reference and existing users; changes to it should be made only
-> when a request explicitly asks for the GPUI version.
+> [Tauri application](../tauri-app/README.md). This legacy implementation,
+> built with GPUI, is retained for reference and existing users; changes to it
+> should be made only when a request explicitly asks for the legacy version.
 
-This README documents the legacy GPUI implementation's features, setup, and
+This README documents the legacy implementation's features, setup, and
 architecture. For the project's product concept and design principles, see the
 [repository overview](../README.md).
 

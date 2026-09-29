@@ -96,8 +96,8 @@ Coding agent or editor
   active development, built with Tauri 2, React, and Vite. Its frontend and
   Rust backend have independent dependencies, build commands, and application
   data.
-- **[Augur Git GPUI](gpui-app/README.md)** — the legacy Rust and GPUI
-  application, retained for reference and existing users. It is no longer
+- **[Augur Git Legacy](gpui-app/README.md)** — the legacy Rust application
+  built with GPUI, retained for reference and existing users. It is no longer
   under active development.
 
 The applications are separate implementations. They do not share source code,
