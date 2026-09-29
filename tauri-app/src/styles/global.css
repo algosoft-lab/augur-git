@@ -246,6 +246,7 @@ button {
 }
 
 .tab {
+  position: relative;
   display: inline-flex;
   max-width: min(220px, 36vw);
   min-width: 82px;
@@ -259,8 +260,38 @@ button {
   color: var(--muted-foreground);
   font: inherit;
   font-size: calc(var(--ui-font-size) * 0.75);
-  cursor: pointer;
+  cursor: grab;
   -webkit-app-region: no-drag;
+  touch-action: none;
+}
+
+.tab-bar.is-reordering,
+.tab.is-dragging {
+  cursor: grabbing;
+}
+
+.tab.is-dragging {
+  opacity: 0.45;
+}
+
+.tab.is-drop-before::before,
+.tab.is-drop-after::after {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent-background);
+  content: '';
+  pointer-events: none;
+}
+
+.tab.is-drop-before::before {
+  left: -5px;
+}
+
+.tab.is-drop-after::after {
+  right: -5px;
 }
 
 .tab.is-active {

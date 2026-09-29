@@ -166,6 +166,7 @@ interface AppStore {
   openPaths: (paths: string[]) => Promise<void>;
   closeTab: (key: string) => Promise<void>;
   selectTab: (key: string) => Promise<void>;
+  reorderTab: (sourceKey: string, targetKey: string, placement: 'before' | 'after') => void;
   setActiveRepo: (repoId: number | null) => void;
 
   applyEvent: (repoId: number, event: RepoEvent) => void;
@@ -814,6 +815,34 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       if (tab && tab.repoId !== null) {
         void get().refresh(tab.repoId);
       }
+    },
+
+    reorderTab(sourceKey, targetKey, placement) {
+      const state = get();
+      if (sourceKey === targetKey) {
+        return;
+      }
+
+      const sourceIndex = state.tabs.findIndex((tab) => tab.key === sourceKey);
+      const targetIndex = state.tabs.findIndex((tab) => tab.key === targetKey);
+      if (sourceIndex < 0 || targetIndex < 0) {
+        return;
+      }
+
+      const remaining = state.tabs.filter((tab) => tab.key !== sourceKey);
+      const remainingTargetIndex = remaining.findIndex((tab) => tab.key === targetKey);
+      const insertionIndex = remainingTargetIndex + (placement === 'after' ? 1 : 0);
+      const tabs = [
+        ...remaining.slice(0, insertionIndex),
+        state.tabs[sourceIndex]!,
+        ...remaining.slice(insertionIndex)
+      ];
+      if (tabs.every((tab, index) => tab.key === state.tabs[index]?.key)) {
+        return;
+      }
+
+      set({ tabs });
+      persistTabs(state.activeTabKey);
     },
 
     /**

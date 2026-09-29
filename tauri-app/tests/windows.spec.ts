@@ -553,6 +553,22 @@ test.describe('custom title bar', () => {
     await expect.poll(() => countCommands('plugin:window|toggle_maximize')).toBe(1);
     await expect.poll(() => countCommands('plugin:window|start_dragging')).toBe(2);
 
+    const firstTab = page.getByTestId(`tab-${fixtureRepo().path}`);
+    const secondTab = page.getByTestId(`tab-${secondFixtureRepo().path}`);
+    const firstBounds = await firstTab.boundingBox();
+    const secondBounds = await secondTab.boundingBox();
+    expect(firstBounds).not.toBeNull();
+    expect(secondBounds).not.toBeNull();
+    const startX = secondBounds!.x + secondBounds!.width / 2;
+    const startY = secondBounds!.y + secondBounds!.height / 2;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX - 12, startY, { steps: 2 });
+    await page.mouse.move(firstBounds!.x + 8, startY);
+    await page.mouse.up();
+    await expect(page.locator('.tab__label')).toHaveText(['other-app', 'augur-git']);
+    await expect.poll(() => countCommands('plugin:window|start_dragging')).toBe(2);
+
     await page.locator('.tab__label').first().click();
     await page.locator('.tab__close').first().click();
     await page.getByTestId('tab-new').click();
@@ -560,13 +576,39 @@ test.describe('custom title bar', () => {
   });
 
   test('marks only the empty tab-bar surface as draggable on macOS', async ({ page }) => {
-    await boot(page, { open: [fixtureRepo()], macos: true });
+    const first = fixtureRepo();
+    const second = secondFixtureRepo();
+    const stub = await boot(page, { open: [first, second], macos: true });
     const tabBar = page.getByTestId('tab-bar');
 
     await expect(tabBar).toHaveAttribute('data-tauri-drag-region', 'true');
-    await expect(page.locator('.tab')).not.toHaveAttribute('data-tauri-drag-region');
-    await expect(page.locator('.tab__close')).not.toHaveAttribute('data-tauri-drag-region');
+    await expect(page.locator('.tab').first()).not.toHaveAttribute('data-tauri-drag-region');
+    await expect(page.locator('.tab').last()).not.toHaveAttribute('data-tauri-drag-region');
+    await expect(page.locator('.tab__close').first()).not.toHaveAttribute('data-tauri-drag-region');
+    await expect(page.locator('.tab__close').last()).not.toHaveAttribute('data-tauri-drag-region');
     await expect(page.getByTestId('tab-new')).not.toHaveAttribute('data-tauri-drag-region');
+
+    const firstTab = page.getByTestId(`tab-${first.path}`);
+    const secondTab = page.getByTestId(`tab-${second.path}`);
+    const firstBounds = await firstTab.boundingBox();
+    const secondBounds = await secondTab.boundingBox();
+    expect(firstBounds).not.toBeNull();
+    expect(secondBounds).not.toBeNull();
+    const startX = secondBounds!.x + secondBounds!.width / 2;
+    const startY = secondBounds!.y + secondBounds!.height / 2;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX - 12, startY, { steps: 2 });
+    await page.mouse.move(firstBounds!.x + 8, startY);
+    await page.mouse.up();
+    await expect(page.locator('.tab__label')).toHaveText(['other-app', 'augur-git']);
+    await expect
+      .poll(async () => {
+        const saves = (await stub.commands()).filter((entry) => entry.cmd === 'set_workspace_tabs');
+        const args = saves.at(-1)?.args as { tabs: { path: string }[] } | undefined;
+        return args?.tabs.map((tab) => tab.path);
+      })
+      .toEqual([second.path, first.path]);
   });
 
   test('drags the main window from its blank region and leaves controls clickable', async ({

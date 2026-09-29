@@ -232,6 +232,181 @@ test.describe('repositories', () => {
     await expect(page.getByTestId('tab-bar')).toContainText('augur-git');
   });
 
+  test('reorders tabs on drop, saves their order, and keeps the selected tab active', async ({
+    page
+  }) => {
+    const first = fixtureRepo();
+    const second = secondFixtureRepo();
+    const stub = await boot(page, { open: [first, second] });
+    const firstTab = page.getByTestId(`tab-${first.path}`);
+    const secondTab = page.getByTestId(`tab-${second.path}`);
+
+    const firstBounds = await firstTab.boundingBox();
+    const secondBounds = await secondTab.boundingBox();
+    expect(firstBounds).not.toBeNull();
+    expect(secondBounds).not.toBeNull();
+    const secondStart = {
+      x: secondBounds!.x + secondBounds!.width / 2,
+      y: secondBounds!.y + secondBounds!.height / 2
+    };
+    await page.mouse.move(secondStart.x, secondStart.y);
+    await page.mouse.down();
+    await page.mouse.move(secondStart.x - 12, secondStart.y, { steps: 2 });
+    await page.mouse.move(firstBounds!.x + 8, secondStart.y);
+    await expect(firstTab).toHaveClass(/is-drop-before/);
+    await page.mouse.up();
+
+    await expect(page.locator('.tab__label')).toHaveText(['other-app', 'augur-git']);
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+    await expect
+      .poll(async () => {
+        const saves = (await stub.commands()).filter((entry) => entry.cmd === 'set_workspace_tabs');
+        return saves.at(-1)?.args;
+      })
+      .toMatchObject({
+        tabs: [{ path: second.path }, { path: first.path }],
+        active: first.path
+      });
+
+    const reorderedFirst = await secondTab.boundingBox();
+    const reorderedSecond = await firstTab.boundingBox();
+    expect(reorderedFirst).not.toBeNull();
+    expect(reorderedSecond).not.toBeNull();
+    const returnStart = {
+      x: reorderedFirst!.x + reorderedFirst!.width / 2,
+      y: reorderedFirst!.y + reorderedFirst!.height / 2
+    };
+    await page.mouse.move(returnStart.x, returnStart.y);
+    await page.mouse.down();
+    await page.mouse.move(returnStart.x + 12, returnStart.y, { steps: 2 });
+    await page.mouse.move(reorderedSecond!.x + reorderedSecond!.width * 0.7, returnStart.y);
+    await expect(firstTab).toHaveClass(/is-drop-after/);
+    await page.mouse.up();
+
+    await expect(page.locator('.tab__label')).toHaveText(['augur-git', 'other-app']);
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+    await expect
+      .poll(async () => {
+        const saves = (await stub.commands()).filter((entry) => entry.cmd === 'set_workspace_tabs');
+        return saves.at(-1)?.args;
+      })
+      .toMatchObject({
+        tabs: [{ path: first.path }, { path: second.path }],
+        active: first.path
+      });
+
+    const saves = (await stub.commands()).filter((entry) => entry.cmd === 'set_workspace_tabs');
+    const saved = saves.at(-1)?.args as { tabs: { path: string }[] };
+    const restoredPage = await page.context().newPage();
+    await boot(restoredPage, {
+      savedTabs: saved.tabs.map((tab) => tab.path),
+      savedActiveTab: first.path,
+      available: [first, second]
+    });
+    await expect(restoredPage.locator('.tab__label')).toHaveText(['augur-git', 'other-app']);
+  });
+
+  test('cancels a tab drag outside the bar or with Escape', async ({ page }) => {
+    const first = fixtureRepo();
+    const second = secondFixtureRepo();
+    const stub = await boot(page, { open: [first, second] });
+    const firstTab = page.getByTestId(`tab-${first.path}`);
+    const secondTab = page.getByTestId(`tab-${second.path}`);
+    const saveCount = async () =>
+      (await stub.commands()).filter((entry) => entry.cmd === 'set_workspace_tabs').length;
+    const initialSaveCount = await saveCount();
+
+    const secondBounds = await secondTab.boundingBox();
+    const barBounds = await page.getByTestId('tab-bar').boundingBox();
+    expect(secondBounds).not.toBeNull();
+    expect(barBounds).not.toBeNull();
+    const start = {
+      x: secondBounds!.x + secondBounds!.width / 2,
+      y: secondBounds!.y + secondBounds!.height / 2
+    };
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x - 12, start.y, { steps: 2 });
+    await page.mouse.move(barBounds!.x + 8, barBounds!.y + barBounds!.height + 80);
+    await page.mouse.up();
+    await expect(page.locator('.tab__label')).toHaveText(['augur-git', 'other-app']);
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+    expect(await saveCount()).toBe(initialSaveCount);
+
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x - 12, start.y, { steps: 2 });
+    await page.mouse.move((await firstTab.boundingBox())!.x + 8, start.y);
+    await expect(firstTab).toHaveClass(/is-drop-before/);
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await expect(page.locator('.tab__label')).toHaveText(['augur-git', 'other-app']);
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+    expect(await saveCount()).toBe(initialSaveCount);
+  });
+
+  test('allows reordering a start page without saving it as a repository tab', async ({ page }) => {
+    const first = fixtureRepo();
+    const second = secondFixtureRepo();
+    const stub = await boot(page, { open: [first, second] });
+    await page.getByTestId('tab-new').click();
+    const startTab = page.locator('.tab').last();
+    const firstTab = page.getByTestId(`tab-${first.path}`);
+    const startBounds = await startTab.boundingBox();
+    const firstBounds = await firstTab.boundingBox();
+    expect(startBounds).not.toBeNull();
+    expect(firstBounds).not.toBeNull();
+
+    const startX = startBounds!.x + startBounds!.width / 2;
+    const startY = startBounds!.y + startBounds!.height / 2;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX - 12, startY, { steps: 2 });
+    await page.mouse.move(firstBounds!.x + 8, startY);
+    await expect(firstTab).toHaveClass(/is-drop-before/);
+    await page.mouse.up();
+
+    await expect(page.locator('.tab__label')).toHaveText(['New Tab', 'augur-git', 'other-app']);
+    await expect(page.getByTestId('start-page')).toBeVisible();
+    await expect
+      .poll(async () => {
+        const saves = (await stub.commands()).filter((entry) => entry.cmd === 'set_workspace_tabs');
+        const args = saves.at(-1)?.args as { tabs: { path: string }[] } | undefined;
+        return args?.tabs.map((tab) => tab.path);
+      })
+      .toEqual([first.path, second.path]);
+  });
+
+  test('auto-scrolls an overflowing tab bar while dragging', async ({ page }) => {
+    const repositories = Array.from({ length: 14 }, (_, index) => ({
+      ...fixtureRepo(),
+      id: 20 + index,
+      path: `/Users/dev/projects/repo-${index}`
+    }));
+    await boot(page, { open: repositories });
+    const firstTab = page.getByTestId(`tab-${repositories[0]!.path}`);
+    const lastTab = page.getByTestId(`tab-${repositories.at(-1)!.path}`);
+    const bar = page.getByTestId('tab-bar');
+    const firstBounds = await firstTab.boundingBox();
+    const barBounds = await bar.boundingBox();
+    expect(firstBounds).not.toBeNull();
+    expect(barBounds).not.toBeNull();
+    expect(await bar.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+
+    const start = {
+      x: firstBounds!.x + firstBounds!.width / 2,
+      y: firstBounds!.y + firstBounds!.height / 2
+    };
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + 12, start.y, { steps: 2 });
+    await page.mouse.move(barBounds!.x + barBounds!.width - 8, start.y);
+    await expect(lastTab).toHaveClass(/is-drop-after/, { timeout: 5000 });
+    await page.mouse.up();
+
+    await expect(page.locator('.tab__label').last()).toHaveText('repo-0');
+  });
+
   test("keeps a conflicted file's actions, disabled and explained", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
@@ -272,7 +447,9 @@ test.describe('repositories', () => {
     await expect(page.getByTestId('bottom-panel')).toContainText('Staged');
   });
 
-  test('refreshes an open working diff only while its repository tab is selected', async ({ page }) => {
+  test('refreshes an open working diff only while its repository tab is selected', async ({
+    page
+  }) => {
     const first = fixtureRepo();
     const second = secondFixtureRepo();
     const stub = await boot(page, {
