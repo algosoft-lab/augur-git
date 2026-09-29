@@ -20,8 +20,8 @@ export const COL_WIDTH = 24;
 export const GRAPH_LEFT_PAD = 12;
 /** Commit marker radius. */
 export const NODE_RADIUS = 7;
-/** How far a lane's curve travels vertically while turning. */
-export const TURN_RADIUS = 6;
+/** Maximum control-point offset for rounded graph transitions. */
+export const TURN_RADIUS = 9;
 const STROKE_WIDTH = 1.5;
 
 /** One lane entering or leaving a row, identified by the commit it waits for. */
@@ -112,7 +112,7 @@ export function buildRowPaths(geometry: LaneGeometry): RowPath[] {
     }
     paths.push({
       d: routeToNode(laneCenterX(lane), nodeX, midY),
-      colorIndex: geometry.colorIndex
+      colorIndex: geometry.inputLanes[lane]?.colorIndex ?? geometry.colorIndex
     });
   }
 
@@ -177,40 +177,29 @@ export function GraphSvg({ geometry, laneColors, width }: GraphSvgProps) {
   );
 }
 
-/** A full-height route for a lane that shifts sideways partway down the row. */
+/** A full-height curved route for a lane that shifts sideways through the row. */
 function throughRoute(fromX: number, toX: number, midY: number): string {
-  const direction = toX > fromX ? 1 : -1;
-  const radius = Math.min(TURN_RADIUS, Math.abs(toX - fromX) / 2);
-  return [
-    `M ${fromX} 0`,
-    `L ${fromX} ${midY - radius}`,
-    `Q ${fromX} ${midY} ${fromX + radius * direction} ${midY}`,
-    `L ${toX - radius * direction} ${midY}`,
-    `Q ${toX} ${midY} ${toX} ${midY + radius}`,
-    `L ${toX} ${ROW_HEIGHT}`
-  ].join(' ');
+  return [`M ${fromX} 0`, `C ${fromX} ${midY} ${toX} ${midY} ${toX} ${ROW_HEIGHT}`].join(' ');
 }
 
 /** A route from the row above that terminates at the node's edge. */
 function routeToNode(fromX: number, nodeX: number, midY: number): string {
   const direction = nodeX > fromX ? 1 : -1;
-  const radius = Math.min(TURN_RADIUS, Math.abs(nodeX - fromX) / 2);
+  const edgeX = nodeX - direction * NODE_RADIUS;
+  const handle = Math.min(TURN_RADIUS, Math.abs(edgeX - fromX), midY);
   return [
     `M ${fromX} 0`,
-    `L ${fromX} ${midY - radius}`,
-    `Q ${fromX} ${midY} ${fromX + radius * direction} ${midY}`,
-    `L ${nodeX - direction * NODE_RADIUS} ${midY}`
+    `C ${fromX} ${handle} ${edgeX - direction * handle} ${midY} ${edgeX} ${midY}`
   ].join(' ');
 }
 
 /** A route starting at the node's edge and continuing to the row below. */
 function routeFromNode(nodeX: number, toX: number, midY: number): string {
   const direction = toX > nodeX ? 1 : -1;
-  const radius = Math.min(TURN_RADIUS, Math.abs(toX - nodeX) / 2);
+  const edgeX = nodeX + direction * NODE_RADIUS;
+  const handle = Math.min(TURN_RADIUS, Math.abs(toX - edgeX), ROW_HEIGHT - midY);
   return [
-    `M ${nodeX + direction * NODE_RADIUS} ${midY}`,
-    `L ${toX - radius * direction} ${midY}`,
-    `Q ${toX} ${midY} ${toX} ${midY + radius}`,
-    `L ${toX} ${ROW_HEIGHT}`
+    `M ${edgeX} ${midY}`,
+    `C ${edgeX + direction * handle} ${midY} ${toX} ${ROW_HEIGHT - handle} ${toX} ${ROW_HEIGHT}`
   ].join(' ');
 }

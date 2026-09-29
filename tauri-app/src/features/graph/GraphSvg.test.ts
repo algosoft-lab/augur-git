@@ -52,9 +52,9 @@ describe('buildRowPaths', () => {
 
     expect(paths.filter((path) => path.d.startsWith(`M ${nodeX} 0`))).toEqual([]);
     expect(paths).toContainEqual({
-      d: `M ${nodeX + NODE_RADIUS} ${midY} L ${sideX - TURN_RADIUS} ${midY} Q ${sideX} ${midY} ${sideX} ${
-        midY + TURN_RADIUS
-      } L ${sideX} ${ROW_HEIGHT}`,
+      d: `M ${nodeX + NODE_RADIUS} ${midY} C ${nodeX + NODE_RADIUS + TURN_RADIUS} ${midY} ${sideX} ${
+        ROW_HEIGHT - TURN_RADIUS
+      } ${sideX} ${ROW_HEIGHT}`,
       colorIndex: 1
     });
   });
@@ -70,10 +70,10 @@ describe('buildRowPaths', () => {
 
     expect(paths.filter((path) => path.d.endsWith(`L ${nodeX} ${ROW_HEIGHT}`))).toEqual([]);
     expect(paths).toContainEqual({
-      d: `M ${sideX} 0 L ${sideX} ${midY - TURN_RADIUS} Q ${sideX} ${midY} ${
-        sideX - TURN_RADIUS
-      } ${midY} L ${nodeX + NODE_RADIUS} ${midY}`,
-      colorIndex: 0
+      d: `M ${sideX} 0 C ${sideX} ${TURN_RADIUS} ${nodeX + NODE_RADIUS + TURN_RADIUS} ${midY} ${
+        nodeX + NODE_RADIUS
+      } ${midY}`,
+      colorIndex: 1
     });
   });
 
@@ -92,9 +92,9 @@ describe('buildRowPaths', () => {
       { d: `M ${nodeX} 0 L ${nodeX} ${midY - NODE_RADIUS}`, colorIndex: 0 },
       { d: `M ${nodeX} ${midY + NODE_RADIUS} L ${nodeX} ${ROW_HEIGHT}`, colorIndex: 0 },
       {
-        d: `M ${nodeX + NODE_RADIUS} ${midY} L ${sideX - TURN_RADIUS} ${midY} Q ${sideX} ${midY} ${sideX} ${
-          midY + TURN_RADIUS
-        } L ${sideX} ${ROW_HEIGHT}`,
+        d: `M ${nodeX + NODE_RADIUS} ${midY} C ${nodeX + NODE_RADIUS + TURN_RADIUS} ${midY} ${sideX} ${
+          ROW_HEIGHT - TURN_RADIUS
+        } ${sideX} ${ROW_HEIGHT}`,
         colorIndex: 1
       }
     ]);
@@ -127,14 +127,7 @@ describe('buildRowPaths', () => {
 
     const farX = laneCenterX(2);
     expect(paths).toContainEqual({
-      d: [
-        `M ${farX} 0`,
-        `L ${farX} ${midY - TURN_RADIUS}`,
-        `Q ${farX} ${midY} ${farX - TURN_RADIUS} ${midY}`,
-        `L ${sideX + TURN_RADIUS} ${midY}`,
-        `Q ${sideX} ${midY} ${sideX} ${midY + TURN_RADIUS}`,
-        `L ${sideX} ${ROW_HEIGHT}`
-      ].join(' '),
+      d: [`M ${farX} 0`, `C ${farX} ${midY} ${sideX} ${midY} ${sideX} ${ROW_HEIGHT}`].join(' '),
       colorIndex: 2
     });
   });
@@ -148,7 +141,36 @@ describe('buildRowPaths', () => {
       })
     );
 
-    const secondParent = paths.find((path) => path.d.endsWith(`L ${sideX} ${ROW_HEIGHT}`));
+    const secondParent = paths.find((path) =>
+      path.d.startsWith(`M ${nodeX + NODE_RADIUS} ${midY}`)
+    );
     expect(secondParent?.colorIndex).toBe(4);
+  });
+
+  it('curves merge inputs and parent routes on the left side of the node', () => {
+    const leftNodeX = laneCenterX(1);
+    const paths = buildRowPaths(
+      geometry({
+        nodeLane: 1,
+        hasIncoming: true,
+        nodeInputLanes: [0, 1],
+        parentLanes: [0],
+        inputLanes: [lane('merge', 3), lane('merge')],
+        outputLanes: [lane('parent', 4)]
+      })
+    );
+
+    expect(paths).toContainEqual({
+      d: `M ${nodeX} 0 C ${nodeX} ${TURN_RADIUS} ${leftNodeX - NODE_RADIUS - TURN_RADIUS} ${midY} ${
+        leftNodeX - NODE_RADIUS
+      } ${midY}`,
+      colorIndex: 3
+    });
+    expect(paths).toContainEqual({
+      d: `M ${leftNodeX - NODE_RADIUS} ${midY} C ${leftNodeX - NODE_RADIUS - TURN_RADIUS} ${midY} ${
+        nodeX
+      } ${ROW_HEIGHT - TURN_RADIUS} ${nodeX} ${ROW_HEIGHT}`,
+      colorIndex: 4
+    });
   });
 });
