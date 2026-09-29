@@ -45,6 +45,11 @@ test.describe('application shortcuts', () => {
     await expect
       .poll(async () => (await actions(stub)).map((entry) => (entry.args.action as any).action))
       .toEqual(['fetch', 'pullMerge', 'push']);
+    // The editor is disabled while an action is in flight, and focusing a
+    // disabled textarea does nothing, so the press has to wait for the burst
+    // above to finish: a keydown that lands on the disabled editor would
+    // leave it unfocused for good.
+    await expect(page.getByTestId('status-busy')).toBeHidden();
     await page.keyboard.press('c');
     const editor = page.getByTestId('commit-message');
     await expect(editor).toBeFocused();
