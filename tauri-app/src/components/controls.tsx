@@ -758,6 +758,8 @@ export interface ContextMenuProps {
   entries: ContextMenuEntry[];
   children: ReactNode;
   testId?: string;
+  /** Reports each open and close, so a host can retire overlays that share the menu's cursor anchor. */
+  onOpenChange?: (open: boolean) => void;
 }
 
 /**
@@ -767,12 +769,19 @@ export interface ContextMenuProps {
  * transformed window, and a transformed ancestor is the containing block for
  * `position: fixed`, which used to displace the menu by the scroll depth.
  */
-export function ContextMenu({ entries, children, testId }: ContextMenuProps) {
+export function ContextMenu({ entries, children, testId, onOpenChange }: ContextMenuProps) {
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const holdTimer = useRef<number | null>(null);
+  // Kept in a ref so `close` stays referentially stable for the effect that
+  // subscribes the document listeners; hosts pass a fresh closure every render.
+  const openChangeRef = useRef(onOpenChange);
+  openChangeRef.current = onOpenChange;
 
-  const close = useCallback(() => setPosition(null), []);
+  const close = useCallback(() => {
+    setPosition(null);
+    openChangeRef.current?.(false);
+  }, []);
 
   useEffect(() => {
     if (!position) {
@@ -803,6 +812,7 @@ export function ContextMenu({ entries, children, testId }: ContextMenuProps) {
 
   const open = (x: number, y: number) => {
     setPosition({ x, y });
+    openChangeRef.current?.(true);
   };
 
   // The menu's real size is only known once it has mounted, so the clamp runs

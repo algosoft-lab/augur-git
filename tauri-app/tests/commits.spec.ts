@@ -376,6 +376,36 @@ test.describe('commit selection', () => {
     await expect(preview).toHaveCount(0);
   });
 
+  test('retires the hover preview while the context menu is open', async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()] });
+
+    const row = page.locator('.graph-row').first();
+    await row.hover();
+    const preview = page.getByTestId('commit-preview');
+    await expect(preview).toBeVisible();
+
+    // The menu opens at the same cursor anchor as the preview, so the preview
+    // retires rather than the two stacking over each other.
+    await rightClick(page, '.graph-row');
+    const menu = page.locator('.context-menu');
+    await expect(menu).toBeVisible();
+    await expect(preview).toHaveCount(0);
+
+    // Rows crossed while the menu is up show no preview behind it either. The
+    // pointer is driven directly because the menu covers the row's centre and
+    // a locator hover would refuse to move over it.
+    const below = (await page.locator('.graph-row').nth(1).boundingBox())!;
+    await page.mouse.move(below.x + below.width / 2, below.y + below.height / 2);
+    await expect(preview).toHaveCount(0);
+
+    // Closing the menu leaves the preview gone; the next hover brings it back,
+    // the way a native tooltip behaves.
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await row.hover();
+    await expect(preview).toBeVisible();
+  });
+
   test('shows the commit message dialog on request', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 

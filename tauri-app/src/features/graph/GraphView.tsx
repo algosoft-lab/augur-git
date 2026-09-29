@@ -443,7 +443,17 @@ function GraphRowView({
   ];
 
   return (
-    <ContextMenu testId={`graph-row-${row.oid}`} entries={entries}>
+    <ContextMenu
+      testId={`graph-row-${row.oid}`}
+      entries={entries}
+      onOpenChange={(menuOpen) => {
+        // The menu anchors where the preview does, so opening it retires the
+        // preview instead of letting the two stack at the cursor.
+        if (menuOpen) {
+          onHover(null);
+        }
+      }}
+    >
       <div
         id={`commit-row-${row.oid}`}
         className={`graph-row${selected ? ' is-selected' : ''}`}
@@ -452,7 +462,14 @@ function GraphRowView({
         data-keyboard-list-item
         data-testid={`graph-row-${row.short}`}
         onClick={onSelect}
-        onMouseEnter={(event) => onHover(row.oid, event.clientX, event.clientY)}
+        onMouseEnter={(event) => {
+          // No preview while a menu is up: rows crossed on the way to a menu
+          // item would each flash one behind it.
+          if (hasOpenPopup()) {
+            return;
+          }
+          onHover(row.oid, event.clientX, event.clientY);
+        }}
         onMouseLeave={() => onHover(null)}
       >
         {geometry ? (
@@ -509,6 +526,10 @@ function GraphRowView({
  * the containing block for positioned descendants, which used to displace the
  * preview by the mounted depth instead of anchoring it at the cursor. The row
  * carries no `title` either, so the webview tooltip cannot double the preview.
+ *
+ * The context menu anchors where the preview does, so it takes priority: an
+ * opening menu retires the preview, and no new one appears until the menu is
+ * gone and the row is hovered afresh.
  */
 function CommitHoverPreview({
   row,
