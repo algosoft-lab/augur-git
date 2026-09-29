@@ -119,7 +119,15 @@ export function MainWindow() {
           } catch (error) {
             console.warn('[window_state] failed to flush the main window before close', error);
           }
-          await mainWindow.close();
+          // destroy, not close: this request is already prevented, so close()
+          // would only loop back into this handler. destroy() skips the
+          // request entirely and needs the core:window:allow-destroy
+          // capability granted to this window.
+          try {
+            await mainWindow.destroy();
+          } catch (error) {
+            console.error('[window_state] failed to destroy the main window', error);
+          }
         })();
       });
       if (cancelled) closeRequested();
@@ -130,7 +138,10 @@ export function MainWindow() {
       if (timer !== null) window.clearTimeout(timer);
       unlisten.forEach((release) => release());
     };
-  }, [windowMode]);
+    // Nothing in this effect reads the window mode: the bounds command picks
+    // the mode server-side. Registering once avoids a re-registration gap in
+    // which a close request would bypass the flush entirely.
+  }, []);
 
   const toggleWindowMode = async () => {
     if (windowMode === 'sidecar') {
