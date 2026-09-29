@@ -225,18 +225,8 @@ button {
   background: #28c840;
 }
 
-.window-controls__button--macos svg {
-  z-index: 1;
-  opacity: 0;
-}
-
 .window-controls__button--macos:hover::before {
   filter: brightness(0.94);
-}
-
-.window-controls__button--macos:hover svg,
-.window-controls__button--macos:focus-visible svg {
-  opacity: 1;
 }
 
 .window-titlebar {

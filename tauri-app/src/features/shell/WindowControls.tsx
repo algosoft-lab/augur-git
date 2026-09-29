@@ -90,9 +90,7 @@ export function WindowControls({
           aria-label={t(translate, 'window-close')}
           data-testid="window-close"
           onClick={() => void closeWindow()}
-        >
-          <Icon name="x" size={8} />
-        </button>
+        />
         <button
           type="button"
           className="window-controls__button window-controls__button--macos window-controls__button--macos-minimize"
@@ -100,9 +98,7 @@ export function WindowControls({
           aria-label={t(translate, 'window-minimize')}
           data-testid="window-minimize"
           onClick={() => void getCurrentWindow().minimize()}
-        >
-          <Icon name="minus" size={8} />
-        </button>
+        />
         <button
           type="button"
           className="window-controls__button window-controls__button--macos window-controls__button--macos-maximize"
@@ -110,9 +106,7 @@ export function WindowControls({
           aria-label={t(translate, maximized ? 'window-restore' : 'window-maximize')}
           data-testid="window-toggle-maximize"
           onClick={() => void toggleMaximize()}
-        >
-          <Icon name={maximized ? 'copy' : 'square'} size={7} />
-        </button>
+        />
       </div>
     );
   }
