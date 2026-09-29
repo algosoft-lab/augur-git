@@ -19,6 +19,7 @@ import { LANE_COLORS } from '../../styles/themes';
 import { t, ta } from '../../i18n/strings';
 import { COL_WIDTH, GRAPH_LEFT_PAD, GraphSvg, ROW_HEIGHT, type LaneGeometry } from './GraphSvg';
 import { filterCommits, type CommitSearchField } from './commitSearch';
+import { hasOpenPopup, keysForCommand, matchesShortcut } from '../../app/keyboard';
 
 /** Rows from the end of the list that trigger the next page request. */
 const LOAD_AHEAD_ROWS = 30;
@@ -41,6 +42,7 @@ export function GraphView({ repo }: { repo: RepoState }) {
     labels: Record<string, RefLabel[]>;
   }>({ graph: [], labels: {} });
   const [hovered, setHovered] = useState<string | null>(null);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [showMessageDialog, setShowMessageDialog] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(900);
@@ -62,6 +64,15 @@ export function GraphView({ repo }: { repo: RepoState }) {
       clearCommit(repo.id);
     }
   }, [repo.id, repo.selected, visibleRows]);
+
+  useEffect(() => {
+    if (!repo.selected) {
+      setActiveIndex(null);
+      return;
+    }
+    const index = visibleRows.findIndex((row) => row.oid === repo.selected?.oid);
+    setActiveIndex(index >= 0 ? index : null);
+  }, [repo.selected, visibleRows]);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +116,51 @@ export function GraphView({ repo }: { repo: RepoState }) {
     }
     requestedPages.current.add(marker);
     void ipc.loadMoreLogPage(repo.id);
+  };
+
+  const selectGraphIndex = (index: number, focus = false) => {
+    const row = visibleRows[index];
+    if (!row) return;
+    setActiveIndex(index);
+    void selectCommit(repo.id, row.oid, row.short, row.subject);
+    const list = containerRef.current?.querySelector<HTMLElement>('[data-testid="graph-list"]');
+    if (focus) list?.focus();
+    if (list) list.scrollTop = index * ROW_HEIGHT;
+  };
+
+  const onGraphKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (hasOpenPopup()) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || !target.closest('[data-testid="graph-list"]')) {
+      return;
+    }
+    const shortcuts = useStore.getState().shortcuts.resolved;
+    const next = matchesShortcut(event.nativeEvent, keysForCommand(shortcuts, 'list.next'));
+    const previous = matchesShortcut(event.nativeEvent, keysForCommand(shortcuts, 'list.previous'));
+    if (next || previous) {
+      if (visibleRows.length === 0) return;
+      event.preventDefault();
+      const current = activeIndex ?? -1;
+      const index =
+        current < 0
+          ? next
+            ? 0
+            : visibleRows.length - 1
+          : Math.max(0, Math.min(visibleRows.length - 1, current + (next ? 1 : -1)));
+      selectGraphIndex(index, true);
+      return;
+    }
+    if (matchesShortcut(event.nativeEvent, keysForCommand(shortcuts, 'commits.checkout'))) {
+      event.preventDefault();
+      const index = activeIndex;
+      const row = index === null ? null : visibleRows[index];
+      if (!event.repeat && row && !repo.busy) {
+        void runAction(repo.id, {
+          action: 'checkout',
+          target: { kind: 'commit', commit: row.oid }
+        });
+      }
+    }
   };
 
   // The thresholds belong to the backend, so a column appears at exactly the
@@ -219,6 +275,12 @@ export function GraphView({ repo }: { repo: RepoState }) {
           rowHeight={ROW_HEIGHT}
           onViewportChange={onViewportChange}
           testId="graph-list"
+          focusable
+          role="listbox"
+          aria-activedescendant={
+            activeIndex === null ? undefined : `commit-row-${visibleRows[activeIndex]?.oid}`
+          }
+          onKeyDown={onGraphKeyDown}
           empty={
             <EmptyState
               icon={<Icon name="git-commit-horizontal" size={24} />}
@@ -241,9 +303,6 @@ export function GraphView({ repo }: { repo: RepoState }) {
                 selected={selected}
                 showsAuthor={showsAuthor}
                 showsMessage={showsMessage}
-                onSelect={() => {
-                  void selectCommit(repo.id, row.oid, row.short, row.subject);
-                }}
                 onHover={(value) => setHovered(value)}
                 onCheckout={() => {
                   void runAction(repo.id, {
@@ -267,6 +326,7 @@ export function GraphView({ repo }: { repo: RepoState }) {
                   void ipc.requestCommitMessage(repo.id, row.oid);
                 }}
                 hovered={hovered === row.oid}
+                onSelect={() => selectGraphIndex(index, true)}
               />
             );
           }}
@@ -377,7 +437,11 @@ function GraphRowView({
   return (
     <ContextMenu testId={`graph-row-${row.oid}`} entries={entries}>
       <div
+        id={`commit-row-${row.oid}`}
         className={`graph-row${selected ? ' is-selected' : ''}`}
+        role="option"
+        aria-selected={selected}
+        data-keyboard-list-item
         data-testid={`graph-row-${row.short}`}
         title={row.subject}
         onClick={onSelect}

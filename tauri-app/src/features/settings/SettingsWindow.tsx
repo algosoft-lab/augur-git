@@ -20,6 +20,7 @@ import type {
   LanguagePreference
 } from '../../bridge/types';
 import { useStore } from '../../app/store';
+import { findShortcutConflict, SHORTCUT_COMMANDS } from '../../app/keyboard';
 import { t, ta } from '../../i18n/strings';
 import { THEME_GROUPS } from '../../styles/theme-catalog';
 import { IS_MACOS, WindowControls } from '../shell/WindowControls';
@@ -328,17 +329,13 @@ function ShortcutsSection() {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const labelFor = (command: string) => {
-    if (command === 'app.quit') {
-      return t(translate, 'shortcut-app-quit');
-    }
-    return command;
-  };
-
   const defaultKeys = (command: string) => {
-    const resolved = shortcuts.resolved.find((entry) => entry.command === command);
+    const resolved = shortcuts.defaults.find((entry) => entry.command === command);
     return resolved?.keys.join(', ') ?? '';
   };
+
+  const currentKeys = (command: string) =>
+    shortcuts.resolved.find((entry) => entry.command === command)?.keys.join(', ') ?? '';
 
   const commit = async (command: string) => {
     const value = draft[command];
@@ -347,18 +344,29 @@ function ShortcutsSection() {
     }
     try {
       const keys = await ipc.validateShortcut(value);
+      const proposed = shortcuts.resolved.some((entry) => entry.command === command)
+        ? shortcuts.resolved.map((entry) =>
+            entry.command === command ? { ...entry, keys } : entry
+          )
+        : [...shortcuts.resolved, { command, keys }];
+      if (findShortcutConflict(proposed)) {
+        setErrors((current) => ({ ...current, [command]: t(translate, 'shortcut-conflict') }));
+        return;
+      }
       setErrors((current) => ({ ...current, [command]: '' }));
-      await setShortcut(command, keys.length ? keys : null);
+      await setShortcut(command, keys);
       setDraft((current) => {
         const next = { ...current };
         delete next[command];
         return next;
       });
     } catch (failure) {
-      setErrors((current) => ({
-        ...current,
-        [command]: t(translate, 'shortcut-invalid-combo')
-      }));
+      const failureInfo = ipc.describeError(failure);
+      const messageKey =
+        failureInfo.key === 'err-shortcut-conflict'
+          ? 'shortcut-conflict'
+          : 'shortcut-invalid-combo';
+      setErrors((current) => ({ ...current, [command]: t(translate, messageKey) }));
     }
   };
 
@@ -366,12 +374,12 @@ function ShortcutsSection() {
     <>
       <div className="settings__heading">{t(translate, 'settings-shortcuts')}</div>
       <p className="settings__description">{t(translate, 'shortcut-edit-description')}</p>
-      {['app.quit'].map((command) => {
-        const value = draft[command] ?? defaultKeys(command);
+      {SHORTCUT_COMMANDS.map(({ command, label }) => {
+        const value = draft[command] ?? currentKeys(command);
         return (
           <div key={command} className="settings__shortcut-row">
             <span className="settings__label" style={{ width: 120 }}>
-              {labelFor(command)}
+              {t(translate, label)}
             </span>
             <TextInput
               value={value}
@@ -384,7 +392,15 @@ function ShortcutsSection() {
               type="button"
               className="tool-button tool-button--compact"
               data-testid={`shortcut-reset-${command}`}
-              onClick={() => void setShortcut(command, null)}
+              onClick={() => {
+                setDraft((current) => {
+                  const next = { ...current };
+                  delete next[command];
+                  return next;
+                });
+                setErrors((current) => ({ ...current, [command]: '' }));
+                void setShortcut(command, null);
+              }}
             >
               {t(translate, 'shortcut-reset')}
             </button>

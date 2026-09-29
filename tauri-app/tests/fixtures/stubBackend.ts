@@ -221,6 +221,40 @@ function install(
       { path: '/Users/dev/projects/other-app', location: { kind: 'local' } }
     ]
   };
+  try {
+    const persisted = JSON.parse(localStorage.getItem('augur-test-settings') ?? '{}');
+    if (persisted.typography) Object.assign(config.typography, persisted.typography);
+  } catch {
+    localStorage.removeItem('augur-test-settings');
+  }
+
+  const typographyModifier = /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? 'cmd' : 'ctrl';
+  const defaultShortcuts = [
+    { command: 'app.quit', keys: ['CmdOrCtrl+Q'] },
+    { command: 'repo.pull', keys: ['p'] },
+    { command: 'repo.push', keys: ['shift-p'] },
+    { command: 'repo.fetch', keys: ['f'] },
+    { command: 'repo.refresh', keys: ['shift-r'] },
+    { command: 'commit.focus', keys: ['c'] },
+    { command: 'refs.checkout', keys: ['space'] },
+    { command: 'commits.checkout', keys: ['space'] },
+    { command: 'changes.toggle-stage', keys: ['space'] },
+    { command: 'list.next', keys: ['j', 'down'] },
+    { command: 'list.previous', keys: ['k', 'up'] },
+    { command: 'graph.search', keys: ['slash'] },
+    { command: 'diff.font-increase', keys: [`${typographyModifier}-plus`] },
+    { command: 'diff.font-decrease', keys: [`${typographyModifier}-minus`] },
+    { command: 'diff.font-reset', keys: [`${typographyModifier}-0`] }
+  ];
+  const shortcutOverrides: Record<string, string[]> = {};
+  const shortcutState = () => ({
+    resolved: defaultShortcuts.map((entry) => ({
+      ...entry,
+      keys: shortcutOverrides[entry.command] ?? entry.keys
+    })),
+    defaults: defaultShortcuts,
+    overrides: { ...shortcutOverrides }
+  });
 
   const savedTabs = options.savedTabs ?? [];
   const workspace = {
@@ -272,6 +306,17 @@ function install(
       handler(envelope);
     }
   }
+
+  window.addEventListener('storage', (event) => {
+    if (event.key !== 'augur-test-settings' || !event.newValue) return;
+    try {
+      const persisted = JSON.parse(event.newValue);
+      if (persisted.typography) config.typography = persisted.typography;
+      emit('augur://app-event', { type: 'settingsChanged' });
+    } catch {
+      // The next backend read will report defaults for malformed test storage.
+    }
+  });
 
   /** Push the full status and refs snapshot a freshly opened repository has. */
   function announce(repo: StubRepo): void {
@@ -473,10 +518,7 @@ function install(
       workspace,
       locale: 'en-US',
       catalogs: catalog,
-      shortcuts: {
-        resolved: [{ command: 'app.quit', keys: ['CmdOrCtrl+Q'] }],
-        overrides: {}
-      },
+      shortcuts: shortcutState(),
       build,
       store_paths: [
         '~/Library/Application Support/com.augur.git.tauri/settings.json',
@@ -888,6 +930,10 @@ function install(
     },
     set_typography: (args: any) => {
       Object.assign(config.typography, args.typography);
+      localStorage.setItem(
+        'augur-test-settings',
+        JSON.stringify({ typography: config.typography })
+      );
       return null;
     },
     set_commit_action: (args: any) => {
@@ -908,15 +954,59 @@ function install(
       workspace.active_tab = args.active;
       return null;
     },
-    set_shortcut: (args: any) => ({
-      resolved: [{ command: args.command, keys: args.keys ?? ['CmdOrCtrl+Q'] }],
-      overrides: args.keys ? { [args.command]: args.keys } : {}
-    }),
+    set_shortcut: (args: any) => {
+      if (args.keys === null) delete shortcutOverrides[args.command];
+      else shortcutOverrides[args.command] = args.keys;
+      return shortcutState();
+    },
     validate_shortcut: (args: any) => {
-      if (typeof args.value !== 'string' || args.value.trim().length === 0) {
-        return Promise.reject({ key: 'err-invalid-shortcut', detail: args.value ?? '' });
+      if (typeof args.value !== 'string') {
+        return Promise.reject({ key: 'err-invalid-shortcut', detail: '' });
       }
-      return args.value.split('+').map((part: string) => part.trim());
+      if (!args.value.trim()) return [];
+      return args.value.split(',').map((combo: string) => {
+        const legacyPlusForm = combo.trim().includes('+');
+        const parts = legacyPlusForm ? combo.trim().split('+') : combo.trim().split('-');
+        const rawKey = parts.pop() ?? '';
+        const aliases: Record<string, string> = {
+          control: 'ctrl',
+          command: 'cmd',
+          super: 'cmd',
+          cmdorctrl: 'cmdorctrl',
+          option: 'alt',
+          arrowup: 'up',
+          arrowdown: 'down',
+          arrowleft: 'left',
+          arrowright: 'right',
+          ' ': 'space',
+          '+': 'plus',
+          '=': 'plus',
+          '-': 'minus',
+          '/': 'slash'
+        };
+        const key = aliases[rawKey.toLowerCase()] ?? rawKey.toLowerCase();
+        const modifiers = parts.map(
+          (part: string) => aliases[part.toLowerCase()] ?? part.toLowerCase()
+        );
+        if (
+          !legacyPlusForm &&
+          rawKey.length === 1 &&
+          rawKey !== rawKey.toLowerCase() &&
+          !modifiers.includes('shift')
+        ) {
+          modifiers.push('shift');
+        }
+        const order: Record<string, number> = {
+          ctrl: 0,
+          cmdorctrl: 0,
+          alt: 1,
+          shift: 2,
+          cmd: 3,
+          meta: 4
+        };
+        modifiers.sort((left: string, right: string) => (order[left] ?? 5) - (order[right] ?? 5));
+        return [...modifiers, key].join('-');
+      });
     },
     flush_state: () => null,
     open_about_window: () => null,

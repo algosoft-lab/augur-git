@@ -33,13 +33,20 @@ pub mod ids {
 /// while an explicit `ctrl-` or `alt-` prefix is preserved.
 pub fn accelerator_for(keys: &[String]) -> Option<String> {
     let primary = keys.iter().find(|key| !key.trim().is_empty())?;
-    let parts: Vec<&str> = primary.trim().split('-').collect();
+    let primary = primary.trim();
+    let parts: Vec<&str> = if primary.contains('+') {
+        primary.split('+').collect()
+    } else {
+        primary.split('-').collect()
+    };
     let (key, modifiers) = parts.split_last()?;
     let mut out: Vec<String> = Vec::new();
     let mut has_modifier = false;
     for modifier in modifiers {
         match modifier.to_ascii_lowercase().as_str() {
-            "cmd" | "command" | "super" => out.push("CmdOrCtrl".to_string()),
+            "cmd" | "command" | "super" | "cmdorctrl" | "commandorcontrol" => {
+                out.push("CmdOrCtrl".to_string())
+            }
             "ctrl" | "control" => out.push("Ctrl".to_string()),
             "alt" | "option" => out.push("Alt".to_string()),
             "shift" => out.push("Shift".to_string()),
@@ -73,7 +80,7 @@ fn normalize_key(key: &str) -> Option<String> {
     }
     // Named keys are spelled out; anything else is rejected rather than
     // producing a menu entry the platform cannot display.
-    const NAMED: [&str; 20] = [
+    const NAMED: [&str; 23] = [
         "space",
         "enter",
         "return",
@@ -94,6 +101,9 @@ fn normalize_key(key: &str) -> Option<String> {
         "printscreen",
         "pause",
         "capslock",
+        "plus",
+        "minus",
+        "equal",
     ];
     NAMED
         .iter()
@@ -267,6 +277,10 @@ mod tests {
         assert_eq!(
             accelerator_for(&["cmd-q".to_string()]).as_deref(),
             Some("CmdOrCtrl+Q")
+        );
+        assert_eq!(
+            accelerator_for(&["cmdorctrl-shift-q".to_string()]).as_deref(),
+            Some("CmdOrCtrl+Shift+Q")
         );
         assert_eq!(
             accelerator_for(&["alt-f4".to_string()]).as_deref(),

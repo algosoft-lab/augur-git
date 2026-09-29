@@ -27,6 +27,7 @@ import {
   type RepoState
 } from '../../app/store';
 import { t } from '../../i18n/strings';
+import { hasOpenPopup, keysForCommand, matchesShortcut, moveListFocus } from '../../app/keyboard';
 
 interface Group {
   key: 'staged' | 'changes';
@@ -41,6 +42,7 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
   const selectWorkingFile = useStore((state) => state.selectWorkingFile);
   const openOverlay = useStore((state) => state.openOverlay);
   const [collapsed, setCollapsed] = useState<string[]>([]);
+  const shortcuts = useStore((state) => state.shortcuts);
 
   const busy = repo.busy;
   // The two groups are not exclusive: a partially staged file appears in both,
@@ -100,7 +102,12 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
           {total}
         </span>
       </div>
-      <div className="changes__scroll" data-testid="changes-scroll">
+      <div
+        className="changes__scroll"
+        data-keyboard-list="changes"
+        data-testid="changes-scroll"
+        onKeyDown={(event) => moveListFocus(event, shortcuts.resolved)}
+      >
         {groups.length === 0 ? (
           <div className="empty-state" style={{ minHeight: 120 }}>
             <span className="empty-state__message">{t(translate, 'changes-empty')}</span>
@@ -224,8 +231,30 @@ function FileRow({
     <ContextMenu testId={`changes-row-${file.path}`} entries={entries}>
       <div
         className={`file-row changes__row-group${selected ? ' is-selected' : ''}`}
+        tabIndex={0}
+        data-keyboard-list-item
         data-testid={`changes-file-${file.path}`}
-        onClick={onSelect}
+        onFocus={onSelect}
+        onClick={(event) => {
+          if (document.activeElement !== event.currentTarget) {
+            event.currentTarget.focus();
+          }
+        }}
+        onKeyDown={(event) => {
+          if (
+            hasOpenPopup() ||
+            !matchesShortcut(
+              event.nativeEvent,
+              keysForCommand(useStore.getState().shortcuts.resolved, 'changes.toggle-stage')
+            )
+          ) {
+            return;
+          }
+          event.preventDefault();
+          if (!event.repeat && !repo.busy && !conflicted) {
+            onOperate(staged ? 'unstage' : 'stage');
+          }
+        }}
         title={file.old_path ? `${file.old_path} → ${file.path}` : file.path}
       >
         <span className={`file-row__status status-${modifier}`}>

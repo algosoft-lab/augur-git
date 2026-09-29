@@ -1,14 +1,23 @@
 {
   "bindings": [
-    {
-      "command": "app.quit",
-      "keys": ["cmd-q"],
-      "platforms": ["macos"]
-    },
-    {
-      "command": "app.quit",
-      "keys": ["alt-f4"],
-      "platforms": ["windows", "linux"]
-    }
+    { "command": "app.quit", "keys": ["cmd-q"], "platforms": ["macos"] },
+    { "command": "app.quit", "keys": ["alt-f4"], "platforms": ["windows", "linux"] },
+    { "command": "repo.pull", "keys": ["p"] },
+    { "command": "repo.push", "keys": ["shift-p"] },
+    { "command": "repo.fetch", "keys": ["f"] },
+    { "command": "repo.refresh", "keys": ["shift-r"] },
+    { "command": "commit.focus", "keys": ["c"] },
+    { "command": "refs.checkout", "keys": ["space"] },
+    { "command": "commits.checkout", "keys": ["space"] },
+    { "command": "changes.toggle-stage", "keys": ["space"] },
+    { "command": "list.next", "keys": ["j", "down"] },
+    { "command": "list.previous", "keys": ["k", "up"] },
+    { "command": "graph.search", "keys": ["slash"] },
+    { "command": "diff.font-increase", "keys": ["ctrl-plus"], "platforms": ["windows", "linux"] },
+    { "command": "diff.font-increase", "keys": ["cmd-plus"], "platforms": ["macos"] },
+    { "command": "diff.font-decrease", "keys": ["ctrl-minus"], "platforms": ["windows", "linux"] },
+    { "command": "diff.font-decrease", "keys": ["cmd-minus"], "platforms": ["macos"] },
+    { "command": "diff.font-reset", "keys": ["ctrl-0"], "platforms": ["windows", "linux"] },
+    { "command": "diff.font-reset", "keys": ["cmd-0"], "platforms": ["macos"] }
   ]
 }

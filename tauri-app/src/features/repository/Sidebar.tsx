@@ -16,6 +16,7 @@ import type { ContextMenuEntry } from '../../components/controls';
 import { ContextMenu } from '../../components/controls';
 import type { RefsInfo } from '../../bridge/types';
 import { useStore, type RepoState } from '../../app/store';
+import { hasOpenPopup, keysForCommand, matchesShortcut, moveListFocus } from '../../app/keyboard';
 import { groupRemoteBranches } from './remoteGroups';
 import { t, ta } from '../../i18n/strings';
 
@@ -54,6 +55,7 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
   const runAction = useStore((state) => state.runAction);
   const openOverlay = useStore((state) => state.openOverlay);
   const setMessage = useStore((state) => state.setMessage);
+  const shortcuts = useStore((state) => state.shortcuts);
 
   const toggle = (key: string) => {
     setCollapsed((current) =>
@@ -215,7 +217,11 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
       <div className="panel-header" data-testid="sidebar-header">
         {t(translate, 'sidebar-repo')}
       </div>
-      <div className="sidebar__scroll">
+      <div
+        className="sidebar__scroll"
+        data-keyboard-list="refs"
+        onKeyDown={(event) => moveListFocus(event, shortcuts.resolved)}
+      >
         <Section
           sectionKey="branches"
           title={t(translate, 'section-branches')}
@@ -232,8 +238,21 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
               <button
                 type="button"
                 className={`ref-row${branch.is_head ? ' is-head' : ''}`}
+                data-keyboard-list-item
                 data-testid={`branch-${branch.name}`}
                 title={branch.name}
+                onKeyDown={(event) =>
+                  checkoutOnSpace(
+                    event,
+                    keysForCommand(shortcuts.resolved, 'refs.checkout'),
+                    !blocked && !branch.is_head,
+                    () =>
+                      runAction(repo.id, {
+                        action: 'checkout',
+                        target: { kind: 'localBranch', localBranch: branch.name }
+                      })
+                  )
+                }
                 onDoubleClick={() => {
                   if (!blocked && !branch.is_head) {
                     void runAction(repo.id, {
@@ -291,9 +310,25 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
                       <button
                         type="button"
                         className="ref-row"
+                        data-keyboard-list-item
                         style={{ paddingLeft: 20 }}
                         data-testid={`remote-branch-${entry.fullName}`}
                         title={entry.fullName}
+                        onKeyDown={(event) =>
+                          checkoutOnSpace(
+                            event,
+                            keysForCommand(shortcuts.resolved, 'refs.checkout'),
+                            !blocked,
+                            () =>
+                              runAction(repo.id, {
+                                action: 'checkout',
+                                target: {
+                                  kind: 'remoteBranch',
+                                  remoteBranch: entry.fullName
+                                }
+                              })
+                          )
+                        }
                         onDoubleClick={() => {
                           if (!blocked) {
                             void runAction(repo.id, {
@@ -327,8 +362,18 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
               <button
                 type="button"
                 className="ref-row"
+                data-keyboard-list-item
                 data-testid={`tag-row-${name}`}
                 title={name}
+                onKeyDown={(event) =>
+                  checkoutOnSpace(
+                    event,
+                    keysForCommand(shortcuts.resolved, 'refs.checkout'),
+                    !blocked,
+                    () =>
+                      runAction(repo.id, { action: 'checkout', target: { kind: 'tag', tag: name } })
+                  )
+                }
                 onDoubleClick={() => {
                   if (!blocked) {
                     void runAction(repo.id, {
@@ -361,8 +406,12 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
               <button
                 type="button"
                 className="ref-row"
+                data-keyboard-list-item
                 data-testid={`stash-row-${stash.reference}`}
                 title={stash.description}
+                onKeyDown={(event) => {
+                  if (event.key === ' ' && !hasOpenPopup()) event.preventDefault();
+                }}
                 onClick={() => {
                   void runAction(repo.id, { action: 'stashPop', stashRef: stash.reference });
                 }}
@@ -376,4 +425,20 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
       </div>
     </div>
   );
+}
+
+function checkoutOnSpace(
+  event: React.KeyboardEvent<HTMLElement>,
+  keys: string[],
+  allowed: boolean,
+  checkout: () => void
+): void {
+  if (hasOpenPopup() || !matchesShortcut(event.nativeEvent, keys)) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  if (!event.repeat && allowed) {
+    checkout();
+  }
 }

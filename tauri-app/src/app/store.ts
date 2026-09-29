@@ -609,7 +609,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       active_tab: null,
       layout: DEFAULT_LAYOUT
     },
-    shortcuts: { resolved: [], overrides: {} },
+    shortcuts: { resolved: [], defaults: [], overrides: {} },
     storePaths: [],
     locale: 'en-US',
     t: (key: string) => key,

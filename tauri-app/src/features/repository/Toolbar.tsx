@@ -21,8 +21,6 @@ export function Toolbar({ repo }: { repo: RepoState }) {
   const runAction = useStore((state) => state.runAction);
   const openOverlay = useStore((state) => state.openOverlay);
   const refresh = useStore((state) => state.refresh);
-  const pullAction = useStore((state) => state.config.view.pull_action);
-
   const hasRemote = repo.refs.remotes.length > 0;
   const blocked = repo.hasConflicts;
   const network = hasRemote && !repo.busy;
@@ -117,30 +115,14 @@ export function Toolbar({ repo }: { repo: RepoState }) {
         icon={<Icon name="download" />}
         disabled={!pull}
         testId="toolbar-pull"
-        onClick={() => {
-          if (pullAction === 'rebase') {
-            void preflightRebase(repo, null);
-            return;
-          }
-          void runAction(repo.id, { action: 'pullMerge' });
-        }}
+        onClick={() => triggerPull(repo)}
       />
       <ToolButton
         label={t(translate, 'toolbar-push')}
         icon={<Icon name="upload" />}
         disabled={!network}
         testId="toolbar-push"
-        onClick={() => {
-          if (shouldOfferUpstream(repo)) {
-            openOverlay({
-              kind: 'pushSetUpstream',
-              branch: repo.branch,
-              remote: defaultPushRemote(repo.refs.remotes)
-            });
-            return;
-          }
-          void runAction(repo.id, { action: 'push' });
-        }}
+        onClick={() => triggerPush(repo)}
       />
       <ToolButton
         label={t(translate, 'toolbar-push-force')}
@@ -193,6 +175,36 @@ export function shouldOfferUpstream(repo: RepoState): boolean {
 
 function defaultPushRemote(remotes: string[]): string {
   return remotes.includes('origin') ? 'origin' : (remotes[0] ?? 'origin');
+}
+
+/** Run the toolbar's Pull behavior from a keyboard command. */
+export function triggerPull(repo: RepoState): void {
+  if (repo.refs.remotes.length === 0 || repo.busy || repo.hasConflicts) {
+    return;
+  }
+  const store = useStore.getState();
+  if (store.config.view.pull_action === 'rebase') {
+    void preflightRebase(repo, null);
+  } else {
+    void store.runAction(repo.id, { action: 'pullMerge' });
+  }
+}
+
+/** Run the toolbar's Push behavior, including the missing-upstream prompt. */
+export function triggerPush(repo: RepoState): void {
+  if (repo.refs.remotes.length === 0 || repo.busy) {
+    return;
+  }
+  const store = useStore.getState();
+  if (shouldOfferUpstream(repo)) {
+    store.openOverlay({
+      kind: 'pushSetUpstream',
+      branch: repo.branch,
+      remote: defaultPushRemote(repo.refs.remotes)
+    });
+    return;
+  }
+  void store.runAction(repo.id, { action: 'push' });
 }
 
 /** Ask for a patch file and apply it. Plain `git apply` is atomic. */

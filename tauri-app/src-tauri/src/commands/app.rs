@@ -170,13 +170,29 @@ pub fn set_shortcut(
             format!("{command} is not a remappable command"),
         ));
     }
-    for key in keys.iter().flatten() {
-        if !keymap::is_valid_combo(key) {
-            return Err(CommandError::new(
-                "err-invalid-shortcut",
-                format!("{key} is not a valid key combination"),
-            ));
-        }
+    let keys = keys
+        .map(|keys| {
+            keys.into_iter()
+                .map(|key| {
+                    keymap::normalize_combo(&key).ok_or_else(|| {
+                        CommandError::new(
+                            "err-invalid-shortcut",
+                            format!("{key} is not a valid key combination"),
+                        )
+                    })
+                })
+                .collect::<Result<Vec<_>>>()
+        })
+        .transpose()?;
+    let persistence = state.persistence();
+    let mut user = keymap::file_from_overrides(&persistence.shortcuts());
+    keymap::set_user_command(&mut user, &command, keys.clone());
+    let resolved = keymap::resolve(&keymap::system_defaults(), &user, &keymap::COMMANDS);
+    if let Some((left, right, key)) = keymap::find_conflict(&resolved) {
+        return Err(CommandError::new(
+            "err-shortcut-conflict",
+            format!("{key} is assigned to both {left} and {right}"),
+        ));
     }
     state.update_settings(|settings| match keys {
         Some(keys) => {

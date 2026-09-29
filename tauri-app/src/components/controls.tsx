@@ -903,6 +903,10 @@ export interface VirtualListProps<T> {
   className?: string;
   testId?: string;
   empty?: ReactNode;
+  focusable?: boolean;
+  role?: React.AriaRole;
+  'aria-activedescendant'?: string;
+  onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
 }
 
 /**
@@ -920,7 +924,11 @@ export function VirtualList<T>({
   onViewportChange,
   className,
   testId,
-  empty
+  empty,
+  focusable = false,
+  role,
+  'aria-activedescendant': activeDescendant,
+  onKeyDown
 }: VirtualListProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -960,6 +968,10 @@ export function VirtualList<T>({
       className={`virtual-list${className ? ` ${className}` : ''}`}
       ref={containerRef}
       data-testid={testId}
+      tabIndex={focusable ? 0 : undefined}
+      role={role}
+      aria-activedescendant={activeDescendant}
+      onKeyDown={onKeyDown}
       onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
     >
       <div className="virtual-list__sizer" style={{ height: items.length * rowHeight }}>

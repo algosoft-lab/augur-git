@@ -167,8 +167,10 @@ impl Persistence {
     pub fn shortcut_state(&self) -> ShortcutState {
         let overrides = self.shortcuts();
         let user = keymap::file_from_overrides(&overrides);
+        let system = keymap::system_defaults();
         ShortcutState {
-            resolved: keymap::resolve(&keymap::system_defaults(), &user, &keymap::COMMANDS),
+            resolved: keymap::resolve(&system, &user, &keymap::COMMANDS),
+            defaults: keymap::resolve(&system, &keymap::ShortcutFile::default(), &keymap::COMMANDS),
             overrides,
         }
     }

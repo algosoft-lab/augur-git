@@ -555,6 +555,13 @@ button {
   background: var(--list-hover-background);
 }
 
+.ref-row:focus-visible,
+.file-row:focus-visible,
+.virtual-list:focus-visible {
+  outline: 1px solid var(--accent-background);
+  outline-offset: -1px;
+}
+
 .ref-row.is-selected {
   background: var(--list-active-background);
 }

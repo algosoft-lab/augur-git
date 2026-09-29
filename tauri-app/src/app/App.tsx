@@ -15,7 +15,10 @@ import { MainWindow } from '../features/shell/MainWindow';
 import { SettingsWindow } from '../features/settings/SettingsWindow';
 import { applyTheme } from '../styles/themes';
 import { useStore, type WindowRole } from './store';
+import { activeRepo } from './store';
 import { DEFAULT_THEME, DEFAULT_TYPOGRAPHY } from '../styles/themes';
+import { hasOpenPopup, keysForCommand, matchesShortcut } from './keyboard';
+import { triggerPull, triggerPush } from '../features/repository/Toolbar';
 
 interface WindowTarget {
   role: WindowRole;
@@ -138,6 +141,93 @@ export function App() {
       applyThemeFromState();
     }
   }, [ready, theme, typography]);
+
+  useEffect(() => {
+    if (!ready) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229) {
+        return;
+      }
+      const targetElement = event.target;
+      if (!(targetElement instanceof HTMLElement)) {
+        return;
+      }
+      const blockedTarget = (element: Element | null) =>
+        element?.closest(
+          'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"]'
+        );
+      if (blockedTarget(targetElement) || blockedTarget(document.activeElement) || hasOpenPopup()) {
+        return;
+      }
+      const state = useStore.getState();
+      if (state.overlay.kind !== 'none') {
+        return;
+      }
+      const matches = (command: string) =>
+        matchesShortcut(event, keysForCommand(state.shortcuts.resolved, command));
+
+      if (target.role === 'main') {
+        const repo = activeRepo(state);
+        if (matches('repo.pull')) {
+          event.preventDefault();
+          if (repo) triggerPull(repo);
+          return;
+        }
+        if (matches('repo.push')) {
+          event.preventDefault();
+          if (repo) triggerPush(repo);
+          return;
+        }
+        if (matches('repo.fetch')) {
+          event.preventDefault();
+          if (repo && repo.refs.remotes.length > 0 && !repo.busy) {
+            void state.runAction(repo.id, { action: 'fetch' });
+          }
+          return;
+        }
+        if (matches('repo.refresh')) {
+          event.preventDefault();
+          if (repo) void state.refresh(repo.id);
+          return;
+        }
+        if (matches('commit.focus')) {
+          event.preventDefault();
+          document.querySelector<HTMLTextAreaElement>('[data-testid="commit-message"]')?.focus();
+          return;
+        }
+        if (matches('graph.search') && targetElement.closest('[data-testid="graph-list"]')) {
+          event.preventDefault();
+          document.querySelector<HTMLInputElement>('[data-testid="commit-search"]')?.focus();
+          return;
+        }
+      }
+
+      if (target.role !== 'main' && target.role !== 'compare') {
+        return;
+      }
+      const typography = state.config.typography;
+      if (matches('diff.font-increase')) {
+        event.preventDefault();
+        if (typography.diff_font_size < 20) {
+          void state.setTypography({ diff_font_size: Math.min(20, typography.diff_font_size + 1) });
+        }
+      } else if (matches('diff.font-decrease')) {
+        event.preventDefault();
+        if (typography.diff_font_size > 12) {
+          void state.setTypography({ diff_font_size: Math.max(12, typography.diff_font_size - 1) });
+        }
+      } else if (matches('diff.font-reset')) {
+        event.preventDefault();
+        if (typography.diff_font_size !== 16) {
+          void state.setTypography({ diff_font_size: 16 });
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [ready, target.role]);
 
   if (fatal) {
     return (

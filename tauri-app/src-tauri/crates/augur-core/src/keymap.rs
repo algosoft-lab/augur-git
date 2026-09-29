@@ -21,6 +21,24 @@ pub const SYSTEM_DEFAULTS_JSON: &str = include_str!("../keymap.default.json");
 /// Command that quits the application.
 pub const QUIT_COMMAND: &str = "app.quit";
 
+pub const COMMANDS: [&str; 15] = [
+    QUIT_COMMAND,
+    "repo.pull",
+    "repo.push",
+    "repo.fetch",
+    "repo.refresh",
+    "commit.focus",
+    "refs.checkout",
+    "commits.checkout",
+    "changes.toggle-stage",
+    "list.next",
+    "list.previous",
+    "graph.search",
+    "diff.font-increase",
+    "diff.font-decrease",
+    "diff.font-reset",
+];
+
 /// User shortcut overrides, keyed by command id. Persisted beside the other
 /// settings so one document owns everything the settings page can change.
 pub type ShortcutOverrides = BTreeMap<String, Vec<String>>;
@@ -30,12 +48,12 @@ pub type ShortcutOverrides = BTreeMap<String, Vec<String>>;
 pub struct ShortcutState {
     /// System defaults merged with the user's overrides, for display.
     pub resolved: Vec<ResolvedShortcut>,
+    /// Shipped defaults, kept separate so settings can show what an override
+    /// replaces even after a user changes the active binding.
+    pub defaults: Vec<ResolvedShortcut>,
     /// The user's overrides only, so a reset can be written back.
     pub overrides: ShortcutOverrides,
 }
-
-/// Every command id the settings page can edit.
-pub const COMMANDS: [&str; 1] = [QUIT_COMMAND];
 
 /// The full set of shortcut bindings from one JSON document.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,31 +203,7 @@ pub fn file_from_overrides(overrides: &BTreeMap<String, Vec<String>>) -> Shortcu
 /// modifiers joined by `-` in `ctrl-alt-shift-meta` order, optionally followed
 /// by exactly one key.
 pub fn is_valid_combo(combo: &str) -> bool {
-    let combo = combo.trim();
-    if combo.is_empty() || combo.contains(char::is_whitespace) {
-        return false;
-    }
-    let mut parts = combo.split('-');
-    let Some(last) = parts.next_back() else {
-        return false;
-    };
-    if last.is_empty() {
-        return false;
-    }
-    let mut seen_modifier = false;
-    for part in parts {
-        match part {
-            "ctrl" | "control" => {
-                if seen_modifier {
-                    return false;
-                }
-                seen_modifier = true;
-            }
-            "alt" | "option" | "shift" | "meta" | "cmd" | "command" | "super" => {}
-            _ => return false,
-        }
-    }
-    true
+    normalize_combo(combo).is_some()
 }
 
 /// Split a user-entered combination into individual accelerators.
@@ -220,14 +214,191 @@ pub fn parse_combo_list(value: &str) -> Result<Vec<String>, String> {
         if combo.is_empty() {
             continue;
         }
-        if !is_valid_combo(combo) {
-            return Err(combo.to_string());
-        }
-        if !combos.iter().any(|seen: &String| seen == combo) {
-            combos.push(combo.to_string());
+        let Some(combo) = normalize_combo(combo) else {
+            return Err(part.trim().to_string());
+        };
+        if !combos.contains(&combo) {
+            combos.push(combo);
         }
     }
     Ok(combos)
+}
+
+/// Convert either the current hyphen form or the older Tauri-style plus form
+/// into the stable key names consumed by the webview.
+pub fn normalize_combo(combo: &str) -> Option<String> {
+    let combo = combo.trim();
+    if combo.is_empty() || combo.chars().any(char::is_whitespace) {
+        return None;
+    }
+    let legacy_plus_form = combo.contains('+');
+    let parts: Vec<String> = if combo.contains('+') {
+        combo.split('+').map(str::to_string).collect()
+    } else {
+        combo.split('-').map(str::to_string).collect()
+    };
+    let (key, modifiers) = parts.split_last()?;
+    let uppercase_key = !legacy_plus_form
+        && key.chars().count() == 1
+        && key.chars().next().is_some_and(char::is_uppercase);
+    let key = normalize_key_name(key)?;
+    let mut normalized: Vec<String> = Vec::new();
+    for modifier in modifiers {
+        let modifier = match modifier.to_ascii_lowercase().as_str() {
+            "ctrl" | "control" => "ctrl",
+            "cmd" | "command" | "super" => "cmd",
+            "cmdorctrl" | "commandorcontrol" => "cmdorctrl",
+            "alt" | "option" => "alt",
+            "shift" => "shift",
+            "meta" => "meta",
+            _ => return None,
+        };
+        if normalized.iter().any(|seen| seen == modifier) {
+            return None;
+        }
+        normalized.push(modifier.to_string());
+    }
+    if normalized.iter().any(|modifier| modifier == "ctrl")
+        && normalized.iter().any(|modifier| modifier == "cmdorctrl")
+    {
+        return None;
+    }
+    if normalized.iter().any(|modifier| modifier == "cmd")
+        && normalized.iter().any(|modifier| modifier == "cmdorctrl")
+    {
+        return None;
+    }
+    if uppercase_key && !normalized.iter().any(|modifier| modifier == "shift") {
+        normalized.push("shift".to_string());
+    }
+    normalized.sort_by_key(|modifier| match modifier.as_str() {
+        "ctrl" | "cmdorctrl" => 0,
+        "alt" => 1,
+        "shift" => 2,
+        "cmd" => 3,
+        "meta" => 4,
+        _ => 5,
+    });
+    normalized.push(key);
+    Some(normalized.join("-"))
+}
+
+fn normalize_key_name(key: &str) -> Option<String> {
+    let key = key.trim().to_ascii_lowercase();
+    if key.len() == 1 && key.as_bytes()[0].is_ascii_alphabetic() {
+        return Some(key);
+    }
+    if key.len() == 1 && key.as_bytes()[0].is_ascii_digit() {
+        return Some(key);
+    }
+    let key = match key.as_str() {
+        " " | "spacebar" => "space",
+        "esc" => "escape",
+        "return" => "enter",
+        "option" => "alt",
+        "=" => "equal",
+        "+" => "plus",
+        "-" => "minus",
+        "/" => "slash",
+        _ => key.as_str(),
+    };
+    if matches!(
+        key,
+        "space"
+            | "enter"
+            | "escape"
+            | "tab"
+            | "backspace"
+            | "delete"
+            | "insert"
+            | "home"
+            | "end"
+            | "pageup"
+            | "pagedown"
+            | "up"
+            | "down"
+            | "left"
+            | "right"
+            | "equal"
+            | "plus"
+            | "minus"
+            | "slash"
+    ) {
+        return Some(key.to_string());
+    }
+    if let Some(number) = key.strip_prefix('f')
+        && let Ok(number) = number.parse::<u8>()
+        && (1..=24).contains(&number)
+    {
+        return Some(format!("f{number}"));
+    }
+    None
+}
+
+/// Whether two active commands can receive the same key in the same UI
+/// context. The three Space actions are deliberately scoped to disjoint lists.
+pub fn find_conflict(shortcuts: &[ResolvedShortcut]) -> Option<(String, String, String)> {
+    for (index, left) in shortcuts.iter().enumerate() {
+        for right in shortcuts.iter().skip(index + 1) {
+            if !contexts_overlap(&left.command, &right.command) {
+                continue;
+            }
+            for key in &left.keys {
+                if right.keys.iter().any(|other| same_combo(key, other)) {
+                    return Some((left.command.clone(), right.command.clone(), key.clone()));
+                }
+            }
+        }
+    }
+    None
+}
+
+fn contexts_overlap(left: &str, right: &str) -> bool {
+    let global = |command: &str| {
+        matches!(
+            command,
+            "app.quit"
+                | "repo.pull"
+                | "repo.push"
+                | "repo.fetch"
+                | "repo.refresh"
+                | "commit.focus"
+                | "diff.font-increase"
+                | "diff.font-decrease"
+                | "diff.font-reset"
+        )
+    };
+    if global(left) || global(right) {
+        return true;
+    }
+    let context = |command: &str| match command {
+        "refs.checkout" => "refs",
+        "commits.checkout" | "graph.search" => "graph",
+        "changes.toggle-stage" => "changes",
+        "list.next" | "list.previous" => "lists",
+        _ => "unknown",
+    };
+    let left = context(left);
+    let right = context(right);
+    left == right
+        || left == "lists" && matches!(right, "refs" | "graph" | "changes")
+        || right == "lists" && matches!(left, "refs" | "graph" | "changes")
+}
+
+fn same_combo(left: &str, right: &str) -> bool {
+    match (normalize_combo(left), normalize_combo(right)) {
+        (Some(left), Some(right)) => effective_combo(&left) == effective_combo(&right),
+        _ => left.eq_ignore_ascii_case(right),
+    }
+}
+
+fn effective_combo(combo: &str) -> String {
+    let primary = if cfg!(target_os = "macos") {
+        "cmd"
+    } else {
+        "ctrl"
+    };
+    combo.replace("cmdorctrl-", &format!("{primary}-"))
 }
 
 #[cfg(test)]
@@ -334,5 +505,92 @@ mod tests {
         assert!(parse_combo_list("cmd-q, f5").is_ok());
         assert!(parse_combo_list("cmd-q, hyper-q").is_err());
         assert!(parse_combo_list("  ").unwrap().is_empty());
+        assert_eq!(parse_combo_list("P, ctrl++").unwrap_err(), "ctrl++");
+    }
+
+    #[test]
+    fn normalizes_case_legacy_accelerators_and_punctuation() {
+        assert_eq!(normalize_combo("P").as_deref(), Some("shift-p"));
+        assert_eq!(
+            normalize_combo("CmdOrCtrl+Q").as_deref(),
+            Some("cmdorctrl-q")
+        );
+        assert_eq!(
+            normalize_combo("CmdOrCtrl+Shift+Q").as_deref(),
+            Some("cmdorctrl-shift-q")
+        );
+        assert_eq!(normalize_combo("ctrl-plus").as_deref(), Some("ctrl-plus"));
+        assert_eq!(normalize_combo("cmd-minus").as_deref(), Some("cmd-minus"));
+        assert_eq!(normalize_combo("ctrl-down").as_deref(), Some("ctrl-down"));
+    }
+
+    #[test]
+    fn allows_the_shared_space_binding_only_across_disjoint_list_contexts() {
+        let shortcuts = vec![
+            ResolvedShortcut {
+                command: "refs.checkout".into(),
+                keys: vec!["space".into()],
+            },
+            ResolvedShortcut {
+                command: "commits.checkout".into(),
+                keys: vec!["space".into()],
+            },
+            ResolvedShortcut {
+                command: "changes.toggle-stage".into(),
+                keys: vec!["space".into()],
+            },
+        ];
+        assert!(find_conflict(&shortcuts).is_none());
+    }
+
+    #[test]
+    fn detects_conflicts_between_global_and_contextual_commands() {
+        let shortcuts = vec![
+            ResolvedShortcut {
+                command: "repo.pull".into(),
+                keys: vec!["space".into()],
+            },
+            ResolvedShortcut {
+                command: "refs.checkout".into(),
+                keys: vec!["space".into()],
+            },
+        ];
+        assert_eq!(
+            find_conflict(&shortcuts),
+            Some(("repo.pull".into(), "refs.checkout".into(), "space".into()))
+        );
+    }
+
+    #[test]
+    fn detects_conflicts_between_platform_aliases_and_explicit_modifiers() {
+        let primary = if cfg!(target_os = "macos") {
+            "cmd-q"
+        } else {
+            "ctrl-q"
+        };
+        let shortcuts = vec![
+            ResolvedShortcut {
+                command: QUIT_COMMAND.into(),
+                keys: vec!["CmdOrCtrl+Q".into()],
+            },
+            ResolvedShortcut {
+                command: "repo.pull".into(),
+                keys: vec![primary.into()],
+            },
+        ];
+        assert_eq!(
+            find_conflict(&shortcuts),
+            Some((
+                QUIT_COMMAND.into(),
+                "repo.pull".into(),
+                "CmdOrCtrl+Q".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn shipped_bindings_have_no_conflicts() {
+        let resolved = resolve(&system_defaults(), &ShortcutFile::default(), &COMMANDS);
+        assert_eq!(find_conflict(&resolved), None);
     }
 }

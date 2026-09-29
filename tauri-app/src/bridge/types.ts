@@ -114,6 +114,7 @@ export interface ResolvedShortcut {
 
 export interface ShortcutState {
   resolved: ResolvedShortcut[];
+  defaults: ResolvedShortcut[];
   overrides: Record<string, string[]>;
 }
 

@@ -10,6 +10,75 @@ import { boot, fixtureRepo, secondFixtureRepo } from './harness';
  */
 
 test.describe('comparison window', () => {
+  test('syncs diff typography with the main window and restores it after reload', async ({
+    page
+  }) => {
+    await boot(page, { open: [fixtureRepo()], macos: true });
+    const compare = await page.context().newPage();
+    const compareStub = await boot(compare, {
+      open: [fixtureRepo()],
+      window: 'compare',
+      repoId: 7,
+      macos: true
+    });
+
+    const prevented = await compare.evaluate(() =>
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: '+',
+          code: 'Equal',
+          metaKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true
+        })
+      )
+    );
+    expect(prevented).toBe(false);
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.documentElement.style.getPropertyValue('--diff-font-size'))
+      )
+      .toBe('17px');
+    await expect
+      .poll(() =>
+        compare.evaluate(() => document.documentElement.style.getPropertyValue('--diff-font-size'))
+      )
+      .toBe('17px');
+    expect(
+      (await compareStub.commands()).filter((entry) => entry.cmd === 'set_typography')
+    ).toHaveLength(1);
+
+    await compare.getByTestId('compare-toggle-Base').click();
+    await compare.getByTestId('compare-option-local-refs/heads/master').focus();
+    const popupKeyWasAllowed = await compare.evaluate(() =>
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: '+',
+          code: 'Equal',
+          metaKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true
+        })
+      )
+    );
+    expect(popupKeyWasAllowed).toBe(true);
+    await expect
+      .poll(() =>
+        compare.evaluate(() => document.documentElement.style.getPropertyValue('--diff-font-size'))
+      )
+      .toBe('17px');
+
+    await compare.reload();
+    await compare.waitForSelector('[data-testid="compare-window"]');
+    await expect
+      .poll(() =>
+        compare.evaluate(() => document.documentElement.style.getPropertyValue('--diff-font-size'))
+      )
+      .toBe('17px');
+  });
+
   test('names the panel in its own header', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()], window: 'compare', repoId: 7 });
     await expect(page.getByTestId('compare-window')).toBeVisible();
@@ -682,22 +751,23 @@ test.describe('settings window', () => {
     expect((views[0]!.args as any).view.pull_action).toBe('rebase');
   });
 
-  test('rejects an empty shortcut and accepts a real one', async ({ page }) => {
+  test('unbinds an empty shortcut and accepts a real one', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()], window: 'settings' });
 
     await page.getByTestId('settings-nav-shortcuts').click();
 
     await page.getByTestId('shortcut-app.quit').fill('');
     await page.getByTestId('shortcut-app.quit').press('Enter');
-    await expect(page.getByTestId('shortcut-error')).toBeVisible();
-    // Nothing was written, because the combination was refused.
-    expect((await stub.commands()).filter((e) => e.cmd === 'set_shortcut')).toHaveLength(0);
+    await expect(page.getByTestId('shortcut-error')).toHaveCount(0);
+    const unbound = (await stub.commands()).filter((e) => e.cmd === 'set_shortcut');
+    expect(unbound).toHaveLength(1);
+    expect((unbound[0]!.args as any).keys).toEqual([]);
 
     await page.getByTestId('shortcut-app.quit').fill('CmdOrCtrl+Shift+Q');
     await page.getByTestId('shortcut-app.quit').press('Enter');
     const written = (await stub.commands()).filter((e) => e.cmd === 'set_shortcut');
-    expect(written).toHaveLength(1);
-    expect((written[0]!.args as any).keys).toEqual(['CmdOrCtrl', 'Shift', 'Q']);
+    expect(written).toHaveLength(2);
+    expect((written[1]!.args as any).keys).toEqual(['cmdorctrl-shift-q']);
   });
 
   test('shows where the settings are stored', async ({ page }) => {
