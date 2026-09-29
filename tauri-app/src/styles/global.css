@@ -792,15 +792,20 @@ button {
 }
 
 /*
- * The hover preview, floating above the row. 360 pixels wide and capped at 320
- * tall, as in the reference, so a long body scrolls rather than covering the
- * list it is previewing.
+ * The hover preview, floating at the cursor. 360 pixels wide and capped at 320
+ * tall, as in the reference, so a long body stays a glance; the commit message
+ * dialog carries the full text.
+ *
+ * It renders fixed against the viewport through a document-body portal, because
+ * the virtual list's transformed window is the containing block for positioned
+ * descendants and used to displace the preview by the mounted depth.
+ * `pointer-events: none` keeps the hover on the row underneath, so the preview
+ * cannot cover the cursor and chase the row's own mouseleave.
  */
 .commit-preview {
-  position: absolute;
+  position: fixed;
   z-index: 60;
-  top: 100%;
-  left: 0;
+  pointer-events: none;
   display: flex;
   width: 360px;
   max-height: 320px;

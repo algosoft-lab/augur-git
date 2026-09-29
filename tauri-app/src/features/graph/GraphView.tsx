@@ -6,7 +6,8 @@
  * application exactly, and ref decorations are parsed there too.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
@@ -41,7 +42,7 @@ export function GraphView({ repo }: { repo: RepoState }) {
     graph: GraphRow[];
     labels: Record<string, RefLabel[]>;
   }>({ graph: [], labels: {} });
-  const [hovered, setHovered] = useState<string | null>(null);
+  const [hovered, setHovered] = useState<{ oid: string; x: number; y: number } | null>(null);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [showMessageDialog, setShowMessageDialog] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -303,7 +304,11 @@ export function GraphView({ repo }: { repo: RepoState }) {
                 selected={selected}
                 showsAuthor={showsAuthor}
                 showsMessage={showsMessage}
-                onHover={(value) => setHovered(value)}
+                onHover={(oid, x, y) =>
+                  setHovered(
+                    oid === null || x === undefined || y === undefined ? null : { oid, x, y }
+                  )
+                }
                 onCheckout={() => {
                   void runAction(repo.id, {
                     action: 'checkout',
@@ -325,7 +330,8 @@ export function GraphView({ repo }: { repo: RepoState }) {
                   setShowMessageDialog(row.oid);
                   void ipc.requestCommitMessage(repo.id, row.oid);
                 }}
-                hovered={hovered === row.oid}
+                hovered={hovered?.oid === row.oid}
+                anchor={hovered?.oid === row.oid ? { x: hovered.x, y: hovered.y } : null}
                 onSelect={() => selectGraphIndex(index, true)}
               />
             );
@@ -358,7 +364,8 @@ function GraphRowView({
   onCopyOid,
   onCopyMessage,
   onShowMessage,
-  hovered
+  hovered,
+  anchor
 }: {
   repo: RepoState;
   row: LogRow;
@@ -369,12 +376,13 @@ function GraphRowView({
   showsAuthor: boolean;
   showsMessage: boolean;
   onSelect: () => void;
-  onHover: (oid: string | null) => void;
+  onHover: (oid: string | null, x?: number, y?: number) => void;
   onCheckout: () => void;
   onCopyOid: () => void;
   onCopyMessage: () => void;
   onShowMessage: () => void;
   hovered: boolean;
+  anchor: { x: number; y: number } | null;
 }) {
   const translate = useStore((state) => state.t);
   const geometry: LaneGeometry | null = graphRow
@@ -443,9 +451,8 @@ function GraphRowView({
         aria-selected={selected}
         data-keyboard-list-item
         data-testid={`graph-row-${row.short}`}
-        title={row.subject}
         onClick={onSelect}
-        onMouseEnter={() => onHover(row.oid)}
+        onMouseEnter={(event) => onHover(row.oid, event.clientX, event.clientY)}
         onMouseLeave={() => onHover(null)}
       >
         {geometry ? (
@@ -460,11 +467,7 @@ function GraphRowView({
          * date is always shown, because the threshold for the message column
          * already accounts for it.
          */}
-        {showsMessage ? (
-          <span className="graph-row__subject" title={row.subject}>
-            {row.subject}
-          </span>
-        ) : null}
+        {showsMessage ? <span className="graph-row__subject">{row.subject}</span> : null}
         {labels.length ? (
           <span className="graph-row__chips">
             {labels.map((label) => (
@@ -477,18 +480,13 @@ function GraphRowView({
             ))}
           </span>
         ) : null}
-        {showsAuthor ? (
-          <span className="graph-row__author" title={row.author}>
-            {row.author}
-          </span>
-        ) : null}
-        <span className="graph-row__date" title={row.date}>
-          {relative}
-        </span>
+        {showsAuthor ? <span className="graph-row__author">{row.author}</span> : null}
+        <span className="graph-row__date">{relative}</span>
       </div>
-      {hovered ? (
+      {hovered && anchor ? (
         <CommitHoverPreview
           row={row}
+          anchor={anchor}
           message={repo.commitMessages[row.oid]}
           onRequest={() => {
             void ipc.requestCommitMessage(repo.id, row.oid);
@@ -505,25 +503,64 @@ function GraphRowView({
  * It appears on the first hover rather than the second: the hover is what asks
  * the backend for the message, and until it arrives the preview says it is
  * loading rather than showing nothing at all.
+ *
+ * The preview portals to the document body, like the context menu: rows live
+ * inside the virtual list's transformed window, and a transformed ancestor is
+ * the containing block for positioned descendants, which used to displace the
+ * preview by the mounted depth instead of anchoring it at the cursor. The row
+ * carries no `title` either, so the webview tooltip cannot double the preview.
  */
 function CommitHoverPreview({
   row,
+  anchor,
   message,
   onRequest
 }: {
   row: LogRow;
+  anchor: { x: number; y: number };
   message: NonNullable<RepoState['commitMessages'][string]> | undefined;
   onRequest: () => void;
 }) {
   const translate = useStore((state) => state.t);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState(anchor);
   useEffect(() => {
     if (!message) {
       onRequest();
     }
   }, [message, onRequest]);
 
-  return (
-    <div className="commit-preview" data-testid="commit-preview">
+  // The preview's real size is only known once it has mounted, so the clamp
+  // runs after layout: pull the right edge in and flip up at the bottom edge,
+  // the way the context menu does.
+  useLayoutEffect(() => {
+    if (!previewRef.current) {
+      return;
+    }
+    const rect = previewRef.current.getBoundingClientRect();
+    const margin = 8;
+    const x =
+      anchor.x + rect.width > window.innerWidth - margin
+        ? Math.max(margin, window.innerWidth - rect.width - margin)
+        : anchor.x;
+    const y =
+      anchor.y + rect.height > window.innerHeight - margin
+        ? Math.max(margin, window.innerHeight - rect.height - margin)
+        : anchor.y;
+    if (x !== position.x || y !== position.y) {
+      setPosition({ x, y });
+    }
+  }, [anchor, position]);
+
+  return createPortal(
+    // Portaled so the virtual list's transformed window cannot become this
+    // fixed preview's containing block and displace it.
+    <div
+      className="commit-preview"
+      data-testid="commit-preview"
+      ref={previewRef}
+      style={{ left: position.x, top: position.y }}
+    >
       <div className="commit-preview__label" data-testid="commit-preview-label">
         {t(translate, 'commit-message-preview')}
       </div>
@@ -562,7 +599,8 @@ function CommitHoverPreview({
         <span className="muted">{ta(translate, 'commit-author', { author: row.author })}</span>
         <span className="muted">{ta(translate, 'commit-date', { date: row.date })}</span>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

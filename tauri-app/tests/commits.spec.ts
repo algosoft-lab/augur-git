@@ -423,7 +423,7 @@ test.describe('commit selection', () => {
 
     // The first fully visible row after that scroll. Rows are matched by
     // subject because DOM order is the rendered window, not the item index.
-    const row = page.locator('.graph-row[title="Long history commit 74"]');
+    const row = page.locator('.graph-row', { hasText: 'Long history commit 74' });
     await expect(row).toBeVisible();
     const box = (await row.boundingBox())!;
     const cursor = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
@@ -441,7 +441,10 @@ test.describe('commit selection', () => {
     // pointer coordinates, and no graph row sits near the window bottom in the
     // default layout.
     await page.evaluate(() => {
-      document.querySelector('.graph-row[title="Long history commit 74"]')?.dispatchEvent(
+      const row = [...document.querySelectorAll<HTMLElement>('.graph-row')].find((element) =>
+        element.textContent?.includes('Long history commit 74')
+      );
+      row?.dispatchEvent(
         new MouseEvent('contextmenu', {
           bubbles: true,
           cancelable: true,
@@ -455,6 +458,31 @@ test.describe('commit selection', () => {
       .toBeLessThanOrEqual(792);
     const flipped = (await menu.boundingBox())!;
     expect(flipped.y).toBeLessThan(780);
+  });
+
+  test('previews a commit at the cursor after scrolling deep', async ({ page }) => {
+    await boot(page, { open: [longFixtureRepo()] });
+
+    // A deep scroll used to fling the preview far below the hovered row: it
+    // was absolutely positioned against the virtual list's transformed window
+    // instead of the viewport.
+    const list = page.getByTestId('graph-list');
+    await list.evaluate((element) => {
+      element.scrollTop = 72 * 36;
+    });
+    await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(72 * 36);
+
+    const row = page.locator('.graph-row', { hasText: 'Long history commit 74' });
+    await expect(row).toBeVisible();
+    const box = (await row.boundingBox())!;
+    const cursor = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    await page.mouse.move(cursor.x, cursor.y);
+
+    const preview = page.getByTestId('commit-preview');
+    await expect(preview).toBeVisible();
+    const previewBox = (await preview.boundingBox())!;
+    expect(Math.abs(previewBox.x - cursor.x)).toBeLessThanOrEqual(2);
+    expect(Math.abs(previewBox.y - cursor.y)).toBeLessThanOrEqual(2);
   });
 
   test("copies a commit's diff from the button and the keyboard", async ({ page }) => {
