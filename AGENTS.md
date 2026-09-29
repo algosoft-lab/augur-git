@@ -1,10 +1,16 @@
 # Repository instructions
 
-This repository contains two independently maintained desktop applications:
-the primary Tauri application in `tauri-app/` and the GPUI application in
-`gpui-app/`. They share no application source, assets, dependency manifests,
-lock files, build configuration, or runtime configuration. Do not add cross-
-directory dependencies or configuration import paths.
+This repository contains two independent desktop applications: the primary
+Tauri application in `tauri-app/`, which is under active development, and the
+legacy GPUI application in `gpui-app/`. They share no application source,
+assets, dependency manifests, lock files, build configuration, or runtime
+configuration. Do not add cross-directory dependencies or configuration
+import paths.
+
+Unless a request explicitly names the GPUI application, interpret application
+development, feature, and bug-fix requests as targeting the Tauri application.
+Treat GPUI as legacy and make changes to it only when the request explicitly
+asks for the GPUI version.
 
 Use each application's own README and nested `AGENTS.md` for its commands,
 architecture, and implementation rules. Keep application changes within that

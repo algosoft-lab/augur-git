@@ -1,5 +1,10 @@
 # Augur Git GPUI
 
+> **Legacy application:** active development is focused on the
+> [Tauri application](../tauri-app/README.md). This GPUI implementation is
+> retained for reference and existing users; changes to it should be made only
+> when a request explicitly asks for the GPUI version.
+
 <p align="center">
   <img src="assets/augur-git-logo-lockup.svg" alt="augur-git logo" width="360">
 </p>
