@@ -17,13 +17,7 @@ import type { GraphRow, LogRow, RefLabel } from '../../bridge/types';
 import { useStore, type RepoState } from '../../app/store';
 import { LANE_COLORS } from '../../styles/themes';
 import { t, ta } from '../../i18n/strings';
-import {
-  COL_WIDTH,
-  GRAPH_LEFT_PAD,
-  GraphSvg,
-  ROW_HEIGHT,
-  type LaneGeometry
-} from './GraphSvg';
+import { COL_WIDTH, GRAPH_LEFT_PAD, GraphSvg, ROW_HEIGHT, type LaneGeometry } from './GraphSvg';
 import { filterCommits, type CommitSearchField } from './commitSearch';
 
 /** Rows from the end of the list that trigger the next page request. */
@@ -333,8 +327,14 @@ function GraphRowView({
         hasIncoming: graphRow.has_incoming,
         nodeInputLanes: graphRow.node_input_lanes,
         parentLanes: graphRow.parent_lanes,
-        inputColors: graphRow.input_lanes.map((lane) => lane.color_index),
-        outputColors: graphRow.output_lanes.map((lane) => lane.color_index)
+        inputLanes: graphRow.input_lanes.map((lane) => ({
+          oid: lane.oid,
+          colorIndex: lane.color_index
+        })),
+        outputLanes: graphRow.output_lanes.map((lane) => ({
+          oid: lane.oid,
+          colorIndex: lane.color_index
+        }))
       }
     : null;
 
