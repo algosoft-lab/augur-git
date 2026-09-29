@@ -115,7 +115,6 @@ export function TitleBar({
       data-testid="title-bar"
       onMouseDown={handleTitleBarMouseDown}
     >
-      {IS_MACOS ? <WindowControls flushBeforeClose macosStyle /> : null}
       {!IS_MACOS ? (
         <Menu items={menuItems} testId="menu-file">
           <button

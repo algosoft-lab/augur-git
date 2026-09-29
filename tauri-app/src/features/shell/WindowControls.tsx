@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -10,60 +10,16 @@ export const IS_MACOS = typeof navigator !== 'undefined' && /Mac/i.test(navigato
 
 export function WindowControls({
   flushBeforeClose = false,
-  maximize = true,
-  macosStyle = false
+  maximize = true
 }: {
   flushBeforeClose?: boolean;
   /** Hide the maximize button on a window the backend keeps at a fixed size. */
   maximize?: boolean;
-  /** Render macOS traffic-light controls for the undecorated main window. */
-  macosStyle?: boolean;
 }) {
   const translate = useStore((state) => state.t);
   const [maximized, setMaximized] = useState(false);
 
-  useEffect(() => {
-    if (!macosStyle || !maximize) {
-      return;
-    }
-
-    const window = getCurrentWindow();
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    const update = () => {
-      void window
-        .isMaximized()
-        .then((value) => {
-          if (!disposed) {
-            setMaximized(value);
-          }
-        })
-        .catch((error: unknown) => {
-          console.warn('[window] failed to read maximize state', error);
-        });
-    };
-
-    update();
-    void window
-      .onResized(update)
-      .then((stop) => {
-        if (disposed) {
-          stop();
-        } else {
-          unlisten = stop;
-        }
-      })
-      .catch((error: unknown) => {
-        console.warn('[window] failed to listen for resize events', error);
-      });
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [macosStyle, maximize]);
-
-  if (IS_MACOS && !macosStyle) {
+  if (IS_MACOS) {
     return null;
   }
 
@@ -79,37 +35,6 @@ export function WindowControls({
     await window.toggleMaximize();
     setMaximized(await window.isMaximized());
   };
-
-  if (macosStyle) {
-    return (
-      <div className="window-controls window-controls--macos" data-testid="window-controls">
-        <button
-          type="button"
-          className="window-controls__button window-controls__button--macos window-controls__button--macos-close"
-          title={t(translate, 'window-close')}
-          aria-label={t(translate, 'window-close')}
-          data-testid="window-close"
-          onClick={() => void closeWindow()}
-        />
-        <button
-          type="button"
-          className="window-controls__button window-controls__button--macos window-controls__button--macos-minimize"
-          title={t(translate, 'window-minimize')}
-          aria-label={t(translate, 'window-minimize')}
-          data-testid="window-minimize"
-          onClick={() => void getCurrentWindow().minimize()}
-        />
-        <button
-          type="button"
-          className="window-controls__button window-controls__button--macos window-controls__button--macos-maximize"
-          title={t(translate, maximized ? 'window-restore' : 'window-maximize')}
-          aria-label={t(translate, maximized ? 'window-restore' : 'window-maximize')}
-          data-testid="window-toggle-maximize"
-          onClick={() => void toggleMaximize()}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="window-controls" data-testid="window-controls">

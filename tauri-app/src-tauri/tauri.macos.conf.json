@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Augur Git Tauri",
+        "url": "index.html?window=main",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 860,
+        "minHeight": 480,
+        "resizable": true,
+        "decorations": true,
+        "fullscreen": false,
+        "visible": true,
+        "dragDropEnabled": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ]
+  }
+}

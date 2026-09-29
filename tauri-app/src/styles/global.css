@@ -189,46 +189,6 @@ button {
   color: #fff;
 }
 
-.window-controls--macos {
-  height: 24px;
-  align-items: center;
-  gap: 5px;
-  margin: 0 2px 0 0;
-}
-
-.window-controls__button--macos {
-  position: relative;
-  width: 20px;
-  height: 24px;
-  border-radius: 4px;
-  color: rgb(0 0 0 / 68%);
-}
-
-.window-controls__button--macos::before {
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  border: 1px solid rgb(0 0 0 / 14%);
-  border-radius: 50%;
-  content: '';
-}
-
-.window-controls__button--macos-close::before {
-  background: #ff5f57;
-}
-
-.window-controls__button--macos-minimize::before {
-  background: #febc2e;
-}
-
-.window-controls__button--macos-maximize::before {
-  background: #28c840;
-}
-
-.window-controls__button--macos:hover::before {
-  filter: brightness(0.94);
-}
-
 .window-titlebar {
   display: flex;
   min-width: 0;
@@ -249,6 +209,10 @@ button {
 }
 
 .window-titlebar--macos {
+  padding-left: 78px;
+}
+
+.title-bar--macos {
   padding-left: 78px;
 }
 
