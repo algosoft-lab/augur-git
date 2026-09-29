@@ -785,3 +785,20 @@ async function expectChangeMarkStyle(
   expect(colors?.accent).toBe(colors?.expected);
   expect(colors?.markedText).toBe(colors?.plainText);
 }
+
+test.describe('commit message editor', () => {
+  test('offers the last commit message from the mode menu once Amend is chosen', async ({
+    page
+  }) => {
+    await boot(page, { open: [fixtureRepo()] });
+
+    // A plain commit has nothing to reuse, so the item is present but inert.
+    await page.getByTestId('commit-mode-trigger').click();
+    await expect(page.getByTestId('commit-mode-fill-last-message')).toBeDisabled();
+    await page.getByTestId('commit-mode-amend').click();
+
+    await page.getByTestId('commit-mode-trigger').click();
+    await page.getByTestId('commit-mode-fill-last-message').click();
+    await expect(page.getByTestId('commit-message')).toHaveValue('Add the Tauri command surface');
+  });
+});

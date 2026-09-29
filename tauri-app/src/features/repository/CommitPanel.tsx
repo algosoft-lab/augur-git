@@ -75,6 +75,13 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
           kind: 'commit',
           amend: preference === 'amend'
         })
+    },
+    {
+      id: 'fill-last-message',
+      label: t(translate, 'commit-fill-last-message'),
+      icon: <Icon name="copy" size={12} />,
+      disabled: repo.busy || !canFillLastMessage,
+      onSelect: () => setMessageText(lastCommitMessage)
     }
   ];
 
@@ -98,18 +105,6 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
           onEscape={() => setMessageText('')}
           testId="commit-message"
         />
-        {canFillLastMessage ? (
-          <button
-            type="button"
-            className="tool-button tool-button--compact commit-panel__fill-message"
-            disabled={repo.busy}
-            data-testid="commit-fill-last-message"
-            onClick={() => setMessageText(lastCommitMessage)}
-          >
-            <Icon name="copy" size={11} />
-            {t(translate, 'commit-fill-last-message')}
-          </button>
-        ) : null}
         <div className="commit-panel__actions">
           <button
             type="button"

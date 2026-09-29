@@ -1271,11 +1271,6 @@ button {
   gap: 4px;
 }
 
-.commit-panel__fill-message {
-  align-self: flex-end;
-  color: var(--muted-foreground);
-}
-
 .commit-panel__actions {
   display: flex;
   align-items: stretch;
@@ -2395,9 +2390,5 @@ button {
   .sidecar__commit .text-area textarea {
     min-height: 36px;
     max-height: 64px;
-  }
-
-  .sidecar__commit .commit-panel__fill-message {
-    display: none;
   }
 }
