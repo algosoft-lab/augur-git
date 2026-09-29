@@ -127,6 +127,7 @@ export interface StubOptions {
   /** Strategy the toolbar Pull button uses. */
   pullAction?: 'merge' | 'rebase';
   diffLayout?: 'inline' | 'side-by-side';
+  showUntracked?: boolean;
 }
 
 export const DEFAULT_OPTIONS: StubOptions = {
@@ -187,6 +188,7 @@ function install(
     commitDiffFailurePaths?: string[];
     commitDiffDelay?: number;
     commitDiffNeverResponds?: boolean;
+    showUntracked?: boolean;
     refusals?: Record<string, { key: string; detail: string }>;
     layout?: Partial<{
       sidebar_width: number;
@@ -234,7 +236,7 @@ function install(
     theme: 'claude-dark',
     language: 'system',
     view: {
-      show_untracked: true,
+      show_untracked: options.showUntracked ?? true,
       auto_follow: true,
       diff_layout: options.diffLayout ?? 'inline',
       graph_history: 'all-branches',

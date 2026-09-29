@@ -1323,6 +1323,41 @@ button {
   overflow-y: auto;
 }
 
+.changes__summary {
+  display: flex;
+  height: 22px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.625);
+}
+
+.changes__summary-files {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted-foreground);
+}
+
+.changes__summary-lines {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono-font-family);
+  white-space: nowrap;
+}
+
+.changes__summary-unavailable {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+  font-family: var(--mono-font-family);
+}
+
 .changes__section-header {
   display: flex;
   width: 100%;
@@ -1346,10 +1381,6 @@ button {
   font-weight: 600;
   color: var(--foreground);
   text-align: left;
-}
-
-.changes__section-count {
-  font-size: calc(var(--ui-font-size) * 0.625);
 }
 
 .changes__row-group:hover .icon-button-slot {

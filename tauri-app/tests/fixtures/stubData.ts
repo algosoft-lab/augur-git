@@ -58,7 +58,7 @@ export function fixtureRepo(): StubRepo {
         { index: 'M', worktree: 'M', path: 'src/partial.rs', old_path: null },
         { index: 'A', worktree: ' ', path: 'src/git/worker.rs', old_path: null },
         { index: ' ', worktree: 'M', path: 'src/git/graph.rs', old_path: null },
-        { index: ' ', worktree: '?', path: 'notes.md', old_path: null },
+        { index: '?', worktree: '?', path: 'notes.md', old_path: null },
         { index: 'R', worktree: 'R', path: 'src/old.rs', old_path: 'src/new.rs' },
         {
           index: 'U',
@@ -67,6 +67,11 @@ export function fixtureRepo(): StubRepo {
           old_path: null
         }
       ],
+      diff_stats: {
+        staged: { added: 12, deleted: 3 },
+        unstaged: { added: 8, deleted: 4 },
+        untracked: { added: 5, deleted: 0 }
+      },
       branches: [
         { name: 'master', is_head: true },
         { name: 'feature/tauri', is_head: false },

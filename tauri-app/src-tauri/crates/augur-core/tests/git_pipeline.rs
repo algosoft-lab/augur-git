@@ -21,8 +21,8 @@ use std::time::{Duration, Instant};
 
 use augur_core::diff::{DiffDocument, FileChangeStatus};
 use augur_core::git::{
-    CompareRevision, CompareRevisionKind, FileStatus, GitEvent, GitHandle, GitRepo, LogScope,
-    WorkingTreeDiffKind,
+    CompareRevision, CompareRevisionKind, DiffLineStats, FileStatus, GitEvent, GitHandle, GitRepo,
+    LogScope, WorkingTreeDiffKind,
 };
 use augur_core::graph::compute_graph;
 
@@ -186,6 +186,7 @@ fn a_refresh_reports_the_real_repository() {
         head,
         upstream,
         files,
+        diff_stats,
         branches,
         ahead,
         behind,
@@ -206,12 +207,26 @@ fn a_refresh_reports_the_real_repository() {
         .expect("the modified file");
     assert!(modified.has_worktree_changes());
     assert!(!modified.has_staged_changes());
+    assert_eq!(
+        diff_stats.unstaged,
+        Some(DiffLineStats {
+            added: 1,
+            deleted: 1
+        })
+    );
 
     let untracked = files
         .iter()
         .find(|file: &&FileStatus| file.path == "notes.md")
         .expect("the untracked file");
     assert!(untracked.is_untracked());
+    assert_eq!(
+        diff_stats.untracked,
+        Some(DiffLineStats {
+            added: 1,
+            deleted: 0
+        })
+    );
 
     let main = branches
         .iter()
@@ -222,6 +237,57 @@ fn a_refresh_reports_the_real_repository() {
         branches.iter().any(|entry| entry.name == "topic"),
         "the second branch is listed"
     );
+}
+
+#[test]
+fn status_diff_stats_separate_staged_unstaged_untracked_and_binary_changes() {
+    require_git!();
+    let mut sandbox = Sandbox::new().expect("sandbox");
+
+    sandbox
+        .write("src/main.rs", "fn main() {\n    let count = 1;\n}\n")
+        .unwrap();
+    sandbox.git_ok(&["add", "src/main.rs"]);
+    sandbox
+        .write("src/main.rs", "fn main() {\n    let count = 2;\n}\n")
+        .unwrap();
+    sandbox.write("notes.md", "first\nsecond\n").unwrap();
+    std::fs::write(sandbox.path.join("image.png"), b"\0\xFF\0")
+        .expect("binary fixture should be writable");
+
+    sandbox.open();
+    let status = sandbox
+        .wait_for(|event| matches!(event, GitEvent::Status { .. }))
+        .expect("a status snapshot with diff totals");
+    let GitEvent::Status {
+        files, diff_stats, ..
+    } = status
+    else {
+        unreachable!()
+    };
+
+    assert_eq!(
+        diff_stats.staged,
+        Some(DiffLineStats {
+            added: 1,
+            deleted: 1
+        })
+    );
+    assert_eq!(
+        diff_stats.unstaged,
+        Some(DiffLineStats {
+            added: 1,
+            deleted: 1
+        })
+    );
+    assert_eq!(
+        diff_stats.untracked,
+        Some(DiffLineStats {
+            added: 2,
+            deleted: 0
+        })
+    );
+    assert!(files.iter().any(|file| file.path == "image.png"));
 }
 
 #[test]

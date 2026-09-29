@@ -135,6 +135,17 @@ export interface FileStatus {
   old_path: string | null;
 }
 
+export interface DiffLineStats {
+  added: number;
+  deleted: number;
+}
+
+export interface WorkingTreeDiffStats {
+  staged: DiffLineStats | null;
+  unstaged: DiffLineStats | null;
+  untracked: DiffLineStats | null;
+}
+
 export interface BranchInfo {
   name: string;
   is_head: boolean;
@@ -324,6 +335,7 @@ export type RepoEvent =
       ahead: number;
       behind: number;
       files: FileStatus[];
+      diff_stats: WorkingTreeDiffStats;
       branches: BranchInfo[];
     }
   | { type: 'logPage'; rows: LogRow[]; replace: boolean; hasMore: boolean }

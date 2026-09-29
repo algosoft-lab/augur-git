@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { codeFor, isConflicted, isStaged, isUntracked } from '../app/repoState';
+import { codeFor, groupFiles, isConflicted, isStaged, isUntracked } from '../app/repoState';
 import type { FileStatus } from '../bridge/types';
 
 function file(index: string, worktree: string, path = 'src/main.rs'): FileStatus {
@@ -18,6 +18,23 @@ describe('porcelain status classification', () => {
   it('recognizes an untracked file', () => {
     expect(isUntracked(file('?', '?'))).toBe(true);
     expect(isUntracked(file('?', 'M'))).toBe(false);
+  });
+
+  it('hides untracked files when the preference is disabled', () => {
+    const files = [
+      file(' ', 'M', 'tracked.rs'),
+      file('?', '?', 'new.rs'),
+      file('U', 'U', 'merge.rs')
+    ];
+    expect(groupFiles(files, false).unstaged.map((entry) => entry.path)).toEqual([
+      'tracked.rs',
+      'merge.rs'
+    ]);
+    expect(groupFiles(files, true).unstaged.map((entry) => entry.path)).toEqual([
+      'tracked.rs',
+      'new.rs',
+      'merge.rs'
+    ]);
   });
 
   it('recognizes every unmerged spelling', () => {

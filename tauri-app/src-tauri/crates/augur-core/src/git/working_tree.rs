@@ -6,12 +6,111 @@ use std::path::{Component, Path};
 use std::process::Stdio;
 use std::sync::mpsc::Sender;
 
-use crate::diff::is_binary_patch;
+use crate::diff::{is_binary_patch, parse_numstat_z};
 
 use super::{
-    FileStatus, GitEvent, GitRepo, MAX_BLOB_SIZE, RepoLocation, WorkingTreeAction,
-    WorkingTreeDiffKind, WorkingTreeScope, read_blob_spec,
+    DiffLineStats, FileStatus, GitEvent, GitRepo, MAX_BLOB_SIZE, RepoLocation, WorkingTreeAction,
+    WorkingTreeDiffKind, WorkingTreeDiffStats, WorkingTreeScope, read_blob_spec,
 };
+
+/// Read line totals for the index, tracked worktree, and untracked files.
+///
+/// Each category is independent: a failed query leaves that category unknown
+/// without hiding the file list or valid totals from the other categories.
+pub(super) fn read_diff_stats(repo: &GitRepo, files: &[FileStatus]) -> WorkingTreeDiffStats {
+    let staged = read_numstat(repo, true);
+    let unstaged = read_numstat(repo, false);
+    let untracked_files: Vec<_> = files.iter().filter(|file| file.is_untracked()).collect();
+    let untracked = if untracked_files.is_empty() {
+        Some(DiffLineStats::default())
+    } else {
+        let mut total = DiffLineStats::default();
+        let mut complete = true;
+        for file in untracked_files {
+            match read_untracked_numstat(repo, &file.path) {
+                Some(stats) => add_stats(&mut total, stats),
+                None => {
+                    complete = false;
+                    break;
+                }
+            }
+        }
+        complete.then_some(total)
+    };
+
+    WorkingTreeDiffStats {
+        staged,
+        unstaged,
+        untracked,
+    }
+}
+
+fn read_numstat(repo: &GitRepo, staged: bool) -> Option<DiffLineStats> {
+    let mut command = repo.command();
+    command.args(["--no-optional-locks", "-C", repo.path(), "diff"]);
+    if staged {
+        command.arg("--cached");
+    }
+    let output = command
+        .args(["--no-ext-diff", "--find-renames", "--numstat", "-z"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        log::warn!(
+            "[git_worktree] failed to read {} diff statistics: status={:?}",
+            if staged { "staged" } else { "unstaged" },
+            output.status.code()
+        );
+        return None;
+    }
+    Some(sum_numstat(&output.stdout))
+}
+
+fn read_untracked_numstat(repo: &GitRepo, path: &str) -> Option<DiffLineStats> {
+    let output = repo
+        .command()
+        .args([
+            "--no-optional-locks",
+            "-C",
+            repo.path(),
+            "diff",
+            "--no-index",
+            "--no-ext-diff",
+            "--numstat",
+            "-z",
+            "--",
+            "/dev/null",
+            path,
+        ])
+        .output()
+        .ok()?;
+    let is_diff_result = output.status.success() || output.status.code() == Some(1);
+    if !is_diff_result || !output.stderr.is_empty() {
+        log::warn!(
+            "[git_worktree] failed to read untracked diff statistics: status={:?}",
+            output.status.code()
+        );
+        return None;
+    }
+    Some(sum_numstat(&output.stdout))
+}
+
+fn sum_numstat(data: &[u8]) -> DiffLineStats {
+    parse_numstat_z(data)
+        .into_iter()
+        .fold(DiffLineStats::default(), |mut total, file| {
+            if let (Some(added), Some(deleted)) = (file.added, file.deleted) {
+                total.added = total.added.saturating_add(added);
+                total.deleted = total.deleted.saturating_add(deleted);
+            }
+            total
+        })
+}
+
+fn add_stats(total: &mut DiffLineStats, next: DiffLineStats) {
+    total.added = total.added.saturating_add(next.added);
+    total.deleted = total.deleted.saturating_add(next.deleted);
+}
 
 /// Build the regular working-tree diff command for one status entry.
 pub(super) fn working_tree_diff_args(
@@ -554,13 +653,35 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::{
-        GitRepo, apply_operation, clean_probe_is_directory, deduplicate, validate_status_path,
+        GitRepo, apply_operation, clean_probe_is_directory, deduplicate, read_numstat,
+        read_untracked_numstat, sum_numstat, validate_status_path,
     };
-    use crate::git::{FileStatus, WorkingTreeAction, WorkingTreeScope};
+    use crate::git::{DiffLineStats, FileStatus, WorkingTreeAction, WorkingTreeScope};
 
     /// Plain git for test fixtures; worker commands go through `GitRepo`.
     fn git_command() -> Command {
         Command::new("git")
+    }
+
+    #[test]
+    fn numstat_totals_sum_text_and_skip_binary_counts() {
+        assert_eq!(
+            sum_numstat(b"3\t1\ttracked.rs\0-\t-\tbinary.png\0"),
+            DiffLineStats {
+                added: 3,
+                deleted: 1
+            }
+        );
+    }
+
+    #[test]
+    fn failed_numstat_commands_are_unavailable() {
+        let missing =
+            std::env::temp_dir().join(format!("augur-git-missing-stats-{}", std::process::id()));
+        assert!(read_numstat(&GitRepo::local(missing.to_string_lossy()), false).is_none());
+
+        let repo = TempRepo::new();
+        assert!(read_untracked_numstat(&repo.handle(), "missing.txt").is_none());
     }
 
     #[test]

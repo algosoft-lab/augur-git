@@ -101,6 +101,7 @@ export interface BootOptions {
   /** Strategy the toolbar Pull button uses. */
   pullAction?: StubOptions['pullAction'];
   diffLayout?: StubOptions['diffLayout'];
+  showUntracked?: boolean;
   /**
    * Paths the backend is holding because the window was not listening when they
    * arrived, which is the state a launch with a path argument produces.
@@ -172,7 +173,8 @@ function optionsFor(options: BootOptions): StubOptions {
     fontFamilies: options.fontFamilies,
     typography: options.typography,
     pullAction: options.pullAction,
-    diffLayout: options.diffLayout
+    diffLayout: options.diffLayout,
+    showUntracked: options.showUntracked
   };
 }
 

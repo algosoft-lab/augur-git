@@ -635,7 +635,7 @@ test.describe('discarding changes', () => {
     const repo = cleanRepo();
     repo.status.files = [
       { index: ' ', worktree: 'M', path: 'src/main.rs', old_path: null },
-      { index: ' ', worktree: '?', path: 'notes.md', old_path: null }
+      { index: '?', worktree: '?', path: 'notes.md', old_path: null }
     ];
     const stub = await boot(page, { open: [repo] });
     await expect(page.getByTestId('changes-file-notes.md')).toBeVisible();

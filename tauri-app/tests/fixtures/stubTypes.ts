@@ -18,6 +18,11 @@ export interface StubRepo {
     ahead: number;
     behind: number;
     files: StubFile[];
+    diff_stats: {
+      staged: { added: number; deleted: number } | null;
+      unstaged: { added: number; deleted: number } | null;
+      untracked: { added: number; deleted: number } | null;
+    };
     branches: { name: string; is_head: boolean }[];
   };
   refs: StubRefs;

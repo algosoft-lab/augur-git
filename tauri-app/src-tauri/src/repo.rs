@@ -242,6 +242,7 @@ fn convert(repo_id: u64, event: GitEvent) -> Option<RepoEventEnvelope> {
             ahead,
             behind,
             files,
+            diff_stats,
             branches,
         } => RepoEvent::Status {
             branch,
@@ -250,6 +251,7 @@ fn convert(repo_id: u64, event: GitEvent) -> Option<RepoEventEnvelope> {
             ahead,
             behind,
             files,
+            diff_stats,
             branches,
         },
         E::LogPage {

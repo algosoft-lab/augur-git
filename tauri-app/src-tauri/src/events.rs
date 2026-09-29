@@ -84,6 +84,7 @@ pub enum RepoEvent {
         ahead: usize,
         behind: usize,
         files: Vec<FileStatus>,
+        diff_stats: augur_core::git::WorkingTreeDiffStats,
         branches: Vec<augur_core::git::BranchInfo>,
     },
     LogPage {

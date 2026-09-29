@@ -18,7 +18,8 @@ import type {
   BranchInfo,
   RefLabel,
   RefsInfo,
-  RepoEvent
+  RepoEvent,
+  WorkingTreeDiffStats
 } from '../bridge/types';
 
 export type RepoStatus = 'loading' | 'ready' | 'error';
@@ -60,6 +61,7 @@ export interface RepoState {
   ahead: number;
   behind: number;
   files: FileStatus[];
+  diffStats: WorkingTreeDiffStats;
   branches: BranchInfo[];
   /** The full refs snapshot: remotes, remote branches, tags, and stashes. */
   refs: RefsInfo;
@@ -125,6 +127,7 @@ export function emptyRepo(id: number, path: string, location: LocationConfig): R
     ahead: 0,
     behind: 0,
     files: [],
+    diffStats: { staged: null, unstaged: null, untracked: null },
     branches: [],
     refs: emptyRefs(),
     hasConflicts: false,
@@ -197,7 +200,7 @@ export function groupFiles(files: FileStatus[], showUntracked: boolean): FileGro
     if (isConflicted(file)) {
       conflicts.push(file);
     }
-    if (isConflicted(file) || file.worktree !== ' ' || (showUntracked && isUntracked(file))) {
+    if (isConflicted(file) || (isUntracked(file) ? showUntracked : file.worktree !== ' ')) {
       unstaged.push(file);
     }
   }
@@ -296,6 +299,7 @@ export function applyRepoEvent(
         ahead: event.ahead,
         behind: event.behind,
         files: event.files,
+        diffStats: event.diff_stats ?? { staged: null, unstaged: null, untracked: null },
         branches: event.branches,
         hasConflicts,
         stashableCount: stashable

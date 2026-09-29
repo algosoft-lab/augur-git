@@ -114,6 +114,65 @@ test.describe('repositories', () => {
     expect(commands).toContain('open_repository');
   });
 
+  test('shows group totals and refreshes them with the working-tree snapshot', async ({ page }) => {
+    const repo = fixtureRepo();
+    const stub = await boot(page, { open: [repo] });
+
+    await expect(page.getByTestId('changes-stats-files-staged')).toHaveText('4');
+    await expect(page.getByTestId('changes-stats-added-staged')).toHaveText('+12');
+    await expect(page.getByTestId('changes-stats-deleted-staged')).toHaveText('−3');
+    await expect(page.getByTestId('changes-stats-files-changes')).toHaveText('5');
+    await expect(page.getByTestId('changes-stats-added-changes')).toHaveText('+13');
+    await expect(page.getByTestId('changes-stats-deleted-changes')).toHaveText('−4');
+
+    await page.getByTestId('changes-toggle-changes').click();
+    await expect(page.getByTestId('changes-stats-changes')).toBeVisible();
+
+    repo.status.files = repo.status.files.map((file) =>
+      file.path === 'src/git/graph.rs' ? { ...file, index: 'M', worktree: ' ' } : file
+    );
+    repo.status.diff_stats = {
+      staged: { added: 20, deleted: 5 },
+      unstaged: { added: 1, deleted: 2 },
+      untracked: { added: 5, deleted: 0 }
+    };
+    await stub.emit('augur://repo-event', { repoId: repo.id, type: 'status', ...repo.status });
+
+    await expect(page.getByTestId('changes-stats-files-staged')).toHaveText('5');
+    await expect(page.getByTestId('changes-stats-added-staged')).toHaveText('+20');
+    await expect(page.getByTestId('changes-stats-files-changes')).toHaveText('4');
+    await expect(page.getByTestId('changes-stats-added-changes')).toHaveText('+6');
+    await expect(page.getByTestId('changes-stats-deleted-changes')).toHaveText('−2');
+
+    repo.status.diff_stats = {
+      staged: null,
+      unstaged: null,
+      untracked: { added: 0, deleted: 0 }
+    };
+    await stub.emit('augur://repo-event', { repoId: repo.id, type: 'status', ...repo.status });
+    await expect(page.getByTestId('changes-stats-staged')).toContainText('—');
+    await expect(page.getByTestId('changes-stats-changes')).toContainText('—');
+
+    repo.status.diff_stats = {
+      staged: { added: 0, deleted: 0 },
+      unstaged: { added: 0, deleted: 0 },
+      untracked: { added: 0, deleted: 0 }
+    };
+    await stub.emit('augur://repo-event', { repoId: repo.id, type: 'status', ...repo.status });
+    await expect(page.getByTestId('changes-stats-added-staged')).toHaveText('+0');
+    await expect(page.getByTestId('changes-stats-deleted-changes')).toHaveText('−0');
+  });
+
+  test('keeps Changes totals in sync when untracked files are hidden', async ({ page }) => {
+    const repo = fixtureRepo();
+    await boot(page, { open: [repo], showUntracked: false });
+
+    await expect(page.getByTestId('changes-file-notes.md')).toHaveCount(0);
+    await expect(page.getByTestId('changes-stats-files-changes')).toHaveText('4');
+    await expect(page.getByTestId('changes-stats-added-changes')).toHaveText('+8');
+    await expect(page.getByTestId('changes-stats-deleted-changes')).toHaveText('−4');
+  });
+
   test('reports a repository that cannot be opened', async ({ page }) => {
     await boot(page, {
       openFailure: { key: 'err-not-a-repo', detail: '/tmp/empty' }

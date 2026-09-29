@@ -49,12 +49,25 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
   // The two groups are not exclusive: a partially staged file appears in both,
   // because its two diffs are different files as far as Git is concerned.
   const { staged, unstaged } = groupFiles(repo.files, showUntracked);
-  const groups: Group[] = [];
+  const changesStats = showUntracked
+    ? combineStats(repo.diffStats.unstaged, repo.diffStats.untracked)
+    : repo.diffStats.unstaged;
+  const groups: (Group & { stats: { added: number; deleted: number } | null })[] = [];
   if (staged.length) {
-    groups.push({ key: 'staged', titleKey: 'section-staged', files: staged });
+    groups.push({
+      key: 'staged',
+      titleKey: 'section-staged',
+      files: staged,
+      stats: repo.diffStats.staged
+    });
   }
   if (unstaged.length) {
-    groups.push({ key: 'changes', titleKey: 'section-changes', files: unstaged });
+    groups.push({
+      key: 'changes',
+      titleKey: 'section-changes',
+      files: unstaged,
+      stats: changesStats
+    });
   }
 
   const toggle = (key: string) => {
@@ -129,8 +142,38 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
         {groups.map((group) => {
           const stagedGroup = group.key === 'staged';
           const isCollapsed = collapsed.includes(group.key);
+          const groupTitle = t(translate, group.titleKey);
+          const statsLabel = group.stats ? `+${group.stats.added} −${group.stats.deleted}` : '—';
           return (
             <div key={group.key}>
+              <div
+                className="changes__summary"
+                data-testid={`changes-stats-${group.key}`}
+                aria-label={`${groupTitle}: ${group.files.length}, ${statsLabel}`}
+              >
+                <span className="changes__summary-files">
+                  <Icon name="file" size={11} />
+                  <span data-testid={`changes-stats-files-${group.key}`}>{group.files.length}</span>
+                </span>
+                {group.stats ? (
+                  <span className="changes__summary-lines">
+                    <span
+                      className="stat-bar__added"
+                      data-testid={`changes-stats-added-${group.key}`}
+                    >
+                      +{group.stats.added}
+                    </span>
+                    <span
+                      className="stat-bar__deleted"
+                      data-testid={`changes-stats-deleted-${group.key}`}
+                    >
+                      −{group.stats.deleted}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="changes__summary-unavailable">—</span>
+                )}
+              </div>
               <div className="changes__row-group changes__section-header">
                 <button
                   type="button"
@@ -141,8 +184,7 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
                   data-testid={`changes-toggle-${group.key}`}
                 >
                   <Icon name={isCollapsed ? 'chevron-right' : 'chevron-down'} size={12} />
-                  <span className="changes__section-title">{t(translate, group.titleKey)}</span>
-                  <span className="changes__section-count">{group.files.length}</span>
+                  <span className="changes__section-title">{groupTitle}</span>
                 </button>
                 {stagedGroup ? (
                   <IconButton
@@ -196,6 +238,19 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
       </div>
     </div>
   );
+}
+
+function combineStats(
+  first: { added: number; deleted: number } | null,
+  second: { added: number; deleted: number } | null
+): { added: number; deleted: number } | null {
+  if (!first || !second) {
+    return null;
+  }
+  return {
+    added: first.added + second.added,
+    deleted: first.deleted + second.deleted
+  };
 }
 
 function FileRow({

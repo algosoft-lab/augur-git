@@ -52,8 +52,12 @@ test.describe('pane layout', () => {
     await dragBy(page, 'sidebar-splitter', 400);
     await expect(page.getByTestId('repo-sidebar')).toHaveCSS('width', '260px');
 
-    await dragBy(page, 'right-splitter', 50);
-    await expect(page.getByTestId('repo-right')).toHaveCSS('width', '270px');
+    await dragBy(page, 'right-splitter', 70);
+    await expect(page.getByTestId('repo-right')).toHaveCSS('width', '250px');
+    const statsFit = await page
+      .getByTestId('changes-stats-staged')
+      .evaluate((element) => element.scrollWidth <= element.clientWidth);
+    expect(statsFit).toBe(true);
     const center = await page.getByTestId('repo-7').locator('.repo__center').boundingBox();
     expect(center!.width).toBeGreaterThanOrEqual(280);
 

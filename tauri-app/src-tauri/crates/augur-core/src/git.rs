@@ -162,6 +162,21 @@ pub struct RefsInfo {
     pub comparison_revisions: Vec<CompareRevision>,
 }
 
+/// Line totals reported for one side of the working tree.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiffLineStats {
+    pub added: usize,
+    pub deleted: usize,
+}
+
+/// Diff totals split by index, tracked worktree, and untracked files.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkingTreeDiffStats {
+    pub staged: Option<DiffLineStats>,
+    pub unstaged: Option<DiffLineStats>,
+    pub untracked: Option<DiffLineStats>,
+}
+
 /// 后台 → UI 事件
 pub enum GitEvent {
     /// Repository status, tracked upstream, changed files, and branch list.
@@ -172,6 +187,7 @@ pub enum GitEvent {
         /// Tracked upstream ref, when the current branch has one.
         upstream: Option<String>,
         files: Vec<FileStatus>,
+        diff_stats: WorkingTreeDiffStats,
         /// 本地分支列表（(名字, 是否当前分支)）
         branches: Vec<BranchInfo>,
         /// 领先上游提交数
@@ -971,11 +987,13 @@ fn refresh_status(repo: &GitRepo, event_tx: &Sender<GitEvent>, background: bool)
     let branches = run_branches(repo);
     match status {
         Ok((branch, upstream, files, ahead, behind)) => {
+            let diff_stats = working_tree::read_diff_stats(repo, &files);
             let _ = event_tx.send(GitEvent::Status {
                 branch,
                 head: read_head(repo),
                 upstream,
                 files,
+                diff_stats,
                 branches,
                 ahead,
                 behind,
