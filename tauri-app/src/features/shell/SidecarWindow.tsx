@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 
 import { Icon } from '../../components/Icon';
+import { Spinner } from '../../components/controls';
 import * as ipc from '../../bridge/ipc';
 import { useStore, type RepoState, type SidecarListPage } from '../../app/store';
 import { t } from '../../i18n/strings';
@@ -136,7 +137,14 @@ export function SidecarWindow({ repo }: { repo: RepoState }) {
         )}
         <div className="sidecar__repo-status" title={repo.path}>
           <span className="sidecar__repo-path">{repo.path}</span>
-          {repo.busyVerb ? <span className="sidecar__repo-message">{repo.busyVerb}</span> : null}
+          {repo.busyVerb ? (
+            <span className="sidecar__repo-message sidecar__repo-message--busy">
+              <Spinner color="var(--warning-background)" rhythm="two-turn-pause" />
+              <span className="sidecar__repo-message-text" data-testid="sidecar-status-busy">
+                {repo.busyVerb}
+              </span>
+            </span>
+          ) : null}
           {!repo.busyVerb && repo.message ? (
             <span
               className={`sidecar__repo-message${repo.message.ok === false ? ' is-error' : ''}`}

@@ -2241,6 +2241,20 @@ button {
   text-align: right;
 }
 
+.sidecar__repo-message--busy {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.sidecar__repo-message-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sidecar__repo-message.is-error,
 .sidecar__conflict-state {
   color: var(--base-red);
