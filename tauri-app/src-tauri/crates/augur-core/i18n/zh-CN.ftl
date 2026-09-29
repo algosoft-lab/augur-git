@@ -571,6 +571,7 @@ err-no-files = 请先选择至少一个文件。
 err-unknown = 发生了意外错误。
 err-invalid-shortcut = 这不是有效的快捷键组合。
 err-unknown-command = 该命令无法重新绑定。
+err-shortcut-conflict = 快捷键冲突: { $detail }
 err-window = 无法打开该窗口。
 err-worker = 后台任务启动失败。
 diff-copy-tooltip = 复制差异

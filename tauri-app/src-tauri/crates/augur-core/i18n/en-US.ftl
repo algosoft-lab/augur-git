@@ -576,6 +576,7 @@ err-no-files = Select at least one file first.
 err-unknown = An unexpected error occurred.
 err-invalid-shortcut = That is not a valid key combination.
 err-unknown-command = That command cannot be remapped.
+err-shortcut-conflict = Shortcut conflict: { $detail }
 err-window = The window could not be opened.
 err-worker = A background task failed to start.
 diff-copy-tooltip = Copy the diff
