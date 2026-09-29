@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::git::{GitError, GitRepo, RepoLocation};
 
 /// Bumped whenever the on-disk shape of either document changes.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 // ===== Preferences =====
 
@@ -473,6 +473,7 @@ impl AppConfig {
     /// Clamp and de-duplicate anything the frontend or a hand-edited file
     /// could have put into an invalid state.
     pub fn normalize(&mut self) {
+        self.schema_version = SCHEMA_VERSION;
         self.typography.normalize();
         self.recent_repos.retain(|repo| !repo.path.is_empty());
         let mut seen: Vec<String> = Vec::new();
@@ -570,6 +571,26 @@ pub struct WorkspaceState {
     /// Identity of the active tab; see [`OpenTabConfig::key`].
     pub active_tab: Option<String>,
     pub layout: LayoutSettings,
+    pub window_mode: WindowMode,
+    pub desktop_window: Option<WindowBounds>,
+    pub sidecar_window: Option<WindowBounds>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WindowMode {
+    #[default]
+    #[serde(rename = "desktop")]
+    Desktop,
+    #[serde(rename = "sidecar")]
+    Sidecar,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct WindowBounds {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
 }
 
 impl Default for WorkspaceState {
@@ -579,6 +600,9 @@ impl Default for WorkspaceState {
             open_tabs: Vec::new(),
             active_tab: None,
             layout: LayoutSettings::default(),
+            window_mode: WindowMode::Desktop,
+            desktop_window: None,
+            sidecar_window: None,
         }
     }
 }
@@ -587,6 +611,7 @@ impl WorkspaceState {
     /// Drop empty and duplicate tabs, repair the active-tab pointer, and
     /// clamp the layout.
     pub fn normalize(&mut self) {
+        self.schema_version = SCHEMA_VERSION;
         let mut seen: Vec<String> = Vec::new();
         self.open_tabs.retain(|tab| {
             let key = tab.key();
@@ -598,6 +623,8 @@ impl WorkspaceState {
             }
         });
         self.layout.normalize();
+        self.desktop_window = self.desktop_window.map(|bounds| bounds.normalized(false));
+        self.sidecar_window = self.sidecar_window.map(|bounds| bounds.normalized(true));
 
         if self
             .active_tab
@@ -608,6 +635,23 @@ impl WorkspaceState {
         }
         if self.active_tab.is_none() {
             self.active_tab = self.open_tabs.first().map(OpenTabConfig::key);
+        }
+    }
+}
+
+impl WindowBounds {
+    fn normalized(self, sidecar: bool) -> Self {
+        let finite = |value: f64, fallback: f64| {
+            if value.is_finite() { value } else { fallback }
+        };
+        Self {
+            x: finite(self.x, 0.0),
+            y: finite(self.y, 0.0),
+            width: finite(self.width, if sidecar { 420.0 } else { 1280.0 }).clamp(
+                if sidecar { 360.0 } else { 860.0 },
+                if sidecar { 520.0 } else { 8192.0 },
+            ),
+            height: finite(self.height, 800.0).clamp(480.0, 8192.0),
         }
     }
 }
@@ -770,6 +814,30 @@ mod tests {
         state.normalize();
         assert_eq!(state.open_tabs.len(), 1);
         assert_eq!(state.active_tab.as_deref(), Some("/a"));
+    }
+
+    #[test]
+    fn workspace_state_defaults_older_documents_and_clamps_window_bounds() {
+        let mut state: WorkspaceState = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "desktop_window": { "x": 8.0, "y": 12.0, "width": 400.0, "height": 300.0 },
+            "sidecar_window": { "x": 10.0, "y": 20.0, "width": 320.0, "height": 700.0 }
+        }))
+        .unwrap();
+        state.normalize();
+
+        assert_eq!(state.schema_version, SCHEMA_VERSION);
+        assert_eq!(state.window_mode, WindowMode::Desktop);
+        assert_eq!(state.desktop_window.unwrap().width, 860.0);
+        assert_eq!(state.desktop_window.unwrap().height, 480.0);
+        assert_eq!(state.sidecar_window.unwrap().width, 360.0);
+
+        let mut oversized: WorkspaceState = serde_json::from_value(serde_json::json!({
+            "sidecar_window": { "x": 0.0, "y": 0.0, "width": 900.0, "height": 700.0 }
+        }))
+        .unwrap();
+        oversized.normalize();
+        assert_eq!(oversized.sidecar_window.unwrap().width, 520.0);
     }
 
     #[test]

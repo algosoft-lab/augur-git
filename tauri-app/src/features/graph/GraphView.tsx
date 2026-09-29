@@ -14,11 +14,17 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { Icon } from '../../components/Icon';
 import { ContextMenu, EmptyState, Menu, TextInput, VirtualList } from '../../components/controls';
 import * as ipc from '../../bridge/ipc';
-import type { GraphRow, LogRow, RefLabel } from '../../bridge/types';
+import type { GraphHistoryPreference, GraphRow, LogRow, RefLabel } from '../../bridge/types';
 import { useStore, type RepoState } from '../../app/store';
 import { LANE_COLORS } from '../../styles/themes';
 import { t, ta } from '../../i18n/strings';
-import { COL_WIDTH, GRAPH_LEFT_PAD, GraphSvg, ROW_HEIGHT, type LaneGeometry } from './GraphSvg';
+import {
+  DESKTOP_GRAPH_METRICS,
+  GraphSvg,
+  SIDECAR_GRAPH_METRICS,
+  type GraphMetrics,
+  type LaneGeometry
+} from './GraphSvg';
 import { filterCommits, type CommitSearchField } from './commitSearch';
 import { hasOpenPopup, keysForCommand, matchesShortcut } from '../../app/keyboard';
 
@@ -26,18 +32,40 @@ import { hasOpenPopup, keysForCommand, matchesShortcut } from '../../app/keyboar
 const LOAD_AHEAD_ROWS = 30;
 
 /** Width of the lane area for a graph with this many lanes. */
-export function laneAreaWidth(laneCount: number): number {
-  return GRAPH_LEFT_PAD + laneCount * COL_WIDTH + 8;
+export function laneAreaWidth(
+  laneCount: number,
+  metrics: GraphMetrics = DESKTOP_GRAPH_METRICS
+): number {
+  return metrics.leftPad + laneCount * metrics.laneWidth + 8;
 }
 
-export function GraphView({ repo }: { repo: RepoState }) {
+export function GraphView({
+  repo,
+  compact = false,
+  onOpenDiff
+}: {
+  repo: RepoState;
+  compact?: boolean;
+  onOpenDiff?: () => void;
+}) {
   const translate = useStore((state) => state.t);
   const selectCommit = useStore((state) => state.selectCommit);
   const clearCommit = useStore((state) => state.clearCommit);
   const runAction = useStore((state) => state.runAction);
+  const setLogScope = useStore((state) => state.setLogScope);
+  const setView = useStore((state) => state.setView);
+  const historyScope = useStore((state) => state.config.view.graph_history);
   const setMessage = useStore((state) => state.setMessage);
-  const [query, setQuery] = useState('');
-  const [field, setField] = useState<CommitSearchField>('subject');
+  const ui = useStore((state) => state.sidecarUi[repo.id]);
+  const patchSidecarUi = useStore((state) => state.patchSidecarUi);
+  const [localQuery, setLocalQuery] = useState('');
+  const [localField, setLocalField] = useState<CommitSearchField>('subject');
+  const query = compact ? (ui?.graphQuery ?? '') : localQuery;
+  const field = compact ? (ui?.graphField ?? 'subject') : localField;
+  const setQuery = (value: string) =>
+    compact ? patchSidecarUi(repo.id, { graphQuery: value }) : setLocalQuery(value);
+  const setField = (value: CommitSearchField) =>
+    compact ? patchSidecarUi(repo.id, { graphField: value }) : setLocalField(value);
   const [layout, setLayout] = useState<{
     graph: GraphRow[];
     labels: Record<string, RefLabel[]>;
@@ -54,6 +82,12 @@ export function GraphView({ repo }: { repo: RepoState }) {
     () => filterCommits(repo.logRows, query, field),
     [repo.logRows, query, field]
   );
+
+  useEffect(() => {
+    if (compact && repo.status === 'ready') {
+      void setLogScope(repo.id);
+    }
+  }, [compact, repo.id, repo.status, repo.upstream, historyScope, setLogScope]);
 
   // A filter that hides the selected commit clears the selection, because the
   // diff panel would otherwise keep showing a row the list no longer contains.
@@ -126,7 +160,19 @@ export function GraphView({ repo }: { repo: RepoState }) {
     void selectCommit(repo.id, row.oid, row.short, row.subject);
     const list = containerRef.current?.querySelector<HTMLElement>('[data-testid="graph-list"]');
     if (focus) list?.focus({ preventScroll: true });
-    if (scrollToSelection && list) list.scrollTop = index * ROW_HEIGHT;
+    if (scrollToSelection && list) list.scrollTop = index * metrics.rowHeight;
+    if (compact) {
+      const rowElement = containerRef.current?.querySelector<HTMLElement>(
+        `[data-testid="graph-row-${row.short}"]`
+      );
+      const rect = rowElement?.getBoundingClientRect();
+      const listRect = list?.getBoundingClientRect();
+      setHovered({
+        oid: row.oid,
+        x: rect?.right ?? listRect?.right ?? 8,
+        y: rect?.bottom ?? listRect?.top ?? 8
+      });
+    }
   };
 
   const onGraphKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -168,10 +214,11 @@ export function GraphView({ repo }: { repo: RepoState }) {
   // width it does in the reference application. The answer is only needed when
   // the width or the lane count actually changes.
   const lanes = maxLanes(layout.graph);
-  const laneWidth = laneAreaWidth(lanes);
+  const metrics = compact ? SIDECAR_GRAPH_METRICS : DESKTOP_GRAPH_METRICS;
+  const laneWidth = laneAreaWidth(lanes, metrics);
   const columns = useColumnVisibility(width, laneWidth);
-  const showsAuthor = columns.author;
-  const showsMessage = columns.message;
+  const showsAuthor = compact ? false : columns.author;
+  const showsMessage = compact ? true : columns.message;
 
   // Marked rather than implied by the trigger's own label, so the list says
   // what the search is matching on rather than only what it is called.
@@ -187,6 +234,25 @@ export function GraphView({ repo }: { repo: RepoState }) {
       label: t(translate, 'commit-search-full-message'),
       checked: field === 'full',
       onSelect: () => setField('full')
+    }
+  ];
+  const historyItems: {
+    id: GraphHistoryPreference;
+    label: string;
+    checked: boolean;
+    onSelect: () => void;
+  }[] = [
+    {
+      id: 'all-branches',
+      label: t(translate, 'graph-history-all'),
+      checked: historyScope === 'all-branches',
+      onSelect: () => void setView({ graph_history: 'all-branches' })
+    },
+    {
+      id: 'current-branch',
+      label: t(translate, 'graph-history-current'),
+      checked: historyScope === 'current-branch',
+      onSelect: () => void setView({ graph_history: 'current-branch' })
     }
   ];
 
@@ -207,7 +273,7 @@ export function GraphView({ repo }: { repo: RepoState }) {
   }
 
   return (
-    <div className="graph" data-testid="graph">
+    <div className={`graph${compact ? ' graph--sidecar' : ''}`} data-testid="graph">
       <div className="graph__search">
         <TextInput
           value={query}
@@ -226,6 +292,16 @@ export function GraphView({ repo }: { repo: RepoState }) {
             <Icon name="chevron-down" size={10} />
           </button>
         </Menu>
+        {compact ? (
+          <Menu items={historyItems} testId="sidecar-graph-scope" align="end">
+            <button type="button" className="tool-button tool-button--compact">
+              {historyScope === 'current-branch'
+                ? t(translate, 'graph-history-current-short')
+                : t(translate, 'graph-history-all')}
+              <Icon name="chevron-down" size={10} />
+            </button>
+          </Menu>
+        ) : null}
         {query ? (
           <span className="graph__search-results" data-testid="commit-search-results">
             {ta(translate, 'commit-search-results', {
@@ -237,43 +313,57 @@ export function GraphView({ repo }: { repo: RepoState }) {
       </div>
       {/* The header uses the same widths as the rows, so a label always sits
           over the column it names, and it hides the same columns. */}
-      <div className="graph-header" data-testid="graph-header">
-        <div
-          className="graph-header__graph"
-          style={{ width: laneWidth }}
-          data-testid="graph-header-graph"
-        >
-          {t(translate, 'col-graph')}
-        </div>
-        <div className="graph-header__label" style={{ width: 60 }} data-testid="graph-header-hash">
-          <span className="graph-header__divider" />
-          {t(translate, 'col-hash')}
-        </div>
-        {showsMessage ? (
-          <div className="graph-header__message" data-testid="graph-header-message">
-            <span className="graph-header__divider" />
-            {t(translate, 'col-message')}
+      {compact ? null : (
+        <div className="graph-header" data-testid="graph-header">
+          <div
+            className="graph-header__graph"
+            style={{ width: laneWidth }}
+            data-testid="graph-header-graph"
+          >
+            {t(translate, 'col-graph')}
           </div>
-        ) : null}
-        {showsAuthor ? (
           <div
             className="graph-header__label"
-            style={{ width: 140 }}
-            data-testid="graph-header-author"
+            style={{ width: 60 }}
+            data-testid="graph-header-hash"
           >
             <span className="graph-header__divider" />
-            {t(translate, 'col-author')}
+            {t(translate, 'col-hash')}
           </div>
-        ) : null}
-        <div className="graph-header__label" style={{ width: 120 }} data-testid="graph-header-date">
-          <span className="graph-header__divider" />
-          {t(translate, 'col-date')}
+          {showsMessage ? (
+            <div className="graph-header__message" data-testid="graph-header-message">
+              <span className="graph-header__divider" />
+              {t(translate, 'col-message')}
+            </div>
+          ) : null}
+          {showsAuthor ? (
+            <div
+              className="graph-header__label"
+              style={{ width: 140 }}
+              data-testid="graph-header-author"
+            >
+              <span className="graph-header__divider" />
+              {t(translate, 'col-author')}
+            </div>
+          ) : null}
+          <div
+            className="graph-header__label"
+            style={{ width: 120 }}
+            data-testid="graph-header-date"
+          >
+            <span className="graph-header__divider" />
+            {t(translate, 'col-date')}
+          </div>
         </div>
-      </div>
+      )}
       <div className="graph__rows" ref={containerRef}>
         <VirtualList
           items={visibleRows}
-          rowHeight={ROW_HEIGHT}
+          rowHeight={metrics.rowHeight}
+          initialScrollTop={compact ? (ui?.graphScrollTop ?? 0) : 0}
+          onScrollPosition={
+            compact ? (graphScrollTop) => patchSidecarUi(repo.id, { graphScrollTop }) : undefined
+          }
           onViewportChange={onViewportChange}
           testId="graph-list"
           focusable
@@ -304,6 +394,7 @@ export function GraphView({ repo }: { repo: RepoState }) {
                 selected={selected}
                 showsAuthor={showsAuthor}
                 showsMessage={showsMessage}
+                compact={compact}
                 onHover={(oid, x, y) =>
                   setHovered(
                     oid === null || x === undefined || y === undefined ? null : { oid, x, y }
@@ -332,7 +423,10 @@ export function GraphView({ repo }: { repo: RepoState }) {
                 }}
                 hovered={hovered?.oid === row.oid}
                 anchor={hovered?.oid === row.oid ? { x: hovered.x, y: hovered.y } : null}
-                onSelect={() => selectGraphIndex(index, true)}
+                onSelect={() => {
+                  selectGraphIndex(index, true);
+                  if (compact) onOpenDiff?.();
+                }}
               />
             );
           }}
@@ -358,6 +452,7 @@ function GraphRowView({
   selected,
   showsAuthor,
   showsMessage,
+  compact,
   onSelect,
   onHover,
   onCheckout,
@@ -375,6 +470,7 @@ function GraphRowView({
   selected: boolean;
   showsAuthor: boolean;
   showsMessage: boolean;
+  compact: boolean;
   onSelect: () => void;
   onHover: (oid: string | null, x?: number, y?: number) => void;
   onCheckout: () => void;
@@ -456,7 +552,7 @@ function GraphRowView({
     >
       <div
         id={`commit-row-${row.oid}`}
-        className={`graph-row${selected ? ' is-selected' : ''}`}
+        className={`graph-row${selected ? ' is-selected' : ''}${compact ? ' graph-row--sidecar' : ''}`}
         role="option"
         aria-selected={selected}
         data-keyboard-list-item
@@ -473,7 +569,22 @@ function GraphRowView({
         }}
         onMouseLeave={() => onHover(null)}
       >
-        {geometry ? (
+        {compact ? (
+          <span
+            className="graph-row__lane-window graph-row__lane-window--sidecar"
+            style={{ width: Math.min(laneWidth, 84) }}
+            title={t(translate, 'sidecar-graph-lanes-scroll')}
+          >
+            {geometry ? (
+              <GraphSvg
+                geometry={geometry}
+                laneColors={LANE_COLORS}
+                width={laneWidth}
+                metrics={SIDECAR_GRAPH_METRICS}
+              />
+            ) : null}
+          </span>
+        ) : geometry ? (
           <GraphSvg geometry={geometry} laneColors={LANE_COLORS} width={laneWidth} />
         ) : (
           <span className="graph-row__lanes" style={{ width: laneWidth }} />
@@ -654,7 +765,12 @@ function CommitMessageDialog({
         }
       }}
     >
-      <div className="dialog dialog--commit-message" role="dialog" aria-modal="true" data-testid="commit-message-dialog">
+      <div
+        className="dialog dialog--commit-message"
+        role="dialog"
+        aria-modal="true"
+        data-testid="commit-message-dialog"
+      >
         <div className="dialog__title dialog__title--close">
           <span>{t(translate, 'commit-message-dialog-title')}</span>
           <button

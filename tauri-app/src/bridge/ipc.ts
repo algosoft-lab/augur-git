@@ -38,6 +38,8 @@ import type {
   ThemePreference,
   TypographySettings,
   ViewSettings,
+  WindowMode,
+  WorkspaceState,
   WorkingTreeAction,
   WorkingTreeDiffKind
 } from './types';
@@ -266,6 +268,14 @@ export async function setDiffLayout(layout: DiffLayoutPreference): Promise<void>
 
 export async function setLayout(layout: LayoutSettings): Promise<void> {
   return invoke<void>('set_layout', { layout });
+}
+
+export async function setWindowMode(mode: WindowMode): Promise<WorkspaceState> {
+  return invoke<WorkspaceState>('set_window_mode', { mode });
+}
+
+export async function saveWindowBounds(): Promise<void> {
+  return invoke<void>('save_window_bounds');
 }
 
 export async function setWorkspaceTabs(

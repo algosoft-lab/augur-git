@@ -12,20 +12,33 @@ import { t } from '../../i18n/strings';
 import { TabBar } from './TabBar';
 import { IS_MACOS, WindowControls } from './WindowControls';
 import { handleTitleBarMouseDown } from './titleBarDrag';
+import type { WindowMode } from '../../bridge/types';
 
 export function TitleBar({
   onOpenRepository,
   onOpenWslRepository,
-  onNewTab
+  onNewTab,
+  sidecar = false,
+  hasActiveRepo = false,
+  windowMode,
+  onToggleMode
 }: {
   onOpenRepository: () => void;
   onOpenWslRepository: () => void;
   onNewTab: () => void;
+  sidecar?: boolean;
+  hasActiveRepo?: boolean;
+  windowMode: WindowMode;
+  onToggleMode: () => void;
 }) {
   const translate = useStore((state) => state.t);
   const build = useStore((state) => state.build);
   const recent = useStore((state) => state.config.recent_repos);
   const openTab = useStore((state) => state.openTab);
+  const tabs = useStore((state) => state.tabs);
+  const activeTabKey = useStore((state) => state.activeTabKey);
+  const selectTab = useStore((state) => state.selectTab);
+  const repos = useStore((state) => state.repos);
 
   const recentItems: MenuItemSpec[] = recent.length
     ? recent.map((repo, index) => ({
@@ -111,7 +124,7 @@ export function TitleBar({
 
   return (
     <div
-      className={`title-bar${IS_MACOS ? ' title-bar--macos' : ''}`}
+      className={`title-bar${IS_MACOS ? ' title-bar--macos' : ''}${sidecar ? ' title-bar--sidecar' : ''}`}
       data-testid="title-bar"
       onMouseDown={handleTitleBarMouseDown}
     >
@@ -127,13 +140,33 @@ export function TitleBar({
           </button>
         </Menu>
       ) : null}
-      {build?.name ? (
+      {build?.name && !sidecar ? (
         <span className="title-bar__brand">
           <span>{build.name}</span>
           <Icon name="git-branch" size={14} />
         </span>
       ) : null}
-      <TabBar onNewTab={onNewTab} />
+      {sidecar ? (
+        <select
+          className="title-bar__repo-select"
+          value={activeTabKey ?? ''}
+          aria-label={t(translate, 'sidecar-select-repository')}
+          data-testid="sidecar-repository-select"
+          onChange={(event) => void selectTab(event.currentTarget.value)}
+        >
+          {tabs.map((tab) => {
+            const repo = tab.repoId === null ? null : repos[tab.repoId];
+            const label = repo?.path ?? (tab.path || t(translate, 'status-no-repo-selected'));
+            return (
+              <option key={tab.key} value={tab.key}>
+                {label.split(/[\\/]/).filter(Boolean).slice(-1)[0] ?? label}
+              </option>
+            );
+          })}
+        </select>
+      ) : (
+        <TabBar onNewTab={onNewTab} />
+      )}
       <div className="title-bar__drag" {...(IS_MACOS ? { 'data-tauri-drag-region': true } : {})} />
       <button
         type="button"
@@ -147,6 +180,24 @@ export function TitleBar({
       >
         <Icon name="settings" size={14} />
       </button>
+      {!sidecar || !hasActiveRepo ? (
+        <button
+          type="button"
+          className="title-bar__settings"
+          title={t(
+            translate,
+            windowMode === 'sidecar' ? 'sidecar-switch-desktop' : 'sidecar-switch-mode'
+          )}
+          aria-label={t(
+            translate,
+            windowMode === 'sidecar' ? 'sidecar-switch-desktop' : 'sidecar-switch-mode'
+          )}
+          data-testid="title-sidecar-toggle"
+          onClick={onToggleMode}
+        >
+          <Icon name="panel-right" size={14} />
+        </button>
+      ) : null}
       {!IS_MACOS ? <WindowControls flushBeforeClose /> : null}
     </div>
   );

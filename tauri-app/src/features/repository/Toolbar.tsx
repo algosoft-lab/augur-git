@@ -18,7 +18,7 @@ import { firstLine } from '../../app/repoState';
 import { t, ta } from '../../i18n/strings';
 import { copyAgentPrompt } from '../agentPrompt/copyAgentPrompt';
 
-export function Toolbar({ repo }: { repo: RepoState }) {
+export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: boolean }) {
   const translate = useStore((state) => state.t);
   const runAction = useStore((state) => state.runAction);
   const openOverlay = useStore((state) => state.openOverlay);
@@ -120,81 +120,161 @@ export function Toolbar({ repo }: { repo: RepoState }) {
     }
   ];
 
+  const compactMoreItems: MenuItemSpec[] = [
+    ...branchItems,
+    {
+      id: 'agent-prompt-pull',
+      label: t(translate, 'agent-prompt-pull'),
+      icon: <Icon name="copy" />,
+      disabled: !pull,
+      separatorBefore: true,
+      onSelect: () => void copyAgentPrompt(repo.id, { kind: 'pull', rebase: pullRebase })
+    },
+    {
+      id: 'push-force',
+      label: t(translate, 'toolbar-push-force'),
+      icon: <Icon name="triangle-alert" />,
+      disabled: !network,
+      onSelect: () => openOverlay({ kind: 'forcePush' })
+    },
+    {
+      id: 'compare',
+      label: t(translate, 'toolbar-compare'),
+      icon: <Icon name="git-branch" />,
+      disabled: repo.busy,
+      onSelect: () => void ipc.openCompareWindow(repo.id)
+    }
+  ];
+
   return (
-    <div className="toolbar" data-testid="toolbar">
-      <Menu items={branchItems} testId="branch-menu">
-        <ToolButton
-          label={t(translate, 'toolbar-branch')}
-          icon={<Icon name="git-branch" />}
-          tooltip={t(translate, 'toolbar-branch')}
-          disabled={repo.busy}
-          testId="toolbar-branch"
-        />
-      </Menu>
-      <ToolButton
-        label={t(translate, 'toolbar-fetch')}
-        icon={<Icon name="download" />}
-        disabled={!network}
-        testId="toolbar-fetch"
-        onClick={() => void runAction(repo.id, { action: 'fetch' })}
-      />
-      <ToolButton
-        label={t(translate, 'toolbar-pull')}
-        icon={<Icon name="download" />}
-        disabled={!pull}
-        testId="toolbar-pull"
-        onClick={() => triggerPull(repo)}
-      />
-      <ToolButton
-        icon={<Icon name="copy" />}
-        tooltip={t(translate, 'agent-prompt-pull')}
-        compact
-        disabled={!pull}
-        testId="agent-prompt-pull"
-        onClick={() => void copyAgentPrompt(repo.id, { kind: 'pull', rebase: pullRebase })}
-      />
-      <ToolButton
-        label={t(translate, 'toolbar-push')}
-        icon={<Icon name="upload" />}
-        disabled={!network}
-        testId="toolbar-push"
-        onClick={() => triggerPush(repo)}
-      />
-      <ToolButton
-        label={t(translate, 'toolbar-push-force')}
-        icon={<Icon name="triangle-alert" />}
-        disabled={!network}
-        testId="toolbar-push-force"
-        // Never runs directly: the confirmation comes first.
-        onClick={() => openOverlay({ kind: 'forcePush' })}
-      />
-      <ToolButton
-        label={t(translate, 'toolbar-compare')}
-        icon={<Icon name="git-branch" />}
-        disabled={repo.busy}
-        testId="toolbar-compare"
-        onClick={() => {
-          void ipc.openCompareWindow(repo.id);
-        }}
-      />
-      <span className="count-badge count-badge--ahead" title="ahead">
-        <Icon name="chevron-up" size={10} />
-        {repo.ahead}
-      </span>
-      <span className="count-badge count-badge--behind" title="behind">
-        <Icon name="chevron-down" size={10} />
-        {repo.behind}
-      </span>
-      <div className="toolbar__spacer" />
-      <ToolButton
-        label={t(translate, 'toolbar-refresh')}
-        icon={<Icon name="refresh-cw" />}
-        // Deliberately not disabled while busy, as in the reference: a refresh is
-        // a read, and refusing it mid-operation is a worse answer than a
-        // snapshot that arrives slightly out of date.
-        testId="toolbar-refresh"
-        onClick={() => void refresh(repo.id)}
-      />
+    <div className={`toolbar${compact ? ' toolbar--sidecar' : ''}`} data-testid="toolbar">
+      {compact ? (
+        <>
+          <ToolButton
+            label={t(translate, 'toolbar-fetch')}
+            icon={<Icon name="download" />}
+            compact
+            disabled={!network}
+            testId="toolbar-fetch"
+            onClick={() => void runAction(repo.id, { action: 'fetch' })}
+          />
+          <ToolButton
+            label={t(translate, 'toolbar-pull')}
+            icon={<Icon name="download" />}
+            compact
+            disabled={!pull}
+            testId="toolbar-pull"
+            onClick={() => triggerPull(repo)}
+          />
+          <ToolButton
+            label={t(translate, 'toolbar-push')}
+            icon={<Icon name="upload" />}
+            compact
+            disabled={!network}
+            testId="toolbar-push"
+            onClick={() => triggerPush(repo)}
+          />
+          <ToolButton
+            label={t(translate, 'toolbar-refresh')}
+            icon={<Icon name="refresh-cw" />}
+            compact
+            testId="toolbar-refresh"
+            onClick={() => void refresh(repo.id)}
+          />
+          <Menu items={compactMoreItems} testId="sidecar-more-menu" align="end">
+            <ToolButton
+              label={t(translate, 'menu-more')}
+              tooltip={t(translate, 'menu-more')}
+              icon={<Icon name="menu" />}
+              compact
+              testId="sidecar-more"
+            />
+          </Menu>
+          <span className="toolbar__spacer" />
+          <span className="count-badge count-badge--ahead" title={t(translate, 'toolbar-ahead')}>
+            <Icon name="chevron-up" size={10} /> {repo.ahead}
+          </span>
+          <span className="count-badge count-badge--behind" title={t(translate, 'toolbar-behind')}>
+            <Icon name="chevron-down" size={10} /> {repo.behind}
+          </span>
+        </>
+      ) : (
+        <>
+          <Menu items={branchItems} testId="branch-menu">
+            <ToolButton
+              label={t(translate, 'toolbar-branch')}
+              icon={<Icon name="git-branch" />}
+              tooltip={t(translate, 'toolbar-branch')}
+              disabled={repo.busy}
+              testId="toolbar-branch"
+            />
+          </Menu>
+          <ToolButton
+            label={t(translate, 'toolbar-fetch')}
+            icon={<Icon name="download" />}
+            disabled={!network}
+            testId="toolbar-fetch"
+            onClick={() => void runAction(repo.id, { action: 'fetch' })}
+          />
+          <ToolButton
+            label={t(translate, 'toolbar-pull')}
+            icon={<Icon name="download" />}
+            disabled={!pull}
+            testId="toolbar-pull"
+            onClick={() => triggerPull(repo)}
+          />
+          <ToolButton
+            icon={<Icon name="copy" />}
+            tooltip={t(translate, 'agent-prompt-pull')}
+            compact
+            disabled={!pull}
+            testId="agent-prompt-pull"
+            onClick={() => void copyAgentPrompt(repo.id, { kind: 'pull', rebase: pullRebase })}
+          />
+          <ToolButton
+            label={t(translate, 'toolbar-push')}
+            icon={<Icon name="upload" />}
+            disabled={!network}
+            testId="toolbar-push"
+            onClick={() => triggerPush(repo)}
+          />
+          <ToolButton
+            label={t(translate, 'toolbar-push-force')}
+            icon={<Icon name="triangle-alert" />}
+            disabled={!network}
+            testId="toolbar-push-force"
+            // Never runs directly: the confirmation comes first.
+            onClick={() => openOverlay({ kind: 'forcePush' })}
+          />
+          <ToolButton
+            label={t(translate, 'toolbar-compare')}
+            icon={<Icon name="git-branch" />}
+            disabled={repo.busy}
+            testId="toolbar-compare"
+            onClick={() => {
+              void ipc.openCompareWindow(repo.id);
+            }}
+          />
+          <span className="count-badge count-badge--ahead" title="ahead">
+            <Icon name="chevron-up" size={10} />
+            {repo.ahead}
+          </span>
+          <span className="count-badge count-badge--behind" title="behind">
+            <Icon name="chevron-down" size={10} />
+            {repo.behind}
+          </span>
+          <div className="toolbar__spacer" />
+          <ToolButton
+            label={t(translate, 'toolbar-refresh')}
+            icon={<Icon name="refresh-cw" />}
+            // Deliberately not disabled while busy, as in the reference: a refresh is
+            // a read, and refusing it mid-operation is a worse answer than a
+            // snapshot that arrives slightly out of date.
+            testId="toolbar-refresh"
+            onClick={() => void refresh(repo.id)}
+          />
+        </>
+      )}
       {patchFailure?.repoId === repo.id ? (
         <DialogCard
           testId="patch-prompt-error"

@@ -2,11 +2,14 @@
 //! platform helpers.
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
+};
 
 use augur_core::config::{
     AppConfig, CommitActionPreference, DiffLayoutPreference, LanguagePreference, LayoutSettings,
-    LocationConfig, ThemePreference, TypographySettings, ViewSettings,
+    LocationConfig, ThemePreference, TypographySettings, ViewSettings, WindowBounds, WindowMode,
 };
 use augur_core::git::{GitError, GitRepo};
 use augur_core::keymap;
@@ -24,6 +27,150 @@ type Result<T> = std::result::Result<T, CommandError>;
 /// next opened.
 fn resolved_title(language: &LanguagePreference, key: &str) -> String {
     augur_core::i18n::text(augur_core::i18n::resolve(language), key)
+}
+
+fn window_error(error: impl std::fmt::Display) -> CommandError {
+    CommandError::new("err-window", error.to_string())
+}
+
+fn logical_bounds(window: &WebviewWindow) -> Result<WindowBounds> {
+    let scale = window.scale_factor().map_err(window_error)?;
+    let position = window.outer_position().map_err(window_error)?;
+    let size = window.inner_size().map_err(window_error)?;
+    Ok(WindowBounds {
+        x: f64::from(position.x) / scale,
+        y: f64::from(position.y) / scale,
+        width: f64::from(size.width) / scale,
+        height: f64::from(size.height) / scale,
+    })
+}
+
+fn monitor_work_area(window: &WebviewWindow) -> Option<WindowBounds> {
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())?;
+    let scale = monitor.scale_factor();
+    let work_area = monitor.work_area();
+    Some(WindowBounds {
+        x: f64::from(work_area.position.x) / scale,
+        y: f64::from(work_area.position.y) / scale,
+        width: f64::from(work_area.size.width) / scale,
+        height: f64::from(work_area.size.height) / scale,
+    })
+}
+
+fn clamp_window_bounds(
+    bounds: WindowBounds,
+    mode: WindowMode,
+    work_area: Option<WindowBounds>,
+) -> WindowBounds {
+    let (minimum_width, maximum_width, minimum_height) = match mode {
+        WindowMode::Desktop => (860.0, 8192.0, 480.0),
+        WindowMode::Sidecar => (360.0, 520.0, 480.0),
+    };
+    let Some(area) = work_area else {
+        return WindowBounds {
+            width: bounds.width.max(minimum_width),
+            height: bounds.height.max(minimum_height),
+            ..bounds
+        };
+    };
+    let width = bounds
+        .width
+        .clamp(minimum_width, maximum_width)
+        .min(area.width.max(minimum_width));
+    let height = bounds
+        .height
+        .max(minimum_height)
+        .min(area.height.max(minimum_height));
+    WindowBounds {
+        x: bounds
+            .x
+            .clamp(area.x, (area.x + area.width - width).max(area.x)),
+        y: bounds
+            .y
+            .clamp(area.y, (area.y + area.height - height).max(area.y)),
+        width,
+        height,
+    }
+}
+
+fn first_sidecar_bounds(window: &WebviewWindow) -> WindowBounds {
+    if let Some(area) = monitor_work_area(window) {
+        let width = 420.0_f64.min(area.width.max(360.0));
+        let height = (area.height - 16.0).clamp(480.0, 900.0);
+        WindowBounds {
+            x: (area.x + area.width - width - 8.0).max(area.x),
+            y: area.y + 8.0,
+            width,
+            height,
+        }
+    } else {
+        WindowBounds {
+            x: 0.0,
+            y: 0.0,
+            width: 420.0,
+            height: 760.0,
+        }
+    }
+}
+
+fn set_window_geometry(window: &WebviewWindow, bounds: WindowBounds) -> Result<()> {
+    window
+        .set_size(LogicalSize::new(bounds.width, bounds.height))
+        .map_err(window_error)?;
+    window
+        .set_position(LogicalPosition::new(bounds.x, bounds.y))
+        .map_err(window_error)
+}
+
+fn save_mode_bounds(workspace: &mut augur_core::config::WorkspaceState, bounds: WindowBounds) {
+    match workspace.window_mode {
+        WindowMode::Desktop => workspace.desktop_window = Some(bounds),
+        WindowMode::Sidecar => workspace.sidecar_window = Some(bounds),
+    }
+}
+
+fn apply_mode_minimum(window: &WebviewWindow, mode: WindowMode) -> Result<()> {
+    let (minimum, maximum) = match mode {
+        WindowMode::Desktop => (860.0, None),
+        WindowMode::Sidecar => (360.0, Some(520.0)),
+    };
+    window
+        .set_min_size(Some(LogicalSize::new(minimum, 480.0)))
+        .map_err(window_error)?;
+    window
+        .set_max_size(maximum.map(|width| LogicalSize::new(width, 8192.0)))
+        .map_err(window_error)
+}
+
+pub fn restore_main_window(app: &AppHandle, state: &AppState) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let mut workspace = state.workspace();
+    if let Err(error) = apply_mode_minimum(&window, workspace.window_mode) {
+        log::warn!("[window] failed to set the initial minimum size: {error}");
+    }
+    let saved = match workspace.window_mode {
+        WindowMode::Desktop => workspace.desktop_window,
+        WindowMode::Sidecar => workspace.sidecar_window,
+    };
+    let bounds = saved
+        .or_else(|| {
+            (workspace.window_mode == WindowMode::Sidecar).then(|| first_sidecar_bounds(&window))
+        })
+        .or_else(|| logical_bounds(&window).ok());
+    if let Some(bounds) = bounds {
+        let bounds = clamp_window_bounds(bounds, workspace.window_mode, monitor_work_area(&window));
+        if let Err(error) = set_window_geometry(&window, bounds) {
+            log::warn!("[window] failed to restore the initial geometry: {error}");
+        }
+        save_mode_bounds(&mut workspace, bounds);
+        state.update_workspace(|stored| *stored = workspace);
+    }
 }
 
 /// The bundled themes, in settings-list order.
@@ -139,6 +286,80 @@ pub fn set_diff_layout(state: State<'_, AppState>, layout: DiffLayoutPreference)
 #[tauri::command]
 pub fn set_layout(state: State<'_, AppState>, layout: LayoutSettings) -> Result<()> {
     state.update_workspace(|workspace| workspace.layout = layout);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_window_mode(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+    mode: WindowMode,
+) -> Result<augur_core::config::WorkspaceState> {
+    if window.label() != "main" {
+        return Err(CommandError::new(
+            "err-window",
+            "only the main window can change its layout mode",
+        ));
+    }
+
+    let mut workspace = state.workspace();
+    let is_maximized = window.is_maximized().map_err(window_error)?;
+    let is_fullscreen = window.is_fullscreen().map_err(window_error)?;
+    if !is_maximized && !is_fullscreen {
+        let bounds = logical_bounds(&window)?;
+        save_mode_bounds(&mut workspace, bounds);
+    }
+
+    if workspace.window_mode != mode {
+        if is_fullscreen {
+            window.set_fullscreen(false).map_err(window_error)?;
+        }
+        if is_maximized {
+            window.unmaximize().map_err(window_error)?;
+        }
+
+        let saved = match mode {
+            WindowMode::Desktop => workspace.desktop_window,
+            WindowMode::Sidecar => workspace.sidecar_window,
+        };
+        let target = saved
+            .or_else(|| (mode == WindowMode::Sidecar).then(|| first_sidecar_bounds(&window)))
+            .or_else(|| logical_bounds(&window).ok())
+            .unwrap_or(WindowBounds {
+                x: 0.0,
+                y: 0.0,
+                width: 1280.0,
+                height: 800.0,
+            });
+        let target = clamp_window_bounds(target, mode, monitor_work_area(&window));
+        apply_mode_minimum(&window, mode)?;
+        set_window_geometry(&window, target)?;
+        workspace.window_mode = mode;
+        save_mode_bounds(&mut workspace, target);
+    }
+
+    let stored = workspace.clone();
+    state.update_workspace(|workspace| *workspace = stored);
+    Ok(workspace)
+}
+
+#[tauri::command]
+pub fn save_window_bounds(window: WebviewWindow, state: State<'_, AppState>) -> Result<()> {
+    if window.label() != "main" {
+        return Err(CommandError::new(
+            "err-window",
+            "only the main window can save its geometry",
+        ));
+    }
+    if window.is_maximized().map_err(window_error)?
+        || window.is_fullscreen().map_err(window_error)?
+    {
+        return Ok(());
+    }
+    let mut bounds = logical_bounds(&window)?;
+    let workspace = state.workspace();
+    bounds = clamp_window_bounds(bounds, workspace.window_mode, monitor_work_area(&window));
+    state.update_workspace(|workspace| save_mode_bounds(workspace, bounds));
     Ok(())
 }
 
@@ -396,6 +617,64 @@ pub fn current_config(state: State<'_, AppState>) -> AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sidecar_bounds_clamp_size_and_position_to_the_monitor() {
+        let bounds = clamp_window_bounds(
+            WindowBounds {
+                x: 2_000.0,
+                y: -500.0,
+                width: 640.0,
+                height: 1_200.0,
+            },
+            WindowMode::Sidecar,
+            Some(WindowBounds {
+                x: 100.0,
+                y: 50.0,
+                width: 1_200.0,
+                height: 900.0,
+            }),
+        );
+
+        assert_eq!(
+            bounds,
+            WindowBounds {
+                x: 780.0,
+                y: 50.0,
+                width: 520.0,
+                height: 900.0,
+            }
+        );
+    }
+
+    #[test]
+    fn desktop_bounds_keep_the_minimum_width_on_a_secondary_monitor() {
+        let bounds = clamp_window_bounds(
+            WindowBounds {
+                x: -200.0,
+                y: 1_500.0,
+                width: 700.0,
+                height: 400.0,
+            },
+            WindowMode::Desktop,
+            Some(WindowBounds {
+                x: -1_920.0,
+                y: 0.0,
+                width: 1_280.0,
+                height: 720.0,
+            }),
+        );
+
+        assert_eq!(
+            bounds,
+            WindowBounds {
+                x: -1_500.0,
+                y: 240.0,
+                width: 860.0,
+                height: 480.0,
+            }
+        );
+    }
 
     #[test]
     fn auxiliary_window_titles_come_from_the_catalog() {

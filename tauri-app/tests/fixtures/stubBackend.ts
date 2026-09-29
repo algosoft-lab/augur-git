@@ -232,7 +232,7 @@ function install(
   let maximized = false;
 
   const config = {
-    schema_version: 1,
+    schema_version: 2,
     theme: 'claude-dark',
     language: 'system',
     view: {
@@ -292,8 +292,14 @@ function install(
   });
 
   const savedTabs = options.savedTabs ?? [];
+  let savedWindow: any = {};
+  try {
+    savedWindow = JSON.parse(sessionStorage.getItem('augur-test-window-state') ?? '{}');
+  } catch {
+    sessionStorage.removeItem('augur-test-window-state');
+  }
   const workspace = {
-    schema_version: 1,
+    schema_version: 2,
     open_tabs: [
       ...options.open.map((repo) => ({ path: repo.path, location: repo.location })),
       ...savedTabs.map((path) => ({ path, location: { kind: 'local' } }))
@@ -305,7 +311,10 @@ function install(
       diff_height: null,
       file_list_ratio: 0.25,
       ...(options.layout ?? {})
-    }
+    },
+    window_mode: savedWindow.window_mode ?? 'desktop',
+    desktop_window: savedWindow.desktop_window ?? null,
+    sidecar_window: savedWindow.sidecar_window ?? null
   };
   try {
     Object.assign(
@@ -1039,6 +1048,25 @@ function install(
       sessionStorage.setItem('augur-test-layout', JSON.stringify(workspace.layout));
       return null;
     },
+    set_window_mode: (args: any) => {
+      workspace.window_mode = args.mode;
+      if (args.mode === 'desktop' && !workspace.desktop_window) {
+        workspace.desktop_window = { x: 40, y: 40, width: 1280, height: 800 };
+      }
+      if (args.mode === 'sidecar' && !workspace.sidecar_window) {
+        workspace.sidecar_window = { x: 840, y: 8, width: 420, height: 760 };
+      }
+      sessionStorage.setItem(
+        'augur-test-window-state',
+        JSON.stringify({
+          window_mode: workspace.window_mode,
+          desktop_window: workspace.desktop_window,
+          sidecar_window: workspace.sidecar_window
+        })
+      );
+      return workspace;
+    },
+    save_window_bounds: () => null,
     set_workspace_tabs: (args: any) => {
       workspace.open_tabs = args.tabs;
       workspace.active_tab = args.active;

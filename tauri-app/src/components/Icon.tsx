@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 export type IconName =
   | 'archive'
   | 'archive-restore'
+  | 'arrow-left'
   | 'check'
   | 'chevron-down'
   | 'chevron-right'
@@ -19,6 +20,7 @@ export type IconName =
   | 'loader'
   | 'menu'
   | 'minus'
+  | 'panel-right'
   | 'pencil'
   | 'plus'
   | 'refresh-cw'
@@ -48,6 +50,7 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="m9 14 3-3 3 3" />
     </>
   ),
+  'arrow-left': <path d="M19 12H5m0 0 7 7m-7-7 7-7" />,
   check: <path d="M20 6 9 17l-5-5" />,
   'chevron-down': <path d="m6 9 6 6 6-6" />,
   'chevron-right': <path d="m9 6 6 6-6 6" />,
@@ -114,6 +117,12 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   minus: <path d="M5 12h14" />,
+  'panel-right': (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M15 4v16" />
+    </>
+  ),
   pencil: (
     <>
       <path d="M21.17 3.4a2.8 2.8 0 0 0-4-4L3 13.6V21h7.4Z" />

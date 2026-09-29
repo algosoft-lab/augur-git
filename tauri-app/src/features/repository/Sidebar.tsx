@@ -7,7 +7,7 @@
  * menus are the same on right click and on long press.
  */
 
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
@@ -49,13 +49,30 @@ function Section({ sectionKey, title, count, collapsed, onToggle, children }: Se
   );
 }
 
-export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
+export function Sidebar({
+  repo,
+  refs,
+  compact = false
+}: {
+  repo: RepoState;
+  refs: RefsInfo;
+  compact?: boolean;
+}) {
   const translate = useStore((state) => state.t);
   const [collapsed, setCollapsed] = useState<string[]>([]);
   const runAction = useStore((state) => state.runAction);
   const openOverlay = useStore((state) => state.openOverlay);
   const setMessage = useStore((state) => state.setMessage);
   const shortcuts = useStore((state) => state.shortcuts);
+  const ui = useStore((state) => state.sidecarUi[repo.id]);
+  const patchSidecarUi = useStore((state) => state.patchSidecarUi);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (compact && scrollRef.current) {
+      scrollRef.current.scrollTop = ui?.branchesScrollTop ?? 0;
+    }
+  }, [compact, repo.id]);
 
   const toggle = (key: string) => {
     setCollapsed((current) =>
@@ -213,13 +230,20 @@ export function Sidebar({ repo, refs }: { repo: RepoState; refs: RefsInfo }) {
   ];
 
   return (
-    <div className="sidebar" data-testid="sidebar">
+    <div className={`sidebar${compact ? ' sidebar--sidecar' : ''}`} data-testid="sidebar">
       <div className="panel-header" data-testid="sidebar-header">
         {t(translate, 'sidebar-repo')}
       </div>
       <div
         className="sidebar__scroll"
+        ref={scrollRef}
         data-keyboard-list="refs"
+        onScroll={
+          compact
+            ? (event) =>
+                patchSidecarUi(repo.id, { branchesScrollTop: event.currentTarget.scrollTop })
+            : undefined
+        }
         onKeyDown={(event) => moveListFocus(event, shortcuts.resolved)}
       >
         <Section

@@ -25,6 +25,7 @@ import type {
   RepoEvent,
   RepoSummary,
   ShortcutState,
+  WindowMode,
   WorkspaceState,
   WorkingTreeDiffKind
 } from '../bridge/types';
@@ -46,6 +47,33 @@ import {
 } from './repoState';
 
 export type WindowRole = 'main' | 'compare' | 'about' | 'settings';
+
+export type SidecarPage = 'changes' | 'history' | 'branches' | 'diff';
+export type SidecarListPage = Exclude<SidecarPage, 'diff'>;
+
+export interface SidecarRepoUi {
+  page: SidecarPage;
+  diffReturnPage: SidecarListPage;
+  graphQuery: string;
+  graphField: 'subject' | 'full';
+  graphScrollTop: number;
+  changesScrollTop: number;
+  branchesScrollTop: number;
+  commitDraft: string;
+}
+
+export function emptySidecarRepoUi(): SidecarRepoUi {
+  return {
+    page: 'changes',
+    diffReturnPage: 'changes',
+    graphQuery: '',
+    graphField: 'subject',
+    graphScrollTop: 0,
+    changesScrollTop: 0,
+    branchesScrollTop: 0,
+    commitDraft: ''
+  };
+}
 
 /** One entry in the tab bar. */
 export interface TabEntry {
@@ -139,6 +167,7 @@ interface AppStore {
   t: Translator;
 
   repos: Record<number, RepoState>;
+  sidecarUi: Record<number, SidecarRepoUi>;
   tabs: TabEntry[];
   activeTabKey: string | null;
   /**
@@ -168,6 +197,8 @@ interface AppStore {
   selectTab: (key: string) => Promise<void>;
   reorderTab: (sourceKey: string, targetKey: string, placement: 'before' | 'after') => void;
   setActiveRepo: (repoId: number | null) => void;
+  patchSidecarUi: (repoId: number, patch: Partial<SidecarRepoUi>) => void;
+  setWindowMode: (mode: WindowMode) => Promise<void>;
 
   applyEvent: (repoId: number, event: RepoEvent) => void;
   refresh: (repoId: number) => Promise<void>;
@@ -185,7 +216,7 @@ interface AppStore {
   selectCommit: (repoId: number, oid: string, short: string, subject: string) => Promise<void>;
   clearCommit: (repoId: number) => void;
   selectWorkingFile: (repoId: number, staged: boolean, file: FileStatus) => Promise<void>;
-  selectCommitFile: (repoId: number, file: FileChange) => void;
+  selectCommitFile: (repoId: number, file: FileChange | null) => void;
   setLogScope: (repoId: number) => Promise<void>;
 
   runAction: (repoId: number, action: GitAction) => Promise<void>;
@@ -765,7 +796,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
 
     build: null,
     config: {
-      schema_version: 1,
+      schema_version: 2,
       theme: 'claude-dark',
       language: 'system',
       view: {
@@ -786,10 +817,13 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       recent_repos: []
     },
     workspace: {
-      schema_version: 1,
+      schema_version: 2,
       open_tabs: [],
       active_tab: null,
-      layout: DEFAULT_LAYOUT
+      layout: DEFAULT_LAYOUT,
+      window_mode: 'desktop',
+      desktop_window: null,
+      sidecar_window: null
     },
     shortcuts: { resolved: [], defaults: [], overrides: {} },
     storePaths: [],
@@ -797,6 +831,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     t: (key: string) => key,
 
     repos: {},
+    sidecarUi: {},
     tabs: [],
     activeTabKey: null,
     pendingEvents: {},
@@ -904,10 +939,12 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
         clearCommitDiffTimeout(tab.repoId);
         const repos = { ...state.repos };
         delete repos[tab.repoId];
+        const sidecarUi = { ...state.sidecarUi };
+        delete sidecarUi[tab.repoId];
         const pendingEvents = { ...state.pendingEvents };
         delete pendingEvents[tab.repoId];
         integrationSources.delete(tab.repoId);
-        set({ tabs, activeTabKey, repos, pendingEvents });
+        set({ tabs, activeTabKey, repos, sidecarUi, pendingEvents });
         await ipc.closeRepository(tab.repoId);
         await ipc.closeCompareWindow(tab.repoId);
       } else {
@@ -982,6 +1019,16 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       set({ compareRepoId: repoId });
     },
 
+    patchSidecarUi(repoId, patch) {
+      const current = get().sidecarUi[repoId] ?? emptySidecarRepoUi();
+      set({ sidecarUi: { ...get().sidecarUi, [repoId]: { ...current, ...patch } } });
+    },
+
+    async setWindowMode(mode) {
+      const workspace = await ipc.setWindowMode(mode);
+      set({ workspace });
+    },
+
     applyEvent(repoId, event) {
       const state = get();
       if (event.type === 'commandDone' && event.label === 'copy-commit-message') {
@@ -1033,6 +1080,13 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       const next = applyRepoEvent(repo, event, t, (key, detail) => renderGitError(t, key, detail));
       if (next !== repo) {
         set({ repos: { ...state.repos, [repoId]: next } });
+      }
+      if (
+        event.type === 'commandDone' &&
+        event.success &&
+        (event.label === 'commit' || event.label === 'commit --amend')
+      ) {
+        get().patchSidecarUi(repoId, { commitDraft: '' });
       }
       if (next !== repo && event.type === 'commitFiles') {
         if (next.commitDiffPending && Object.keys(next.commitDiffPending).length > 0) {

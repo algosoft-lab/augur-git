@@ -15,18 +15,22 @@ import { EmptyState, Splitter } from '../../components/controls';
 import { Icon } from '../../components/Icon';
 import type { FileChange } from '../../bridge/types';
 import { statBlocks, statusKey, statusModifier } from './fileMeta';
-import { useStore, type RepoState } from '../../app/store';
+import { groupFiles, useStore, type RepoState } from '../../app/store';
 import { DiffView, NARROW_WIDTH, type DiffSection } from './DiffView';
 import { ta, t } from '../../i18n/strings';
 
 export function BottomPanel({
   repo,
   height,
+  sidecar = false,
+  onBack,
   onFileListRatioChange,
   onFileListRatioChangeEnd
 }: {
   repo: RepoState;
   height: number | null;
+  sidecar?: boolean;
+  onBack?: () => void;
   onFileListRatioChange: (ratio: number) => void;
   onFileListRatioChangeEnd: () => void;
 }) {
@@ -34,6 +38,7 @@ export function BottomPanel({
   const layout = useStore((state) => state.config.view.diff_layout);
   const ratio = useStore((state) => state.workspace.layout.file_list_ratio);
   const selectCommitFile = useStore((state) => state.selectCommitFile);
+  const selectWorkingFile = useStore((state) => state.selectWorkingFile);
   const selectCommit = useStore((state) => state.selectCommit);
   const clearCommit = useStore((state) => state.clearCommit);
   const [collapsed, setCollapsed] = useState(false);
@@ -44,6 +49,7 @@ export function BottomPanel({
   const pane = repo.pane;
   const commit = repo.selected;
   const showFileList = pane.kind === 'commit' && repo.commitFiles.length > 0;
+  const workingFiles = useMemo(() => groupFiles(repo.files, true), [repo.files]);
 
   useEffect(() => {
     const element = bodyRef.current;
@@ -164,38 +170,132 @@ export function BottomPanel({
   if (pane.kind === 'none') {
     return (
       <div
-        className={`bottom${height !== null ? ' bottom--fixed' : ''}`}
+        className={`bottom${height !== null ? ' bottom--fixed' : ''}${sidecar ? ' bottom--sidecar' : ''}`}
         style={height !== null ? { height } : undefined}
         data-testid="bottom-panel"
       >
-        <EmptyState
-          icon={<Icon name="git-commit-horizontal" />}
-          message={t(translate, 'bottom-no-commit')}
-          testId="bottom-no-commit-state"
-        />
+        {sidecar ? (
+          <div className="sidecar-diff-empty">
+            <button
+              type="button"
+              className="tool-button"
+              onClick={onBack}
+              data-testid="sidecar-diff-back"
+            >
+              <Icon name="arrow-left" size={12} /> {t(translate, 'sidecar-back')}
+            </button>
+            <EmptyState
+              icon={<Icon name="git-commit-horizontal" />}
+              message={t(translate, 'bottom-no-commit')}
+              testId="bottom-no-commit-state"
+            />
+          </div>
+        ) : (
+          <EmptyState
+            icon={<Icon name="git-commit-horizontal" />}
+            message={t(translate, 'bottom-no-commit')}
+            testId="bottom-no-commit-state"
+          />
+        )}
       </div>
     );
   }
 
   return (
     <div
-      className={`bottom${height !== null ? ' bottom--fixed' : ''}`}
+      className={`bottom${height !== null ? ' bottom--fixed' : ''}${sidecar ? ' bottom--sidecar' : ''}`}
       style={height !== null ? { height } : undefined}
       data-testid="bottom-panel"
     >
       <div className="bottom__toolbar">
-        <button
-          type="button"
-          className="tool-button tool-button--compact"
-          data-testid="bottom-toggle-files"
-          onClick={() => setCollapsed((value) => !value)}
-        >
-          <Icon name={collapsed ? 'chevron-right' : 'chevron-down'} size={11} />
-        </button>
+        {sidecar ? (
+          <button
+            type="button"
+            className="tool-button tool-button--compact"
+            data-testid="sidecar-diff-back"
+            title={t(translate, 'sidecar-back')}
+            aria-label={t(translate, 'sidecar-back')}
+            onClick={onBack}
+          >
+            <Icon name="arrow-left" size={12} />
+          </button>
+        ) : null}
+        {!sidecar ? (
+          <button
+            type="button"
+            className="tool-button tool-button--compact"
+            data-testid="bottom-toggle-files"
+            onClick={() => setCollapsed((value) => !value)}
+          >
+            <Icon name={collapsed ? 'chevron-right' : 'chevron-down'} size={11} />
+          </button>
+        ) : null}
         {commit ? (
           <span className="mono bottom__commit-hash" data-testid="bottom-commit-hash">
             {commit.short}
           </span>
+        ) : null}
+        {sidecar ? (
+          <select
+            className="sidecar-diff-select"
+            data-testid="sidecar-diff-file-select"
+            aria-label={t(translate, 'sidecar-diff-file')}
+            value={
+              pane.kind === 'commit'
+                ? (pane.file?.new_path ?? '__all__')
+                : pane.kind === 'working'
+                  ? `${pane.staged ? 'staged' : 'changes'}:${pane.file.path}`
+                  : ''
+            }
+            onChange={(event) => {
+              if (pane.kind === 'commit') {
+                const file = repo.commitFiles.find(
+                  (entry) => entry.new_path === event.currentTarget.value
+                );
+                void selectCommitFile(repo.id, file ?? null);
+              } else if (pane.kind === 'working') {
+                const [group, ...pathParts] = event.currentTarget.value.split(':');
+                const path = pathParts.join(':');
+                const staged = group === 'staged';
+                const file = (staged ? workingFiles.staged : workingFiles.unstaged).find(
+                  (entry) => entry.path === path
+                );
+                if (file) void selectWorkingFile(repo.id, staged, file);
+              }
+            }}
+          >
+            {pane.kind === 'commit' ? (
+              <>
+                <option value="__all__">{t(translate, 'diff-all-files')}</option>
+                {repo.commitFiles.map((file) => (
+                  <option key={file.new_path} value={file.new_path}>
+                    {file.new_path}
+                  </option>
+                ))}
+              </>
+            ) : pane.kind === 'working' ? (
+              <>
+                {workingFiles.staged.length ? (
+                  <optgroup label={t(translate, 'section-staged')}>
+                    {workingFiles.staged.map((file) => (
+                      <option key={`staged:${file.path}`} value={`staged:${file.path}`}>
+                        {file.path}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+                {workingFiles.unstaged.length ? (
+                  <optgroup label={t(translate, 'section-changes')}>
+                    {workingFiles.unstaged.map((file) => (
+                      <option key={`changes:${file.path}`} value={`changes:${file.path}`}>
+                        {file.path}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+              </>
+            ) : null}
+          </select>
         ) : null}
         <span className="bottom__toolbar-title" title={title}>
           {title}
@@ -261,7 +361,7 @@ export function BottomPanel({
         ) : null}
       </div>
       <div className="bottom__body" ref={bodyRef}>
-        {collapsed || !showFileList ? null : (
+        {collapsed || !showFileList || sidecar ? null : (
           <>
             <div
               className="bottom__files"

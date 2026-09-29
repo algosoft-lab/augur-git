@@ -13,6 +13,7 @@ import {
   laneCenterX,
   NODE_RADIUS,
   ROW_HEIGHT,
+  SIDECAR_GRAPH_METRICS,
   TURN_RADIUS,
   type LaneGeometry,
   type LaneRef
@@ -40,6 +41,27 @@ function geometry(overrides: Partial<LaneGeometry>): LaneGeometry {
 }
 
 describe('buildRowPaths', () => {
+  it('uses the 22px sidecar graph geometry', () => {
+    expect(SIDECAR_GRAPH_METRICS).toEqual({
+      rowHeight: 22,
+      laneWidth: 11,
+      leftPad: 6,
+      nodeRadius: 4,
+      turnRadius: 5,
+      strokeWidth: 1
+    });
+    expect(laneCenterX(1, SIDECAR_GRAPH_METRICS)).toBe(22.5);
+    expect(
+      buildRowPaths(
+        geometry({ hasIncoming: true, parentLanes: [0], outputLanes: [lane('parent')] }),
+        SIDECAR_GRAPH_METRICS
+      )
+    ).toEqual([
+      { d: 'M 11.5 0 L 11.5 7', colorIndex: 0 },
+      { d: 'M 11.5 15 L 11.5 22', colorIndex: 0 }
+    ]);
+  });
+
   it('a top-row merge without an incoming lane draws no edge above the node', () => {
     const paths = buildRowPaths(
       geometry({

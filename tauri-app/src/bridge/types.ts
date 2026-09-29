@@ -113,6 +113,18 @@ export interface WorkspaceState {
   open_tabs: OpenTabConfig[];
   active_tab: string | null;
   layout: LayoutSettings;
+  window_mode: WindowMode;
+  desktop_window: WindowBounds | null;
+  sidecar_window: WindowBounds | null;
+}
+
+export type WindowMode = 'desktop' | 'sidecar';
+
+export interface WindowBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export interface ResolvedShortcut {

@@ -494,6 +494,7 @@ export function Menu({ items, align = 'start', testId, children }: MenuProps) {
   const [openPath, setOpenPath] = useState<string[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const hasSubmenu = items.some((item) => item.children && item.children.length > 0);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -579,6 +580,28 @@ export function Menu({ items, align = 'start', testId, children }: MenuProps) {
       setPosition({ x, y });
     }
   }, [position, align]);
+
+  useLayoutEffect(() => {
+    if (!openPath.length || !menuRef.current) {
+      return;
+    }
+    for (const submenu of menuRef.current.querySelectorAll<HTMLElement>(
+      '.menu__group--submenu > .menu__submenu'
+    )) {
+      const parent = submenu.parentElement?.getBoundingClientRect();
+      const bounds = submenu.getBoundingClientRect();
+      if (!parent) {
+        continue;
+      }
+      const flipLeft = parent.right + 4 + bounds.width > window.innerWidth - 8;
+      submenu.style.left = flipLeft ? `${-bounds.width - 4}px` : '';
+      const top = Math.min(
+        Math.max(0, parent.top - 5),
+        Math.max(8, window.innerHeight - bounds.height - 8)
+      );
+      submenu.style.top = `${top - parent.top}px`;
+    }
+  }, [openPath]);
 
   const renderItems = (entries: MenuItemSpec[], prefix: string, parents: string[] = []) =>
     entries.map((item) => (
@@ -682,7 +705,7 @@ export function Menu({ items, align = 'start', testId, children }: MenuProps) {
             // scroll containers, and a scroll container clips every absolute
             // descendant: the menu would open into an invisible strip.
             <div
-              className="menu__list menu__list--fixed"
+              className={`menu__list menu__list--fixed${hasSubmenu ? ' menu__list--has-submenus' : ''}`}
               role="menu"
               data-testid={testId}
               ref={menuRef}
@@ -910,6 +933,8 @@ export interface VirtualListProps<T> {
   overscan?: number;
   renderRow: (item: T, index: number) => ReactNode;
   onViewportChange?: (range: { start: number; end: number }) => void;
+  initialScrollTop?: number;
+  onScrollPosition?: (scrollTop: number) => void;
   className?: string;
   testId?: string;
   empty?: ReactNode;
@@ -932,6 +957,8 @@ export function VirtualList<T>({
   overscan = 8,
   renderRow,
   onViewportChange,
+  initialScrollTop = 0,
+  onScrollPosition,
   className,
   testId,
   empty,
@@ -941,6 +968,7 @@ export function VirtualList<T>({
   onKeyDown
 }: VirtualListProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const initialScrollApplied = useRef(false);
   const [scrollTop, setScrollTop] = useState(0);
   const [height, setHeight] = useState(0);
 
@@ -948,6 +976,11 @@ export function VirtualList<T>({
     const element = containerRef.current;
     if (!element) {
       return;
+    }
+    if (!initialScrollApplied.current) {
+      element.scrollTop = initialScrollTop;
+      setScrollTop(initialScrollTop);
+      initialScrollApplied.current = true;
     }
     const observer = new ResizeObserver(() => {
       setHeight(element.clientHeight);
@@ -982,7 +1015,11 @@ export function VirtualList<T>({
       role={role}
       aria-activedescendant={activeDescendant}
       onKeyDown={onKeyDown}
-      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+      onScroll={(event) => {
+        const next = event.currentTarget.scrollTop;
+        setScrollTop(next);
+        onScrollPosition?.(next);
+      }}
     >
       <div className="virtual-list__sizer" style={{ height: items.length * rowHeight }}>
         <div

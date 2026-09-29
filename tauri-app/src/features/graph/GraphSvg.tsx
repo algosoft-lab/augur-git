@@ -24,6 +24,33 @@ export const NODE_RADIUS = 7;
 export const TURN_RADIUS = 9;
 const STROKE_WIDTH = 1.5;
 
+export interface GraphMetrics {
+  rowHeight: number;
+  laneWidth: number;
+  leftPad: number;
+  nodeRadius: number;
+  turnRadius: number;
+  strokeWidth: number;
+}
+
+export const DESKTOP_GRAPH_METRICS: GraphMetrics = {
+  rowHeight: ROW_HEIGHT,
+  laneWidth: COL_WIDTH,
+  leftPad: GRAPH_LEFT_PAD,
+  nodeRadius: NODE_RADIUS,
+  turnRadius: TURN_RADIUS,
+  strokeWidth: STROKE_WIDTH
+};
+
+export const SIDECAR_GRAPH_METRICS: GraphMetrics = {
+  rowHeight: 22,
+  laneWidth: 11,
+  leftPad: 6,
+  nodeRadius: 4,
+  turnRadius: 5,
+  strokeWidth: 1
+};
+
 /** One lane entering or leaving a row, identified by the commit it waits for. */
 export interface LaneRef {
   oid: string;
@@ -45,12 +72,14 @@ export interface LaneGeometry {
   outputLanes: LaneRef[];
 }
 
-export const laneCenterX = (lane: number) => GRAPH_LEFT_PAD + lane * COL_WIDTH + COL_WIDTH / 2;
+export const laneCenterX = (lane: number, metrics = DESKTOP_GRAPH_METRICS) =>
+  metrics.leftPad + lane * metrics.laneWidth + metrics.laneWidth / 2;
 
 export interface GraphSvgProps {
   geometry: LaneGeometry;
   laneColors: readonly string[];
   width: number;
+  metrics?: GraphMetrics;
 }
 
 /** One drawable lane segment: an SVG path plus the palette index to stroke it with. */
@@ -63,9 +92,9 @@ export interface RowPath {
  * Build every lane path for one row, continuations first so the routes created
  * by this commit are painted on top of the pipes they replace.
  */
-export function buildRowPaths(geometry: LaneGeometry): RowPath[] {
-  const midY = ROW_HEIGHT / 2;
-  const nodeX = laneCenterX(geometry.nodeLane);
+export function buildRowPaths(geometry: LaneGeometry, metrics = DESKTOP_GRAPH_METRICS): RowPath[] {
+  const midY = metrics.rowHeight / 2;
+  const nodeX = laneCenterX(geometry.nodeLane, metrics);
   const paths: RowPath[] = [];
 
   const nodeInputLanes = new Set(geometry.nodeInputLanes);
@@ -86,10 +115,13 @@ export function buildRowPaths(geometry: LaneGeometry): RowPath[] {
       continue;
     }
     usedOutputs.add(toLane);
-    const fromX = laneCenterX(fromLane);
-    const toX = laneCenterX(toLane);
+    const fromX = laneCenterX(fromLane, metrics);
+    const toX = laneCenterX(toLane, metrics);
     paths.push({
-      d: fromX === toX ? `M ${fromX} 0 L ${fromX} ${ROW_HEIGHT}` : throughRoute(fromX, toX, midY),
+      d:
+        fromX === toX
+          ? `M ${fromX} 0 L ${fromX} ${metrics.rowHeight}`
+          : throughRoute(fromX, toX, midY, metrics),
       colorIndex: input.colorIndex
     });
   }
@@ -99,7 +131,7 @@ export function buildRowPaths(geometry: LaneGeometry): RowPath[] {
   // free of the pipe that leads to it.
   if (geometry.hasIncoming) {
     paths.push({
-      d: `M ${nodeX} 0 L ${nodeX} ${midY - NODE_RADIUS}`,
+      d: `M ${nodeX} 0 L ${nodeX} ${midY - metrics.nodeRadius}`,
       colorIndex: geometry.colorIndex
     });
   }
@@ -111,7 +143,7 @@ export function buildRowPaths(geometry: LaneGeometry): RowPath[] {
       continue;
     }
     paths.push({
-      d: routeToNode(laneCenterX(lane), nodeX, midY),
+      d: routeToNode(laneCenterX(lane, metrics), nodeX, midY, metrics),
       colorIndex: geometry.inputLanes[lane]?.colorIndex ?? geometry.colorIndex
     });
   }
@@ -123,12 +155,12 @@ export function buildRowPaths(geometry: LaneGeometry): RowPath[] {
       // The stub leaving the node downwards. The node's own stroke would stop
       // short of the row below, leaving a visible gap.
       paths.push({
-        d: `M ${nodeX} ${midY + NODE_RADIUS} L ${nodeX} ${ROW_HEIGHT}`,
+        d: `M ${nodeX} ${midY + metrics.nodeRadius} L ${nodeX} ${metrics.rowHeight}`,
         colorIndex: laneColor
       });
     } else {
       paths.push({
-        d: routeFromNode(nodeX, laneCenterX(lane), midY),
+        d: routeFromNode(nodeX, laneCenterX(lane, metrics), midY, metrics),
         colorIndex: laneColor
       });
     }
@@ -143,50 +175,57 @@ export function buildRowPaths(geometry: LaneGeometry): RowPath[] {
  * HEAD is a filled disc and every other commit a ring, so the tip of the
  * history is findable in a column of nodes without reading a single label.
  */
-export function GraphSvg({ geometry, laneColors, width }: GraphSvgProps) {
-  const nodeX = laneCenterX(geometry.nodeLane);
+export function GraphSvg({
+  geometry,
+  laneColors,
+  width,
+  metrics = DESKTOP_GRAPH_METRICS
+}: GraphSvgProps) {
+  const nodeX = laneCenterX(geometry.nodeLane, metrics);
   const color = laneColors[geometry.colorIndex % laneColors.length] ?? 'currentColor';
 
   return (
     <svg
       className="graph-row__lanes"
       width={width}
-      height={ROW_HEIGHT}
+      height={metrics.rowHeight}
       aria-hidden="true"
       focusable="false"
     >
-      {buildRowPaths(geometry).map((path, index) => (
+      {buildRowPaths(geometry, metrics).map((path, index) => (
         <path
           key={index}
           d={path.d}
           fill="none"
           stroke={laneColors[path.colorIndex % laneColors.length] ?? 'currentColor'}
-          strokeWidth={STROKE_WIDTH}
+          strokeWidth={metrics.strokeWidth}
           strokeLinecap="round"
         />
       ))}
       <circle
         cx={nodeX}
-        cy={ROW_HEIGHT / 2}
-        r={NODE_RADIUS}
+        cy={metrics.rowHeight / 2}
+        r={metrics.nodeRadius}
         fill={geometry.isHead ? color : 'var(--background)'}
         stroke={color}
-        strokeWidth={STROKE_WIDTH}
+        strokeWidth={metrics.strokeWidth}
       />
     </svg>
   );
 }
 
 /** A full-height curved route for a lane that shifts sideways through the row. */
-function throughRoute(fromX: number, toX: number, midY: number): string {
-  return [`M ${fromX} 0`, `C ${fromX} ${midY} ${toX} ${midY} ${toX} ${ROW_HEIGHT}`].join(' ');
+function throughRoute(fromX: number, toX: number, midY: number, metrics: GraphMetrics): string {
+  return [`M ${fromX} 0`, `C ${fromX} ${midY} ${toX} ${midY} ${toX} ${metrics.rowHeight}`].join(
+    ' '
+  );
 }
 
 /** A route from the row above that terminates at the node's edge. */
-function routeToNode(fromX: number, nodeX: number, midY: number): string {
+function routeToNode(fromX: number, nodeX: number, midY: number, metrics: GraphMetrics): string {
   const direction = nodeX > fromX ? 1 : -1;
-  const edgeX = nodeX - direction * NODE_RADIUS;
-  const handle = Math.min(TURN_RADIUS, Math.abs(edgeX - fromX), midY);
+  const edgeX = nodeX - direction * metrics.nodeRadius;
+  const handle = Math.min(metrics.turnRadius, Math.abs(edgeX - fromX), midY);
   return [
     `M ${fromX} 0`,
     `C ${fromX} ${handle} ${edgeX - direction * handle} ${midY} ${edgeX} ${midY}`
@@ -194,12 +233,12 @@ function routeToNode(fromX: number, nodeX: number, midY: number): string {
 }
 
 /** A route starting at the node's edge and continuing to the row below. */
-function routeFromNode(nodeX: number, toX: number, midY: number): string {
+function routeFromNode(nodeX: number, toX: number, midY: number, metrics: GraphMetrics): string {
   const direction = toX > nodeX ? 1 : -1;
-  const edgeX = nodeX + direction * NODE_RADIUS;
-  const handle = Math.min(TURN_RADIUS, Math.abs(toX - edgeX), ROW_HEIGHT - midY);
+  const edgeX = nodeX + direction * metrics.nodeRadius;
+  const handle = Math.min(metrics.turnRadius, Math.abs(toX - edgeX), metrics.rowHeight - midY);
   return [
     `M ${edgeX} ${midY}`,
-    `C ${edgeX + direction * handle} ${midY} ${toX} ${ROW_HEIGHT - handle} ${toX} ${ROW_HEIGHT}`
+    `C ${edgeX + direction * handle} ${midY} ${toX} ${metrics.rowHeight - handle} ${toX} ${metrics.rowHeight}`
   ].join(' ');
 }

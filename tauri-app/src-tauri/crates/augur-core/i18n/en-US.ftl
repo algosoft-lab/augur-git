@@ -125,6 +125,23 @@ toolbar-branch = Branch
 toolbar-compare = Compare
 toolbar-extensions = Extensions
 toolbar-refresh = Refresh
+toolbar-ahead = Commits ahead
+toolbar-behind = Commits behind
+menu-more = More
+
+# ===== Sidecar window =====
+sidecar-changes = Changes
+sidecar-history = History
+graph-history-current-short = Current
+sidecar-diff = Diff
+sidecar-diff-file = Select diff file
+sidecar-back = Back
+sidecar-navigation = Repository navigation
+sidecar-select-repository = Select repository
+sidecar-switch-mode = Switch to Sidecar mode
+sidecar-switch-desktop = Switch to Desktop mode
+sidecar-graph-lanes-scroll = Scroll horizontally to see more graph lanes
+sidecar-conflicts = Conflicts
 
 # ===== Agent lifecycle =====
 

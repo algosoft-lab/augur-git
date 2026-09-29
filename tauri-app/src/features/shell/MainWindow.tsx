@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { open } from '@tauri-apps/plugin-dialog';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import { useStore } from '../../app/store';
 import * as ipc from '../../bridge/ipc';
@@ -18,6 +19,7 @@ import { Welcome } from './Welcome';
 import { RepoTab } from '../repository/RepoTab';
 import { Overlays } from '../dialogs/Overlays';
 import { t } from '../../i18n/strings';
+import { SidecarWindow } from './SidecarWindow';
 
 export function MainWindow() {
   const translate = useStore((state) => state.t);
@@ -26,6 +28,8 @@ export function MainWindow() {
   const repos = useStore((state) => state.repos);
   const notice = useStore((state) => state.notice);
   const openPaths = useStore((state) => state.openPaths);
+  const windowMode = useStore((state) => state.workspace.window_mode);
+  const setWindowMode = useStore((state) => state.setWindowMode);
   const addStartTab = useStore((state) => state.addStartTab);
   const notify = useStore((state) => state.notify);
   const [wslOpen, setWslOpen] = useState(false);
@@ -76,15 +80,91 @@ export function MainWindow() {
     };
   }, [activeRepo?.id]);
 
+  useEffect(() => {
+    let cancelled = false;
+    let closing = false;
+    let timer: number | null = null;
+    const unlisten: (() => void)[] = [];
+    const persistBounds = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = null;
+        void ipc.saveWindowBounds().catch((error) => {
+          console.warn('[window_state] failed to save main window bounds', error);
+        });
+      }, 450);
+    };
+    void (async () => {
+      const mainWindow = getCurrentWindow();
+      const resized = await mainWindow.onResized(persistBounds);
+      if (cancelled) resized();
+      else unlisten.push(resized);
+      const moved = await mainWindow.onMoved(persistBounds);
+      if (cancelled) moved();
+      else unlisten.push(moved);
+      const closeRequested = await mainWindow.onCloseRequested((event) => {
+        if (closing) {
+          return;
+        }
+        event.preventDefault();
+        closing = true;
+        if (timer !== null) {
+          window.clearTimeout(timer);
+          timer = null;
+        }
+        void (async () => {
+          try {
+            await ipc.saveWindowBounds();
+            await ipc.flushState();
+          } catch (error) {
+            console.warn('[window_state] failed to flush the main window before close', error);
+          }
+          await mainWindow.close();
+        })();
+      });
+      if (cancelled) closeRequested();
+      else unlisten.push(closeRequested);
+    })();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+      unlisten.forEach((release) => release());
+    };
+  }, [windowMode]);
+
+  const toggleWindowMode = async () => {
+    if (windowMode === 'sidecar') {
+      await setWindowMode('desktop');
+      return;
+    }
+    if (activeRepo) {
+      const state = useStore.getState();
+      const origin = activeRepo.pane.kind === 'working' ? 'changes' : 'history';
+      state.patchSidecarUi(activeRepo.id, {
+        page: activeRepo.pane.kind === 'none' ? 'changes' : 'diff',
+        diffReturnPage: origin
+      });
+    }
+    await setWindowMode('sidecar');
+  };
+
   return (
     <div className="app">
       <TitleBar
         onOpenRepository={() => void pickFolder()}
         onOpenWslRepository={() => setWslOpen(true)}
         onNewTab={addStartTab}
+        sidecar={windowMode === 'sidecar'}
+        hasActiveRepo={activeRepo !== null}
+        windowMode={windowMode}
+        onToggleMode={() => void toggleWindowMode()}
       />
       {activeRepo ? (
-        <RepoTab repo={activeRepo} />
+        windowMode === 'sidecar' ? (
+          <SidecarWindow repo={activeRepo} />
+        ) : (
+          <RepoTab repo={activeRepo} />
+        )
       ) : (
         // A start page and a window with no tabs show the same page; the
         // difference is only that a start page holds a slot for a repository.
@@ -95,7 +175,7 @@ export function MainWindow() {
           />
         </div>
       )}
-      <StatusBar repo={activeRepo} />
+      {windowMode === 'sidecar' ? null : <StatusBar repo={activeRepo} />}
       <Overlays wslOpen={wslOpen} onWslOpenChange={setWslOpen} onOpenPaths={openPaths} />
       {notice ? (
         <div className={`notice notice--${notice.level}`} data-testid="notice">

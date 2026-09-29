@@ -43,6 +43,17 @@ tauri-app/
 the Git argument construction, output parsers, commit-graph layout, diff
 parsing, and read-only state probes used by the Tauri backend.
 
+## Main window modes
+
+The main window supports a full desktop layout and a manually selected Sidecar
+layout for use beside an editor. Sidecar opens at 420px wide, can be resized
+from 360px to 520px, and provides Changes, History, and Branches pages with a
+contextual full-page Diff view. Commit drafts, history searches, list positions,
+and each mode's window bounds are kept separately per repository or mode as
+appropriate. The last selected mode and both sets of window bounds are saved
+in the workspace document. Switching modes never changes the standalone
+Compare, Settings, or About windows.
+
 ## Requirements
 
 - Rust 1.90 or newer (the workspace uses edition 2024)

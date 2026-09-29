@@ -18,7 +18,7 @@
         "url": "index.html?window=main",
         "width": 1280,
         "height": 800,
-        "minWidth": 860,
+        "minWidth": 360,
         "minHeight": 480,
         "resizable": true,
         "decorations": false,

@@ -80,6 +80,8 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             commands::app::set_commit_action,
             commands::app::set_diff_layout,
             commands::app::set_layout,
+            commands::app::set_window_mode,
+            commands::app::save_window_bounds,
             commands::app::set_workspace_tabs,
             commands::app::set_shortcut,
             commands::app::validate_shortcut,
@@ -102,6 +104,7 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
 
             let report = persistence::LoadReport::default();
             app.manage(AppState::new(handle.clone(), report));
+            commands::app::restore_main_window(&handle, &app.state::<AppState>());
             if let Some(window) = app.get_webview_window("main") {
                 if let Ok(focused) = window.is_focused() {
                     app.state::<AppState>().set_main_window_focused(focused);

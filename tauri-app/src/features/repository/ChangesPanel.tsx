@@ -12,7 +12,7 @@
  * it destroys work.
  */
 
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 
 import { Icon } from '../../components/Icon';
 import { ContextMenu, IconButton } from '../../components/controls';
@@ -37,13 +37,30 @@ interface Group {
   files: FileStatus[];
 }
 
-export function ChangesPanel({ repo }: { repo: RepoState }) {
+export function ChangesPanel({
+  repo,
+  compact = false,
+  onOpenDiff
+}: {
+  repo: RepoState;
+  compact?: boolean;
+  onOpenDiff?: () => void;
+}) {
   const translate = useStore((state) => state.t);
   const showUntracked = useStore((state) => state.config.view.show_untracked);
   const selectWorkingFile = useStore((state) => state.selectWorkingFile);
   const openOverlay = useStore((state) => state.openOverlay);
   const [collapsed, setCollapsed] = useState<string[]>([]);
   const shortcuts = useStore((state) => state.shortcuts);
+  const ui = useStore((state) => state.sidecarUi[repo.id]);
+  const patchSidecarUi = useStore((state) => state.patchSidecarUi);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (compact && scrollRef.current) {
+      scrollRef.current.scrollTop = ui?.changesScrollTop ?? 0;
+    }
+  }, [compact, repo.id]);
 
   const busy = repo.busy;
   // The two groups are not exclusive: a partially staged file appears in both,
@@ -109,7 +126,10 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
   ]).size;
 
   return (
-    <div className="changes" data-testid={groups.length ? 'changes-panel' : 'changes-empty'}>
+    <div
+      className={`changes${compact ? ' changes--sidecar' : ''}`}
+      data-testid={groups.length ? 'changes-panel' : 'changes-empty'}
+    >
       <div className="panel-header panel-header--compact" data-testid="changes-header">
         <span>{t(translate, 'changes-title')}</span>
         {repo.hasConflicts ? (
@@ -130,8 +150,15 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
       </div>
       <div
         className="changes__scroll"
+        ref={scrollRef}
         data-keyboard-list="changes"
         data-testid="changes-scroll"
+        onScroll={
+          compact
+            ? (event) =>
+                patchSidecarUi(repo.id, { changesScrollTop: event.currentTarget.scrollTop })
+            : undefined
+        }
         onKeyDown={(event) => moveListFocus(event, shortcuts.resolved)}
       >
         {groups.length === 0 ? (
@@ -228,6 +255,7 @@ export function ChangesPanel({ repo }: { repo: RepoState }) {
                       }
                       onSelect={() => {
                         void selectWorkingFile(repo.id, stagedGroup, file);
+                        onOpenDiff?.();
                       }}
                       onOperate={(action) => void operate(action, [file], false)}
                     />

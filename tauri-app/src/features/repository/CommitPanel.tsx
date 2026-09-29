@@ -7,8 +7,6 @@
  * which is then the default for the session.
  */
 
-import { useState } from 'react';
-
 import { Icon } from '../../components/Icon';
 import { Menu, TextArea, type MenuItemSpec } from '../../components/controls';
 import type { CommitActionPreference } from '../../bridge/types';
@@ -21,7 +19,9 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
   const preference = useStore((state) => state.config.view.commit_action);
   const setView = useStore((state) => state.setView);
   const runAction = useStore((state) => state.runAction);
-  const [message, setMessageText] = useState('');
+  const message = useStore((state) => state.sidecarUi[repo.id]?.commitDraft ?? '');
+  const setMessageText = (commitDraft: string) =>
+    useStore.getState().patchSidecarUi(repo.id, { commitDraft });
   const lastCommitMessage = repo.head
     ? (repo.logRows.find((row) => row.oid === repo.head)?.message.trimEnd() ?? '')
     : '';
@@ -43,7 +43,6 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
       message,
       amend: preference === 'amend'
     });
-    setMessageText('');
   };
 
   // The menu offers two modes, so it marks the one in effect: opening it and
