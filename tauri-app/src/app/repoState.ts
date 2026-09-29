@@ -75,8 +75,11 @@ export interface RepoState {
   refLabels: Record<string, RefLabel[]>;
 
   selected: CommitSelection | null;
+  /** Identity of the newest commit selection, including repeat selections. */
+  commitRequestId: number;
   commitFiles: FileChange[];
   commitFilesLoading: boolean;
+  commitFilesError: string | null;
   commitMergeParent: string | null;
   commitMessages: Record<string, CommitMessage>;
   /** Which file the bottom panel is focused on, if any. */
@@ -89,6 +92,10 @@ export interface RepoState {
    * lets a late answer for one file land without disturbing the others.
    */
   commitDiffs: Record<string, DiffDocument>;
+  /** File paths whose diff requests have not completed for this selection. */
+  commitDiffPending: Record<string, true>;
+  /** Per-file errors for the current commit selection. */
+  commitDiffErrors: Record<string, string>;
   workingDocument: DiffDocument | null;
   workingLoading: boolean;
   workingError: string | null;
@@ -130,12 +137,16 @@ export function emptyRepo(id: number, path: string, location: LocationConfig): R
     refLabels: {},
 
     selected: null,
+    commitRequestId: 0,
     commitFiles: [],
     commitFilesLoading: false,
+    commitFilesError: null,
     commitMergeParent: null,
     commitMessages: {},
     pane: { kind: 'none' },
     commitDiffs: {},
+    commitDiffPending: {},
+    commitDiffErrors: {},
     workingDocument: null,
     workingLoading: false,
     workingError: null,
@@ -297,14 +308,37 @@ export function applyRepoEvent(
     case 'refs':
       return { ...state, refs: event.refs };
     case 'commitFiles':
-      if (state.selected?.oid !== event.oid || state.pane.kind !== 'commit') {
+      if (
+        state.selected?.oid !== event.oid ||
+        state.commitRequestId !== event.requestId ||
+        state.pane.kind !== 'commit'
+      ) {
         return state;
       }
       return {
         ...state,
         commitFiles: event.files,
         commitFilesLoading: false,
-        commitMergeParent: event.merge_parent
+        commitFilesError: null,
+        commitMergeParent: event.merge_parent,
+        commitDiffPending: Object.fromEntries(
+          event.files.map((file) => [file.new_path, true] as const)
+        ),
+        commitDiffErrors: {}
+      };
+    case 'commitFilesError':
+      if (
+        state.selected?.oid !== event.oid ||
+        state.commitRequestId !== event.requestId ||
+        state.pane.kind !== 'commit'
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        commitFilesLoading: false,
+        commitFilesError: renderError(event.error.key, event.error.detail),
+        commitDiffPending: {}
       };
     case 'commitMessage':
       return {
@@ -315,16 +349,50 @@ export function applyRepoEvent(
       // An answer for a commit that is no longer selected is stale; an answer
       // for any file of the selected commit is kept, because the panel shows
       // them all until one is focused.
-      if (state.pane.kind !== 'commit' || state.selected?.oid !== event.oid) {
+      if (
+        state.pane.kind !== 'commit' ||
+        state.selected?.oid !== event.oid ||
+        state.commitRequestId !== event.requestId
+      ) {
         return state;
       }
       const path = event.file.new_path;
-      if (state.commitDiffs[path] === event.document) {
+      const commitDiffPending = { ...state.commitDiffPending };
+      delete commitDiffPending[path];
+      const commitDiffErrors = { ...state.commitDiffErrors };
+      delete commitDiffErrors[path];
+      if (
+        state.commitDiffs[path] === event.document &&
+        state.commitDiffPending[path] === undefined &&
+        state.commitDiffErrors[path] === undefined
+      ) {
         return state;
       }
       return {
         ...state,
-        commitDiffs: { ...state.commitDiffs, [path]: event.document }
+        commitDiffs: { ...state.commitDiffs, [path]: event.document },
+        commitDiffPending,
+        commitDiffErrors
+      };
+    }
+    case 'fileDiffError': {
+      if (
+        state.pane.kind !== 'commit' ||
+        state.selected?.oid !== event.oid ||
+        state.commitRequestId !== event.requestId
+      ) {
+        return state;
+      }
+      const path = event.file.new_path;
+      const commitDiffPending = { ...state.commitDiffPending };
+      delete commitDiffPending[path];
+      return {
+        ...state,
+        commitDiffPending,
+        commitDiffErrors: {
+          ...state.commitDiffErrors,
+          [path]: renderError(event.error.key, event.error.detail)
+        }
       };
     }
     case 'workingTreeFileDiff': {

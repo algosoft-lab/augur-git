@@ -95,8 +95,8 @@ impl RepoSession {
     }
 
     /// Ask for the file list and full message of one commit.
-    pub fn select_commit(&self, oid: String) {
-        self.handle.commit_numstat(oid.clone());
+    pub fn select_commit(&self, request_id: u64, oid: String) {
+        self.handle.commit_numstat(request_id, oid.clone());
         self.handle.commit_message(oid);
     }
 
@@ -104,8 +104,15 @@ impl RepoSession {
         self.handle.commit_message(oid);
     }
 
-    pub fn commit_file_diff(&self, oid: String, merge_parent: Option<String>, file: FileChange) {
-        self.handle.commit_file_diff(oid, merge_parent, file);
+    pub fn commit_file_diff(
+        &self,
+        request_id: u64,
+        oid: String,
+        merge_parent: Option<String>,
+        file: FileChange,
+    ) {
+        self.handle
+            .commit_file_diff(request_id, oid, merge_parent, file);
     }
 
     /// Request a working-tree diff using the caller's event-correlation id.
@@ -256,16 +263,28 @@ fn convert(repo_id: u64, event: GitEvent) -> Option<RepoEventEnvelope> {
         },
         E::Refs(refs) => RepoEvent::Refs { refs },
         E::CommitFiles {
+            request_id,
             oid,
             files,
             merge_parent,
         } => RepoEvent::CommitFiles {
+            request_id,
             oid,
             files,
             merge_parent,
         },
+        E::CommitFilesError {
+            request_id,
+            oid,
+            error,
+        } => RepoEvent::CommitFilesError {
+            request_id,
+            oid,
+            error,
+        },
         E::CommitMessage { oid, message } => RepoEvent::CommitMessage { oid, message },
         E::CommitFileDiff {
+            request_id,
             oid,
             file,
             patch,
@@ -274,11 +293,23 @@ fn convert(repo_id: u64, event: GitEvent) -> Option<RepoEventEnvelope> {
         } => {
             let label = display_path(&file);
             RepoEvent::FileDiff {
+                request_id,
                 oid,
                 file,
                 document: DiffDocument::from_patch(label, &patch, old_source, new_source).into(),
             }
         }
+        E::CommitFileDiffError {
+            request_id,
+            oid,
+            file,
+            error,
+        } => RepoEvent::FileDiffError {
+            request_id,
+            oid,
+            file,
+            error,
+        },
         E::WorkingTreeFileDiff {
             request_id,
             kind,

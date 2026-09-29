@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::process::Command;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::Duration;
@@ -190,19 +190,34 @@ pub enum GitEvent {
     Refs(RefsInfo),
     /// Commit file metadata and line counts for the selected commit.
     CommitFiles {
+        request_id: u64,
         oid: String,
         files: Vec<FileChange>,
         merge_parent: Option<String>,
+    },
+    /// Commit metadata failed without stopping the Git worker.
+    CommitFilesError {
+        request_id: u64,
+        oid: String,
+        error: GitError,
     },
     /// Full commit message for the selected or hovered commit.
     CommitMessage { oid: String, message: CommitMessage },
     /// Structured single-file commit diff payload.
     CommitFileDiff {
+        request_id: u64,
         oid: String,
         file: FileChange,
         patch: String,
         old_source: Option<String>,
         new_source: Option<String>,
+    },
+    /// A commit file diff failed without stopping the Git worker.
+    CommitFileDiffError {
+        request_id: u64,
+        oid: String,
+        file: FileChange,
+        error: GitError,
     },
     /// Structured single-file working-tree diff payload.
     WorkingTreeFileDiff {
@@ -447,11 +462,12 @@ pub enum GitCommand {
         refresh_after_success: bool,
     },
     /// Query file metadata and line counts for the selected commit.
-    CommitNumstat { oid: String },
+    CommitNumstat { request_id: u64, oid: String },
     /// 查询提交的完整提交信息（git show -s --format=%B）
     CommitMessage { oid: String },
     /// Query a structured single-file commit diff.
     CommitFileDiff {
+        request_id: u64,
         oid: String,
         merge_parent: Option<String>,
         file: FileChange,
@@ -490,6 +506,7 @@ pub enum GitCommand {
 pub struct GitHandle {
     cmd_tx: Sender<GitCommand>,
     compare_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    commit_generation: Arc<AtomicU64>,
     auto_refresh_state: Arc<AtomicU8>,
 }
 
@@ -576,8 +593,12 @@ impl GitHandle {
     }
 
     /// 查询提交的逐文件增删统计
-    pub fn commit_numstat(&self, oid: String) {
-        let _ = self.cmd_tx.send(GitCommand::CommitNumstat { oid });
+    pub fn commit_numstat(&self, request_id: u64, oid: String) {
+        self.commit_generation
+            .fetch_max(request_id, Ordering::AcqRel);
+        let _ = self
+            .cmd_tx
+            .send(GitCommand::CommitNumstat { request_id, oid });
     }
 
     /// 查询提交的完整提交信息
@@ -586,8 +607,15 @@ impl GitHandle {
     }
 
     /// Query a structured single-file commit diff.
-    pub fn commit_file_diff(&self, oid: String, merge_parent: Option<String>, file: FileChange) {
+    pub fn commit_file_diff(
+        &self,
+        request_id: u64,
+        oid: String,
+        merge_parent: Option<String>,
+        file: FileChange,
+    ) {
         let _ = self.cmd_tx.send(GitCommand::CommitFileDiff {
+            request_id,
             oid,
             merge_parent,
             file,
@@ -687,9 +715,11 @@ pub fn spawn_open(repo: GitRepo, event_tx: Sender<GitEvent>) -> Result<GitHandle
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<GitCommand>();
     let compare_generation = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let commit_generation = Arc::new(AtomicU64::new(0));
     let auto_refresh_state = Arc::new(AtomicU8::new(0));
     thread::spawn({
         let compare_generation = compare_generation.clone();
+        let commit_generation = commit_generation.clone();
         let auto_refresh_state = auto_refresh_state.clone();
         move || {
             worker_loop(
@@ -697,6 +727,7 @@ pub fn spawn_open(repo: GitRepo, event_tx: Sender<GitEvent>) -> Result<GitHandle
                 cmd_rx,
                 event_tx,
                 compare_generation,
+                commit_generation,
                 auto_refresh_state,
             )
         }
@@ -705,6 +736,7 @@ pub fn spawn_open(repo: GitRepo, event_tx: Sender<GitEvent>) -> Result<GitHandle
     Ok(GitHandle {
         cmd_tx,
         compare_generation,
+        commit_generation,
         auto_refresh_state,
     })
 }
@@ -773,6 +805,7 @@ fn worker_loop(
     cmd_rx: Receiver<GitCommand>,
     event_tx: Sender<GitEvent>,
     compare_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    commit_generation: Arc<AtomicU64>,
     auto_refresh_state: Arc<AtomicU8>,
 ) {
     // WSL repositories are validated here because the synchronous open path
@@ -821,18 +854,30 @@ fn worker_loop(
                     refresh_all(&repo, &event_tx, &mut log_state, false);
                 }
             }
-            Ok(GitCommand::CommitNumstat { oid }) => {
-                run_numstat(&repo, &oid, &event_tx);
+            Ok(GitCommand::CommitNumstat { request_id, oid }) => {
+                if commit_generation.load(Ordering::Acquire) == request_id {
+                    run_numstat(&repo, request_id, &oid, &event_tx);
+                }
             }
             Ok(GitCommand::CommitMessage { oid }) => {
                 run_commit_message(&repo, &oid, &event_tx);
             }
             Ok(GitCommand::CommitFileDiff {
+                request_id,
                 oid,
                 merge_parent,
                 file,
             }) => {
-                run_file_diff(&repo, &oid, merge_parent.as_deref(), &file, &event_tx);
+                if commit_generation.load(Ordering::Acquire) == request_id {
+                    run_file_diff(
+                        &repo,
+                        request_id,
+                        &oid,
+                        merge_parent.as_deref(),
+                        &file,
+                        &event_tx,
+                    );
+                }
             }
             Ok(GitCommand::WorkingTreeFileDiff {
                 request_id,
@@ -1073,11 +1118,15 @@ fn commit_message_args(oid: String) -> Vec<String> {
 }
 
 /// Query structured file metadata for a commit.
-fn run_numstat(repo: &GitRepo, oid: &str, event_tx: &Sender<GitEvent>) {
+fn run_numstat(repo: &GitRepo, request_id: u64, oid: &str, event_tx: &Sender<GitEvent>) {
     let merge_parent = match resolve_merge_parent(repo, oid) {
         Ok(parent) => parent,
         Err(detail) => {
-            let _ = event_tx.send(GitEvent::Error(GitError::new("err-numstat", detail)));
+            let _ = event_tx.send(GitEvent::CommitFilesError {
+                request_id,
+                oid: oid.to_string(),
+                error: GitError::new("err-numstat", detail),
+            });
             return;
         }
     };
@@ -1145,6 +1194,7 @@ fn run_numstat(repo: &GitRepo, oid: &str, event_tx: &Sender<GitEvent>) {
                 files.len()
             );
             let _ = event_tx.send(GitEvent::CommitFiles {
+                request_id,
                 oid: oid.to_string(),
                 files,
                 merge_parent,
@@ -1156,13 +1206,18 @@ fn run_numstat(repo: &GitRepo, oid: &str, event_tx: &Sender<GitEvent>) {
             } else {
                 String::from_utf8_lossy(&stats.stderr).into_owned()
             };
-            let _ = event_tx.send(GitEvent::Error(GitError::new("err-numstat", detail)));
+            let _ = event_tx.send(GitEvent::CommitFilesError {
+                request_id,
+                oid: oid.to_string(),
+                error: GitError::new("err-numstat", detail),
+            });
         }
         (Err(error), _) | (_, Err(error)) => {
-            let _ = event_tx.send(GitEvent::Error(GitError::new(
-                "err-git-run",
-                error.to_string(),
-            )));
+            let _ = event_tx.send(GitEvent::CommitFilesError {
+                request_id,
+                oid: oid.to_string(),
+                error: GitError::new("err-git-run", error.to_string()),
+            });
         }
     }
 }
@@ -1269,6 +1324,7 @@ const MAX_BLOB_SIZE: usize = 10 * 1024 * 1024;
 /// Query a single file patch and, when possible, its complete old/new blobs.
 fn run_file_diff(
     repo: &GitRepo,
+    request_id: u64,
     oid: &str,
     merge_parent: Option<&str>,
     file: &FileChange,
@@ -1321,6 +1377,7 @@ fn run_file_diff(
                 patch.len()
             );
             let _ = event_tx.send(GitEvent::CommitFileDiff {
+                request_id,
                 oid: oid.to_string(),
                 file: file.clone(),
                 patch,
@@ -1330,10 +1387,20 @@ fn run_file_diff(
         }
         Ok(output) => {
             let msg = String::from_utf8_lossy(&output.stderr);
-            let _ = event_tx.send(GitEvent::Error(GitError::new("err-file-diff", msg)));
+            let _ = event_tx.send(GitEvent::CommitFileDiffError {
+                request_id,
+                oid: oid.to_string(),
+                file: file.clone(),
+                error: GitError::new("err-file-diff", msg.into_owned()),
+            });
         }
         Err(e) => {
-            let _ = event_tx.send(GitEvent::Error(GitError::new("err-git-run", e.to_string())));
+            let _ = event_tx.send(GitEvent::CommitFileDiffError {
+                request_id,
+                oid: oid.to_string(),
+                file: file.clone(),
+                error: GitError::new("err-git-run", e.to_string()),
+            });
         }
     }
 }

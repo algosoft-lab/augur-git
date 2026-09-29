@@ -98,6 +98,16 @@ export interface StubOptions {
   workingDiffDelay?: number;
   /** Leave working-tree diff requests unanswered so the timeout path can be tested. */
   workingDiffNeverResponds?: boolean;
+  /** Fail commit file metadata requests with this detail. */
+  commitFilesFailure?: string;
+  /** Fail every commit file diff request with this detail. */
+  commitDiffFailure?: string;
+  /** Fail commit diff requests for these paths. */
+  commitDiffFailurePaths?: string[];
+  /** Delay commit file diff events by this many milliseconds. */
+  commitDiffDelay?: number;
+  /** Leave commit file diff requests unanswered so the timeout path can be tested. */
+  commitDiffNeverResponds?: boolean;
   /** Initial pane geometry returned by bootstrap. */
   layout?: Partial<{
     sidebar_width: number;
@@ -172,6 +182,11 @@ function install(
     workingDiffFailureAfterFirst?: string;
     workingDiffDelay?: number;
     workingDiffNeverResponds?: boolean;
+    commitFilesFailure?: string;
+    commitDiffFailure?: string;
+    commitDiffFailurePaths?: string[];
+    commitDiffDelay?: number;
+    commitDiffNeverResponds?: boolean;
     refusals?: Record<string, { key: string; detail: string }>;
     layout?: Partial<{
       sidebar_width: number;
@@ -629,9 +644,20 @@ function install(
       if (!repo || !row) {
         return null;
       }
+      if (options.commitFilesFailure) {
+        emit('augur://repo-event', {
+          repoId: repo.id,
+          type: 'commitFilesError',
+          requestId: args.requestId,
+          oid: row.oid,
+          error: { key: 'err-numstat', detail: options.commitFilesFailure }
+        });
+        return null;
+      }
       emit('augur://repo-event', {
         repoId: repo.id,
         type: 'commitFiles',
+        requestId: args.requestId,
         oid: row.oid,
         files: [
           {
@@ -684,13 +710,41 @@ function install(
       if (!repo) {
         return null;
       }
-      emit('augur://repo-event', {
-        repoId: repo.id,
-        type: 'fileDiff',
-        oid: args.oid,
-        file: args.file,
-        document: diffFor(args.file.new_path, 'rust')
-      });
+      if (options.commitDiffNeverResponds) {
+        return null;
+      }
+      const failure =
+        options.commitDiffFailure ??
+        (options.commitDiffFailurePaths?.includes(args.file.new_path)
+          ? `failed to read ${args.file.new_path}`
+          : null);
+      const announce = () => {
+        emit(
+          'augur://repo-event',
+          failure
+            ? {
+                repoId: repo.id,
+                type: 'fileDiffError',
+                requestId: args.requestId,
+                oid: args.oid,
+                file: args.file,
+                error: { key: 'err-file-diff', detail: failure }
+              }
+            : {
+                repoId: repo.id,
+                type: 'fileDiff',
+                requestId: args.requestId,
+                oid: args.oid,
+                file: args.file,
+                document: diffFor(args.file.new_path, 'rust')
+              }
+        );
+      };
+      if ((options.commitDiffDelay ?? 0) > 0) {
+        setTimeout(announce, options.commitDiffDelay);
+      } else {
+        announce();
+      }
       return null;
     },
 

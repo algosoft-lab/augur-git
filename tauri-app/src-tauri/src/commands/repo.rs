@@ -210,9 +210,14 @@ pub fn load_more_log_page(state: State<'_, AppState>, repo_id: u64) -> Result<()
 
 /// Select a commit: request its file list and full message together.
 #[tauri::command]
-pub fn select_commit(state: State<'_, AppState>, repo_id: u64, oid: String) -> Result<()> {
+pub fn select_commit(
+    state: State<'_, AppState>,
+    repo_id: u64,
+    request_id: u64,
+    oid: String,
+) -> Result<()> {
     state
-        .with_repo(repo_id, |session| session.select_commit(oid))
+        .with_repo(repo_id, |session| session.select_commit(request_id, oid))
         .ok_or_else(|| CommandError::missing_repo(repo_id))
 }
 
@@ -229,13 +234,14 @@ pub fn request_commit_message(state: State<'_, AppState>, repo_id: u64, oid: Str
 pub fn load_commit_file_diff(
     state: State<'_, AppState>,
     repo_id: u64,
+    request_id: u64,
     oid: String,
     merge_parent: Option<String>,
     file: augur_core::diff::FileChange,
 ) -> Result<()> {
     state
         .with_repo(repo_id, |session| {
-            session.commit_file_diff(oid, merge_parent, file);
+            session.commit_file_diff(request_id, oid, merge_parent, file);
         })
         .ok_or_else(|| CommandError::missing_repo(repo_id))
 }

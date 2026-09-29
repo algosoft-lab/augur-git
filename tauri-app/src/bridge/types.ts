@@ -330,12 +330,27 @@ export type RepoEvent =
   | { type: 'refs'; refs: RefsInfo }
   | {
       type: 'commitFiles';
+      requestId: number;
       oid: string;
       files: FileChange[];
       merge_parent: string | null;
     }
+  | { type: 'commitFilesError'; requestId: number; oid: string; error: GitError }
   | { type: 'commitMessage'; oid: string; message: CommitMessage }
-  | { type: 'fileDiff'; oid: string; file: FileChange; document: DiffDocument }
+  | {
+      type: 'fileDiff';
+      requestId: number;
+      oid: string;
+      file: FileChange;
+      document: DiffDocument;
+    }
+  | {
+      type: 'fileDiffError';
+      requestId: number;
+      oid: string;
+      file: FileChange;
+      error: GitError;
+    }
   | {
       type: 'workingTreeFileDiff';
       requestId: number;

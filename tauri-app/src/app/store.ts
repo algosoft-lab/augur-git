@@ -185,7 +185,7 @@ interface AppStore {
   selectCommit: (repoId: number, oid: string, short: string, subject: string) => Promise<void>;
   clearCommit: (repoId: number) => void;
   selectWorkingFile: (repoId: number, staged: boolean, file: FileStatus) => Promise<void>;
-  selectCommitFile: (repoId: number, file: FileChange) => Promise<void>;
+  selectCommitFile: (repoId: number, file: FileChange) => void;
   setLogScope: (repoId: number) => Promise<void>;
 
   runAction: (repoId: number, action: GitAction) => Promise<void>;
@@ -245,10 +245,21 @@ const integrationSources = new Map<number, string>();
 const WORKING_DIFF_TIMEOUT_MS = 30_000;
 const workingDiffTimeouts = new Map<number, ReturnType<typeof setTimeout>>();
 let nextWorkingDiffRequestId = Math.floor(Math.random() * 2 ** 32) * 2 ** 21;
+const COMMIT_DIFF_TIMEOUT_MS = 30_000;
+const commitDiffTimeouts = new Map<
+  number,
+  { requestId: number; timeout: ReturnType<typeof setTimeout> }
+>();
+let nextCommitDiffRequestId = Date.now() * 1024;
 
 function allocateWorkingDiffRequestId(previous: number): number {
   nextWorkingDiffRequestId = Math.max(nextWorkingDiffRequestId + 1, previous + 1);
   return nextWorkingDiffRequestId;
+}
+
+function allocateCommitDiffRequestId(previous: number): number {
+  nextCommitDiffRequestId = Math.max(nextCommitDiffRequestId + 1, previous + 1, Date.now() * 1024);
+  return nextCommitDiffRequestId;
 }
 
 function clearWorkingDiffTimeout(repoId: number): void {
@@ -257,6 +268,103 @@ function clearWorkingDiffTimeout(repoId: number): void {
     clearTimeout(timeout);
     workingDiffTimeouts.delete(repoId);
   }
+}
+
+function clearCommitDiffTimeout(repoId: number): void {
+  const pending = commitDiffTimeouts.get(repoId);
+  if (pending !== undefined) {
+    clearTimeout(pending.timeout);
+    commitDiffTimeouts.delete(repoId);
+  }
+}
+
+function resetCommitDiffTimeout(repoId: number, requestId: number): void {
+  clearCommitDiffTimeout(repoId);
+  const timeout = setTimeout(() => {
+    const pending = commitDiffTimeouts.get(repoId);
+    if (pending?.requestId !== requestId) {
+      return;
+    }
+    commitDiffTimeouts.delete(repoId);
+
+    const repo = get().repos[repoId];
+    if (!repo || repo.commitRequestId !== requestId) {
+      return;
+    }
+
+    const detail = get().t('bottom-commit-diff-timeout');
+    if (repo.commitFilesLoading) {
+      set({
+        repos: {
+          ...get().repos,
+          [repoId]: { ...repo, commitFilesLoading: false, commitFilesError: detail }
+        }
+      });
+      return;
+    }
+
+    const paths = Object.keys(repo.commitDiffPending);
+    if (paths.length === 0) {
+      return;
+    }
+    set({
+      repos: {
+        ...get().repos,
+        [repoId]: {
+          ...repo,
+          commitDiffPending: {},
+          commitDiffErrors: {
+            ...repo.commitDiffErrors,
+            ...Object.fromEntries(paths.map((path) => [path, detail]))
+          }
+        }
+      }
+    });
+  }, COMMIT_DIFF_TIMEOUT_MS);
+  commitDiffTimeouts.set(repoId, { requestId, timeout });
+}
+
+function updateCommitDiffTimeout(repoId: number, repo: RepoState): void {
+  if (repo.commitFilesLoading || Object.keys(repo.commitDiffPending).length > 0) {
+    resetCommitDiffTimeout(repoId, repo.commitRequestId);
+  } else {
+    clearCommitDiffTimeout(repoId);
+  }
+}
+
+function requestCommitFileDiff(
+  repoId: number,
+  requestId: number,
+  oid: string,
+  mergeParent: string | null,
+  file: FileChange
+): void {
+  void ipc.loadCommitFileDiff(repoId, requestId, oid, mergeParent, file).catch((error) => {
+    const repo = get().repos[repoId];
+    if (
+      !repo ||
+      repo.commitRequestId !== requestId ||
+      repo.selected?.oid !== oid ||
+      repo.pane.kind !== 'commit'
+    ) {
+      return;
+    }
+
+    const failure = ipc.describeError(error);
+    const path = file.new_path;
+    const commitDiffPending = { ...repo.commitDiffPending };
+    delete commitDiffPending[path];
+    const next = {
+      ...repo,
+      commitDiffPending,
+      commitDiffErrors: {
+        ...repo.commitDiffErrors,
+        [path]: renderGitError(get().t, failure.key, failure.detail)
+      }
+    };
+    set({ repos: { ...get().repos, [repoId]: next } });
+    updateCommitDiffTimeout(repoId, next);
+  });
 }
 
 function requestWorkingDiff(
@@ -793,6 +901,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       // A start page has no repository behind it, so there is nothing to release.
       if (tab.repoId !== null) {
         clearWorkingDiffTimeout(tab.repoId);
+        clearCommitDiffTimeout(tab.repoId);
         const repos = { ...state.repos };
         delete repos[tab.repoId];
         const pendingEvents = { ...state.pendingEvents };
@@ -925,6 +1034,23 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       if (next !== repo) {
         set({ repos: { ...state.repos, [repoId]: next } });
       }
+      if (next !== repo && event.type === 'commitFiles') {
+        if (next.commitDiffPending && Object.keys(next.commitDiffPending).length > 0) {
+          updateCommitDiffTimeout(repoId, next);
+          for (const file of event.files) {
+            requestCommitFileDiff(repoId, event.requestId, event.oid, event.merge_parent, file);
+          }
+        } else {
+          clearCommitDiffTimeout(repoId);
+        }
+      } else if (
+        next !== repo &&
+        (event.type === 'commitFilesError' ||
+          event.type === 'fileDiff' ||
+          event.type === 'fileDiffError')
+      ) {
+        updateCommitDiffTimeout(repoId, next);
+      }
       if (
         next !== repo &&
         (event.type === 'workingTreeFileDiff' || event.type === 'workingTreeFileDiffError')
@@ -1056,14 +1182,18 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
         return;
       }
       clearWorkingDiffTimeout(repoId);
+      const requestId = allocateCommitDiffRequestId(repo.commitRequestId);
+      clearCommitDiffTimeout(repoId);
       set({
         repos: {
           ...get().repos,
           [repoId]: {
             ...repo,
             selected: { oid, short, subject },
+            commitRequestId: requestId,
             commitFiles: [],
             commitFilesLoading: true,
+            commitFilesError: null,
             commitMergeParent: null,
             workingInFlight: null,
             workingRefreshPending: false,
@@ -1073,11 +1203,31 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
             // Every changed file is shown until one is chosen, matching the
             // reference application.
             pane: { kind: 'commit', file: null },
-            commitDiffs: {}
+            commitDiffs: {},
+            commitDiffPending: {},
+            commitDiffErrors: {}
           }
         }
       });
-      await ipc.selectCommit(repoId, oid);
+      resetCommitDiffTimeout(repoId, requestId);
+      await ipc.selectCommit(repoId, requestId, oid).catch((error) => {
+        const current = get().repos[repoId];
+        if (!current || current.commitRequestId !== requestId) {
+          return;
+        }
+        clearCommitDiffTimeout(repoId);
+        const failure = ipc.describeError(error);
+        set({
+          repos: {
+            ...get().repos,
+            [repoId]: {
+              ...current,
+              commitFilesLoading: false,
+              commitFilesError: renderGitError(get().t, failure.key, failure.detail)
+            }
+          }
+        });
+      });
     },
 
     clearCommit(repoId) {
@@ -1085,6 +1235,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       if (!repo) {
         return;
       }
+      clearCommitDiffTimeout(repoId);
       set({
         repos: {
           ...get().repos,
@@ -1093,9 +1244,12 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
             selected: null,
             commitFiles: [],
             commitFilesLoading: false,
+            commitFilesError: null,
             commitMergeParent: null,
             pane: { kind: 'none' },
-            commitDiffs: {}
+            commitDiffs: {},
+            commitDiffPending: {},
+            commitDiffErrors: {}
           }
         }
       });
@@ -1107,6 +1261,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
         return;
       }
       clearWorkingDiffTimeout(repoId);
+      clearCommitDiffTimeout(repoId);
       const requestId = allocateWorkingDiffRequestId(repo.workingRequest);
       const kind: WorkingTreeDiffKind = staged ? 'staged' : 'unstaged';
       set({
@@ -1127,7 +1282,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       requestWorkingDiff(repoId, requestId, kind, file);
     },
 
-    async selectCommitFile(repoId, file) {
+    selectCommitFile(repoId, file) {
       const repo = get().repos[repoId];
       if (!repo?.selected) {
         return;
@@ -1135,7 +1290,6 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       set({
         repos: { ...get().repos, [repoId]: { ...repo, pane: { kind: 'commit', file } } }
       });
-      await ipc.loadCommitFileDiff(repoId, repo.selected.oid, repo.commitMergeParent, file);
     },
 
     async setLogScope(repoId) {

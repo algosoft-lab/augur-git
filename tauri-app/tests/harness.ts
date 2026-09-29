@@ -68,6 +68,16 @@ export interface BootOptions {
   workingDiffFirstFailure?: string;
   /** Leave working-tree diff requests unanswered to verify timeout handling. */
   workingDiffNeverResponds?: boolean;
+  /** Fail commit file metadata requests with this detail. */
+  commitFilesFailure?: string;
+  /** Fail every commit file diff request with this detail. */
+  commitDiffFailure?: string;
+  /** Fail commit diff requests for these paths. */
+  commitDiffFailurePaths?: string[];
+  /** Delay commit file diff events by this many milliseconds. */
+  commitDiffDelay?: number;
+  /** Leave commit file diff requests unanswered to verify timeout handling. */
+  commitDiffNeverResponds?: boolean;
   /**
    * Report the browser as Windows, so the platform-only entry points render.
    *
@@ -142,6 +152,11 @@ function optionsFor(options: BootOptions): StubOptions {
     workingDiffFailureAfterFirst: options.workingDiffFailureAfterFirst,
     workingDiffDelay: options.workingDiffDelay,
     workingDiffNeverResponds: options.workingDiffNeverResponds,
+    commitFilesFailure: options.commitFilesFailure,
+    commitDiffFailure: options.commitDiffFailure,
+    commitDiffFailurePaths: options.commitDiffFailurePaths,
+    commitDiffDelay: options.commitDiffDelay,
+    commitDiffNeverResponds: options.commitDiffNeverResponds,
     pendingPaths: options.pendingPaths,
     savedTabs: options.savedTabs,
     savedActiveTab: options.savedActiveTab,

@@ -292,13 +292,17 @@ fn selecting_a_commit_yields_its_files_and_their_diff() {
 
     // File metadata first, then the diff of the chosen file: the same order the
     // interface asks for them in.
-    sandbox.handle().commit_numstat(oid.clone());
+    sandbox.handle().commit_numstat(42, oid.clone());
     let files = sandbox
-        .wait_for(|event| matches!(event, GitEvent::CommitFiles { .. }))
+        .wait_for(|event| matches!(event, GitEvent::CommitFiles { request_id: 42, .. }))
         .expect("the file list");
-    let GitEvent::CommitFiles { files, .. } = files else {
+    let GitEvent::CommitFiles {
+        request_id, files, ..
+    } = files
+    else {
         unreachable!()
     };
+    assert_eq!(request_id, 42);
     assert_eq!(files.len(), 2, "two files changed");
 
     let main = files
@@ -317,11 +321,14 @@ fn selecting_a_commit_yields_its_files_and_their_diff() {
     assert_eq!(extra.added, Some(1));
     assert_eq!(extra.deleted, Some(0));
 
-    sandbox.handle().commit_file_diff(oid, None, main.clone());
+    sandbox
+        .handle()
+        .commit_file_diff(42, oid, None, main.clone());
     let diff = sandbox
         .wait_for(|event| matches!(event, GitEvent::CommitFileDiff { .. }))
         .expect("the file diff");
     let GitEvent::CommitFileDiff {
+        request_id,
         patch,
         old_source,
         new_source,
@@ -330,6 +337,7 @@ fn selecting_a_commit_yields_its_files_and_their_diff() {
     else {
         unreachable!()
     };
+    assert_eq!(request_id, 42);
     let document =
         DiffDocument::from_patch("src/main.rs".to_string(), &patch, old_source, new_source);
 
@@ -355,6 +363,106 @@ fn selecting_a_commit_yields_its_files_and_their_diff() {
         copied.contains("-    let count = 0;"),
         "the deletion: {copied}"
     );
+}
+
+#[test]
+fn commit_diff_failures_are_request_specific_and_do_not_stop_the_worker() {
+    require_git!();
+    let mut sandbox = Sandbox::new().expect("sandbox");
+    sandbox
+        .write("src/main.rs", "fn main() {\n    let count = 1;\n}\n")
+        .unwrap();
+    sandbox.git_ok(&["add", "."]);
+    sandbox.git_ok(&["commit", "-m", "Change main"]);
+    let oid = sandbox.git_ok(&["rev-parse", "HEAD"]).trim().to_string();
+    let missing_oid = "0000000000000000000000000000000000000000";
+    sandbox.open();
+
+    sandbox.handle().commit_numstat(51, missing_oid.to_string());
+    let error = sandbox
+        .wait_for(|event| matches!(event, GitEvent::CommitFilesError { request_id: 51, .. }))
+        .expect("the file-list failure");
+    let GitEvent::CommitFilesError {
+        request_id, error, ..
+    } = error
+    else {
+        unreachable!()
+    };
+    assert_eq!(request_id, 51);
+    assert_eq!(error.key, "err-numstat");
+
+    sandbox.handle().commit_numstat(52, oid.clone());
+    let files = sandbox
+        .wait_for(|event| matches!(event, GitEvent::CommitFiles { request_id: 52, .. }))
+        .expect("the valid file list after the failure");
+    let GitEvent::CommitFiles { files, .. } = files else {
+        unreachable!()
+    };
+    let main = files
+        .into_iter()
+        .find(|file| file.new_path == "src/main.rs")
+        .expect("the modified file");
+
+    sandbox
+        .handle()
+        .commit_file_diff(52, missing_oid.to_string(), None, main);
+    let error = sandbox
+        .wait_for(|event| matches!(event, GitEvent::CommitFileDiffError { request_id: 52, .. }))
+        .expect("the file-diff failure");
+    let GitEvent::CommitFileDiffError {
+        request_id, error, ..
+    } = error
+    else {
+        unreachable!()
+    };
+    assert_eq!(request_id, 52);
+    assert_eq!(error.key, "err-file-diff");
+
+    sandbox.handle().commit_numstat(53, oid);
+    assert!(
+        sandbox
+            .wait_for(|event| matches!(event, GitEvent::CommitFiles { request_id: 53, .. }))
+            .is_some()
+    );
+}
+
+#[test]
+fn a_new_commit_selection_skips_queued_diffs_from_the_previous_selection() {
+    require_git!();
+    let mut sandbox = Sandbox::new().expect("sandbox");
+    let oid = sandbox.git_ok(&["rev-parse", "HEAD"]).trim().to_string();
+    sandbox.open();
+
+    sandbox.handle().commit_numstat(61, oid.clone());
+    let files = sandbox
+        .wait_for(|event| matches!(event, GitEvent::CommitFiles { request_id: 61, .. }))
+        .expect("the initial file list");
+    let GitEvent::CommitFiles { files, .. } = files else {
+        unreachable!()
+    };
+    let file = files.into_iter().next().expect("a changed file");
+
+    for _ in 0..256 {
+        sandbox
+            .handle()
+            .commit_file_diff(61, oid.clone(), None, file.clone());
+    }
+    sandbox.handle().commit_numstat(62, oid);
+
+    let files = sandbox
+        .wait_for(|event| matches!(event, GitEvent::CommitFiles { request_id: 62, .. }))
+        .expect("the newer file list");
+    assert!(matches!(
+        files,
+        GitEvent::CommitFiles { request_id: 62, .. }
+    ));
+    while let Ok(event) = sandbox.events.try_recv() {
+        assert!(!matches!(
+            event,
+            GitEvent::CommitFileDiff { request_id: 61, .. }
+                | GitEvent::CommitFileDiffError { request_id: 61, .. }
+        ));
+    }
 }
 
 #[test]

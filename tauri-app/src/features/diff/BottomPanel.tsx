@@ -14,7 +14,6 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { EmptyState, Splitter } from '../../components/controls';
 import { Icon } from '../../components/Icon';
 import type { FileChange } from '../../bridge/types';
-import * as ipc from '../../bridge/ipc';
 import { statBlocks, statusKey, statusModifier } from './fileMeta';
 import { useStore, type RepoState } from '../../app/store';
 import { DiffView, NARROW_WIDTH, type DiffSection } from './DiffView';
@@ -35,36 +34,16 @@ export function BottomPanel({
   const layout = useStore((state) => state.config.view.diff_layout);
   const ratio = useStore((state) => state.workspace.layout.file_list_ratio);
   const selectCommitFile = useStore((state) => state.selectCommitFile);
+  const selectCommit = useStore((state) => state.selectCommit);
   const clearCommit = useStore((state) => state.clearCommit);
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState(1000);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const requested = useRef(new Set<string>());
   const fileListDragStart = useRef(ratio);
 
   const pane = repo.pane;
   const commit = repo.selected;
   const showFileList = pane.kind === 'commit' && repo.commitFiles.length > 0;
-
-  // Every file of the selected commit is loaded, because the panel shows them
-  // all. The requested set keeps a re-render from asking for the same file
-  // twice, and it resets when the selection changes.
-  const selectionKey = commit?.oid ?? '';
-  useEffect(() => {
-    requested.current = new Set();
-  }, [selectionKey]);
-  useEffect(() => {
-    if (!commit) {
-      return;
-    }
-    for (const file of repo.commitFiles) {
-      if (repo.commitDiffs[file.new_path] || requested.current.has(file.new_path)) {
-        continue;
-      }
-      requested.current.add(file.new_path);
-      void ipc.loadCommitFileDiff(repo.id, commit.oid, repo.commitMergeParent, file);
-    }
-  }, [repo.id, commit, repo.commitFiles, repo.commitDiffs]);
 
   useEffect(() => {
     const element = bodyRef.current;
@@ -96,9 +75,31 @@ export function BottomPanel({
     return [];
   }, [pane, repo.commitFiles, repo.commitDiffs, repo.workingDocument]);
 
+  const pendingCommitDiffCount = Object.keys(repo.commitDiffPending).length;
+  const commitDiffErrorCount = Object.keys(repo.commitDiffErrors).length;
+  const focusedCommitError =
+    pane.kind === 'commit' && pane.file
+      ? (repo.commitDiffErrors[pane.file.new_path] ?? null)
+      : null;
   const commitLoading =
     pane.kind === 'commit' &&
-    (repo.commitFilesLoading || sections.length < (pane.file ? 1 : repo.commitFiles.length));
+    !repo.commitFilesError &&
+    (repo.commitFilesLoading ||
+      (pane.file
+        ? repo.commitDiffPending[pane.file.new_path] === true
+        : pendingCommitDiffCount > 0));
+  const commitError =
+    pane.kind === 'commit'
+      ? (repo.commitFilesError ??
+        focusedCommitError ??
+        (sections.length === 0 ? (Object.values(repo.commitDiffErrors)[0] ?? null) : null))
+      : null;
+  const canRetryCommitDiff =
+    pane.kind === 'commit' &&
+    commit !== null &&
+    (repo.commitFilesError !== null || commitDiffErrorCount > 0) &&
+    !repo.commitFilesLoading &&
+    pendingCommitDiffCount === 0;
 
   const title = (() => {
     if (pane.kind === 'working') {
@@ -203,6 +204,18 @@ export function BottomPanel({
         {repo.commitMergeParent && pane.kind === 'commit' ? (
           <span className="muted">{t(translate, 'diff-merge-first-parent')}</span>
         ) : null}
+        {canRetryCommitDiff && commit ? (
+          <button
+            type="button"
+            className="tool-button tool-button--compact"
+            data-testid="bottom-retry-commit-diff"
+            title={t(translate, 'bottom-commit-diff-retry')}
+            aria-label={t(translate, 'bottom-commit-diff-retry')}
+            onClick={() => void selectCommit(repo.id, commit.oid, commit.short, commit.subject)}
+          >
+            <Icon name="refresh-cw" size={12} />
+          </button>
+        ) : null}
         {/* The commit's own totals, so the size of the change is readable
             without summing the file list. */}
         {pane.kind === 'commit' && commitTotals ? (
@@ -282,7 +295,15 @@ export function BottomPanel({
           sections={sections}
           layout={layout}
           forceInline={narrow}
-          error={pane.kind === 'working' && !repo.workingDocument ? repo.workingError : null}
+          error={
+            pane.kind === 'working'
+              ? !repo.workingDocument
+                ? repo.workingError
+                : null
+              : sections.length === 0
+                ? commitError
+                : null
+          }
           // A bare spinner and a bare error both read as a broken panel; the
           // reference names both states.
           loading={pane.kind === 'working' ? repo.workingLoading : commitLoading}
@@ -293,23 +314,40 @@ export function BottomPanel({
                 ? t(translate, 'bottom-loading-commit')
                 : undefined
           }
-          errorLabel={pane.kind === 'working' ? t(translate, 'diff-working-tree-error') : undefined}
+          errorLabel={
+            pane.kind === 'working'
+              ? t(translate, 'diff-working-tree-error')
+              : commitError
+                ? t(translate, 'bottom-commit-diff-error')
+                : undefined
+          }
           statusMessage={
-            pane.kind === 'working' && repo.workingDocument
-              ? repo.workingInFlight !== null
-                ? {
-                    kind: 'refreshing',
-                    text: t(translate, 'diff-working-tree-refreshing')
-                  }
-                : repo.workingError
+            pane.kind === 'working'
+              ? repo.workingDocument
+                ? repo.workingInFlight !== null
+                  ? {
+                      kind: 'refreshing',
+                      text: t(translate, 'diff-working-tree-refreshing')
+                    }
+                  : repo.workingError
+                    ? {
+                        kind: 'warning',
+                        text: ta(translate, 'diff-working-tree-refresh-failed', {
+                          error: repo.workingError.split('\n')[0] ?? repo.workingError
+                        })
+                      }
+                    : null
+                : null
+              : sections.length > 0 && pendingCommitDiffCount > 0
+                ? { kind: 'refreshing', text: t(translate, 'bottom-loading-commit') }
+                : sections.length > 0 && commitDiffErrorCount > 0
                   ? {
                       kind: 'warning',
-                      text: ta(translate, 'diff-working-tree-refresh-failed', {
-                        error: repo.workingError.split('\n')[0] ?? repo.workingError
+                      text: ta(translate, 'bottom-commit-diff-partial', {
+                        count: commitDiffErrorCount
                       })
                     }
                   : null
-              : null
           }
           testId="diff-view"
           header={multiFile ? t(translate, 'diff-all-files') : undefined}

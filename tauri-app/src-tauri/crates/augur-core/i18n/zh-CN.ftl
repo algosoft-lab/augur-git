@@ -208,6 +208,10 @@ agent-prompt-copy-failed = 无法将 Prompt 复制到剪贴板。
 # ===== 底部面板（选中提交文件清单 + 单文件 diff） =====
 bottom-no-commit = 未选择提交
 bottom-loading-commit = 正在加载提交 diff…
+bottom-commit-diff-error = 无法加载提交差异
+bottom-commit-diff-timeout = 加载提交差异超时。
+bottom-commit-diff-partial = 部分文件差异无法加载（{ $count }）。
+bottom-commit-diff-retry = 重试加载提交差异
 bottom-clear-selection = 清除选择
 bottom-merge-empty = 合并提交相对第一父提交没有文件变化
 bottom-no-changes = 此提交没有文件变化

@@ -96,9 +96,17 @@ pub enum RepoEvent {
         refs: RefsInfo,
     },
     CommitFiles {
+        #[serde(rename = "requestId")]
+        request_id: u64,
         oid: String,
         files: Vec<FileChange>,
         merge_parent: Option<String>,
+    },
+    CommitFilesError {
+        #[serde(rename = "requestId")]
+        request_id: u64,
+        oid: String,
+        error: GitError,
     },
     CommitMessage {
         oid: String,
@@ -106,9 +114,18 @@ pub enum RepoEvent {
     },
     /// A commit diff, already parsed into rows plus both source texts.
     FileDiff {
+        #[serde(rename = "requestId")]
+        request_id: u64,
         oid: String,
         file: FileChange,
         document: DiffPayload,
+    },
+    FileDiffError {
+        #[serde(rename = "requestId")]
+        request_id: u64,
+        oid: String,
+        file: FileChange,
+        error: GitError,
     },
     WorkingTreeFileDiff {
         #[serde(rename = "requestId")]
@@ -272,6 +289,22 @@ mod tests {
         };
         let json = serde_json::to_value(&envelope).unwrap();
         assert_eq!(json["requestId"], 42);
+        assert!(json.get("request_id").is_none());
+    }
+
+    #[test]
+    fn commit_diff_errors_serialize_the_request_id_for_the_webview() {
+        let envelope = RepoEventEnvelope {
+            repo_id: 7,
+            event: RepoEvent::CommitFilesError {
+                request_id: 73,
+                oid: "abc123".into(),
+                error: GitError::new("err-numstat", "bad object"),
+            },
+        };
+        let json = serde_json::to_value(&envelope).unwrap();
+        assert_eq!(json["type"], "commitFilesError");
+        assert_eq!(json["requestId"], 73);
         assert!(json.get("request_id").is_none());
     }
 

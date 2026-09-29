@@ -97,8 +97,8 @@ export async function loadMoreLogPage(repoId: number): Promise<void> {
   return invoke<void>('load_more_log_page', { repoId });
 }
 
-export async function selectCommit(repoId: number, oid: string): Promise<void> {
-  return invoke<void>('select_commit', { repoId, oid });
+export async function selectCommit(repoId: number, requestId: number, oid: string): Promise<void> {
+  return invoke<void>('select_commit', { repoId, requestId, oid });
 }
 
 export async function requestCommitMessage(repoId: number, oid: string): Promise<void> {
@@ -107,12 +107,14 @@ export async function requestCommitMessage(repoId: number, oid: string): Promise
 
 export async function loadCommitFileDiff(
   repoId: number,
+  requestId: number,
   oid: string,
   mergeParent: string | null,
   file: FileChange
 ): Promise<void> {
   return invoke<void>('load_commit_file_diff', {
     repoId,
+    requestId,
     oid,
     mergeParent,
     file

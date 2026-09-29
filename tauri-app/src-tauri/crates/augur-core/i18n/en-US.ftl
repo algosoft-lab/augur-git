@@ -212,6 +212,10 @@ agent-prompt-copy-failed = Could not copy the prompt to the clipboard.
 # ===== Bottom panel (selected commit file list + file diff) =====
 bottom-no-commit = No commit selected
 bottom-loading-commit = Loading commit diff…
+bottom-commit-diff-error = Unable to load commit diff
+bottom-commit-diff-timeout = Timed out while loading commit diff.
+bottom-commit-diff-partial = Some file diffs could not be loaded ({ $count }).
+bottom-commit-diff-retry = Retry loading commit diff
 bottom-clear-selection = Clear selection
 bottom-merge-empty = Merge commit has no changes relative to its first parent
 bottom-no-changes = This commit has no file changes

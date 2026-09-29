@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import { boot, fixtureRepo, longFixtureRepo, rightClick, secondFixtureRepo } from './harness';
+import { diffPayload } from './fixtures/stubBackend';
 
 /**
  * Selecting a commit and reading its diff.
@@ -52,6 +53,131 @@ test.describe('commit selection', () => {
     await expect(page.getByTestId('diff-view')).toContainText('count += 2');
     // The deleted line is present too, because the inline layout pairs them.
     await expect(page.getByTestId('diff-view')).toContainText('count += 1');
+  });
+
+  test('requests the files again when the same commit is selected twice', async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()] });
+    const row = page.locator('.graph-row').first();
+
+    await row.click();
+    await expect(page.getByTestId('diff-hunk')).toHaveCount(2);
+    await row.click();
+
+    await expect(page.getByTestId('diff-hunk')).toHaveCount(2);
+    await expect(page.getByTestId('diff-loading-label')).toHaveCount(0);
+    const commands = await stub.commands();
+    const selections = commands.filter((entry) => entry.cmd === 'select_commit');
+    const fileDiffs = commands.filter((entry) => entry.cmd === 'load_commit_file_diff');
+    expect(selections).toHaveLength(2);
+    expect(Number((selections[1]!.args as any).requestId)).toBeGreaterThan(
+      Number((selections[0]!.args as any).requestId)
+    );
+    expect(fileDiffs).toHaveLength(4);
+  });
+
+  test('shows a commit file-list error and lets the user retry', async ({ page }) => {
+    const stub = await boot(page, {
+      open: [fixtureRepo()],
+      commitFilesFailure: 'fatal: bad object'
+    });
+
+    await page.locator('.graph-row').first().click();
+
+    await expect(page.getByTestId('diff-error-label')).toHaveText('Unable to load commit diff');
+    await expect(page.getByTestId('diff-error')).toContainText('fatal: bad object');
+    await expect(page.getByTestId('diff-loading-label')).toHaveCount(0);
+    await page.getByTestId('bottom-retry-commit-diff').click();
+
+    await expect(
+      (await stub.commands()).filter((entry) => entry.cmd === 'select_commit')
+    ).toHaveLength(2);
+  });
+
+  test('shows a rejected commit selection command instead of loading forever', async ({ page }) => {
+    const stub = await boot(page, {
+      open: [fixtureRepo()],
+      refusals: {
+        select_commit: { key: 'err-git-run', detail: 'fatal: request was refused' }
+      }
+    });
+
+    await page.locator('.graph-row').first().click();
+
+    await expect(page.getByTestId('diff-error-label')).toHaveText('Unable to load commit diff');
+    await expect(page.getByTestId('diff-error')).toContainText('fatal: request was refused');
+    await expect(page.getByTestId('diff-loading-label')).toHaveCount(0);
+    await page.getByTestId('bottom-retry-commit-diff').click();
+    await expect(
+      (await stub.commands()).filter((entry) => entry.cmd === 'select_commit')
+    ).toHaveLength(2);
+  });
+
+  test('shows successful files while reporting partial commit diff failures', async ({ page }) => {
+    await boot(page, {
+      open: [fixtureRepo()],
+      commitDiffFailurePaths: ['src/commands/repo.rs']
+    });
+
+    await page.locator('.graph-row').first().click();
+
+    await expect(page.getByTestId('diff-hunk')).toHaveCount(1);
+    await expect(page.getByTestId('diff-view')).toContainText(
+      'Some file diffs could not be loaded (1).'
+    );
+    await expect(page.getByTestId('bottom-retry-commit-diff')).toBeVisible();
+  });
+
+  test('shows a rejected file diff request instead of loading forever', async ({ page }) => {
+    await boot(page, {
+      open: [fixtureRepo()],
+      refusals: {
+        load_commit_file_diff: { key: 'err-git-run', detail: 'fatal: request was refused' }
+      }
+    });
+
+    await page.locator('.graph-row').first().click();
+
+    await expect(page.getByTestId('diff-error-label')).toHaveText('Unable to load commit diff');
+    await expect(page.getByTestId('diff-error')).toContainText('fatal: request was refused');
+    await expect(page.getByTestId('bottom-retry-commit-diff')).toBeVisible();
+  });
+
+  test('ends loading after a commit diff timeout and accepts a late success', async ({ page }) => {
+    await page.clock.install();
+    const stub = await boot(page, { open: [fixtureRepo()], commitDiffNeverResponds: true });
+
+    await page.locator('.graph-row').first().click();
+    await expect(page.getByTestId('diff-loading-label')).toBeVisible();
+    await page.clock.fastForward(30_001);
+
+    await expect(page.getByTestId('diff-error-label')).toHaveText('Unable to load commit diff');
+    await expect(page.getByTestId('diff-error')).toContainText('Timed out');
+    await expect(page.getByTestId('bottom-retry-commit-diff')).toBeVisible();
+
+    const selection = (await stub.commands()).find((entry) => entry.cmd === 'select_commit')!;
+    const requestId = Number((selection.args as any).requestId);
+    const oid = String((selection.args as any).oid);
+    await page.getByTestId('bottom-file-src/lib.rs').click();
+    await stub.emit('augur://repo-event', {
+      repoId: 7,
+      type: 'fileDiff',
+      requestId,
+      oid,
+      file: {
+        path: 'src/lib.rs',
+        old_path: null,
+        new_path: 'src/lib.rs',
+        status: 'modified',
+        old_blob: null,
+        new_blob: null,
+        added: 4,
+        deleted: 1
+      },
+      document: diffPayload('src/lib.rs', 'rust')
+    });
+
+    await expect(page.getByTestId('diff-error-label')).toHaveCount(0);
+    await expect(page.getByTestId('diff-hunk')).toBeVisible();
   });
 
   test('marks the changed characters in the inline layout', async ({ page }) => {
@@ -113,10 +239,12 @@ test.describe('commit selection', () => {
 
     const selection = (await stub.commands()).find((entry) => entry.cmd === 'select_commit')!;
     const oid = String((selection.args as any).oid);
+    const requestId = Number((selection.args as any).requestId);
     const code = `\tconst label = "${'界'.repeat(100)}";`;
     await stub.emit('augur://repo-event', {
       repoId: 7,
       type: 'fileDiff',
+      requestId,
       oid,
       file: {
         path: 'src/lib.rs',
@@ -217,12 +345,15 @@ test.describe('commit selection', () => {
     await page.getByTestId('bottom-file-src/lib.rs').click();
     await expect(page.getByTestId('diff-file-header')).toHaveCount(0);
     await expect(page.getByTestId('diff-view')).toContainText('count += 2');
+    const selection = (await stub.commands()).find((entry) => entry.cmd === 'select_commit')!;
+    const requestId = Number((selection.args as any).requestId);
 
     // A late answer for a commit that is no longer selected must not replace
     // what is on screen.
     await stub.emit('augur://repo-event', {
       repoId: 7,
       type: 'fileDiff',
+      requestId: requestId - 1,
       oid: '0000000000000000000000000000000000000001',
       file: {
         path: 'src/other.rs',
@@ -270,6 +401,7 @@ test.describe('commit selection', () => {
       (entry) => entry.cmd === 'select_commit'
     )[0]!;
     const oldOid = String((oldSelection.args as any).oid);
+    const oldRequestId = Number((oldSelection.args as any).requestId);
 
     await rows.nth(1).click();
     await expect(page.getByTestId('bottom-panel')).toContainText(
@@ -278,6 +410,7 @@ test.describe('commit selection', () => {
     await stub.emit('augur://repo-event', {
       repoId: 7,
       type: 'commitFiles',
+      requestId: oldRequestId,
       oid: oldOid,
       files: [
         {
