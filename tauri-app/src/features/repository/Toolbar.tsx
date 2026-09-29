@@ -33,7 +33,6 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
     path: string;
     detail: string;
   } | null>(null);
-  const pullRebase = useStore((state) => state.config.view.pull_action === 'rebase');
 
   useEffect(() => {
     if (patchInFlight === null || patchInFlight.repoId !== repo.id || repo.busy) {
@@ -123,18 +122,11 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
   const compactMoreItems: MenuItemSpec[] = [
     ...branchItems,
     {
-      id: 'agent-prompt-pull',
-      label: t(translate, 'agent-prompt-pull'),
-      icon: <Icon name="copy" />,
-      disabled: !pull,
-      separatorBefore: true,
-      onSelect: () => void copyAgentPrompt(repo.id, { kind: 'pull', rebase: pullRebase })
-    },
-    {
       id: 'push-force',
       label: t(translate, 'toolbar-push-force'),
       icon: <Icon name="triangle-alert" />,
       disabled: !network,
+      separatorBefore: true,
       onSelect: () => openOverlay({ kind: 'forcePush' })
     },
     {
@@ -222,14 +214,6 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
             disabled={!pull}
             testId="toolbar-pull"
             onClick={() => triggerPull(repo)}
-          />
-          <ToolButton
-            icon={<Icon name="copy" />}
-            tooltip={t(translate, 'agent-prompt-pull')}
-            compact
-            disabled={!pull}
-            testId="agent-prompt-pull"
-            onClick={() => void copyAgentPrompt(repo.id, { kind: 'pull', rebase: pullRebase })}
           />
           <ToolButton
             label={t(translate, 'toolbar-push')}

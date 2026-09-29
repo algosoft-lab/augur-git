@@ -79,16 +79,29 @@ test.describe('provider-neutral Agent prompts', () => {
     });
   });
 
-  test('copies a pull prompt using the configured strategy', async ({ page }) => {
+  test('pull conflicts offer the prompt only from the conflict dialog', async ({ page }) => {
     const stub = await boot(page, {
       open: [repoWithoutConflicts()],
-      pullAction: 'rebase'
+      probeMerge: { has_conflicts: true }
     });
 
-    await page.getByTestId('agent-prompt-pull').click();
+    await stub.emit('augur://repo-event', {
+      repoId: 7,
+      type: 'commandDone',
+      label: 'pull',
+      success: false,
+      message: 'CONFLICT (content): resolve the conflict'
+    });
+
+    await expect(page.getByTestId('merge-conflict-dialog')).toBeVisible();
+    await expect(page.getByTestId('agent-prompt-pull')).toHaveCount(0);
+    await page.getByTestId('merge-conflict-copy-prompt').click();
 
     const request = (await stub.commands()).find((entry) => entry.cmd === 'generate_agent_prompt');
-    expect(request?.args).toEqual({ repoId: 7, request: { kind: 'pull', rebase: true } });
+    expect(request?.args).toEqual({
+      repoId: 7,
+      request: { kind: 'resolveConflicts', origin: 'merge' }
+    });
   });
 
   test('reports clipboard failures without claiming the prompt was copied', async ({ page }) => {
