@@ -27,6 +27,25 @@ test.describe('commit selection', () => {
     await expect(page.getByTestId('bottom-panel')).not.toContainText('No commit selected');
   });
 
+  test('keeps the graph position when selecting a visible commit', async ({ page }) => {
+    await boot(page, { open: [longFixtureRepo()] });
+
+    const list = page.getByTestId('graph-list');
+    await list.evaluate((element) => {
+      element.scrollTop = 72 * 36;
+    });
+    await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(72 * 36);
+
+    const row = page.locator('.graph-row', { hasText: 'Long history commit 74' });
+    await expect(row).toBeVisible();
+    const shortHash = await row.locator('.graph-row__hash').innerText();
+    await row.click();
+
+    await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBe(72 * 36);
+    await expect(row).toHaveClass(/is-selected/);
+    await expect(page.getByTestId('bottom-commit-hash')).toHaveText(shortHash);
+  });
+
   test("loads a commit's files and then its diff", async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 

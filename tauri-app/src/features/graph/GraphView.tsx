@@ -119,14 +119,14 @@ export function GraphView({ repo }: { repo: RepoState }) {
     void ipc.loadMoreLogPage(repo.id);
   };
 
-  const selectGraphIndex = (index: number, focus = false) => {
+  const selectGraphIndex = (index: number, focus = false, scrollToSelection = false) => {
     const row = visibleRows[index];
     if (!row) return;
     setActiveIndex(index);
     void selectCommit(repo.id, row.oid, row.short, row.subject);
     const list = containerRef.current?.querySelector<HTMLElement>('[data-testid="graph-list"]');
-    if (focus) list?.focus();
-    if (list) list.scrollTop = index * ROW_HEIGHT;
+    if (focus) list?.focus({ preventScroll: true });
+    if (scrollToSelection && list) list.scrollTop = index * ROW_HEIGHT;
   };
 
   const onGraphKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -148,7 +148,7 @@ export function GraphView({ repo }: { repo: RepoState }) {
             ? 0
             : visibleRows.length - 1
           : Math.max(0, Math.min(visibleRows.length - 1, current + (next ? 1 : -1)));
-      selectGraphIndex(index, true);
+      selectGraphIndex(index, true, true);
       return;
     }
     if (matchesShortcut(event.nativeEvent, keysForCommand(shortcuts, 'commits.checkout'))) {
