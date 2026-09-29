@@ -652,16 +652,16 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     build: null,
     config: {
       schema_version: 1,
-      theme: 'catppuccin-mocha',
+      theme: 'claude-dark',
       language: 'system',
       view: {
         show_untracked: true,
         auto_follow: true,
-        diff_layout: 'side-by-side',
+        diff_layout: 'inline',
         graph_history: 'all-branches',
         auto_refresh: true,
         commit_action: 'commit',
-        pull_action: 'merge'
+        pull_action: 'rebase'
       },
       typography: {
         ui_font_family: null,

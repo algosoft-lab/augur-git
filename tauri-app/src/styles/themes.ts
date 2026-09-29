@@ -387,7 +387,7 @@ export function cssFontFamily(value: string): string {
 }
 
 /** The theme used before the preferences have been read. */
-export const DEFAULT_THEME: ThemePreference = 'catppuccin-mocha';
+export const DEFAULT_THEME: ThemePreference = 'claude-dark';
 
 /** The typography used before the preferences have been read. */
 export const DEFAULT_TYPOGRAPHY = {

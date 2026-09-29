@@ -215,16 +215,16 @@ function install(
 
   const config = {
     schema_version: 1,
-    theme: 'catppuccin-mocha',
+    theme: 'claude-dark',
     language: 'system',
     view: {
       show_untracked: true,
       auto_follow: true,
-      diff_layout: options.diffLayout ?? 'side-by-side',
+      diff_layout: options.diffLayout ?? 'inline',
       graph_history: 'all-branches',
       auto_refresh: true,
       commit_action: 'commit',
-      pull_action: options.pullAction ?? 'merge'
+      pull_action: options.pullAction ?? 'rebase'
     },
     typography: {
       ui_font_family: null,

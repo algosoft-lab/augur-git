@@ -111,7 +111,7 @@ pub enum ThemePreference {
 
 impl Default for ThemePreference {
     fn default() -> Self {
-        Self::CatppuccinMocha
+        Self::ClaudeDark
     }
 }
 
@@ -202,7 +202,7 @@ pub enum DiffLayoutPreference {
 
 impl Default for DiffLayoutPreference {
     fn default() -> Self {
-        Self::SideBySide
+        Self::Inline
     }
 }
 
@@ -248,7 +248,7 @@ pub enum PullActionPreference {
 
 impl Default for PullActionPreference {
     fn default() -> Self {
-        Self::Merge
+        Self::Rebase
     }
 }
 
@@ -270,11 +270,11 @@ impl Default for ViewSettings {
         Self {
             show_untracked: true,
             auto_follow: true,
-            diff_layout: DiffLayoutPreference::SideBySide,
+            diff_layout: DiffLayoutPreference::Inline,
             graph_history: GraphHistoryPreference::AllBranches,
             auto_refresh: true,
             commit_action: CommitActionPreference::Commit,
-            pull_action: PullActionPreference::Merge,
+            pull_action: PullActionPreference::Rebase,
         }
     }
 }
@@ -619,9 +619,9 @@ mod tests {
     #[test]
     fn defaults_match_the_reference_application() {
         let config = AppConfig::default();
-        assert_eq!(config.theme, ThemePreference::CatppuccinMocha);
+        assert_eq!(config.theme, ThemePreference::ClaudeDark);
         assert_eq!(config.language, LanguagePreference::System);
-        assert_eq!(config.view.diff_layout, DiffLayoutPreference::SideBySide);
+        assert_eq!(config.view.diff_layout, DiffLayoutPreference::Inline);
         assert_eq!(
             config.view.graph_history,
             GraphHistoryPreference::AllBranches
