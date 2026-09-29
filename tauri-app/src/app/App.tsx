@@ -6,7 +6,7 @@
  * forwarded CLI path has to reach all of them.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import * as ipc from '../bridge/ipc';
 import { AboutWindow } from '../features/about/AboutWindow';
@@ -156,16 +156,52 @@ export function App() {
     return <div className="app" />;
   }
 
+  let surface: ReactNode;
   if (target.role === 'about') {
-    return <AboutWindow />;
+    surface = <AboutWindow />;
+  } else if (target.role === 'settings') {
+    surface = <SettingsWindow />;
+  } else if (target.role === 'compare') {
+    surface = <CompareWindow repoId={target.compareRepoId} />;
+  } else {
+    surface = <MainWindow />;
   }
-  if (target.role === 'settings') {
-    return <SettingsWindow />;
+
+  return <WindowErrorBoundary>{surface}</WindowErrorBoundary>;
+}
+
+/**
+ * Contain a render crash to a readable report.
+ *
+ * Without a boundary React unmounts the whole tree when a render throws, and
+ * the window shows as blank; the boundary keeps the failure on screen instead.
+ */
+class WindowErrorBoundary extends Component<{ children: ReactNode }, { error: unknown }> {
+  state: { error: unknown } = { error: null };
+
+  static getDerivedStateFromError(error: unknown): { error: unknown } {
+    return { error };
   }
-  if (target.role === 'compare') {
-    return <CompareWindow repoId={target.compareRepoId} />;
+
+  componentDidCatch(error: unknown): void {
+    console.error('[render] window crashed', error);
   }
-  return <MainWindow />;
+
+  render() {
+    if (this.state.error !== null) {
+      return (
+        <div className="app">
+          <div className="fatal">
+            <div className="fatal__title">The window failed to render</div>
+            <pre className="fatal__detail" data-testid="render-crash">
+              {describeFailure(this.state.error)}
+            </pre>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 /** Turn any thrown value into something worth reading on screen. */

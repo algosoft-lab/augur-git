@@ -310,7 +310,7 @@ function oldRanges(
   if (row.old_line_index === null) {
     return null;
   }
-  return ranges.old[row.old_line_index] ?? null;
+  return ranges.old?.[row.old_line_index] ?? null;
 }
 
 function newRanges(
@@ -320,7 +320,7 @@ function newRanges(
   if (row.new_line_index === null) {
     return null;
   }
-  return ranges.new[row.new_line_index] ?? null;
+  return ranges.new?.[row.new_line_index] ?? null;
 }
 
 /**

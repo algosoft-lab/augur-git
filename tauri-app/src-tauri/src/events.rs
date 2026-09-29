@@ -141,7 +141,7 @@ pub enum RepoEvent {
         #[serde(rename = "requestId")]
         request_id: u64,
         file: FileChange,
-        document: DiffDocument,
+        document: DiffPayload,
     },
     BranchCompareError {
         #[serde(rename = "requestId")]
@@ -273,6 +273,53 @@ mod tests {
         let json = serde_json::to_value(&envelope).unwrap();
         assert_eq!(json["requestId"], 42);
         assert!(json.get("request_id").is_none());
+    }
+
+    #[test]
+    fn compare_file_diffs_carry_the_viewer_payload_for_the_webview() {
+        let patch = "diff --git a/src/lib.rs b/src/lib.rs\n\
+                     --- a/src/lib.rs\n\
+                     +++ b/src/lib.rs\n\
+                     @@ -1,1 +1,1 @@\n\
+                     -old\n\
+                     +new\n";
+        let envelope = RepoEventEnvelope {
+            repo_id: 7,
+            event: RepoEvent::BranchCompareFileDiff {
+                request_id: 42,
+                file: FileChange {
+                    path: "src/lib.rs".into(),
+                    old_path: None,
+                    new_path: "src/lib.rs".into(),
+                    status: augur_core::diff::FileChangeStatus::Modified,
+                    old_blob: None,
+                    new_blob: None,
+                    added: Some(1),
+                    deleted: Some(1),
+                },
+                document: DiffDocument::from_patch(
+                    "src/lib.rs",
+                    patch,
+                    Some("old\n".into()),
+                    Some("new\n".into()),
+                )
+                .into(),
+            },
+        };
+        let json = serde_json::to_value(&envelope).unwrap();
+        let document = &json["document"];
+        // The viewer indexes these directly; a missing field is a render crash,
+        // not a degraded view.
+        assert!(document["inline_old"].is_array());
+        assert!(document["inline_new"].is_array());
+        assert!(document["aligned_rows"].is_array());
+        assert!(document["copy_text"].is_string());
+        assert!(
+            !document["rows"]
+                .as_array()
+                .expect("parsed diff rows")
+                .is_empty()
+        );
     }
 
     #[test]
