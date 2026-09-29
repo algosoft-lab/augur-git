@@ -106,6 +106,7 @@ export interface StubOptions {
   }>;
   /** Strategy the toolbar Pull button uses. */
   pullAction?: 'merge' | 'rebase';
+  diffLayout?: 'inline' | 'side-by-side';
 }
 
 export const DEFAULT_OPTIONS: StubOptions = {
@@ -172,6 +173,7 @@ function install(
       ui_font_size: number;
       diff_font_size: number;
     }>;
+    diffLayout?: 'inline' | 'side-by-side';
   },
   catalog: Record<string, string>
 ): void {
@@ -203,7 +205,7 @@ function install(
     view: {
       show_untracked: true,
       auto_follow: true,
-      diff_layout: 'side-by-side',
+      diff_layout: options.diffLayout ?? 'side-by-side',
       graph_history: 'all-branches',
       auto_refresh: true,
       commit_action: 'commit',
@@ -500,7 +502,7 @@ function install(
       ],
       old_source: null,
       new_source: null,
-      inline_old: [[], [], [], []],
+      inline_old: [[], [{ start: 13, end: 14 }], [], []],
       inline_new: [[], [{ start: 13, end: 14 }]],
       binary: false,
       copy_text: 'diff --git a/x b/x\\n'

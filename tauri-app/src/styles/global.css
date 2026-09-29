@@ -1035,10 +1035,12 @@ button {
 }
 
 .diff__row--add {
+  --diff-change-accent: var(--base-green);
   background: color-mix(in srgb, var(--base-green) 14%, transparent);
 }
 
 .diff__row--del {
+  --diff-change-accent: var(--base-red);
   background: color-mix(in srgb, var(--base-red) 14%, transparent);
 }
 
@@ -1121,10 +1123,12 @@ button {
 }
 
 .diff__side--add {
+  --diff-change-accent: var(--base-green);
   background: color-mix(in srgb, var(--base-green) 14%, transparent);
 }
 
 .diff__side--del {
+  --diff-change-accent: var(--base-red);
   background: color-mix(in srgb, var(--base-red) 14%, transparent);
 }
 
@@ -1141,18 +1145,12 @@ button {
   flex-basis: 42px;
 }
 
-.diff__text mark {
-  border-radius: 2px;
+.diff__text :where(mark) {
+  color: inherit;
+  border-radius: 0;
   padding: 0;
-  background: color-mix(in srgb, var(--warning-background) 40%, transparent);
-}
-
-.diff__text--add mark {
-  background: color-mix(in srgb, var(--base-green) 40%, transparent);
-}
-
-.diff__text--del mark {
-  background: color-mix(in srgb, var(--base-red) 40%, transparent);
+  background: transparent;
+  box-shadow: inset 0 -2px 0 var(--diff-change-accent);
 }
 
 .token-keyword {

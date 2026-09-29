@@ -55,20 +55,26 @@ test.describe('commit selection', () => {
   });
 
   test('marks the changed characters in the inline layout', async ({ page }) => {
-    await boot(page, { open: [fixtureRepo()] });
-    await page.evaluate(() => {
-      const store = (window as any).__STUB__;
-      void store;
-    });
+    await boot(page, { open: [fixtureRepo()], diffLayout: 'inline' });
 
     await page.locator('.graph-row').first().click();
     await expect(page.getByTestId('diff-hunk').first()).toBeVisible();
+    await expect(page.locator('.diff--inline')).toBeVisible();
 
     // The backend reports the changed character, so it is marked inside the
     // line. A whole-line colour would hide a one-character edit.
-    const mark = page.locator('.diff__text mark').first();
-    await expect(mark).toBeVisible();
-    await expect(mark).toHaveText(/2/);
+    const addedMarks = page.locator('.diff__row--add .diff__text mark');
+    const deletedMarks = page.locator('.diff__row--del .diff__text mark');
+    await expect(addedMarks).toHaveCount(2);
+    await expect(deletedMarks).toHaveCount(2);
+    const addedMark = addedMarks.first();
+    const deletedMark = deletedMarks.first();
+    await expect(addedMark).toBeVisible();
+    await expect(addedMark).toHaveText('2');
+    await expect(deletedMark).toBeVisible();
+    await expect(deletedMark).toHaveText('1');
+    await expectChangeMarkStyle(addedMark, 'base-green');
+    await expectChangeMarkStyle(deletedMark, 'base-red');
   });
 
   test('switches to the side-by-side layout when the preference says so', async ({ page }) => {
@@ -89,6 +95,13 @@ test.describe('commit selection', () => {
     const firstRow = page.locator('[data-testid="diff-row"]').first();
     await expect(firstRow.locator('.diff__side')).toHaveCount(2);
     await expect(firstRow.locator('.diff__text')).toHaveCount(2);
+
+    const addedMark = page.locator('.diff__side--add .diff__text mark');
+    const deletedMark = page.locator('.diff__side--del .diff__text mark');
+    await expect(addedMark).toHaveText('2');
+    await expect(deletedMark).toHaveText('1');
+    await expectChangeMarkStyle(addedMark, 'base-green');
+    await expectChangeMarkStyle(deletedMark, 'base-red');
   });
 
   test('aligns diff columns and preserves tab and wide-character advances', async ({ page }) => {
@@ -592,3 +605,27 @@ test.describe('commit selection', () => {
     await expect(page.locator('.graph-row')).toHaveCount(1);
   });
 });
+
+async function expectChangeMarkStyle(
+  mark: import('@playwright/test').Locator,
+  themeColor: 'base-green' | 'base-red'
+) {
+  await expect(mark).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(mark).toHaveCSS('box-shadow', /inset/);
+  await expect(mark).toHaveClass(/token-number/);
+
+  const colors = await mark.evaluate((marked, name) => {
+    const plain = document.querySelector('.diff__text .token-number:not(mark)');
+    if (!marked || !plain) return null;
+    return {
+      accent: getComputedStyle(marked).getPropertyValue('--diff-change-accent').trim(),
+      expected: getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim(),
+      markedText: getComputedStyle(marked).color,
+      plainText: getComputedStyle(plain).color
+    };
+  }, themeColor);
+
+  expect(colors).not.toBeNull();
+  expect(colors?.accent).toBe(colors?.expected);
+  expect(colors?.markedText).toBe(colors?.plainText);
+}
