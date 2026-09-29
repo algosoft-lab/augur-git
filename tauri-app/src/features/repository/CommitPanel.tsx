@@ -129,7 +129,7 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
               type="button"
               className="tool-button tool-button--primary commit-panel__mode"
               disabled={repo.busy}
-              data-testid="commit-mode-trigger"
+              data-testid="commit-mode-button"
               aria-label={t(translate, 'commit-action-amend')}
             >
               <Icon name="chevron-down" size={12} />

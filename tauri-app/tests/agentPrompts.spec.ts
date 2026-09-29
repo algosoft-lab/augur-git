@@ -28,7 +28,7 @@ test.describe('provider-neutral Agent prompts', () => {
   test('uses Amend mode for the copied prompt', async ({ page }) => {
     const stub = await boot(page, { open: [repoWithoutConflicts()] });
 
-    await page.locator("button[data-testid='commit-mode-trigger']").click();
+    await page.getByTestId('commit-mode-trigger').click();
     await page.getByTestId('commit-mode-amend').click();
     await page.getByTestId('commit-mode-trigger').click();
     await page.getByTestId('commit-mode-copy-ai-commit-prompt').click();
