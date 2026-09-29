@@ -1,8 +1,8 @@
 //! Build-time application metadata.
 //!
-//! The Git commit is injected by the workspace build script. When the crate is
-//! built without it (for example `cargo test` inside the crate alone) the
-//! value degrades to `unknown` instead of failing to compile.
+//! The Git commit is injected by this crate's build script. When the crate is
+//! built without Git metadata, the value degrades to `unknown` instead of
+//! failing to compile.
 
 /// Product name shown in the interface, window titles, and About window.
 pub const APP_NAME: &str = "Augur Git Tauri";
@@ -48,7 +48,7 @@ mod tests {
     fn commit_is_unknown_or_a_valid_git_object_id() {
         assert!(
             GIT_COMMIT == "unknown"
-                || (matches!(GIT_COMMIT.len(), 7 | 40 | 64)
+                || ((12..=64).contains(&GIT_COMMIT.len())
                     && GIT_COMMIT.bytes().all(|byte| byte.is_ascii_hexdigit())),
             "invalid build commit: {GIT_COMMIT}"
         );
