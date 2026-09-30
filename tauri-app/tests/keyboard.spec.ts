@@ -22,7 +22,12 @@ test.describe('application shortcuts', () => {
   test('runs repository commands and keeps shortcuts out of the commit editor', async ({
     page
   }) => {
-    const stub = await boot(page, { open: [withoutConflicts()], pullAction: 'merge' });
+    const stub = await boot(page, {
+      open: [withoutConflicts()],
+      pullAction: 'merge',
+      actionDelay: 300
+    });
+    const busy = page.getByTestId('status-busy');
     const refreshCount = (await stub.commands()).filter(
       (entry) => entry.cmd === 'refresh_repository'
     ).length;
@@ -32,7 +37,8 @@ test.describe('application shortcuts', () => {
     await expect
       .poll(async () => (await actions(stub)).map((entry) => (entry.args.action as any).action))
       .toEqual(['fetch']);
-    await page.waitForTimeout(40);
+    await expect(busy).toBeVisible();
+    await expect(busy).toBeHidden();
     await page.keyboard.press('Shift+r');
     await expect
       .poll(async () =>
@@ -40,16 +46,18 @@ test.describe('application shortcuts', () => {
       )
       .toHaveLength(refreshCount + 1);
     await page.keyboard.press('p');
+    await expect
+      .poll(async () => (await actions(stub)).map((entry) => (entry.args.action as any).action))
+      .toEqual(['fetch', 'pullMerge']);
+    await expect(busy).toBeVisible();
+    await expect(busy).toBeHidden();
     await page.keyboard.press('Shift+p');
 
     await expect
       .poll(async () => (await actions(stub)).map((entry) => (entry.args.action as any).action))
       .toEqual(['fetch', 'pullMerge', 'push']);
-    // The editor is disabled while an action is in flight, and focusing a
-    // disabled textarea does nothing, so the press has to wait for the burst
-    // above to finish: a keydown that lands on the disabled editor would
-    // leave it unfocused for good.
-    await expect(page.getByTestId('status-busy')).toBeHidden();
+    await expect(busy).toBeVisible();
+    await expect(busy).toBeHidden();
     await page.keyboard.press('c');
     const editor = page.getByTestId('commit-message');
     await expect(editor).toBeFocused();
