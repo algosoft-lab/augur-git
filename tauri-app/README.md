@@ -240,10 +240,12 @@ mkdir -p ~/.config/augur-git/tauri
 bunx tauri signer generate --write-keys ~/.config/augur-git/tauri/updater.key
 ```
 
-Create the public tap repository before enabling publication, with the cask at
-`Casks/augur-git.rb`. Missing signing or tap credentials stop the workflow
-before it changes the rolling release. macOS DMGs use an ad-hoc signature and
-are not notarized, so Gatekeeper may require approval after installation.
+Create the public tap repository with a default branch and an initial commit
+before enabling publication. The first successful publish creates
+`Casks/augur-git.rb` with the versioned DMG URL and its SHA-256 checksum. Missing
+signing or tap credentials stop the workflow before it changes the rolling
+release. macOS DMGs use an ad-hoc signature and are not notarized, so Gatekeeper
+may require approval after installation.
 
 The separate GPUI workflow in `.github/workflows/build.yml` has no push
 trigger. It remains available only through GitHub Actions **Run workflow** for
