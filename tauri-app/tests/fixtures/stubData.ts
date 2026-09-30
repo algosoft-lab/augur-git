@@ -101,7 +101,8 @@ export function fixtureRepo(): StubRepo {
         'Lihao',
         12,
         [2, 3],
-        'HEAD -> master, origin/master, tag: v1.1.0'
+        'HEAD -> master, origin/master, tag: v1.1.0',
+        'The command layer is what the webview calls into.\n\nIt stays a thin wrapper.'
       ),
       logRow(4, 'Extract the domain crate', 'Lihao', 90, [5], 'feature/tauri'),
       logRow(2, 'Add the event protocol', 'Ada', 240, [6], ''),

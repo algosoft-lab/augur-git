@@ -472,6 +472,23 @@
   width: calc(36em + 32px);
 }
 
+/* The message body reads as prose here, so it takes the interface font. The
+   hover preview keeps the monospaced one, where the monospace marks the text
+   as the raw message rather than a paragraph of the page. */
+.commit-message__subject {
+  color: var(--foreground);
+  font-size: calc(var(--ui-font-size) * 0.875);
+  font-weight: 600;
+}
+
+.commit-message__body {
+  margin: 0;
+  font-family: var(--ui-font-family);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .dialog__title {
   display: flex;
   align-items: center;
@@ -484,6 +501,14 @@
 
 .dialog__title--close {
   justify-content: space-between;
+}
+
+/* The buttons at the trailing end of a title, close among them. */
+.dialog__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
 }
 
 .dialog__icon {

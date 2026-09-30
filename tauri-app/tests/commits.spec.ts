@@ -742,10 +742,27 @@ test.describe('commit selection', () => {
 
     const dialog = page.getByTestId('commit-message-dialog');
     await expect(dialog).toBeVisible();
-    // The message is fetched on demand and rendered in full.
-    await expect(page.getByTestId('commit-message-body')).toContainText(
+    // The message is fetched on demand and rendered in full: the subject on its
+    // own line, the body under it. The backend already splits the first line off
+    // as the subject, so the body must not repeat it.
+    await expect(page.getByTestId('commit-message-subject')).toHaveText(
       'Add the Tauri command surface'
     );
+    await expect(page.getByTestId('commit-message-body')).toHaveText(
+      'The command layer is what the webview calls into.\n\nIt stays a thin wrapper.'
+    );
+    await expect(
+      page.getByTestId('commit-message-dialog').getByText('Add the Tauri command surface', {
+        exact: true
+      })
+    ).toHaveCount(1);
+    // The body reads as prose, not as raw message text, so it takes the
+    // interface font rather than the monospaced one the hover preview uses.
+    const bodyFont = await page.getByTestId('commit-message-body').evaluate((element) => ({
+      body: getComputedStyle(element).fontFamily,
+      page: getComputedStyle(document.body).fontFamily
+    }));
+    expect(bodyFont.body).toBe(bodyFont.page);
     // The dialog identifies the commit by hash and names its author and date,
     // which the collapsed row cannot show.
     await expect(dialog.locator('.commit-preview__hash')).toHaveText('13c6ef3');
@@ -758,6 +775,54 @@ test.describe('commit selection', () => {
 
     await page.getByTestId('commit-message-close').click();
     await expect(page.getByTestId('commit-message-dialog')).toHaveCount(0);
+  });
+
+  test('copies the message from the dialog and lets its text be selected', async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()] });
+
+    await rightClick(page, '.graph-row');
+    await page.getByTestId('context-show-message').click();
+    const dialog = page.getByTestId('commit-message-dialog');
+    await expect(dialog).toBeVisible();
+    await expect(page.getByTestId('commit-message-body')).toBeVisible();
+
+    // The message is a reading surface, so a drag across it selects a fragment
+    // rather than dragging over it. The drag starts inside the dialog, so it
+    // must not be read as a click on the backdrop.
+    const body = page.getByTestId('commit-message-body');
+    const bodyText = (await body.textContent()) ?? '';
+    const bounds = (await body.boundingBox())!;
+    await page.mouse.move(bounds.x + 2, bounds.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(bounds.x + 150, bounds.y + 8, { steps: 8 });
+    await page.mouse.up();
+    const dragged = await page.evaluate(() => window.getSelection()?.toString() ?? '');
+    // A selection runs from where the drag started, so it is a leading slice
+    // of the body rather than any fixed span of it.
+    expect(dragged.length).toBeGreaterThan(0);
+    expect(bodyText.startsWith(dragged)).toBe(true);
+    // A double click picks out the single word under it, which is the usual
+    // way to quote a fragment of a message.
+    await body.dblclick({ position: { x: 60, y: 8 } });
+    const word = await page.evaluate(() => window.getSelection()?.toString() ?? '');
+    expect(word.length).toBeGreaterThan(0);
+    expect(bodyText).toContain(word);
+    // Selecting is not dismissing: the dialog is still there to read.
+    await expect(dialog).toBeVisible();
+
+    // The copy affordance is an icon rather than a label, and it goes through
+    // the worker like the context menu item so the clipboard holds the message
+    // as Git renders it.
+    const copy = page.getByTestId('commit-message-copy');
+    await expect(copy).toBeVisible();
+    await expect(copy).toHaveText('');
+    await expect(copy).toHaveAttribute('aria-label', /copy commit message/i);
+    await copy.click();
+    const actions = (await stub.commands()).filter((entry) => entry.cmd === 'run_action');
+    expect(actions).toHaveLength(1);
+    expect((actions[0]!.args as any).action).toMatchObject({ action: 'copyCommitMessage' });
+    // Copying leaves the dialog open: the message is still being read.
+    await expect(dialog).toBeVisible();
   });
 
   test('opens the context menu at the cursor after scrolling deep', async ({ page }) => {
@@ -997,6 +1062,9 @@ test.describe('commit message editor', () => {
 
     await page.getByTestId('commit-mode-trigger').click();
     await page.getByTestId('commit-mode-fill-last-message').click();
-    await expect(page.getByTestId('commit-message')).toHaveValue('Add the Tauri command surface');
+    // Amend reuses the message as Git recorded it, body and all.
+    await expect(page.getByTestId('commit-message')).toHaveValue(
+      'Add the Tauri command surface\n\nThe command layer is what the webview calls into.\n\nIt stays a thin wrapper.'
+    );
   });
 });

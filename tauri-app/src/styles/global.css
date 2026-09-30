@@ -48,6 +48,18 @@ body .diff .diff__marker {
   -webkit-user-select: none;
 }
 
+/*
+ * Content the user is meant to quote. The interface is pointer-driven, so
+ * selection is off by default and switched on per place, the way the diff is:
+ * a reading surface is text you may want a fragment of, not chrome you may
+ * want to drag over by accident.
+ */
+.selectable,
+.selectable * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 button {
   padding: 0;
   border: none;

@@ -791,7 +791,10 @@ function install(
         oid: row.oid,
         message: {
           subject: row.subject,
-          body: row.message.split('\\n\\n').slice(1).join('\\n\\n'),
+          // Real newlines, not a doubled escape: this function is installed by
+          // stringifying its own source, so `'\\n\\n'` would reach the browser as
+          // a literal backslash-n and every commit would look bodyless.
+          body: row.message.split('\n\n').slice(1).join('\n\n'),
           co_authors: [{ name: 'Ada', email: 'ada@example.com' }]
         }
       });

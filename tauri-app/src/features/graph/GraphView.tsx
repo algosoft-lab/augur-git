@@ -436,6 +436,9 @@ export function GraphView({
         <CommitMessageDialog
           row={dialogRow}
           message={dialogMessage}
+          onCopy={() => {
+            void runAction(repo.id, { action: 'copyCommitMessage', oid: dialogRow.oid });
+          }}
           onClose={() => setShowMessageDialog(null)}
         />
       ) : null}
@@ -746,20 +749,16 @@ function CommitHoverPreview({
 function CommitMessageDialog({
   row,
   message,
+  onCopy,
   onClose
 }: {
   row: LogRow;
   message:
     { subject: string; body: string; co_authors: { name: string; email: string }[] } | undefined;
+  onCopy: () => void;
   onClose: () => void;
 }) {
   const translate = useStore((state) => state.t);
-  const [full, setFull] = useState(message?.body ?? '');
-  useEffect(() => {
-    if (message) {
-      setFull([message.subject, message.body].filter(Boolean).join('\n\n'));
-    }
-  }, [message]);
 
   return (
     <div
@@ -779,17 +778,34 @@ function CommitMessageDialog({
       >
         <div className="dialog__title dialog__title--close">
           <span>{t(translate, 'commit-message-dialog-title')}</span>
-          <button
-            type="button"
-            className="icon-button"
-            onClick={onClose}
-            aria-label={t(translate, 'settings-close')}
-            data-testid="commit-message-close"
-          >
-            <Icon name="x" size={14} />
-          </button>
+          <div className="dialog__actions">
+            {/* Goes through the worker like the context menu item, so the
+                clipboard holds the message as Git renders it rather than the
+                part this dialog happens to have loaded. */}
+            <button
+              type="button"
+              className="icon-button"
+              onClick={onCopy}
+              title={t(translate, 'context-copy-commit-message')}
+              aria-label={t(translate, 'context-copy-commit-message')}
+              data-testid="commit-message-copy"
+            >
+              <Icon name="copy" size={13} />
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              onClick={onClose}
+              aria-label={t(translate, 'settings-close')}
+              data-testid="commit-message-close"
+            >
+              <Icon name="x" size={14} />
+            </button>
+          </div>
         </div>
-        <div className="dialog__body">
+        {/* Selectable, because quoting a fragment of the message is the reason
+            the dialog exists. */}
+        <div className="dialog__body selectable" data-testid="commit-message-text">
           {/* The hash and the decorations come first, as in the reference: they
               identify the commit, and a body of text without them is not
               identifiable. */}
@@ -803,10 +819,17 @@ function CommitMessageDialog({
           </div>
           {message ? (
             <>
-              <div className="commit-preview__subject">{row.subject}</div>
-              <pre className="commit-preview__body" data-testid="commit-message-body">
-                {full}
-              </pre>
+              {/* The subject is the message's first line, so it is shown on its
+                  own and the body starts after it. Re-joining the two would
+                  print the first line twice. */}
+              <div className="commit-message__subject" data-testid="commit-message-subject">
+                {row.subject}
+              </div>
+              {message.body ? (
+                <pre className="commit-message__body" data-testid="commit-message-body">
+                  {message.body}
+                </pre>
+              ) : null}
               {message.co_authors.length ? (
                 <div data-testid="commit-message-coauthors">
                   <div className="muted">{t(translate, 'commit-coauthors')}</div>
