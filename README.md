@@ -131,6 +131,9 @@ When a newer nightly is published, upgrade it with:
 brew upgrade --cask augur-git
 ```
 
+Each successful Tauri publish keeps the rolling nightly release and the newest
+versioned release; older Tauri nightly releases and tags are removed.
+
 The legacy GPUI package workflow is manual-dispatch only. See the
 [Tauri application README](tauri-app/README.md#nightly-updates) for release
 publishing, signing-key, and Homebrew tap setup.

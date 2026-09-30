@@ -70,6 +70,9 @@ jobs:
         working-directory: tauri-app
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
+      - name: Test nightly release cleanup
+        run: bash .github/scripts/prune-tauri-nightly-releases.test.sh
+
   build-windows:
     name: Windows x86-64 NSIS installer
     needs: nightly-version
@@ -386,6 +389,7 @@ jobs:
           fi
 
       - name: Advance rolling nightly release
+        id: rolling
         if: steps.freshness.outputs.stale != 'true'
         shell: bash
         run: |
@@ -502,3 +506,10 @@ jobs:
               -F prerelease=true \
               -f make_latest=false >/dev/null
           fi
+
+          echo "published=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Remove older Tauri nightly releases and tags
+        if: steps.rolling.outputs.published == 'true'
+        shell: bash
+        run: bash .github/scripts/prune-tauri-nightly-releases.sh

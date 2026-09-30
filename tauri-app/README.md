@@ -225,6 +225,9 @@ assets under a versioned `tauri-nightly-<version>` release. It then updates the
 checksum-pinned cask in `algosoft-lab/homebrew-augur-git` and advances the
 rolling `tauri-nightly` release. The signed `latest.json` feed is published
 after its installer target and the rolling download links have been validated.
+After the rolling release succeeds, CI removes older Tauri nightly releases and
+tags. It keeps the rolling release and the current versioned release, which the
+updater feed and Homebrew cask reference.
 
 ### Release setup
 
