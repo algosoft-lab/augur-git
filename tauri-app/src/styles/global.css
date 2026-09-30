@@ -2173,19 +2173,59 @@ body .diff ::selection {
   margin-right: -6px;
 }
 
-.title-bar__repo-select {
-  width: min(180px, 40vw);
+.title-bar__repo-picker {
+  display: flex;
+  width: min(200px, 44vw);
   min-width: 60px;
-  height: 24px;
-  flex: 0 1 180px;
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--background);
+  height: 28px;
+  flex: 0 1 200px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--background) 72%, var(--title-bar-background));
   color: var(--foreground);
   font: inherit;
-  font-size: calc(var(--ui-font-size) * 0.75);
+  font-size: calc(var(--ui-font-size) * 0.78);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.title-bar__repo-picker:not(.title-bar__repo-picker--empty):hover {
+  border-color: var(--border);
+  background: var(--list-hover-background);
+}
+
+.title-bar__repo-picker--empty {
+  color: var(--muted-foreground);
+  cursor: default;
+}
+
+.title-bar__repo-picker-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title-bar__repo-picker-caret {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+  transition: transform 120ms ease;
+}
+
+.menu > [role='button'][aria-expanded='true'] .title-bar__repo-picker-caret {
+  transform: rotate(180deg);
+}
+
+.sidecar-repository-menu {
+  width: min(280px, calc(100vw - 16px));
+  box-sizing: border-box;
 }
 
 .sidecar {

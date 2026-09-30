@@ -40,6 +40,37 @@ export function TitleBar({
   const selectTab = useStore((state) => state.selectTab);
   const repos = useStore((state) => state.repos);
   const repo = useStore((state) => activeRepo(state));
+  const activeTab = tabs.find((tab) => tab.key === activeTabKey) ?? null;
+
+  const tabLabel = (tab: (typeof tabs)[number]) => {
+    const path = (tab.repoId === null ? undefined : repos[tab.repoId]?.path) ?? tab.path;
+    return path.split(/[\\/]/).filter(Boolean).slice(-1)[0] ?? t(translate, 'tab-new');
+  };
+
+  const tabItems: MenuItemSpec[] = tabs.map((tab, index) => {
+    const tabRepo = tab.repoId === null ? null : (repos[tab.repoId] ?? null);
+    const path = tabRepo?.path ?? tab.path;
+    const description = path
+      ? tab.location.kind === 'wsl'
+        ? `${tab.location.distro ?? 'WSL'} · ${path}`
+        : path
+      : t(translate, 'tab-new');
+
+    return {
+      id: `tab-${index}`,
+      label: tabLabel(tab),
+      description,
+      icon: tabRepo ? (
+        <span className={`tab__dot tab__dot--${tabRepo.status}`} />
+      ) : (
+        <Icon name="file" size={12} />
+      ),
+      checked: tab.key === activeTabKey,
+      onSelect: () => void selectTab(tab.key)
+    };
+  });
+
+  const activeTabLabel = activeTab ? tabLabel(activeTab) : t(translate, 'status-no-repo-selected');
 
   const hasRemote = Boolean(repo && repo.refs.remotes.length > 0);
   const networkAvailable = hasRemote && !repo?.busy;
@@ -233,23 +264,40 @@ export function TitleBar({
         </span>
       ) : null}
       {sidecar ? (
-        <select
-          className="title-bar__repo-select"
-          value={activeTabKey ?? ''}
-          aria-label={t(translate, 'sidecar-select-repository')}
-          data-testid="sidecar-repository-select"
-          onChange={(event) => void selectTab(event.currentTarget.value)}
-        >
-          {tabs.map((tab) => {
-            const repo = tab.repoId === null ? null : repos[tab.repoId];
-            const label = repo?.path ?? (tab.path || t(translate, 'status-no-repo-selected'));
-            return (
-              <option key={tab.key} value={tab.key}>
-                {label.split(/[\\/]/).filter(Boolean).slice(-1)[0] ?? label}
-              </option>
-            );
-          })}
-        </select>
+        tabs.length > 0 ? (
+          <Menu
+            items={tabItems}
+            menuClassName="sidecar-repository-menu"
+            triggerLabel={t(translate, 'sidecar-select-repository')}
+            testId="sidecar-repository-menu"
+          >
+            <span
+              className="title-bar__repo-picker"
+              title={activeTab?.path ?? t(translate, 'status-no-repo-selected')}
+              data-testid="sidecar-repository-select"
+              data-active-tab-key={activeTabKey ?? ''}
+            >
+              {repo ? (
+                <span className={`tab__dot tab__dot--${repo.status}`} />
+              ) : (
+                <Icon name="file" size={13} />
+              )}
+              <span className="title-bar__repo-picker-label">{activeTabLabel}</span>
+              <Icon
+                name="chevron-down"
+                size={12}
+                className="title-bar__repo-picker-caret"
+              />
+            </span>
+          </Menu>
+        ) : (
+          <span className="title-bar__repo-picker title-bar__repo-picker--empty">
+            <Icon name="file" size={13} />
+            <span className="title-bar__repo-picker-label">
+              {t(translate, 'status-no-repo-selected')}
+            </span>
+          </span>
+        )
       ) : (
         <TabBar onNewTab={onNewTab} />
       )}

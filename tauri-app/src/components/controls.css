@@ -314,6 +314,31 @@
   flex: 1 1 auto;
 }
 
+.menu__item--detailed {
+  min-height: 40px;
+  padding-block: 5px;
+}
+
+.menu__item-content {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.menu__item-label,
+.menu__item-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu__item-description {
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.68);
+}
+
 .menu__submenu-arrow {
   margin-left: auto;
   color: var(--muted-foreground);

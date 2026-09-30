@@ -143,20 +143,20 @@ test.describe('Sidecar mode', () => {
     await page.getByTestId('title-sidecar-toggle').click();
 
     const repoPicker = page.getByTestId('sidecar-repository-select');
-    const firstRepoKey = await repoPicker.evaluate(
-      (element) => (element as HTMLSelectElement).value
-    );
+    const firstRepoKey = await repoPicker.getAttribute('data-active-tab-key');
+    expect(firstRepoKey).toBeTruthy();
     const firstDraft = page.getByTestId('commit-message');
     await firstDraft.fill('First repository draft');
     await page.getByTestId('sidecar-nav-branches').click();
     await page.getByTestId('sidecar-nav-changes').click();
     await expect(page.getByTestId('commit-message')).toHaveValue('First repository draft');
 
-    const secondRepoKey = await repoPicker.locator('option').nth(1).getAttribute('value');
-    await repoPicker.selectOption(secondRepoKey!);
+    await repoPicker.click();
+    await page.getByTestId('sidecar-repository-menu-tab-1').click();
     await expect(page.getByTestId('commit-message')).toHaveValue('');
     await page.getByTestId('commit-message').fill('Second repository draft');
-    await repoPicker.selectOption(firstRepoKey);
+    await repoPicker.click();
+    await page.getByTestId('sidecar-repository-menu-tab-0').click();
     await expect(page.getByTestId('commit-message')).toHaveValue('First repository draft');
 
     await page.getByTestId('commit-submit').click();

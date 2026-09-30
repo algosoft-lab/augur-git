@@ -473,6 +473,7 @@ export function Slider({ value, min, max, step = 1, onChange, testId }: SliderPr
 export interface MenuItemSpec {
   id: string;
   label: string;
+  description?: string;
   children?: MenuItemSpec[];
   icon?: ReactNode;
   disabled?: boolean;
@@ -491,12 +492,21 @@ export interface MenuItemSpec {
 export interface MenuProps {
   items: MenuItemSpec[];
   align?: 'start' | 'end';
+  menuClassName?: string;
+  triggerLabel?: string;
   testId?: string;
   children?: ReactNode;
 }
 
 /** A dropdown menu. The trigger is supplied as the single child. */
-export function Menu({ items, align = 'start', testId, children }: MenuProps) {
+export function Menu({
+  items,
+  align = 'start',
+  menuClassName,
+  triggerLabel,
+  testId,
+  children
+}: MenuProps) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const [openPath, setOpenPath] = useState<string[]>([]);
@@ -669,6 +679,7 @@ export function Menu({ items, align = 'start', testId, children }: MenuProps) {
             data-testid={`${prefix}-${item.id}`}
             className={[
               'menu__item',
+              item.description ? 'menu__item--detailed' : '',
               item.disabled ? 'is-disabled' : '',
               item.danger ? 'is-danger' : ''
             ]
@@ -682,7 +693,14 @@ export function Menu({ items, align = 'start', testId, children }: MenuProps) {
             }}
           >
             {item.icon ? <span className="menu__icon">{item.icon}</span> : null}
-            <span>{item.label}</span>
+            {item.description ? (
+              <span className="menu__item-content">
+                <span className="menu__item-label">{item.label}</span>
+                <span className="menu__item-description">{item.description}</span>
+              </span>
+            ) : (
+              <span>{item.label}</span>
+            )}
             {item.checked ? <Icon name="check" size={12} className="menu__check" /> : null}
           </button>
         )}
@@ -703,6 +721,7 @@ export function Menu({ items, align = 'start', testId, children }: MenuProps) {
         tabIndex={0}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={triggerLabel}
         data-testid={testId ? `${testId}-trigger` : undefined}
       >
         {children}
@@ -713,7 +732,7 @@ export function Menu({ items, align = 'start', testId, children }: MenuProps) {
             // scroll containers, and a scroll container clips every absolute
             // descendant: the menu would open into an invisible strip.
             <div
-              className={`menu__list menu__list--fixed${hasSubmenu ? ' menu__list--has-submenus' : ''}`}
+              className={`menu__list menu__list--fixed${hasSubmenu ? ' menu__list--has-submenus' : ''}${menuClassName ? ` ${menuClassName}` : ''}`}
               role="menu"
               data-testid={testId}
               ref={menuRef}
