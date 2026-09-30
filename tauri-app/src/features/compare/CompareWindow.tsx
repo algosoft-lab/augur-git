@@ -299,16 +299,32 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
 
   // The aggregate row sits above the list rather than replacing it, so choosing
   // a single file and choosing all of them are the same gesture twice.
-  const sections = useMemo<DiffSection[]>(
-    () =>
-      files
-        .map((file) => {
-          const document = documents[file.new_path];
-          return document ? { path: file.new_path, document } : null;
-        })
-        .filter((entry): entry is DiffSection => entry !== null),
-    [files, documents]
-  );
+  const sections = useMemo<DiffSection[]>(() => {
+    if (repoId === null) return [];
+    return files
+      .map((file): DiffSection | null => {
+        const document = documents[file.new_path];
+        return document
+          ? {
+              path: file.new_path,
+              document,
+              imagePreview: {
+                repoId,
+                target: { kind: 'change', file },
+                key: JSON.stringify([
+                  repoId,
+                  requestId.current,
+                  file.old_blob,
+                  file.new_blob,
+                  file.old_path,
+                  file.new_path
+                ])
+              }
+            }
+          : null;
+      })
+      .filter((entry): entry is DiffSection => entry !== null);
+  }, [files, documents, repoId]);
 
   // The reference pre-selects the current branch as the base and the first
   // other revision as the target, so the window opens with something to read.
@@ -587,7 +603,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
               showAll
                 ? sections
                 : selected && documents[selected.new_path]
-                  ? [{ path: selected.new_path, document: documents[selected.new_path]! }]
+                  ? sections.filter((section) => section.path === selected.new_path)
                   : []
             }
             layout={diffLayout}

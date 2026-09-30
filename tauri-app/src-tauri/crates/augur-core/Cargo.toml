@@ -11,6 +11,7 @@ name = "augur_core"
 path = "src/lib.rs"
 
 [dependencies]
+base64 = "0.22"
 similar = { version = "3", features = ["inline"] }
 log = "0.4"
 anyhow = "1"

@@ -7,7 +7,15 @@
  * about behavior rather than styling.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode
+} from 'react';
 import { createPortal } from 'react-dom';
 
 import { Icon } from './Icon';
@@ -930,6 +938,7 @@ export function ContextMenu({ entries, children, testId, onOpenChange }: Context
 export interface VirtualListProps<T> {
   items: T[];
   rowHeight: number;
+  itemHeight?: (item: T, index: number) => number;
   overscan?: number;
   renderRow: (item: T, index: number) => ReactNode;
   onViewportChange?: (range: { start: number; end: number }) => void;
@@ -954,6 +963,7 @@ export interface VirtualListProps<T> {
 export function VirtualList<T>({
   items,
   rowHeight,
+  itemHeight,
   overscan = 8,
   renderRow,
   onViewportChange,
@@ -990,9 +1000,19 @@ export function VirtualList<T>({
     return () => observer.disconnect();
   }, []);
 
-  const start = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
-  const visible = Math.ceil(height / rowHeight) + overscan * 2;
-  const end = Math.min(items.length, start + visible);
+  const offsets = useMemo(() => {
+    const values = new Array<number>(items.length + 1);
+    values[0] = 0;
+    for (let index = 0; index < items.length; index += 1) {
+      values[index + 1] = values[index]! + (itemHeight?.(items[index]!, index) ?? rowHeight);
+    }
+    return values;
+  }, [items, itemHeight, rowHeight]);
+
+  const firstVisible = itemIndexAtOffset(offsets, scrollTop);
+  const lastVisible = itemIndexAtOffset(offsets, scrollTop + Math.max(1, height));
+  const start = Math.max(0, firstVisible - overscan);
+  const end = Math.min(items.length, lastVisible + overscan + 1);
 
   useEffect(() => {
     onViewportChange?.({ start, end });
@@ -1021,13 +1041,16 @@ export function VirtualList<T>({
         onScrollPosition?.(next);
       }}
     >
-      <div className="virtual-list__sizer" style={{ height: items.length * rowHeight }}>
+      <div className="virtual-list__sizer" style={{ height: offsets[items.length] ?? 0 }}>
         <div
           className="virtual-list__window"
-          style={{ transform: `translateY(${start * rowHeight}px)` }}
+          style={{ transform: `translateY(${offsets[start] ?? 0}px)` }}
         >
           {items.slice(start, end).map((item, offset) => (
-            <div key={start + offset} style={{ height: rowHeight }}>
+            <div
+              key={start + offset}
+              style={{ height: itemHeight?.(item, start + offset) ?? rowHeight }}
+            >
               {renderRow(item, start + offset)}
             </div>
           ))}
@@ -1035,6 +1058,24 @@ export function VirtualList<T>({
       </div>
     </div>
   );
+}
+
+function itemIndexAtOffset(offsets: number[], offset: number): number {
+  const itemCount = Math.max(0, offsets.length - 1);
+  if (itemCount === 0) {
+    return 0;
+  }
+  let low = 0;
+  let high = itemCount - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (offsets[middle + 1]! <= offset) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
 }
 
 export interface SplitterProps {

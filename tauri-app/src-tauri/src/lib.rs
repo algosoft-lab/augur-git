@@ -58,6 +58,7 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             commands::repo::request_commit_message,
             commands::repo::load_commit_file_diff,
             commands::repo::load_working_tree_diff,
+            commands::repo::load_image_preview,
             commands::repo::working_tree_operation,
             commands::repo::run_action,
             commands::repo::checkout,

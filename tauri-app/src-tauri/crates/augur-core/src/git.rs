@@ -39,6 +39,7 @@ use crate::graph::LogRow;
 pub mod agent_prompt;
 pub mod branch_compare;
 mod commit_log;
+pub mod image_preview;
 pub mod location;
 pub mod operation_probe;
 pub mod progress;

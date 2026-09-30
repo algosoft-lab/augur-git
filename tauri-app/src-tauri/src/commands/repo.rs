@@ -262,6 +262,19 @@ pub fn load_working_tree_diff(
         .ok_or_else(|| CommandError::missing_repo(repo_id))
 }
 
+/// Load an image side only when its preview is visible in the webview.
+#[tauri::command]
+pub async fn load_image_preview(
+    state: State<'_, AppState>,
+    repo_id: u64,
+    target: augur_core::git::image_preview::ImagePreviewTarget,
+) -> Result<augur_core::git::image_preview::ImagePreview> {
+    let repo = state
+        .with_repo(repo_id, |session| session.repo().clone())
+        .ok_or_else(|| CommandError::missing_repo(repo_id))?;
+    run_blocking(move || Ok(augur_core::git::image_preview::load(&repo, &target))).await
+}
+
 /// Apply a staged/working-tree mutation and return the id the result carries.
 #[tauri::command]
 pub fn working_tree_operation(

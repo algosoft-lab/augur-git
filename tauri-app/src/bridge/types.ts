@@ -299,6 +299,20 @@ export interface DiffPayload {
 /** The fields the viewer needs, named for the component that consumes them. */
 export type DiffDocument = DiffPayload;
 
+export type ImagePreviewTarget =
+  | { kind: 'change'; file: FileChange }
+  | { kind: 'workingTree'; diffKind: WorkingTreeDiffKind; file: FileStatus };
+
+export type ImagePreviewSide =
+  | { status: 'absent' }
+  | { status: 'available'; mimeType: string; data: string }
+  | { status: 'unavailable'; reason: 'unsupported' | 'tooLarge' | 'unreadable' };
+
+export interface ImagePreview {
+  old: ImagePreviewSide;
+  new: ImagePreviewSide;
+}
+
 export type WorkingTreeDiffKind = 'staged' | 'unstaged';
 export type WorkingTreeAction = 'stage' | 'unstage' | 'discard';
 export type WorkingTreeScopeKind = 'file' | 'all';

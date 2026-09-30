@@ -27,6 +27,137 @@ test.describe('commit selection', () => {
     await expect(page.getByTestId('bottom-panel')).not.toContainText('No commit selected');
   });
 
+  test('previews supported image changes and switches SVG between image and diff', async ({
+    page
+  }) => {
+    const stub = await boot(page, { open: [fixtureRepo()], includeImageFixtures: true });
+    await page.locator('.graph-row').first().click();
+    await page.getByTestId('bottom-file-assets/changed.png').click();
+    await expect(page.getByTestId('diff-image-preview')).toBeVisible();
+    await expect(page.getByTestId('diff-image-old')).toHaveAttribute(
+      'src',
+      /^data:image\/png;base64,/
+    );
+    await expect(page.getByTestId('diff-image-new')).toHaveAttribute(
+      'src',
+      /^data:image\/png;base64,/
+    );
+
+    await page.getByTestId('bottom-file-assets/added.jpg').click();
+    await expect(page.getByTestId('diff-image-old-absent')).toHaveText('No image');
+    await expect(page.getByTestId('diff-image-new')).toHaveAttribute(
+      'src',
+      /^data:image\/jpeg;base64,/
+    );
+
+    await page.getByTestId('bottom-file-assets/deleted.ico').click();
+    await expect(page.getByTestId('diff-image-old')).toHaveAttribute(
+      'src',
+      /^data:image\/x-icon;base64,/
+    );
+    await expect(page.getByTestId('diff-image-new-absent')).toHaveText('No image');
+
+    await page.getByTestId('bottom-file-assets/logo.svg').click();
+    await expect(page.getByTestId('diff-image-old')).toHaveAttribute(
+      'src',
+      /^data:image\/svg\+xml;base64,/
+    );
+    await page.getByTestId('svg-preview-diff').click();
+    await expect(page.getByTestId('diff-row').first()).toBeVisible();
+    await page.getByTestId('svg-preview-image').click();
+    await expect(page.getByTestId('diff-image-preview')).toBeVisible();
+
+    const previewCall = (await stub.commands()).find((entry) => entry.cmd === 'load_image_preview');
+    expect(previewCall?.args.target).toMatchObject({ kind: 'change' });
+  });
+
+  test('stacks previews in a narrow panel and shows an unavailable state on read failure', async ({
+    page
+  }) => {
+    const stub = await boot(page, {
+      open: [fixtureRepo()],
+      includeImageFixtures: true,
+      imagePreviewFailure: 'preview read failed'
+    });
+    await page.locator('.graph-row').first().click();
+    await page.getByTestId('bottom-file-assets/changed.png').click();
+    await page.setViewportSize({ width: 420, height: 800 });
+    await expect(page.getByTestId('diff-image-preview')).toHaveClass(
+      /diff__image-preview--stacked/
+    );
+    await expect(page.getByTestId('diff-image-old-unavailable')).toHaveText('Preview unavailable');
+    expect((await stub.commands()).some((entry) => entry.cmd === 'load_image_preview')).toBe(true);
+  });
+
+  test('drops an older lazy preview reply after selecting another image', async ({ page }) => {
+    await boot(page, {
+      open: [fixtureRepo()],
+      includeImageFixtures: true,
+      imagePreviewDelay: 220
+    });
+    await page.locator('.graph-row').first().click();
+    await page.getByTestId('bottom-file-assets/changed.png').click();
+    await page.getByTestId('bottom-file-assets/logo.svg').click();
+    await expect(page.getByTestId('diff-image-preview')).toBeVisible();
+    await expect(page.getByTestId('diff-image-old')).toHaveAttribute(
+      'alt',
+      'assets/logo.svg before'
+    );
+    await expect(page.locator('img[alt^="assets/changed.png"]')).toHaveCount(0);
+  });
+
+  test('loads binary previews in the virtualized all-files view', async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()], includeImageFixtures: true });
+    await page.setViewportSize({ width: 1800, height: 1000 });
+    await page.locator('.graph-row').first().click();
+    await expect(page.getByTestId('bottom-file-assets/logo.svg')).toBeVisible();
+    const virtualList = page.getByTestId('diff-rows');
+    await virtualList.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await expect(page.getByTestId('diff-image-preview').first()).toBeVisible();
+    await expect(page.getByTestId('svg-preview-toolbar').first()).toBeVisible();
+  });
+
+  test('loads previews for unstaged working-tree image changes', async ({ page }) => {
+    const repo = fixtureRepo();
+    repo.status.files.push({
+      index: ' ',
+      worktree: 'M',
+      path: 'assets/working.png',
+      old_path: null
+    });
+    const stub = await boot(page, { open: [repo] });
+    await page.getByTestId('changes-file-assets/working.png').click();
+    await expect(page.getByTestId('diff-image-preview')).toBeVisible();
+    const previewCall = (await stub.commands()).find((entry) => entry.cmd === 'load_image_preview');
+    expect(previewCall?.args.target).toMatchObject({
+      kind: 'workingTree',
+      diffKind: 'unstaged',
+      file: { path: 'assets/working.png' }
+    });
+  });
+
+  test('loads previews for staged image changes from the index', async ({ page }) => {
+    const repo = fixtureRepo();
+    repo.status.files.push({
+      index: 'A',
+      worktree: ' ',
+      path: 'assets/staged.png',
+      old_path: null
+    });
+    const stub = await boot(page, { open: [repo] });
+    await page.getByTestId('changes-file-assets/staged.png').click();
+    await expect(page.getByTestId('diff-image-preview')).toBeVisible();
+    await expect(page.getByTestId('diff-image-old-absent')).toHaveText('No image');
+    const previewCall = (await stub.commands()).find((entry) => entry.cmd === 'load_image_preview');
+    expect(previewCall?.args.target).toMatchObject({
+      kind: 'workingTree',
+      diffKind: 'staged',
+      file: { path: 'assets/staged.png', index: 'A' }
+    });
+  });
+
   test('keeps the graph position when selecting a visible commit', async ({ page }) => {
     await boot(page, { open: [longFixtureRepo()] });
 

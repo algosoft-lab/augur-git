@@ -23,6 +23,8 @@ import type {
   FileStatus,
   GitAction,
   GraphRow,
+  ImagePreview,
+  ImagePreviewTarget,
   LayoutSettings,
   LanguagePreference,
   LocationConfig,
@@ -136,6 +138,13 @@ export async function loadWorkingTreeDiff(
   file: FileStatus
 ): Promise<void> {
   return invoke<void>('load_working_tree_diff', { repoId, requestId, kind, file });
+}
+
+export async function loadImagePreview(
+  repoId: number,
+  target: ImagePreviewTarget
+): Promise<ImagePreview> {
+  return invoke<ImagePreview>('load_image_preview', { repoId, target });
 }
 
 export async function workingTreeOperation(

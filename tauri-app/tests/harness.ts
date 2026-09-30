@@ -78,6 +78,11 @@ export interface BootOptions {
   commitDiffDelay?: number;
   /** Leave commit file diff requests unanswered to verify timeout handling. */
   commitDiffNeverResponds?: boolean;
+  /** Add representative image changes to commit and comparison fixtures. */
+  includeImageFixtures?: boolean;
+  /** Delay or fail lazy image preview commands. */
+  imagePreviewDelay?: number;
+  imagePreviewFailure?: string;
   /**
    * Report the browser as Windows, so the platform-only entry points render.
    *
@@ -161,6 +166,9 @@ function optionsFor(options: BootOptions): StubOptions {
     commitDiffFailurePaths: options.commitDiffFailurePaths,
     commitDiffDelay: options.commitDiffDelay,
     commitDiffNeverResponds: options.commitDiffNeverResponds,
+    includeImageFixtures: options.includeImageFixtures,
+    imagePreviewDelay: options.imagePreviewDelay,
+    imagePreviewFailure: options.imagePreviewFailure,
     pendingPaths: options.pendingPaths,
     savedTabs: options.savedTabs,
     savedActiveTab: options.savedActiveTab,

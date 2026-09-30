@@ -67,21 +67,85 @@ export function BottomPanel({
   const sections = useMemo<DiffSection[]>(() => {
     if (pane.kind === 'commit' && pane.file) {
       const document = repo.commitDiffs[pane.file.new_path];
-      return document ? [{ path: pane.file.new_path, document }] : [];
+      return document
+        ? [
+            {
+              path: pane.file.new_path,
+              document,
+              imagePreview: {
+                repoId: repo.id,
+                target: { kind: 'change', file: pane.file },
+                key: JSON.stringify([
+                  repo.id,
+                  'commit',
+                  repo.commitRequestId,
+                  pane.file.old_blob,
+                  pane.file.new_blob,
+                  pane.file.old_path,
+                  pane.file.new_path
+                ])
+              }
+            }
+          ]
+        : [];
     }
     if (pane.kind === 'commit') {
       return repo.commitFiles
-        .map((file) => {
+        .map((file): DiffSection | null => {
           const document = repo.commitDiffs[file.new_path];
-          return document ? { path: file.new_path, document } : null;
+          return document
+            ? {
+                path: file.new_path,
+                document,
+                imagePreview: {
+                  repoId: repo.id,
+                  target: { kind: 'change', file },
+                  key: JSON.stringify([
+                    repo.id,
+                    'commit',
+                    repo.commitRequestId,
+                    file.old_blob,
+                    file.new_blob,
+                    file.old_path,
+                    file.new_path
+                  ])
+                }
+              }
+            : null;
         })
         .filter((entry): entry is DiffSection => entry !== null);
     }
     if (pane.kind === 'working' && repo.workingDocument) {
-      return [{ path: pane.file.path, document: repo.workingDocument }];
+      const diffKind = pane.staged ? 'staged' : 'unstaged';
+      return [
+        {
+          path: pane.file.path,
+          document: repo.workingDocument,
+          imagePreview: {
+            repoId: repo.id,
+            target: { kind: 'workingTree', diffKind, file: pane.file },
+            key: JSON.stringify([
+              repo.id,
+              'working',
+              repo.workingRequest,
+              diffKind,
+              pane.file.path,
+              pane.file.old_path
+            ])
+          }
+        }
+      ];
     }
     return [];
-  }, [pane, repo.commitFiles, repo.commitDiffs, repo.workingDocument]);
+  }, [
+    pane,
+    repo.id,
+    repo.commitRequestId,
+    repo.commitFiles,
+    repo.commitDiffs,
+    repo.workingDocument,
+    repo.workingRequest
+  ]);
 
   const pendingCommitDiffCount = Object.keys(repo.commitDiffPending).length;
   const commitDiffErrorCount = Object.keys(repo.commitDiffErrors).length;

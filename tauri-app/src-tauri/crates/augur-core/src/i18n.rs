@@ -121,6 +121,15 @@ mod tests {
 
     const ENGLISH_FALLBACK_KEYS: &[&str] = &[
         "auto-refresh-title",
+        "diff-image-absent",
+        "diff-image-after",
+        "diff-image-before",
+        "diff-image-loading",
+        "diff-image-mode",
+        "diff-image-too-large",
+        "diff-image-unavailable",
+        "diff-image-unsupported",
+        "diff-text-mode",
         "graph-history-current-short",
         "menu-more",
         "sidecar-back",

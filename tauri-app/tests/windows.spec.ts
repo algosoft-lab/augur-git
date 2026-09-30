@@ -10,6 +10,53 @@ import { boot, fixtureRepo, secondFixtureRepo } from './harness';
  */
 
 test.describe('comparison window', () => {
+  test('previews image changes in revision comparison', async ({ page }) => {
+    const stub = await boot(page, {
+      open: [fixtureRepo()],
+      window: 'compare',
+      repoId: 7,
+      includeImageFixtures: true
+    });
+    await page.getByTestId('compare-file-assets/changed.png').waitFor();
+    await page.getByTestId('compare-file-assets/changed.png').click();
+    await expect(page.getByTestId('diff-image-preview')).toBeVisible();
+    await expect(page.getByTestId('diff-image-old')).toHaveAttribute(
+      'src',
+      /^data:image\/png;base64,/
+    );
+    expect((await stub.commands()).some((entry) => entry.cmd === 'load_image_preview')).toBe(true);
+  });
+
+  test('reloads a pending image preview after comparison endpoints change', async ({ page }) => {
+    const stub = await boot(page, {
+      open: [fixtureRepo()],
+      window: 'compare',
+      repoId: 7,
+      includeImageFixtures: true,
+      imagePreviewDelay: 350
+    });
+    const countChangedImageCalls = async () =>
+      (await stub.commands()).filter(
+        (entry) =>
+          entry.cmd === 'load_image_preview' &&
+          (entry.args as any).target?.file?.new_path === 'assets/changed.png'
+      ).length;
+
+    await expect.poll(countChangedImageCalls).toBeGreaterThan(0);
+    await expect(page.getByTestId('diff-image-new-loading').first()).toBeVisible();
+
+    await page.getByTestId('compare-toggle-Base').click();
+    await page.getByTestId('compare-option-remote-refs/remotes/origin/master').click();
+    await expect(page.getByTestId('compare-file-assets/changed.png')).toBeVisible();
+    await page.getByTestId('compare-file-assets/changed.png').click();
+    await expect(page.getByTestId('diff-image-new-loading')).toBeVisible();
+    await expect.poll(countChangedImageCalls).toBeGreaterThan(1);
+    await expect(page.getByTestId('diff-image-new')).toHaveAttribute(
+      'src',
+      /^data:image\/png;base64,/
+    );
+  });
+
   test('syncs the soft-wrap toggle between the repository and Compare windows', async ({
     page
   }) => {

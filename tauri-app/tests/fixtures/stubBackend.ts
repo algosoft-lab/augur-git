@@ -108,6 +108,11 @@ export interface StubOptions {
   commitDiffDelay?: number;
   /** Leave commit file diff requests unanswered so the timeout path can be tested. */
   commitDiffNeverResponds?: boolean;
+  /** Add representative image changes to commit and comparison fixtures. */
+  includeImageFixtures?: boolean;
+  /** Delay or fail lazy image preview commands in browser tests. */
+  imagePreviewDelay?: number;
+  imagePreviewFailure?: string;
   /** Initial pane geometry returned by bootstrap. */
   layout?: Partial<{
     sidebar_width: number;
@@ -457,8 +462,29 @@ function install(
         new_blob: null,
         added: 40,
         deleted: 0
-      }
+      },
+      ...(options.includeImageFixtures
+        ? [
+            imageFile('assets/changed.png', 'modified'),
+            imageFile('assets/added.jpg', 'added'),
+            imageFile('assets/deleted.ico', 'deleted'),
+            imageFile('assets/logo.svg', 'modified')
+          ]
+        : [])
     ];
+  }
+
+  function imageFile(path: string, status: string): Record<string, unknown> {
+    return {
+      path,
+      old_path: null,
+      new_path: path,
+      status,
+      old_blob: status === 'added' ? null : 'a'.repeat(40),
+      new_blob: status === 'deleted' ? null : 'b'.repeat(40),
+      added: null,
+      deleted: null
+    };
   }
 
   function diffFor(path: string, language: string | null): Record<string, unknown> {
@@ -556,6 +582,16 @@ function install(
       binary: false,
       copy_text: 'diff --git a/x b/x\\n'
     };
+  }
+
+  function imageDiffFor(path: string): Record<string, unknown> {
+    const extension = path.split('.').pop()?.toLowerCase();
+    if (!['png', 'jpg', 'jpeg', 'ico', 'svg'].includes(extension ?? '')) {
+      return diffFor(path, 'rust');
+    }
+    const document = diffFor(path, extension === 'svg' ? 'xml' : null);
+    if (extension === 'svg') return document;
+    return { ...document, rows: [], aligned_rows: [], binary: true };
   }
 
   const handlers: Record<string, (args: any) => unknown> = {
@@ -728,7 +764,15 @@ function install(
             new_blob: null,
             added: 120,
             deleted: 0
-          }
+          },
+          ...(options.includeImageFixtures
+            ? [
+                imageFile('assets/changed.png', 'modified'),
+                imageFile('assets/added.jpg', 'added'),
+                imageFile('assets/deleted.ico', 'deleted'),
+                imageFile('assets/logo.svg', 'modified')
+              ]
+            : [])
         ],
         merge_parent: row.parents[1] ?? null
       });
@@ -785,7 +829,7 @@ function install(
                 requestId: args.requestId,
                 oid: args.oid,
                 file: args.file,
-                document: diffFor(args.file.new_path, 'rust')
+                document: imageDiffFor(args.file.new_path)
               }
         );
       };
@@ -813,7 +857,7 @@ function install(
           ? (options.workingDiffFirstFailure ?? null)
           : (options.workingDiffFailureAfterFirst ?? null));
       const delay = options.workingDiffDelay ?? 30;
-      const document = diffFor(args.file.path, 'rust');
+      const document = imageDiffFor(args.file.path);
       // A short delay makes the loading state observable, which is the point of
       // testing it in a browser.
       setTimeout(
@@ -831,6 +875,57 @@ function install(
         failDetail ? Math.max(delay, 400) : delay
       );
       return null;
+    },
+
+    load_image_preview: (args: any) => {
+      if (options.imagePreviewFailure) {
+        return Promise.reject(options.imagePreviewFailure);
+      }
+      const target = args.target;
+      const file = target.file;
+      const oldPath = file.old_path ?? (target.kind === 'change' ? file.new_path : file.path);
+      const newPath = target.kind === 'change' ? file.new_path : file.path;
+      let oldPresent = true;
+      let newPresent = true;
+      if (target.kind === 'change') {
+        oldPresent = file.status !== 'added';
+        newPresent = file.status !== 'deleted';
+      } else if (target.diffKind === 'staged') {
+        oldPresent = file.index !== 'A';
+        newPresent = file.index !== 'D';
+      } else {
+        oldPresent = !(file.index === '?' && file.worktree === '?') && file.worktree !== 'A';
+        newPresent = file.worktree !== 'D';
+      }
+      const mime = (path: string) => {
+        const extension = path.split('.').pop()?.toLowerCase();
+        return extension === 'png'
+          ? 'image/png'
+          : extension === 'jpg' || extension === 'jpeg'
+            ? 'image/jpeg'
+            : extension === 'ico'
+              ? 'image/x-icon'
+              : 'image/svg+xml';
+      };
+      const images: Record<string, string> = {
+        png: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC',
+        jpg: '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAACAAIDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAABQf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCWABrC/9k=',
+        ico: 'AAABAAEAEBAAAAAAIABeAAAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAQAAAAEAgGAAAAH/P/YQAAACVJREFUeJxj/M/A8J+BAsBEieZRAyCAiYFCwDRqAMNoGDBQHgYAWG0CHuZTvPwAAAAASUVORK5CYII=',
+        svg: 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9InJlZCIvPjwvc3ZnPg=='
+      };
+      const encoded = (path: string) =>
+        images[path.split('.').pop()?.toLowerCase() ?? ''] ?? images.png!;
+      const response = {
+        old: oldPresent
+          ? { status: 'available', mimeType: mime(oldPath), data: encoded(oldPath) }
+          : { status: 'absent' },
+        new: newPresent
+          ? { status: 'available', mimeType: mime(newPath), data: encoded(newPath) }
+          : { status: 'absent' }
+      };
+      return options.imagePreviewDelay
+        ? new Promise((resolve) => setTimeout(() => resolve(response), options.imagePreviewDelay))
+        : response;
     },
 
     working_tree_operation: (args: any) => {
@@ -984,7 +1079,7 @@ function install(
                 type: 'branchCompareFileDiff',
                 requestId,
                 file,
-                document: diffFor(file.new_path, 'rust')
+                document: imageDiffFor(file.new_path)
               });
             },
             12 + delay + index * (delay > 0 ? delay : 5)

@@ -3,6 +3,28 @@ import { expect, test } from '@playwright/test';
 import { boot, fixtureRepo, longFixtureRepo, secondFixtureRepo } from './harness';
 
 test.describe('Sidecar mode', () => {
+  test('previews an image selected from Sidecar changes', async ({ page }) => {
+    const repo = fixtureRepo();
+    repo.status.files.push({
+      index: '?',
+      worktree: '?',
+      path: 'assets/sidecar.png',
+      old_path: null
+    });
+    const stub = await boot(page, { open: [repo] });
+    await page.setViewportSize({ width: 420, height: 760 });
+    await page.getByTestId('title-sidecar-toggle').click();
+    await expect(page.getByTestId('sidecar-page-changes')).toBeVisible();
+    await page.getByTestId('changes-file-assets/sidecar.png').click();
+    await expect(page.getByTestId('diff-image-preview')).toBeVisible();
+    const previewCall = (await stub.commands()).find((entry) => entry.cmd === 'load_image_preview');
+    expect(previewCall?.args.target).toMatchObject({
+      kind: 'workingTree',
+      diffKind: 'unstaged',
+      file: { path: 'assets/sidecar.png', index: '?', worktree: '?' }
+    });
+  });
+
   test('keeps the graph compact, opens full-page diffs, and returns to the source page', async ({
     page
   }) => {
