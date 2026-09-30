@@ -203,11 +203,18 @@ Apple Silicon Homebrew cask installations show `brew upgrade --cask augur-git`,
 and other installations can open the nightly release page. Linux users use the
 AppImage, Debian package, or raw archive attached to the release.
 
-Install the Apple Silicon macOS cask from the project tap and upgrade it with:
+Homebrew requires explicit trust for casks from non-official taps. On Apple
+Silicon, trust the project cask and install it with:
 
 ```bash
 brew tap algosoft-lab/augur-git
+brew trust --cask algosoft-lab/augur-git/augur-git
 brew install --cask augur-git
+```
+
+When a newer nightly is published, upgrade it with:
+
+```bash
 brew upgrade --cask augur-git
 ```
 

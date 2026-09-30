@@ -116,11 +116,18 @@ user to download and install from About. Apple Silicon Homebrew installations
 show the upgrade command; Linux users can download packages from the
 [nightly release](https://github.com/algosoft-lab/augur-git/releases/tag/tauri-nightly).
 
-On Apple Silicon, install or upgrade the macOS cask with Homebrew:
+On Apple Silicon, trust the project cask and install it with Homebrew. Homebrew
+requires explicit trust for casks from non-official taps:
 
 ```bash
 brew tap algosoft-lab/augur-git
+brew trust --cask algosoft-lab/augur-git/augur-git
 brew install --cask augur-git
+```
+
+When a newer nightly is published, upgrade it with:
+
+```bash
 brew upgrade --cask augur-git
 ```
 
