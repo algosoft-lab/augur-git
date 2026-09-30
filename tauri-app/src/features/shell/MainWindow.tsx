@@ -172,7 +172,6 @@ export function MainWindow() {
         onOpenWslRepository={() => setWslOpen(true)}
         onNewTab={addStartTab}
         sidecar={windowMode === 'sidecar'}
-        hasActiveRepo={activeRepo !== null}
         windowMode={windowMode}
         onToggleMode={() => void toggleWindowMode()}
       />

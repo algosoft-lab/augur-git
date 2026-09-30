@@ -27,7 +27,6 @@ export function SidecarWindow({ repo }: { repo: RepoState }) {
   const translate = useStore((state) => state.t);
   const ui = useStore((state) => state.sidecarUi[repo.id]);
   const patchSidecarUi = useStore((state) => state.patchSidecarUi);
-  const setWindowMode = useStore((state) => state.setWindowMode);
   const page = ui?.page ?? 'changes';
   const returnPage = ui?.diffReturnPage ?? 'changes';
   const activePage = page === 'diff' ? returnPage : page;
@@ -76,16 +75,6 @@ export function SidecarWindow({ repo }: { repo: RepoState }) {
             onClick={() => void ipc.openSettingsWindow()}
           >
             <Icon name="settings" size={16} />
-          </button>
-          <button
-            type="button"
-            className="sidecar__rail-button"
-            aria-label={t(translate, 'sidecar-switch-desktop')}
-            title={t(translate, 'sidecar-switch-desktop')}
-            data-testid="sidecar-mode-toggle"
-            onClick={() => void setWindowMode('desktop')}
-          >
-            <Icon name="panel-right" size={16} />
           </button>
         </div>
       </nav>

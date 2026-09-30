@@ -124,7 +124,7 @@ test.describe('Sidecar mode', () => {
     expect(dialogFits).toBe(true);
     await page.getByTestId('force-push-cancel').click();
 
-    await page.getByTestId('sidecar-mode-toggle').click();
+    await page.getByTestId('title-sidecar-toggle').click();
     await expect(page.getByTestId('repo-7')).toBeVisible();
     expect((await stub.commands()).some((entry) => entry.cmd === 'set_window_mode')).toBe(true);
     await page.getByTestId('title-sidecar-toggle').click();

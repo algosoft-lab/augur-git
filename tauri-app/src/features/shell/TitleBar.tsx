@@ -21,7 +21,6 @@ export function TitleBar({
   onOpenWslRepository,
   onNewTab,
   sidecar = false,
-  hasActiveRepo = false,
   windowMode,
   onToggleMode
 }: {
@@ -29,7 +28,6 @@ export function TitleBar({
   onOpenWslRepository: () => void;
   onNewTab: () => void;
   sidecar?: boolean;
-  hasActiveRepo?: boolean;
   windowMode: WindowMode;
   onToggleMode: () => void;
 }) {
@@ -268,24 +266,22 @@ export function TitleBar({
       >
         <Icon name="settings" size={14} />
       </button>
-      {!sidecar || !hasActiveRepo ? (
-        <button
-          type="button"
-          className="title-bar__settings"
-          title={t(
-            translate,
-            windowMode === 'sidecar' ? 'sidecar-switch-desktop' : 'sidecar-switch-mode'
-          )}
-          aria-label={t(
-            translate,
-            windowMode === 'sidecar' ? 'sidecar-switch-desktop' : 'sidecar-switch-mode'
-          )}
-          data-testid="title-sidecar-toggle"
-          onClick={onToggleMode}
-        >
-          <Icon name="panel-right" size={14} />
-        </button>
-      ) : null}
+      <button
+        type="button"
+        className="title-bar__settings"
+        title={t(
+          translate,
+          windowMode === 'sidecar' ? 'sidecar-switch-desktop' : 'sidecar-switch-mode'
+        )}
+        aria-label={t(
+          translate,
+          windowMode === 'sidecar' ? 'sidecar-switch-desktop' : 'sidecar-switch-mode'
+        )}
+        data-testid="title-sidecar-toggle"
+        onClick={onToggleMode}
+      >
+        <Icon name="panel-right" size={14} />
+      </button>
       {!IS_MACOS ? <WindowControls flushBeforeClose /> : null}
     </div>
   );
