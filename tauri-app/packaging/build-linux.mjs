@@ -7,12 +7,14 @@ import {
   TARGET_ROOT,
   assertExecutable,
   assertHostPlatform,
+  appendTauriConfig,
   assertNonEmptyFile,
   copySingleFile,
   ensureOutputRoot,
   removePath,
   run,
-  runBun
+  runBun,
+  tauriBuildConfig
 } from './common.mjs';
 
 assertHostPlatform('linux', 'x64');
@@ -30,7 +32,9 @@ removePath(rawArchive);
 removePath(appImageOutput);
 removePath(debOutput);
 
-runBun('run', 'tauri:build', '--', '--no-bundle', '--ci');
+runBun(
+  ...appendTauriConfig(['run', 'tauri:build', '--', '--no-bundle', '--ci'], tauriBuildConfig())
+);
 assertExecutable(appBinary);
 
 const stagingRoot = mkdtempSync(join(tmpdir(), 'augur-git-tauri-raw-'));
@@ -66,7 +70,7 @@ try {
   removePath(archiveCheckRoot);
 }
 
-run('bun', ['run', 'tauri', 'bundle', '--bundles', 'deb,appimage', '--ci'], {
+run('bun', appendTauriConfig(['run', 'tauri', 'bundle', '--bundles', 'deb,appimage', '--ci'], tauriBuildConfig()), {
   env: {
     ...process.env,
     APPIMAGE_EXTRACT_AND_RUN: '1'

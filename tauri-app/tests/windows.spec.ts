@@ -523,6 +523,62 @@ test.describe('comparison window', () => {
   });
 });
 
+test.describe('nightly updates', () => {
+  test('About exposes automatic checks and manual checks without downloading', async ({ page }) => {
+    const stub = await boot(page, { window: 'about', windows: true });
+
+    await expect(page.getByTestId('about')).toBeVisible();
+    await expect(page.getByTestId('auto-check-updates')).toBeChecked();
+    await page.getByTestId('check-for-updates').click();
+    await expect(page.getByTestId('update-status')).toHaveText('You are up to date.');
+
+    await page.getByTestId('auto-check-updates').uncheck();
+    await expect
+      .poll(async () =>
+        (await stub.commands()).filter((entry) => entry.cmd === 'set_auto_check_updates')
+      )
+      .toHaveLength(1);
+    const commands = await stub.commandNames();
+    expect(commands).toContain('get_update_snapshot');
+    expect(commands).toContain('check_for_updates');
+    expect(commands).not.toContain('download_update');
+  });
+
+  test('main-window update notice opens About and persists dismissal', async ({ page }) => {
+    const stub = await boot(page, { windows: true });
+    const commitSha = 'a'.repeat(40);
+    await stub.emit('augur://update-event', {
+      type: 'status',
+      status: {
+        state: 'available',
+        currentVersion: '0.1.0',
+        latestVersion: '0.1.1-nightly.24',
+        latestCommitSha: commitSha,
+        canInstall: true,
+        progress: null,
+        error: null,
+        installChannel: 'windows-installer'
+      }
+    });
+    await stub.emit('augur://update-event', {
+      type: 'notice',
+      notice: { commitSha, version: '0.1.1-nightly.24' }
+    });
+
+    const notice = page.getByTestId('update-notice');
+    await expect(notice).toBeVisible();
+    await notice.getByRole('button', { name: 'Review update' }).click();
+    await expect
+      .poll(async () => (await stub.commands()).some((entry) => entry.cmd === 'open_about_window'))
+      .toBe(true);
+
+    await notice.locator('.update-notice__close').click();
+    await expect(notice).toHaveCount(0);
+    const dismiss = (await stub.commands()).find((entry) => entry.cmd === 'dismiss_update_notice');
+    expect(dismiss?.args).toEqual({ commitSha });
+  });
+});
+
 test.describe('custom title bar', () => {
   test('drags from empty tab-bar space while keeping its controls interactive', async ({
     page

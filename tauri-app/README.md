@@ -188,6 +188,67 @@ this application's data directory:
 Logs are written to the platform log directory. The About window reports the
 resolved store paths.
 
+## Nightly updates
+
+Packaged builds check the `tauri-nightly` channel five seconds after startup
+and once every 24 hours when **Check automatically once a day** is enabled in
+About. A check reads release metadata only; it never downloads or installs an
+update automatically. Dismissing the main-window notice remembers that release
+commit across restarts. About always provides a manual check and the current
+update status.
+
+Windows builds use the signed Tauri updater. The main-window notice opens About,
+where users choose when to download and install. macOS builds do not install themselves:
+Apple Silicon Homebrew cask installations show `brew upgrade --cask augur-git`,
+and other installations can open the nightly release page. Linux users use the
+AppImage, Debian package, or raw archive attached to the release.
+
+Install the Apple Silicon macOS cask from the project tap and upgrade it with:
+
+```bash
+brew tap algosoft-lab/augur-git
+brew install --cask augur-git
+brew upgrade --cask augur-git
+```
+
+Every `publish-tauri` run uses one version of the form
+`0.1.1-nightly.<run-number>` across the Windows installer, macOS DMG, Linux
+packages, About window, and `--version` output. CI first publishes immutable
+assets under a versioned `tauri-nightly-<version>` release. It then updates the
+checksum-pinned cask in `algosoft-lab/homebrew-augur-git` and advances the
+rolling `tauri-nightly` release. The signed `latest.json` feed is published
+after its installer target and the rolling download links have been validated.
+
+### Release setup
+
+The workflow needs these GitHub Actions secrets:
+
+- `TAURI_SIGNING_PRIVATE_KEY` — the contents of the Tauri updater private-key
+  file. The corresponding public key is embedded in `src-tauri/tauri.conf.json`.
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — optional; set this if the key was
+  generated with a password.
+- `TAP_PUSH_TOKEN` — a fine-grained token with Contents read/write access to
+  `algosoft-lab/homebrew-augur-git`; its default branch must allow that token to
+  push updates to `Casks/augur-git.rb`.
+
+From `tauri-app/`, generate a key pair once and retain the private key
+securely. Do not replace the key after releases have been published: installed
+builds trust the public key committed in `tauri.conf.json`.
+
+```bash
+mkdir -p ~/.config/augur-git/tauri
+bunx tauri signer generate --write-keys ~/.config/augur-git/tauri/updater.key
+```
+
+Create the public tap repository before enabling publication, with the cask at
+`Casks/augur-git.rb`. Missing signing or tap credentials stop the workflow
+before it changes the rolling release. macOS DMGs use an ad-hoc signature and
+are not notarized, so Gatekeeper may require approval after installation.
+
+The separate GPUI workflow in `.github/workflows/build.yml` has no push
+trigger. It remains available only through GitHub Actions **Run workflow** for
+legacy builds.
+
 ## License
 
 This application is licensed under the [Apache License 2.0](LICENSE). The

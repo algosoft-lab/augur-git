@@ -233,6 +233,8 @@ function install(
 
   const config = {
     schema_version: 2,
+    auto_check_updates: true,
+    dismissed_update_commit: null,
     theme: 'claude-dark',
     language: 'system',
     view: {
@@ -577,6 +579,37 @@ function install(
     }),
 
     current_config: () => config,
+    get_update_snapshot: () => ({
+      status: {
+        state: 'idle',
+        currentVersion: build.version,
+        latestVersion: null,
+        latestCommitSha: null,
+        canInstall: false,
+        progress: null,
+        error: null,
+        installChannel: 'manual'
+      },
+      notice: null
+    }),
+    check_for_updates: () => ({
+      state: 'up-to-date',
+      currentVersion: build.version,
+      latestVersion: build.version,
+      latestCommitSha: null,
+      canInstall: false,
+      progress: null,
+      error: null,
+      installChannel: 'manual'
+    }),
+    download_update: () => Promise.reject('No update available'),
+    install_update: () => null,
+    set_auto_check_updates: (args: any) => {
+      config.auto_check_updates = args.enabled;
+      emit('augur://app-event', { type: 'settingsChanged' });
+      return null;
+    },
+    dismiss_update_notice: () => null,
 
     open_repository: (args: any) => {
       if (failure) {
@@ -1142,6 +1175,7 @@ function install(
   // packages. They are recorded rather than implemented, except for the dialog
   // picker, which returns the first available fixture.
   const pluginHandlers: Record<string, (args: any) => unknown> = {
+    'plugin:opener|open_url': () => null,
     'plugin:event|listen': (args: any) => {
       const set = listeners.get(args.event) ?? new Set();
       listeners.set(args.event, set);

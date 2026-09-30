@@ -39,6 +39,9 @@ import type {
   ThemePreference,
   TypographySettings,
   ViewSettings,
+  UpdateEvent,
+  UpdateSnapshot,
+  UpdateStatus,
   WindowMode,
   WorkspaceState,
   WorkingTreeAction,
@@ -50,6 +53,7 @@ export const REPO_EVENT = 'augur://repo-event';
 export const APP_EVENT = 'augur://app-event';
 export const MENU_EVENT = 'augur://menu';
 export const SETTINGS_NAVIGATE_EVENT = 'augur://settings-navigate';
+export const UPDATE_EVENT = 'augur://update-event';
 export const OPEN_PATHS_EVENT = 'augur://open-paths';
 export const DROP_EVENT = 'augur://drop-paths';
 
@@ -338,6 +342,30 @@ export async function currentConfig(): Promise<AppConfig> {
   return invoke<AppConfig>('current_config');
 }
 
+export async function getUpdateSnapshot(): Promise<UpdateSnapshot> {
+  return invoke<UpdateSnapshot>('get_update_snapshot');
+}
+
+export async function checkForUpdates(): Promise<UpdateStatus> {
+  return invoke<UpdateStatus>('check_for_updates');
+}
+
+export async function downloadUpdate(): Promise<UpdateStatus> {
+  return invoke<UpdateStatus>('download_update');
+}
+
+export async function installUpdate(): Promise<void> {
+  return invoke<void>('install_update');
+}
+
+export async function setAutoCheckUpdates(enabled: boolean): Promise<void> {
+  return invoke<void>('set_auto_check_updates', { enabled });
+}
+
+export async function dismissUpdateNotice(commitSha: string): Promise<void> {
+  return invoke<void>('dismiss_update_notice', { commitSha });
+}
+
 export async function repositorySummary(repoId: number): Promise<RepoSummary | null> {
   return invoke<RepoSummary | null>('repository_summary', { repoId });
 }
@@ -350,6 +378,10 @@ export function onRepoEvent(handler: (event: RepoEventEnvelope) => void): Promis
 
 export function onAppEvent(handler: (event: AppEvent) => void): Promise<UnlistenFn> {
   return listen<AppEvent>(APP_EVENT, (event) => handler(event.payload));
+}
+
+export function onUpdateEvent(handler: (event: UpdateEvent) => void): Promise<UnlistenFn> {
+  return listen<UpdateEvent>(UPDATE_EVENT, (event) => handler(event.payload));
 }
 
 export function onMenuEvent(handler: (id: string) => void): Promise<UnlistenFn> {

@@ -460,9 +460,9 @@ pub async fn open_about_window(app: AppHandle, state: State<'_, AppState>) -> Re
         WebviewUrl::App("index.html?window=about".into()),
     )
     .title(title)
-    .inner_size(400.0, 340.0)
-    .min_inner_size(400.0, 340.0)
-    .resizable(false);
+    .inner_size(460.0, 600.0)
+    .min_inner_size(420.0, 500.0)
+    .resizable(true);
     #[cfg(target_os = "macos")]
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)

@@ -1700,6 +1700,23 @@ body .diff ::selection {
   text-align: center;
 }
 
+.about--scroll {
+  min-height: 0;
+  align-items: stretch;
+  justify-content: flex-start;
+  overflow-y: auto;
+  text-align: left;
+}
+
+.about__identity {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
 .about__logo {
   width: 56px;
   height: 56px;
@@ -1722,6 +1739,43 @@ body .diff ::selection {
   gap: 3px;
   margin-top: 4px;
   font-size: calc(var(--ui-font-size) * 0.7);
+}
+
+.about__updates {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: calc(var(--ui-font-size) * 0.75);
+}
+
+.about__updates-title {
+  font-weight: 600;
+}
+
+.about__auto-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.about__update-status {
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+
+.about__homebrew-hint {
+  margin: 0;
+  color: var(--muted-foreground);
+}
+
+.about__update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .about__row {
@@ -1917,6 +1971,47 @@ body .diff ::selection {
   background: transparent;
   color: inherit;
   cursor: pointer;
+}
+
+.update-notice {
+  position: absolute;
+  z-index: 199;
+  right: 12px;
+  bottom: 44px;
+  display: flex;
+  width: min(380px, calc(100% - 24px));
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--background);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+  font-size: calc(var(--ui-font-size) * 0.75);
+}
+
+.update-notice p {
+  margin: 0;
+  color: var(--muted-foreground);
+}
+
+.update-notice__heading,
+.update-notice__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.update-notice__close {
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.update-notice__homebrew code {
+  color: var(--foreground);
 }
 
 /* ===== Start-up failure ===== */

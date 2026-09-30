@@ -5,11 +5,13 @@ import {
   BUNDLE_ROOT,
   OUTPUT_ROOT,
   assertHostPlatform,
+  appendTauriConfig,
   ensureOutputRoot,
   findSingleDirectory,
   removePath,
   run,
-  runBun
+  runBun,
+  tauriBuildConfig
 } from './common.mjs';
 
 assertHostPlatform('darwin', 'arm64');
@@ -21,7 +23,7 @@ const environment = {
   ...process.env,
   APPLE_SIGNING_IDENTITY: process.env.APPLE_SIGNING_IDENTITY || '-'
 };
-run('bun', ['run', 'tauri:build', '--', '--bundles', 'app', '--ci'], {
+run('bun', appendTauriConfig(['run', 'tauri:build', '--', '--bundles', 'app', '--ci'], tauriBuildConfig()), {
   env: environment
 });
 

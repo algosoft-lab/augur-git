@@ -89,6 +89,8 @@ export interface RecentRepo {
 
 export interface AppConfig {
   schema_version: number;
+  auto_check_updates: boolean;
+  dismissed_update_commit: string | null;
   theme: ThemePreference;
   language: LanguagePreference;
   view: ViewSettings;
@@ -431,6 +433,35 @@ export type AppEvent =
   | { type: 'settingsChanged' }
   | { type: 'workspaceChanged' }
   | { type: 'notice'; level: string; message: string };
+
+export type UpdateState =
+  'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'downloaded' | 'error';
+
+export type InstallChannel = 'windows-installer' | 'homebrew-cask' | 'manual';
+
+export interface UpdateStatus {
+  state: UpdateState;
+  currentVersion: string;
+  latestVersion: string | null;
+  latestCommitSha: string | null;
+  canInstall: boolean;
+  progress: number | null;
+  error: string | null;
+  installChannel: InstallChannel;
+}
+
+export interface UpdateNotice {
+  commitSha: string;
+  version: string;
+}
+
+export interface UpdateSnapshot {
+  status: UpdateStatus;
+  notice: UpdateNotice | null;
+}
+
+export type UpdateEvent =
+  { type: 'status'; status: UpdateStatus } | { type: 'notice'; notice: UpdateNotice | null };
 
 // ===== Commands =====
 

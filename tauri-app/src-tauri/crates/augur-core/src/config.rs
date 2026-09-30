@@ -437,6 +437,8 @@ pub const MAX_RECENT_REPOS: usize = 8;
 #[serde(default)]
 pub struct AppConfig {
     pub schema_version: u32,
+    pub auto_check_updates: bool,
+    pub dismissed_update_commit: Option<String>,
     pub theme: ThemePreference,
     pub language: LanguagePreference,
     pub view: ViewSettings,
@@ -448,6 +450,8 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
+            auto_check_updates: true,
+            dismissed_update_commit: None,
             theme: ThemePreference::default(),
             language: LanguagePreference::default(),
             view: ViewSettings::default(),
@@ -682,6 +686,20 @@ mod tests {
         assert_eq!(config.theme, ThemePreference::GitHubDark);
         assert_eq!(config.view, ViewSettings::default());
         assert_eq!(config.typography, TypographySettings::default());
+        assert!(config.auto_check_updates);
+        assert_eq!(config.dismissed_update_commit, None);
+    }
+
+    #[test]
+    fn update_preferences_round_trip() {
+        let config = AppConfig {
+            auto_check_updates: false,
+            dismissed_update_commit: Some("a".repeat(40)),
+            ..AppConfig::default()
+        };
+        let serialized = serde_json::to_string(&config).unwrap();
+        let parsed: AppConfig = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(parsed, config);
     }
 
     #[test]

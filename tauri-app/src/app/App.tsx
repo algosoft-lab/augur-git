@@ -117,6 +117,15 @@ export function App() {
           })
         );
         await subscribe(
+          ipc.onUpdateEvent((event) => {
+            if (event.type === 'status') {
+              useStore.getState().setUpdateStatus(event.status);
+            } else {
+              useStore.getState().setUpdateNotice(event.notice);
+            }
+          })
+        );
+        await subscribe(
           ipc.onOpenPaths((paths) => {
             void useStore.getState().openPaths(paths);
           })

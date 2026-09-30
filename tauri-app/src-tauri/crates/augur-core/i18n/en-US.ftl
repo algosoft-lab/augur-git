@@ -43,6 +43,23 @@ about-tagline = Desktop Git client
 about-author = Author
 about-version = Version
 about-commit = Commit
+updates-title = Updates
+auto-check-updates = Check automatically once a day
+check-for-updates = Check for updates
+update-status-idle = Update status is idle.
+update-status-checking = Checking for updates…
+update-status-up-to-date = You are up to date.
+update-status-available = Version { $version } is available.
+update-status-downloading = Downloading update…
+update-status-downloaded = Update downloaded and ready to install.
+update-status-error = The update check failed.
+download-update = Download update
+install-update = Install and restart
+open-release-page = Open release page
+review-update = Review update
+update-notice-title = Augur Git update available
+update-notice-description = Version { $version } ({ $commit }) is ready.
+homebrew-upgrade-hint = Upgrade with
 
 # ===== Extensions =====
 extensions-title = Extensions

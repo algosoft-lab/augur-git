@@ -17,6 +17,7 @@ pub mod menu;
 pub mod persistence;
 pub mod repo;
 pub mod state;
+pub mod updates;
 
 use augur_core::build_info;
 use augur_core::cli::{self, CliInvocation};
@@ -42,6 +43,8 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
         )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(log_plugin())
         .invoke_handler(tauri::generate_handler![
             commands::agent_prompt::generate_agent_prompt,
@@ -96,6 +99,12 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             commands::app::notify,
             commands::app::repository_summary,
             commands::app::current_config,
+            updates::get_update_snapshot,
+            updates::check_for_updates,
+            updates::download_update,
+            updates::install_update,
+            updates::set_auto_check_updates,
+            updates::dismiss_update_notice,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -104,6 +113,10 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
 
             let report = persistence::LoadReport::default();
             app.manage(AppState::new(handle.clone(), report));
+            let update_manager =
+                updates::UpdateManager::new(handle.clone(), app.state::<AppState>().config());
+            app.manage(update_manager.clone());
+            update_manager.start();
             commands::app::restore_main_window(&handle, &app.state::<AppState>());
             if let Some(window) = app.get_webview_window("main") {
                 if let Ok(focused) = window.is_focused() {

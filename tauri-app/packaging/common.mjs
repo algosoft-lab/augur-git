@@ -29,6 +29,16 @@ export function runBun(...args) {
   run('bun', args);
 }
 
+export function tauriBuildConfig(extra = {}) {
+  const version = process.env.AUGUR_RELEASE_VERSION;
+  return version ? { ...extra, version } : extra;
+}
+
+export function appendTauriConfig(args, config) {
+  if (Object.keys(config).length === 0) return args;
+  return [...args, '--config', JSON.stringify(config)];
+}
+
 export function ensureOutputRoot() {
   mkdirSync(OUTPUT_ROOT, { recursive: true });
 }

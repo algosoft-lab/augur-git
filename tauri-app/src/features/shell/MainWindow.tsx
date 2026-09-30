@@ -20,6 +20,7 @@ import { RepoTab } from '../repository/RepoTab';
 import { Overlays } from '../dialogs/Overlays';
 import { t } from '../../i18n/strings';
 import { SidecarWindow } from './SidecarWindow';
+import { UpdateNoticeCard } from './UpdateNoticeCard';
 
 export function MainWindow() {
   const translate = useStore((state) => state.t);
@@ -193,6 +194,7 @@ export function MainWindow() {
       )}
       {windowMode === 'sidecar' ? null : <StatusBar repo={activeRepo} />}
       <Overlays wslOpen={wslOpen} onWslOpenChange={setWslOpen} onOpenPaths={openPaths} />
+      <UpdateNoticeCard />
       {notice ? (
         <div className={`notice notice--${notice.level}`} data-testid="notice">
           <span>{notice.message}</span>

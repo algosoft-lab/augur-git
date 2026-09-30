@@ -12,7 +12,10 @@ pub const APP_BINARY: &str = "augur-git-tauri";
 /// platform data directory.
 pub const APP_IDENTIFIER: &str = "com.augur.git.tauri";
 
-pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const APP_VERSION: &str = match option_env!("AUGUR_RELEASE_VERSION") {
+    Some(value) => value,
+    None => env!("CARGO_PKG_VERSION"),
+};
 pub const APP_AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 
 /// Comma-separated author list for the About window.
@@ -26,12 +29,18 @@ pub const GIT_COMMIT: &str = match option_env!("AUGUR_GIT_COMMIT") {
     None => "unknown",
 };
 
+/// Short commit shown in the interface and version command.
+pub const GIT_COMMIT_SHORT: &str = match option_env!("AUGUR_GIT_COMMIT_SHORT") {
+    Some(value) => value,
+    None => "unknown",
+};
+
 /// `Name 0.1.0 (abcdef1)` used by `--version` and the About window.
 pub fn version_line() -> String {
-    if GIT_COMMIT == "unknown" {
+    if GIT_COMMIT_SHORT == "unknown" {
         format!("{APP_NAME} {APP_VERSION}")
     } else {
-        format!("{APP_NAME} {APP_VERSION} ({GIT_COMMIT})")
+        format!("{APP_NAME} {APP_VERSION} ({GIT_COMMIT_SHORT})")
     }
 }
 
@@ -48,7 +57,7 @@ mod tests {
     fn commit_is_unknown_or_a_valid_git_object_id() {
         assert!(
             GIT_COMMIT == "unknown"
-                || ((12..=64).contains(&GIT_COMMIT.len())
+                || ((40..=64).contains(&GIT_COMMIT.len())
                     && GIT_COMMIT.bytes().all(|byte| byte.is_ascii_hexdigit())),
             "invalid build commit: {GIT_COMMIT}"
         );

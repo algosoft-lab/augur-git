@@ -100,7 +100,7 @@ impl BuildInfo {
             identifier: info::APP_IDENTIFIER.to_string(),
             version: info::APP_VERSION.to_string(),
             authors: info::app_authors_display(),
-            commit: info::GIT_COMMIT.to_string(),
+            commit: info::GIT_COMMIT_SHORT.to_string(),
             version_line: info::version_line(),
             platform: std::env::consts::OS.to_string(),
         }

@@ -25,6 +25,8 @@ import type {
   RepoEvent,
   RepoSummary,
   ShortcutState,
+  UpdateNotice,
+  UpdateStatus,
   WindowMode,
   WorkspaceState,
   WorkingTreeDiffKind
@@ -185,6 +187,8 @@ interface AppStore {
 
   overlay: Overlay;
   notice: Notice | null;
+  updateStatus: UpdateStatus | null;
+  updateNotice: UpdateNotice | null;
   /** The About window is a single instance, focused instead of duplicated. */
   aboutOpen: boolean;
 
@@ -230,6 +234,8 @@ interface AppStore {
    */
   addStartTab: () => void;
   notify: (notice: Notice | null) => void;
+  setUpdateStatus: (status: UpdateStatus) => void;
+  setUpdateNotice: (notice: UpdateNotice | null) => void;
 
   updateLayout: (layout: Partial<LayoutSettings>) => Promise<void>;
   previewLayout: (layout: Partial<LayoutSettings>) => void;
@@ -630,6 +636,7 @@ let booting: Promise<void> | null = null;
  */
 async function restoreSession(role: WindowRole, compareRepoId: number | null): Promise<void> {
   const boot = await ipc.bootstrap();
+  const updateSnapshot = await ipc.getUpdateSnapshot().catch(() => null);
   const locale = resolveLocale(boot.config.language, systemLanguage());
   set({
     role,
@@ -640,7 +647,9 @@ async function restoreSession(role: WindowRole, compareRepoId: number | null): P
     shortcuts: boot.shortcuts,
     storePaths: boot.store_paths,
     locale,
-    t: createTranslator(boot.catalogs)
+    t: createTranslator(boot.catalogs),
+    updateStatus: updateSnapshot?.status ?? null,
+    updateNotice: updateSnapshot?.notice ?? null
   });
 
   // Every already-open repository is re-adopted so a reloaded window
@@ -797,6 +806,8 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     build: null,
     config: {
       schema_version: 2,
+      auto_check_updates: true,
+      dismissed_update_commit: null,
       theme: 'claude-dark',
       language: 'system',
       view: {
@@ -838,6 +849,8 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
 
     overlay: { kind: 'none' },
     notice: null,
+    updateStatus: null,
+    updateNotice: null,
     aboutOpen: false,
 
     async initialize(role, compareRepoId) {
@@ -1387,6 +1400,14 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
 
     notify(notice) {
       set({ notice });
+    },
+
+    setUpdateStatus(updateStatus) {
+      set({ updateStatus });
+    },
+
+    setUpdateNotice(updateNotice) {
+      set({ updateNotice });
     },
 
     async updateLayout(patch) {

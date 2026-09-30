@@ -108,6 +108,26 @@ application reads, imports, migrates, or writes the other's settings.
 Each application directory contains its own setup, test, build, and license
 information. Start commands from within the corresponding directory.
 
+## Nightly builds and updates
+
+The Tauri app checks for nightly updates after startup and once a day when
+automatic checks are enabled. Windows shows an update notice and waits for the
+user to download and install from About. Apple Silicon Homebrew installations
+show the upgrade command; Linux users can download packages from the
+[nightly release](https://github.com/algosoft-lab/augur-git/releases/tag/tauri-nightly).
+
+On Apple Silicon, install or upgrade the macOS cask with Homebrew:
+
+```bash
+brew tap algosoft-lab/augur-git
+brew install --cask augur-git
+brew upgrade --cask augur-git
+```
+
+The legacy GPUI package workflow is manual-dispatch only. See the
+[Tauri application README](tauri-app/README.md#nightly-updates) for release
+publishing, signing-key, and Homebrew tap setup.
+
 ## Repository-wide guidance
 
 The root [AGENTS.md](AGENTS.md) contains instructions that apply to both
