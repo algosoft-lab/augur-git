@@ -147,7 +147,9 @@ export function SidecarWindow({ repo }: { repo: RepoState }) {
           ) : null}
           {!repo.busyVerb && repo.message ? (
             <span
-              className={`sidecar__repo-message${repo.message.ok === false ? ' is-error' : ''}`}
+              className={`sidecar__repo-message${
+                repo.message.ok === false ? ' is-error' : ' is-success'
+              }`}
             >
               {repo.message.text}
             </span>

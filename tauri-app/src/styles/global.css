@@ -2266,6 +2266,10 @@ body .diff ::selection {
   color: var(--base-red);
 }
 
+.sidecar__repo-message.is-success {
+  color: var(--base-green);
+}
+
 .sidecar__conflict-state {
   flex: 0 0 auto;
 }
