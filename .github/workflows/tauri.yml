@@ -440,13 +440,34 @@ jobs:
             augur-git-tauri-linux-x86_64.AppImage \
             augur-git-tauri-linux-x86_64.deb \
             augur-git-tauri-linux-x86_64.tar.gz | sort)"
-          listed_assets="$(gh api --paginate "repos/${REPOSITORY}/releases/${release_id}/assets?per_page=100" --jq '.[].name' | sort)"
-          while IFS= read -r alias; do
-            if ! grep -Fxq -- "${alias}" <<< "${listed_assets}"; then
-              echo "Rolling release is missing ${alias}."
-              exit 1
+          assets_ready=false
+          for attempt in {1..10}; do
+            listed_assets="$(gh api --paginate "repos/${REPOSITORY}/releases/${release_id}/assets?per_page=100" --jq '.[].name' | sort)"
+            missing_assets=""
+            while IFS= read -r alias; do
+              if ! grep -Fxq -- "${alias}" <<< "${listed_assets}"; then
+                missing_assets+="${alias}"$'\n'
+              fi
+            done <<< "${aliases}"
+
+            if [[ -z "${missing_assets}" ]]; then
+              assets_ready=true
+              break
             fi
-          done <<< "${aliases}"
+
+            if [[ "${attempt}" -lt 10 ]]; then
+              echo "Waiting for rolling release assets to become visible (attempt ${attempt}/10):"
+              printf '%s' "${missing_assets}"
+              sleep 5
+            fi
+          done
+
+          if [[ "${assets_ready}" != true ]]; then
+            echo "Rolling release is missing assets:"
+            printf '%s' "${missing_assets}"
+            printf 'Available assets:\n%s\n' "${listed_assets}"
+            exit 1
+          fi
 
           branch_sha="$(gh api "repos/${REPOSITORY}/branches/publish-tauri" --jq '.commit.sha')"
           if [[ "${branch_sha}" != "${COMMIT_SHA}" ]]; then
