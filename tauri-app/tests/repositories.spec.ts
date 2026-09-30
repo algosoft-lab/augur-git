@@ -221,24 +221,28 @@ test.describe('repositories', () => {
 
     await expect(page.locator('.tab')).toHaveCount(2);
 
-    await expect.poll(async () =>
-      page.evaluate(() => {
-        const entries = (window as any).__STUB__.log.filter(
-          (entry: any) => entry.cmd === 'set_auto_refresh_target'
-        );
-        return entries.at(-1)?.args.repoId;
-      })
-    ).toBe(first.id);
+    await expect
+      .poll(async () =>
+        page.evaluate(() => {
+          const entries = (window as any).__STUB__.log.filter(
+            (entry: any) => entry.cmd === 'set_auto_refresh_target'
+          );
+          return entries.at(-1)?.args.repoId;
+        })
+      )
+      .toBe(first.id);
 
     await page.locator('.tab').nth(1).click();
-    await expect.poll(async () =>
-      page.evaluate(() => {
-        const entries = (window as any).__STUB__.log.filter(
-          (entry: any) => entry.cmd === 'set_auto_refresh_target'
-        );
-        return entries.at(-1)?.args.repoId;
-      })
-    ).toBe(second.id);
+    await expect
+      .poll(async () =>
+        page.evaluate(() => {
+          const entries = (window as any).__STUB__.log.filter(
+            (entry: any) => entry.cmd === 'set_auto_refresh_target'
+          );
+          return entries.at(-1)?.args.repoId;
+        })
+      )
+      .toBe(second.id);
   });
 
   test('closing the last tab returns to the welcome page', async ({ page }) => {

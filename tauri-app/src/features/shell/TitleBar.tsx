@@ -283,11 +283,7 @@ export function TitleBar({
                 <Icon name="file" size={13} />
               )}
               <span className="title-bar__repo-picker-label">{activeTabLabel}</span>
-              <Icon
-                name="chevron-down"
-                size={12}
-                className="title-bar__repo-picker-caret"
-              />
+              <Icon name="chevron-down" size={12} className="title-bar__repo-picker-caret" />
             </span>
           </Menu>
         ) : (
