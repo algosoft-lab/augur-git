@@ -635,3 +635,4 @@ err-shortcut-conflict = Shortcut conflict: { $detail }
 err-window = The window could not be opened.
 err-worker = A background task failed to start.
 diff-copy-tooltip = Copy the diff
+diff-soft-wrap = Soft wrap

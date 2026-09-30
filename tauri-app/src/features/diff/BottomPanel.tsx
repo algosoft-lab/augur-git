@@ -36,7 +36,9 @@ export function BottomPanel({
 }) {
   const translate = useStore((state) => state.t);
   const layout = useStore((state) => state.config.view.diff_layout);
+  const softWrap = useStore((state) => state.config.view.diff_soft_wrap);
   const ratio = useStore((state) => state.workspace.layout.file_list_ratio);
+  const setView = useStore((state) => state.setView);
   const selectCommitFile = useStore((state) => state.selectCommitFile);
   const selectWorkingFile = useStore((state) => state.selectWorkingFile);
   const selectCommit = useStore((state) => state.selectCommit);
@@ -336,6 +338,17 @@ export function BottomPanel({
             {pane.file.path}
           </span>
         ) : null}
+        <button
+          type="button"
+          className={`tool-button tool-button--compact${softWrap ? ' is-active' : ''}`}
+          data-testid="bottom-soft-wrap"
+          title={t(translate, 'diff-soft-wrap')}
+          aria-label={t(translate, 'diff-soft-wrap')}
+          aria-pressed={softWrap}
+          onClick={() => void setView({ diff_soft_wrap: !softWrap })}
+        >
+          <Icon name="wrap-text" size={12} />
+        </button>
         {sections.length ? (
           <button
             type="button"
@@ -394,6 +407,7 @@ export function BottomPanel({
         <DiffView
           sections={sections}
           layout={layout}
+          softWrap={softWrap}
           forceInline={narrow}
           error={
             pane.kind === 'working'

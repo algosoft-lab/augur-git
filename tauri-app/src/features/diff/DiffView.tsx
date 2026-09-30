@@ -14,7 +14,8 @@
 
 import { useMemo } from 'react';
 
-import { EmptyState, Spinner, VirtualList } from '../../components/controls';
+import { EmptyState, Spinner } from '../../components/controls';
+import { MeasuredVirtualList } from '../../components/MeasuredVirtualList';
 import type { CharRange, DiffPayload, DiffRow } from '../../bridge/types';
 import { useStore } from '../../app/store';
 import { tokenize } from './highlight';
@@ -41,6 +42,7 @@ type Item =
 export interface DiffViewProps {
   sections: DiffSection[];
   layout: 'inline' | 'side-by-side';
+  softWrap?: boolean;
   /** Override the layout, used to force inline when the panel is narrow. */
   forceInline?: boolean;
   loading?: boolean;
@@ -94,6 +96,7 @@ function CopyGlyph() {
 export function DiffView({
   sections,
   layout,
+  softWrap = false,
   forceInline = false,
   loading,
   error,
@@ -207,11 +210,11 @@ export function DiffView({
         </div>
       ) : null}
       <div style={{ flex: 1, minHeight: 0 }}>
-        <VirtualList
+        <MeasuredVirtualList
           items={items}
-          rowHeight={DIFF_ROW_HEIGHT}
+          estimateRowHeight={DIFF_ROW_HEIGHT}
           testId="diff-rows"
-          className={effective === 'side-by-side' ? 'diff--split' : 'diff--inline'}
+          className={`${effective === 'side-by-side' ? 'diff--split' : 'diff--inline'}${softWrap ? ' diff--soft-wrap' : ''}`}
           renderRow={(item) => <DiffItem item={item} layout={effective} />}
         />
       </div>

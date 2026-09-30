@@ -59,6 +59,10 @@ test.describe('Sidecar mode', () => {
       await expect(page.getByTestId('sidecar-page-diff')).toBeVisible();
       await expect(page.getByTestId('sidecar-diff-file-select')).toHaveValue('__all__');
       await expect(page.getByTestId('diff-view')).toBeVisible();
+      await expect(page.getByTestId('bottom-soft-wrap')).toBeVisible();
+      await page.getByTestId('bottom-soft-wrap').click();
+      await expect(page.getByTestId('bottom-soft-wrap')).toHaveAttribute('aria-pressed', 'true');
+      await page.getByTestId('bottom-soft-wrap').click();
       await expectNoOverflow(width);
       await page.getByTestId('sidecar-diff-file-select').selectOption('src/lib.rs');
       await expect(page.getByTestId('sidecar-diff-file-select')).toHaveValue('src/lib.rs');

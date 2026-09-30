@@ -127,6 +127,7 @@ export interface StubOptions {
   /** Strategy the toolbar Pull button uses. */
   pullAction?: 'merge' | 'rebase';
   diffLayout?: 'inline' | 'side-by-side';
+  diffSoftWrap?: boolean;
   showUntracked?: boolean;
 }
 
@@ -189,6 +190,7 @@ function install(
     commitDiffDelay?: number;
     commitDiffNeverResponds?: boolean;
     showUntracked?: boolean;
+    diffSoftWrap?: boolean;
     refusals?: Record<string, { key: string; detail: string }>;
     layout?: Partial<{
       sidebar_width: number;
@@ -241,6 +243,7 @@ function install(
       show_untracked: options.showUntracked ?? true,
       auto_follow: true,
       diff_layout: options.diffLayout ?? 'inline',
+      diff_soft_wrap: options.diffSoftWrap ?? false,
       graph_history: 'all-branches',
       auto_refresh: true,
       commit_action: 'commit',
@@ -261,6 +264,7 @@ function install(
   try {
     const persisted = JSON.parse(localStorage.getItem('augur-test-settings') ?? '{}');
     if (persisted.typography) Object.assign(config.typography, persisted.typography);
+    if (persisted.view) Object.assign(config.view, persisted.view);
   } catch {
     localStorage.removeItem('augur-test-settings');
   }
@@ -358,6 +362,7 @@ function install(
     try {
       const persisted = JSON.parse(event.newValue);
       if (persisted.typography) config.typography = persisted.typography;
+      if (persisted.view) config.view = { ...config.view, ...persisted.view };
       emit('augur://app-event', { type: 'settingsChanged' });
     } catch {
       // The next backend read will report defaults for malformed test storage.
@@ -1058,13 +1063,23 @@ function install(
     },
     set_view: (args: any) => {
       Object.assign(config.view, args.view);
+      localStorage.setItem(
+        'augur-test-settings',
+        JSON.stringify({
+          ...JSON.parse(localStorage.getItem('augur-test-settings') ?? '{}'),
+          view: config.view
+        })
+      );
       return null;
     },
     set_typography: (args: any) => {
       Object.assign(config.typography, args.typography);
       localStorage.setItem(
         'augur-test-settings',
-        JSON.stringify({ typography: config.typography })
+        JSON.stringify({
+          ...JSON.parse(localStorage.getItem('augur-test-settings') ?? '{}'),
+          typography: config.typography
+        })
       );
       return null;
     },

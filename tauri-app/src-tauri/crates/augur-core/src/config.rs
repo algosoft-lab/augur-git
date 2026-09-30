@@ -258,6 +258,7 @@ pub struct ViewSettings {
     pub show_untracked: bool,
     pub auto_follow: bool,
     pub diff_layout: DiffLayoutPreference,
+    pub diff_soft_wrap: bool,
     pub graph_history: GraphHistoryPreference,
     #[serde(alias = "auto_refresh_on_focus")]
     pub auto_refresh: bool,
@@ -271,6 +272,7 @@ impl Default for ViewSettings {
             show_untracked: true,
             auto_follow: true,
             diff_layout: DiffLayoutPreference::Inline,
+            diff_soft_wrap: false,
             graph_history: GraphHistoryPreference::AllBranches,
             auto_refresh: true,
             commit_action: CommitActionPreference::Commit,
@@ -670,6 +672,7 @@ mod tests {
         assert_eq!(config.theme, ThemePreference::ClaudeDark);
         assert_eq!(config.language, LanguagePreference::System);
         assert_eq!(config.view.diff_layout, DiffLayoutPreference::Inline);
+        assert!(!config.view.diff_soft_wrap);
         assert_eq!(
             config.view.graph_history,
             GraphHistoryPreference::AllBranches
@@ -695,6 +698,10 @@ mod tests {
         let config = AppConfig {
             auto_check_updates: false,
             dismissed_update_commit: Some("a".repeat(40)),
+            view: ViewSettings {
+                diff_soft_wrap: true,
+                ..ViewSettings::default()
+            },
             ..AppConfig::default()
         };
         let serialized = serde_json::to_string(&config).unwrap();

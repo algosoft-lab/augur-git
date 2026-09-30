@@ -260,6 +260,34 @@ test.describe('commit selection', () => {
     const oid = String((selection.args as any).oid);
     const requestId = Number((selection.args as any).requestId);
     const code = `\tconst label = "${'界'.repeat(100)}";`;
+    const rows = [
+      {
+        kind: 'hunk' as const,
+        old_no: null,
+        new_no: null,
+        old_text: null,
+        new_text: null,
+        old_line_index: null,
+        new_line_index: null,
+        hunk_header: '@@ -1 +1 @@'
+      },
+      ...Array.from({ length: 600 }, (_, index) => {
+        const line = index + 1;
+        const oldText =
+          line === 1 ? code : line === 600 ? 'final wrapped-list row' : `line ${line}`;
+        const newText = line === 1 ? 'short replacement' : oldText;
+        return {
+          kind: 'context' as const,
+          old_no: line,
+          new_no: line,
+          old_text: oldText,
+          new_text: newText,
+          old_line_index: index,
+          new_line_index: index,
+          hunk_header: null
+        };
+      })
+    ];
     await stub.emit('augur://repo-event', {
       repoId: 7,
       type: 'fileDiff',
@@ -278,75 +306,36 @@ test.describe('commit selection', () => {
       document: {
         path: 'src/lib.rs',
         language: 'rust',
-        rows: [
-          {
-            kind: 'hunk',
-            old_no: null,
-            new_no: null,
-            old_text: null,
-            new_text: null,
-            old_line_index: null,
-            new_line_index: null,
-            hunk_header: '@@ -1 +1 @@'
-          },
-          {
-            kind: 'context',
-            old_no: 1,
-            new_no: 1,
-            old_text: code,
-            new_text: code,
-            old_line_index: 0,
-            new_line_index: 0,
-            hunk_header: null
-          }
-        ],
-        aligned_rows: [
-          {
-            kind: 'hunk',
-            old_no: null,
-            new_no: null,
-            old_text: null,
-            new_text: null,
-            old_line_index: null,
-            new_line_index: null,
-            hunk_header: '@@ -1 +1 @@'
-          },
-          {
-            kind: 'context',
-            old_no: 1,
-            new_no: 1,
-            old_text: code,
-            new_text: code,
-            old_line_index: 0,
-            new_line_index: 0,
-            hunk_header: null
-          }
-        ],
+        rows,
+        aligned_rows: rows,
         old_source: null,
         new_source: null,
-        inline_old: [[]],
-        inline_new: [[]],
+        inline_old: Array.from({ length: 600 }, () => []),
+        inline_new: Array.from({ length: 600 }, () => []),
         binary: false,
         copy_text: ''
       }
     });
 
-    const metrics = await page.locator('.diff__row--split').evaluate((row) => {
-      const sides = [...row.querySelectorAll<HTMLElement>('.diff__side')];
-      const codeCell = sides[0]!.querySelector<HTMLElement>('.diff__text')!;
-      const gutter = sides[0]!.querySelector<HTMLElement>('.diff__gutter')!;
-      const hunk = document.querySelector<HTMLElement>('.diff__hunk');
-      return {
-        widths: sides.map((side) => side.getBoundingClientRect().width),
-        fontSize: getComputedStyle(codeCell).fontSize,
-        lineHeight: getComputedStyle(row).lineHeight,
-        gutterWidth: gutter.getBoundingClientRect().width,
-        tabSize: getComputedStyle(codeCell).tabSize,
-        scrolls: codeCell.scrollWidth > codeCell.clientWidth,
-        text: codeCell.textContent,
-        hunkFontSize: hunk ? getComputedStyle(hunk).fontSize : null
-      };
-    });
+    const metrics = await page
+      .locator('.diff__row--split')
+      .first()
+      .evaluate((row) => {
+        const sides = [...row.querySelectorAll<HTMLElement>('.diff__side')];
+        const codeCell = sides[0]!.querySelector<HTMLElement>('.diff__text')!;
+        const gutter = sides[0]!.querySelector<HTMLElement>('.diff__gutter')!;
+        const hunk = document.querySelector<HTMLElement>('.diff__hunk');
+        return {
+          widths: sides.map((side) => side.getBoundingClientRect().width),
+          fontSize: getComputedStyle(codeCell).fontSize,
+          lineHeight: getComputedStyle(row).lineHeight,
+          gutterWidth: gutter.getBoundingClientRect().width,
+          tabSize: getComputedStyle(codeCell).tabSize,
+          scrolls: codeCell.scrollWidth > codeCell.clientWidth,
+          text: codeCell.textContent,
+          hunkFontSize: hunk ? getComputedStyle(hunk).fontSize : null
+        };
+      });
     expect(Math.abs(metrics.widths[0]! - metrics.widths[1]!)).toBeLessThanOrEqual(1);
     expect(metrics.fontSize).toBe('12px');
     expect(metrics.lineHeight).toBe('22px');
@@ -355,6 +344,66 @@ test.describe('commit selection', () => {
     expect(metrics.scrolls).toBe(true);
     expect(metrics.text).toBe(code);
     expect(metrics.hunkFontSize).toBe('11px');
+
+    const softWrap = page.getByTestId('bottom-soft-wrap');
+    await expect(softWrap).toHaveAttribute('aria-pressed', 'false');
+    await expect(softWrap).toHaveText('');
+    await softWrap.click();
+    await expect(softWrap).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.diff--soft-wrap')).toBeVisible();
+    const wrappedMetrics = await page
+      .locator('.diff__row--split')
+      .first()
+      .evaluate((row) => {
+        const codeCell = row.querySelector<HTMLElement>('.diff__side--old .diff__text')!;
+        return {
+          rowHeight: row.getBoundingClientRect().height,
+          textHeight: codeCell.getBoundingClientRect().height,
+          newSideHeight: row.querySelector<HTMLElement>('.diff__side--new')!.getBoundingClientRect()
+            .height,
+          scrolls: codeCell.scrollWidth > codeCell.clientWidth
+        };
+      });
+    expect(wrappedMetrics.rowHeight).toBeGreaterThan(22);
+    expect(wrappedMetrics.textHeight).toBeGreaterThan(22);
+    expect(wrappedMetrics.newSideHeight).toBe(wrappedMetrics.rowHeight);
+    expect(wrappedMetrics.scrolls).toBe(false);
+
+    await softWrap.click();
+    await expect(softWrap).toHaveAttribute('aria-pressed', 'false');
+    expect(
+      await page
+        .locator('.diff__row--split')
+        .first()
+        .locator('.diff__side--old .diff__text')
+        .evaluate((cell) => cell.scrollWidth > cell.clientWidth)
+    ).toBe(true);
+    await softWrap.click();
+    await expect(softWrap).toHaveAttribute('aria-pressed', 'true');
+
+    const diffRows = page.getByTestId('diff-rows');
+    await diffRows.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await expect(page.locator('[data-testid="diff-row"]').last()).toContainText(
+      'final wrapped-list row'
+    );
+    expect(await page.locator('[data-testid="diff-row"]').count()).toBeLessThan(100);
+  });
+
+  test('persists the soft-wrap setting after reload', async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()] });
+    await page.locator('.graph-row').first().click();
+    await page.getByTestId('bottom-file-src/lib.rs').waitFor();
+
+    await page.getByTestId('bottom-soft-wrap').click();
+    await expect(page.getByTestId('bottom-soft-wrap')).toHaveAttribute('aria-pressed', 'true');
+
+    await page.reload();
+    await expect(page.getByTestId('graph')).toBeVisible();
+    await page.locator('.graph-row').first().click();
+    await page.getByTestId('bottom-file-src/lib.rs').waitFor();
+    await expect(page.getByTestId('bottom-soft-wrap')).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('drops a diff that arrives after the selection moved on', async ({ page }) => {

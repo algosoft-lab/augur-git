@@ -56,6 +56,7 @@ export interface ViewSettings {
   show_untracked: boolean;
   auto_follow: boolean;
   diff_layout: DiffLayoutPreference;
+  diff_soft_wrap: boolean;
   graph_history: GraphHistoryPreference;
   auto_refresh: boolean;
   commit_action: CommitActionPreference;

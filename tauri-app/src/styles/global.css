@@ -1159,6 +1159,13 @@ body .diff ::selection {
   display: none;
 }
 
+.diff--soft-wrap .diff__text {
+  overflow-x: hidden;
+  overflow-y: visible;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .diff__row--split {
   overflow: hidden;
 }

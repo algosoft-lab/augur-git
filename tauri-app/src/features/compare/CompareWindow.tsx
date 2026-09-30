@@ -70,6 +70,8 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
     repoId ? state.repos[repoId] : undefined
   );
   const diffLayout = useStore((state) => state.config.view.diff_layout);
+  const diffSoftWrap = useStore((state) => state.config.view.diff_soft_wrap);
+  const setView = useStore((state) => state.setView);
 
   const [base, setBase] = useState<Endpoint>({ manualInput: '', selected: null });
   const [target, setTarget] = useState<Endpoint>({ manualInput: '', selected: null });
@@ -550,6 +552,17 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
             ) : null}
             <button
               type="button"
+              className={`tool-button tool-button--compact${diffSoftWrap ? ' is-active' : ''}`}
+              data-testid="compare-soft-wrap"
+              title={t(translate, 'diff-soft-wrap')}
+              aria-label={t(translate, 'diff-soft-wrap')}
+              aria-pressed={diffSoftWrap}
+              onClick={() => void setView({ diff_soft_wrap: !diffSoftWrap })}
+            >
+              <Icon name="wrap-text" size={12} />
+            </button>
+            <button
+              type="button"
               className="tool-button tool-button--compact"
               data-testid="compare-copy"
               disabled={!selected || !documents[selected.new_path]}
@@ -578,6 +591,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
                   : []
             }
             layout={diffLayout}
+            softWrap={diffSoftWrap}
             forceInline={sections.length > 1}
             loading={loading && !finished}
             error={selected && !showAll ? (errors[selected.new_path] ?? null) : null}

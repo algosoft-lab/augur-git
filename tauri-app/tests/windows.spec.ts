@@ -10,6 +10,28 @@ import { boot, fixtureRepo, secondFixtureRepo } from './harness';
  */
 
 test.describe('comparison window', () => {
+  test('syncs the soft-wrap toggle between the repository and Compare windows', async ({
+    page
+  }) => {
+    await boot(page, { open: [fixtureRepo()] });
+    await page.locator('.graph-row').first().click();
+    await page.getByTestId('bottom-file-src/lib.rs').waitFor();
+
+    const compare = await page.context().newPage();
+    await boot(compare, {
+      open: [fixtureRepo()],
+      window: 'compare',
+      repoId: 7
+    });
+    await expect(compare.getByTestId('compare-soft-wrap')).toHaveAttribute('aria-pressed', 'false');
+
+    await page.getByTestId('bottom-soft-wrap').click();
+    await expect(compare.getByTestId('compare-soft-wrap')).toHaveAttribute('aria-pressed', 'true');
+
+    await compare.getByTestId('compare-soft-wrap').click();
+    await expect(page.getByTestId('bottom-soft-wrap')).toHaveAttribute('aria-pressed', 'false');
+  });
+
   test('syncs diff typography with the main window and restores it after reload', async ({
     page
   }) => {
@@ -241,6 +263,9 @@ test.describe('comparison window', () => {
     await expect(headers).toHaveCount(2);
     await expect(headers.nth(0)).toContainText('src/lib.rs');
     await expect(headers.nth(1)).toContainText('src/new.rs');
+    await page.getByTestId('compare-soft-wrap').click();
+    await expect(page.getByTestId('compare-soft-wrap')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.diff--soft-wrap')).toBeVisible();
 
     // Choosing a file narrows the same list to that one.
     await page.getByTestId('compare-file-src/new.rs').click();
