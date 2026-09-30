@@ -60,6 +60,12 @@ button {
   background: var(--list-active-background);
 }
 
+body .diff::selection,
+body .diff ::selection {
+  background: var(--accent-background);
+  color: var(--accent-foreground);
+}
+
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
