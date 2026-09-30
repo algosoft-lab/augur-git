@@ -23,6 +23,7 @@ pub enum ImagePreviewTarget {
         file: FileChange,
     },
     WorkingTree {
+        #[serde(rename = "diffKind")]
         diff_kind: WorkingTreeDiffKind,
         file: FileStatus,
     },
@@ -442,6 +443,91 @@ mod tests {
         let (old, new) = sources(&staged_rename);
         assert_eq!(old.unwrap().path, "old.png");
         assert_eq!(new.unwrap().path, "new.png");
+    }
+
+    #[test]
+    fn reads_working_tree_previews_from_frontend_payloads() {
+        let repo = TestRepo::new();
+        repo.write("modified.png", b"modified before");
+        repo.write("staged.png", b"staged before");
+        repo.git(&["add", "modified.png", "staged.png"]);
+        repo.git(&["commit", "-m", "Add preview fixtures"]);
+
+        repo.write("modified.png", b"modified after");
+        repo.write("staged.png", b"staged after");
+        repo.git(&["add", "staged.png"]);
+        repo.write("untracked.png", b"untracked image");
+
+        let repo_handle = GitRepo::local(repo.path.to_string_lossy());
+        let cases = [
+            (
+                serde_json::json!({
+                    "kind": "workingTree",
+                    "diffKind": "unstaged",
+                    "file": {
+                        "index": " ",
+                        "worktree": "M",
+                        "path": "modified.png",
+                        "old_path": null
+                    }
+                }),
+                Some(b"modified before".as_slice()),
+                Some(b"modified after".as_slice()),
+            ),
+            (
+                serde_json::json!({
+                    "kind": "workingTree",
+                    "diffKind": "staged",
+                    "file": {
+                        "index": "M",
+                        "worktree": " ",
+                        "path": "staged.png",
+                        "old_path": null
+                    }
+                }),
+                Some(b"staged before".as_slice()),
+                Some(b"staged after".as_slice()),
+            ),
+            (
+                serde_json::json!({
+                    "kind": "workingTree",
+                    "diffKind": "unstaged",
+                    "file": {
+                        "index": "?",
+                        "worktree": "?",
+                        "path": "untracked.png",
+                        "old_path": null
+                    }
+                }),
+                None,
+                Some(b"untracked image".as_slice()),
+            ),
+        ];
+
+        for (payload, expected_old, expected_new) in cases {
+            let target: ImagePreviewTarget = serde_json::from_value(payload).unwrap();
+            let preview = load(&repo_handle, &target);
+            match (expected_old, preview.old) {
+                (Some(expected), ImagePreviewSide::Available { data, .. }) => assert_eq!(
+                    data,
+                    base64::engine::general_purpose::STANDARD.encode(expected)
+                ),
+                (None, ImagePreviewSide::Absent) => {}
+                (expected, actual) => {
+                    panic!("unexpected old image side: {expected:?} / {actual:?}")
+                }
+            }
+            match (expected_new, preview.new) {
+                (Some(expected), ImagePreviewSide::Available { data, .. }) => assert_eq!(
+                    data,
+                    base64::engine::general_purpose::STANDARD.encode(expected)
+                ),
+                (None, ImagePreviewSide::Absent) => {}
+                (expected, actual) => {
+                    panic!("unexpected new image side: {expected:?} / {actual:?}")
+                }
+            }
+        }
     }
 
     #[test]

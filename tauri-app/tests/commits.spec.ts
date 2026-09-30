@@ -130,6 +130,18 @@ test.describe('commit selection', () => {
     const stub = await boot(page, { open: [repo] });
     await page.getByTestId('changes-file-assets/working.png').click();
     await expect(page.getByTestId('diff-image-preview')).toBeVisible();
+    const before = page.getByTestId('diff-image-old');
+    const after = page.getByTestId('diff-image-new');
+    await expect
+      .poll(() =>
+        before.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        after.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)
+      )
+      .toBe(true);
     const previewCall = (await stub.commands()).find((entry) => entry.cmd === 'load_image_preview');
     expect(previewCall?.args.target).toMatchObject({
       kind: 'workingTree',
@@ -150,6 +162,12 @@ test.describe('commit selection', () => {
     await page.getByTestId('changes-file-assets/staged.png').click();
     await expect(page.getByTestId('diff-image-preview')).toBeVisible();
     await expect(page.getByTestId('diff-image-old-absent')).toHaveText('No image');
+    const after = page.getByTestId('diff-image-new');
+    await expect
+      .poll(() =>
+        after.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)
+      )
+      .toBe(true);
     const previewCall = (await stub.commands()).find((entry) => entry.cmd === 'load_image_preview');
     expect(previewCall?.args.target).toMatchObject({
       kind: 'workingTree',
