@@ -14,6 +14,7 @@ import { boot, fixtureRepo, rightClick } from './harness';
 /** The label the reference application reports for a completed operation. */
 const LABELS: Record<string, string> = {
   fetch: 'fetch --all --prune',
+  syncTags: 'fetch --all --prune-tags',
   pullMerge: 'pull',
   pullRebase: 'pull --rebase',
   push: 'push',
@@ -187,6 +188,8 @@ test.describe('toolbar operations', () => {
     await expect(page.getByTestId('toolbar-fetch')).toBeDisabled();
     await expect(page.getByTestId('toolbar-push')).toBeDisabled();
     await expect(page.getByTestId('toolbar-pull')).toBeDisabled();
+    // The tag sync mirrors the remotes, so it needs one to mirror.
+    await expect(page.getByTestId('tags-sync')).toBeDisabled();
     // Local actions stay available.
     await expect(page.getByTestId('toolbar-branch')).toBeEnabled();
   });
@@ -489,6 +492,44 @@ test.describe('branch navigation', () => {
     await page.getByTestId('branch-feature/tauri').dblclick();
 
     expect((await stub.commands()).some((entry) => entry.cmd === 'run_action')).toBe(false);
+  });
+});
+
+test.describe('tag section', () => {
+  test('syncs tags with the remotes from the tag section header', async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()] });
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+
+    // The control lives in the tag section rather than the toolbar, so it is
+    // asserted next to the section it belongs to.
+    await expect(page.getByTestId('sidebar-tags')).toContainText('Tags');
+    // Asserting the real sentence rather than the key catches a catalog entry
+    // that is missing, which would otherwise degrade into a visible key.
+    await expect(page.getByTestId('tags-sync')).toHaveAttribute(
+      'title',
+      'Sync tags with the remote. Local tags the remotes no longer have are deleted.'
+    );
+    await page.getByTestId('tags-sync').click();
+
+    await expect(page.getByTestId('status-message')).toContainText(LABELS.syncTags ?? '');
+    const sync = (await stub.commands()).find((entry) => entry.cmd === 'run_action');
+    expect(sync?.args).toMatchObject({ repoId: 7, action: { action: 'syncTags' } });
+  });
+
+  test('keeps the tag sync available while the repository has conflicts', async ({ page }) => {
+    // The fixture has an unmerged file, which is what the merge entry being
+    // refused proves. A tag sync only writes refs, so it must not inherit that
+    // gate the way the actions that would disturb the merge do.
+    const stub = await boot(page, { open: [fixtureRepo()] });
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+
+    await page.getByTestId('branch-menu-trigger').click();
+    await expect(page.getByTestId('branch-menu-merge')).toBeDisabled();
+
+    await expect(page.getByTestId('tags-sync')).toBeEnabled();
+    await page.getByTestId('tags-sync').click();
+
+    expect((await stub.commands()).some((entry) => entry.cmd === 'run_action')).toBe(true);
   });
 });
 

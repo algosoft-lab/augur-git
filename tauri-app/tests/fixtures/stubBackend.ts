@@ -975,6 +975,7 @@ function install(
       const label =
         {
           fetch: 'fetch --all --prune',
+          syncTags: 'fetch --all --prune-tags',
           pullMerge: 'pull',
           pullRebase: 'pull --rebase',
           push: 'push',

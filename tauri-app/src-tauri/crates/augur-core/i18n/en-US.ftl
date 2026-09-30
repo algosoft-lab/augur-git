@@ -192,6 +192,7 @@ sidebar-repo = Repository
 section-branches = Branches
 section-remote-branches = Remote branches
 section-tags = Tags
+tags-sync-warning = Sync tags with the remote. Local tags the remotes no longer have are deleted.
 section-stashes = Stashes
 section-staged = Staged
 section-changes = Changes

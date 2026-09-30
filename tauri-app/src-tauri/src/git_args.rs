@@ -21,6 +21,11 @@ use augur_core::git::{CheckoutTarget, CompareRevision};
 )]
 pub enum GitAction {
     Fetch,
+    /// Make the local tag list an exact mirror of the tags on every remote.
+    ///
+    /// Distinct from [`GitAction::Fetch`], which only follows tags reachable
+    /// from the branches it fetched and never removes one.
+    SyncTags,
     PullMerge,
     PullRebase,
     Push,
@@ -106,6 +111,7 @@ impl GitAction {
                 | GitAction::Checkout { .. }
                 | GitAction::ApplyPatch { .. }
                 | GitAction::Fetch
+                | GitAction::SyncTags
                 | GitAction::PullMerge
                 | GitAction::PullRebase
                 | GitAction::Push
@@ -134,6 +140,7 @@ impl GitAction {
     pub fn label(&self) -> &'static str {
         match self {
             GitAction::Fetch => "fetch --all --prune",
+            GitAction::SyncTags => "fetch --all --prune-tags",
             GitAction::PullMerge => "pull",
             GitAction::PullRebase => "pull --rebase",
             GitAction::Push => "push",
@@ -184,6 +191,12 @@ impl GitAction {
     pub fn args(&self) -> Result<Vec<String>, String> {
         Ok(match self {
             GitAction::Fetch => strs(&["fetch", "--all", "--prune"]),
+            // `--prune-tags` is what removes local tags the remotes no longer
+            // have, and `--force` is what lets a moved tag overwrite its stale
+            // local copy; either flag alone leaves the list out of sync.
+            // A tag that was never pushed is also removed, which is the point
+            // of mirroring but is worth knowing before asking for this.
+            GitAction::SyncTags => strs(&["fetch", "--all", "--prune", "--prune-tags", "--force"]),
             GitAction::PullMerge => strs(&["pull"]),
             GitAction::PullRebase => strs(&["pull", "--rebase"]),
             GitAction::Push => strs(&["push"]),
@@ -339,6 +352,12 @@ mod tests {
     #[test]
     fn remote_operations_pin_the_expected_arguments() {
         assert_eq!(args(GitAction::Fetch), ["fetch", "--all", "--prune"]);
+        // Both flags are load-bearing: `--prune-tags` deletes the tags the
+        // remotes dropped, `--force` updates a tag that was moved upstream.
+        assert_eq!(
+            args(GitAction::SyncTags),
+            ["fetch", "--all", "--prune", "--prune-tags", "--force"]
+        );
         assert_eq!(args(GitAction::PullMerge), ["pull"]);
         assert_eq!(args(GitAction::PullRebase), ["pull", "--rebase"]);
         assert_eq!(args(GitAction::Push), ["push"]);
@@ -568,6 +587,8 @@ mod tests {
     #[test]
     fn only_mutating_actions_trigger_a_refresh() {
         assert!(GitAction::Fetch.refreshes_after_success());
+        // The tag list only updates when the snapshot is re-read afterwards.
+        assert!(GitAction::SyncTags.refreshes_after_success());
         assert!(
             GitAction::Checkout {
                 target: CheckoutTarget::LocalBranch {
@@ -632,6 +653,14 @@ mod tests {
         }))
         .expect("stash pop wire shape");
         assert_eq!(args(wire), ["stash", "pop"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({ "action": "syncTags" }))
+            .expect("sync tags wire shape");
+        assert_eq!(wire, GitAction::SyncTags);
+        assert_eq!(
+            args(wire),
+            ["fetch", "--all", "--prune", "--prune-tags", "--force"]
+        );
 
         let wire: GitAction = serde_json::from_value(serde_json::json!({
             "action": "stashDrop", "stashRef": "stash@{2}"

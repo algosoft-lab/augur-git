@@ -154,6 +154,7 @@ sidebar-repo = 仓库
 section-branches = 分支
 section-remote-branches = 远程分支
 section-tags = 标签
+tags-sync-warning = 从远程同步标签。远程已不存在的本地标签会被删除。
 section-stashes = 贮藏
 section-staged = 暂存
 section-changes = 变更

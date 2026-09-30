@@ -549,6 +549,21 @@ body .diff ::selection {
   cursor: pointer;
 }
 
+/* A section header and any trailing control share one row. The control cannot
+ * live inside the header button, so the button gives up its full width here
+ * and shrinks to leave room for the button beside it. */
+.sidebar__section-header-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sidebar__section-header-row > .sidebar__section-header {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .sidebar__section-header:hover {
   background: var(--list-hover-background);
 }

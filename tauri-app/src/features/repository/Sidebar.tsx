@@ -13,7 +13,7 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 import { Icon } from '../../components/Icon';
 import type { ContextMenuEntry } from '../../components/controls';
-import { ContextMenu } from '../../components/controls';
+import { ContextMenu, IconButton } from '../../components/controls';
 import type { RefsInfo } from '../../bridge/types';
 import { useStore, type RepoState } from '../../app/store';
 import { hasOpenPopup, keysForCommand, matchesShortcut, moveListFocus } from '../../app/keyboard';
@@ -26,24 +26,43 @@ interface SectionProps {
   count: number;
   collapsed: boolean;
   onToggle: (key: string) => void;
+  /** A trailing control that belongs to the section rather than to one row. */
+  action?: React.ReactNode;
   children: React.ReactNode;
 }
 
-/** One collapsible section header with a count. */
-function Section({ sectionKey, title, count, collapsed, onToggle, children }: SectionProps) {
+/**
+ * One collapsible section header with a count.
+ *
+ * The header is a button, so an action control has to sit beside it rather
+ * than inside it; nesting one button in another is invalid and would make the
+ * click target ambiguous.
+ */
+function Section({
+  sectionKey,
+  title,
+  count,
+  collapsed,
+  onToggle,
+  action,
+  children
+}: SectionProps) {
   return (
     <div className="sidebar__section" data-testid={`sidebar-${sectionKey}`}>
-      <button
-        type="button"
-        className="sidebar__section-header"
-        aria-expanded={!collapsed}
-        onClick={() => onToggle(sectionKey)}
-        data-testid={`sidebar-toggle-${sectionKey}`}
-      >
-        <Icon name={collapsed ? 'chevron-right' : 'chevron-down'} size={12} />
-        <span className="sidebar__section-title">{title}</span>
-        <span className="sidebar__section-count">{count}</span>
-      </button>
+      <div className="sidebar__section-header-row">
+        <button
+          type="button"
+          className="sidebar__section-header"
+          aria-expanded={!collapsed}
+          onClick={() => onToggle(sectionKey)}
+          data-testid={`sidebar-toggle-${sectionKey}`}
+        >
+          <Icon name={collapsed ? 'chevron-right' : 'chevron-down'} size={12} />
+          <span className="sidebar__section-title">{title}</span>
+          <span className="sidebar__section-count">{count}</span>
+        </button>
+        {action}
+      </div>
       {collapsed ? null : children}
     </div>
   );
@@ -82,6 +101,9 @@ export function Sidebar({
 
   const isCollapsed = (key: string) => collapsed.includes(key);
   const blocked = repo.hasConflicts || repo.busy;
+  // Mirroring tags needs at least one remote to mirror, and a second network
+  // command while one is running would interleave two ref updates.
+  const canSyncTags = refs.remotes.length > 0 && !repo.busy;
   const groups = groupRemoteBranches(refs.remotes, refs.remote_branches);
 
   const copy = (value: string) => {
@@ -380,6 +402,18 @@ export function Sidebar({
           count={refs.tags.length}
           collapsed={isCollapsed('tags')}
           onToggle={toggle}
+          action={
+            <IconButton
+              icon={<Icon name="refresh-cw" size={12} />}
+              tooltip={t(translate, 'tags-sync-warning')}
+              // A conflicted worktree still syncs its tags, so this deliberately
+              // does not reuse `blocked`; only a missing remote or a command
+              // already in flight can stop it.
+              disabled={!canSyncTags}
+              onClick={() => void runAction(repo.id, { action: 'syncTags' })}
+              testId="tags-sync"
+            />
+          }
         >
           {refs.tags.map((name) => (
             <ContextMenu key={name} testId={`tag-${name}`} entries={tagEntries(name)}>

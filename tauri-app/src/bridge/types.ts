@@ -330,6 +330,8 @@ export type CompareRevisionArg =
 
 export type GitAction =
   | { action: 'fetch' }
+  /** Mirror the tags on every remote locally, dropping the ones they dropped. */
+  | { action: 'syncTags' }
   | { action: 'pullMerge' }
   | { action: 'pullRebase' }
   | { action: 'push' }
