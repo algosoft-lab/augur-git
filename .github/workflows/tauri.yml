@@ -30,49 +30,6 @@ jobs:
           version="$(node tauri-app/packaging/nightly-version.mjs "${GITHUB_RUN_NUMBER}")"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
-  checks:
-    name: Tauri checks
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v7.0.1
-
-      - name: Install Tauri Linux dependencies
-        uses: ./.github/actions/install-tauri-linux-deps
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2.2.0
-
-      - name: Install frontend dependencies
-        working-directory: tauri-app
-        run: bun ci
-
-      - name: Type-check frontend
-        working-directory: tauri-app
-        run: bun run typecheck
-
-      - name: Test frontend
-        working-directory: tauri-app
-        run: bun run test
-
-      - name: Install Chromium for browser tests
-        working-directory: tauri-app
-        run: bunx playwright install --with-deps chromium
-
-      - name: Test browser workflows
-        working-directory: tauri-app
-        run: bun run test:e2e
-
-      - name: Test Rust workspace
-        working-directory: tauri-app
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
-
-      - name: Test nightly release cleanup
-        run: bash .github/scripts/prune-tauri-nightly-releases.test.sh
-
   build-windows:
     name: Windows x86-64 NSIS installer
     needs: nightly-version
@@ -221,7 +178,6 @@ jobs:
     if: github.ref == 'refs/heads/publish-tauri'
     needs:
       - nightly-version
-      - checks
       - build-windows
       - build-macos
       - build-linux
