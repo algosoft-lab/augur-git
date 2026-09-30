@@ -2093,6 +2093,10 @@ body .diff ::selection {
   padding-inline: 6px;
 }
 
+.title-bar--sidecar.title-bar--macos {
+  padding-left: 78px;
+}
+
 .title-bar--sidecar .window-controls {
   margin-right: -6px;
 }
