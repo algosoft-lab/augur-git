@@ -1833,9 +1833,36 @@ body .diff ::selection {
   overflow-wrap: anywhere;
 }
 
-.about__homebrew-hint {
+.homebrew-hint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
   margin: 0;
   color: var(--muted-foreground);
+}
+
+.homebrew-hint code {
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+.homebrew-hint__copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.homebrew-hint__copy:hover {
+  color: var(--foreground);
 }
 
 .about__update-actions {
@@ -2074,10 +2101,6 @@ body .diff ::selection {
   background: transparent;
   color: var(--muted-foreground);
   cursor: pointer;
-}
-
-.update-notice__homebrew code {
-  color: var(--foreground);
 }
 
 /* ===== Start-up failure ===== */

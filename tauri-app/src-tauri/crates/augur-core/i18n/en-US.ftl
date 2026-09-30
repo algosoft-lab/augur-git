@@ -60,6 +60,8 @@ review-update = Review update
 update-notice-title = Augur Git update available
 update-notice-description = Version { $version } ({ $commit }) is ready.
 homebrew-upgrade-hint = Upgrade with
+homebrew-copy-upgrade = Copy the upgrade command
+homebrew-copied = Upgrade command copied
 
 # ===== Extensions =====
 extensions-title = Extensions

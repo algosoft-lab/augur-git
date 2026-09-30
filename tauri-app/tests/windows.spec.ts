@@ -649,6 +649,56 @@ test.describe('nightly updates', () => {
     const dismiss = (await stub.commands()).find((entry) => entry.cmd === 'dismiss_update_notice');
     expect(dismiss?.args).toEqual({ commitSha });
   });
+
+  test('About copies the Homebrew upgrade command for a cask installation', async ({ page }) => {
+    const stub = await boot(page, { window: 'about', macos: true });
+    await stub.emit('augur://update-event', {
+      type: 'status',
+      status: {
+        state: 'available',
+        currentVersion: '0.1.0',
+        latestVersion: '0.1.1-nightly.24',
+        latestCommitSha: 'b'.repeat(40),
+        canInstall: false,
+        progress: null,
+        error: null,
+        installChannel: 'homebrew-cask'
+      }
+    });
+
+    const copy = page.getByTestId('homebrew-copy-upgrade');
+    await expect(copy).toBeVisible();
+    await copy.click();
+    expect(await stub.clipboard()).toBe('brew upgrade --cask augur-git');
+    await expect(copy).toHaveAttribute('aria-label', 'Upgrade command copied');
+  });
+
+  test('the main-window notice copies the Homebrew upgrade command', async ({ page }) => {
+    const stub = await boot(page, { windows: true, macos: true });
+    const commitSha = 'c'.repeat(40);
+    await stub.emit('augur://update-event', {
+      type: 'status',
+      status: {
+        state: 'available',
+        currentVersion: '0.1.0',
+        latestVersion: '0.1.1-nightly.24',
+        latestCommitSha: commitSha,
+        canInstall: false,
+        progress: null,
+        error: null,
+        installChannel: 'homebrew-cask'
+      }
+    });
+    await stub.emit('augur://update-event', {
+      type: 'notice',
+      notice: { commitSha, version: '0.1.1-nightly.24' }
+    });
+
+    const copy = page.getByTestId('homebrew-copy-upgrade');
+    await expect(copy).toBeVisible();
+    await copy.click();
+    expect(await stub.clipboard()).toBe('brew upgrade --cask augur-git');
+  });
 });
 
 test.describe('custom title bar', () => {

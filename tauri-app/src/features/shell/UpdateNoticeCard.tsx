@@ -3,6 +3,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { useStore } from '../../app/store';
 import * as ipc from '../../bridge/ipc';
 import { t, ta } from '../../i18n/strings';
+import { HomebrewUpgradeHint } from '../updates/HomebrewUpgradeHint';
 
 const releaseUrl = 'https://github.com/algosoft-lab/augur-git/releases/tag/tauri-nightly';
 
@@ -45,11 +46,7 @@ export function UpdateNoticeCard() {
         </button>
       </div>
       <p>{description}</p>
-      {status?.installChannel === 'homebrew-cask' ? (
-        <p className="update-notice__homebrew">
-          {t(translate, 'homebrew-upgrade-hint')} <code>brew upgrade --cask augur-git</code>
-        </p>
-      ) : null}
+      {status?.installChannel === 'homebrew-cask' ? <HomebrewUpgradeHint /> : null}
       <div className="update-notice__actions">
         <button
           type="button"

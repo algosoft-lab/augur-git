@@ -135,6 +135,8 @@ mod tests {
         "diff-text-mode",
         "download-update",
         "graph-history-current-short",
+        "homebrew-copied",
+        "homebrew-copy-upgrade",
         "homebrew-upgrade-hint",
         "install-update",
         "menu-more",

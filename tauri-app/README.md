@@ -199,9 +199,10 @@ update status.
 
 Windows builds use the signed Tauri updater. The main-window notice opens About,
 where users choose when to download and install. macOS builds do not install themselves:
-Apple Silicon Homebrew cask installations show `brew upgrade --cask augur-git`,
-and other installations can open the nightly release page. Linux users use the
-AppImage, Debian package, or raw archive attached to the release.
+Apple Silicon Homebrew cask installations show `brew upgrade --cask augur-git`
+next to a button that copies it, and other installations can open the nightly
+release page. Linux users use the AppImage, Debian package, or raw archive
+attached to the release.
 
 Homebrew requires explicit trust for casks from non-official taps. On Apple
 Silicon, trust the project cask and install it with:

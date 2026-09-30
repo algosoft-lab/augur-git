@@ -12,6 +12,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { t, ta } from '../../i18n/strings';
 import { IS_MACOS } from '../shell/WindowControls';
 import { handleTitleBarMouseDown } from '../shell/titleBarDrag';
+import { HomebrewUpgradeHint } from '../updates/HomebrewUpgradeHint';
 
 const releaseUrl = 'https://github.com/algosoft-lab/augur-git/releases/tag/tauri-nightly';
 
@@ -117,11 +118,7 @@ export function AboutWindow() {
             {updateStatusText(updateStatus, translate)}
             {updateStatus?.progress != null ? ` ${Math.round(updateStatus.progress)}%` : ''}
           </div>
-          {updateStatus?.installChannel === 'homebrew-cask' ? (
-            <p className="about__homebrew-hint">
-              {t(translate, 'homebrew-upgrade-hint')} <code>brew upgrade --cask augur-git</code>
-            </p>
-          ) : null}
+          {updateStatus?.installChannel === 'homebrew-cask' ? <HomebrewUpgradeHint /> : null}
           <div className="about__update-actions">
             <button
               type="button"
