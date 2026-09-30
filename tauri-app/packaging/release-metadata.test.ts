@@ -1,3 +1,7 @@
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { nextNightlyVersion } from './nightly-version.mjs';
@@ -36,6 +40,38 @@ describe('nightly release metadata', () => {
         signature: 'signature'
       })
     ).toThrow();
+  });
+
+  it('accepts the workflow signature-file option and writes the updater feed', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'augur-updater-feed-'));
+    const signaturePath = join(directory, 'installer.exe.sig');
+    const outputPath = join(directory, 'latest.json');
+    const scriptPath = join(process.cwd(), 'packaging/render-updater-manifest.mjs');
+
+    try {
+      await writeFile(signaturePath, 'signed installer');
+      const result = spawnSync(
+        process.execPath,
+        [
+          scriptPath,
+          '--version',
+          '0.1.1-nightly.42',
+          '--url',
+          'https://github.com/algosoft-lab/augur-git/releases/download/tauri-nightly-0.1.1-nightly.42/augur-git-tauri-windows-x86_64-nsis-0.1.1-nightly.42.exe',
+          '--signature-file',
+          signaturePath,
+          '--out',
+          outputPath
+        ],
+        { encoding: 'utf8' }
+      );
+
+      expect(result.status, result.stderr).toBe(0);
+      const feed = JSON.parse(await readFile(outputPath, 'utf8'));
+      expect(feed.platforms['windows-x86_64'].signature).toBe('signed installer');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('pins the Homebrew cask to a valid checksum and immutable DMG URL', () => {

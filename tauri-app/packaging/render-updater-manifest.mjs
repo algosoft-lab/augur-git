@@ -39,14 +39,14 @@ async function main() {
     options: {
       version: { type: 'string' },
       url: { type: 'string' },
-      signatureFile: { type: 'string' },
+      'signature-file': { type: 'string' },
       out: { type: 'string' }
     }
   });
-  if (!values.version || !values.url || !values.signatureFile || !values.out) {
+  if (!values.version || !values.url || !values['signature-file'] || !values.out) {
     throw new Error('Pass --version, --url, --signature-file, and --out');
   }
-  const signature = await readFile(values.signatureFile, 'utf8');
+  const signature = await readFile(values['signature-file'], 'utf8');
   await writeFile(
     values.out,
     `${renderUpdaterManifest({ version: values.version, url: values.url, signature })}\n`,
