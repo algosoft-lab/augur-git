@@ -732,7 +732,7 @@ mod tests {
         // window's own title in tauri.conf.json says.
         assert_eq!(
             resolved_title(&LanguagePreference::English, "app-name"),
-            "Augur Git Tauri"
+            "Augur Git"
         );
     }
 

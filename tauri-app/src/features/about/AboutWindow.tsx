@@ -70,7 +70,7 @@ export function AboutWindow() {
       <div className="about about--scroll" data-testid="about">
         <div className="about__identity">
           <img className="about__logo" src="/logo.svg" alt="" />
-          <div className="about__name">{build?.name ?? 'Augur Git Tauri'}</div>
+          <div className="about__name">{build?.name ?? 'Augur Git'}</div>
           <div className="about__tagline">{t(translate, 'about-tagline')}</div>
         </div>
         <dl className="about__rows">

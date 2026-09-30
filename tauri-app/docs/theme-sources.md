@@ -1,6 +1,6 @@
 # Built-in Theme Sources
 
-Augur Git Tauri bundles 32 built-in themes, including 27 palettes adapted from the pinned upstream
+Augur Git bundles 32 built-in themes, including 27 palettes adapted from the pinned upstream
 revisions listed here. Theme colors are represented as palette data in
 `src/styles/popular-theme-seeds.ts`; no upstream theme files are loaded at runtime. UI colors,
 commit-graph lanes, and syntax colors are coordinated from each upstream palette. Where an upstream

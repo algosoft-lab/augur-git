@@ -184,7 +184,6 @@ status-unknown = ?
 
 # ===== 提交信息悬停预览 =====
 commit-message-preview = 提交信息
-commit-message-dialog-title = 完整提交信息
 commit-message-loading = 正在加载完整提交信息…
 commit-author = 作者 { $author }
 commit-date = 时间 { $date }
@@ -580,7 +579,7 @@ err-commit-message = 读取提交信息失败: { $detail }
 err-agent-prompt = 无法生成 Agent Prompt: { $detail }
 
 # --- Augur Git Tauri: keys the desktop application adds ---
-app-name = Augur Git Tauri
+app-name = Augur Git
 app-identifier = 标识符
 app-data-dir = 数据位置
 compare-window-title = 比较版本

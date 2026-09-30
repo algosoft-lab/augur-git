@@ -1191,7 +1191,7 @@ test.describe('the in-window menu', () => {
     await expect(page.getByTestId('title-branch')).toHaveCount(0);
     await expect(page.getByTestId('title-settings')).toBeVisible();
     const brand = page.locator('.title-bar__brand');
-    await expect(brand).toHaveText('Augur Git Tauri');
+    await expect(brand).toHaveText('Augur Git');
     await expect(brand).toHaveCSS('font-weight', '700');
     await expect(brand).toHaveCSS('border-radius', '6px');
     await expect(brand.locator('svg')).toBeVisible();

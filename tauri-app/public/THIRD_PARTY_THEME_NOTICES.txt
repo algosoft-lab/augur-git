@@ -1,4 +1,4 @@
-Augur Git Tauri includes adapted color palette data for the following themes. These palettes are
+Augur Git includes adapted color palette data for the following themes. These palettes are
 adaptations of upstream color values; upstream projects are not affiliated with Augur Git.
 
 Dracula

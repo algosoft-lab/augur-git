@@ -251,7 +251,9 @@ mod tests {
         // `workspace-close-*` card only ever renders in the reference's agent
         // build, which this product has no counterpart of. Re-adding one of
         // these should come with a use, not by accident. `auto-refresh-on-focus-title`
-        // was replaced by the English-fallback `auto-refresh-title` copy.
+        // was replaced by the English-fallback `auto-refresh-title` copy, and
+        // `commit-message-dialog-title` by showing the message's own subject
+        // as the dialog title.
         for key in [
             "no-repo-open",
             "err-git",
@@ -264,6 +266,7 @@ mod tests {
             "workspace-close-cancel",
             "workspace-close-confirm",
             "auto-refresh-on-focus-title",
+            "commit-message-dialog-title",
         ] {
             assert_eq!(text(Locale::English, key), key, "key {key} is back");
             assert_eq!(

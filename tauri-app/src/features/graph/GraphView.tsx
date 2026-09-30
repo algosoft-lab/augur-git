@@ -777,7 +777,9 @@ function CommitMessageDialog({
         data-testid="commit-message-dialog"
       >
         <div className="dialog__title dialog__title--close">
-          <span>{t(translate, 'commit-message-dialog-title')}</span>
+          {/* The title is the message's first line: the subject identifies what
+              the dialog shows, so it takes the heading position itself. */}
+          <span data-testid="commit-message-subject">{row.subject}</span>
           <div className="dialog__actions">
             {/* Goes through the worker like the context menu item, so the
                 clipboard holds the message as Git renders it rather than the
@@ -819,12 +821,9 @@ function CommitMessageDialog({
           </div>
           {message ? (
             <>
-              {/* The subject is the message's first line, so it is shown on its
-                  own and the body starts after it. Re-joining the two would
-                  print the first line twice. */}
-              <div className="commit-message__subject" data-testid="commit-message-subject">
-                {row.subject}
-              </div>
+              {/* The body starts after the subject, which the backend splits
+                  off as the title above; re-joining the two would print the
+                  first line twice. */}
               {message.body ? (
                 <pre className="commit-message__body" data-testid="commit-message-body">
                   {message.body}

@@ -222,7 +222,6 @@ status-unknown = ?
 
 # ===== Commit message preview =====
 commit-message-preview = Commit message
-commit-message-dialog-title = Full commit message
 commit-message-loading = Loading full commit message…
 commit-author = Author { $author }
 commit-date = Date { $date }
@@ -628,7 +627,7 @@ err-commit-message = Failed to read commit message: { $detail }
 err-agent-prompt = Could not prepare the Agent prompt: { $detail }
 
 # --- Augur Git Tauri: keys the desktop application adds ---
-app-name = Augur Git Tauri
+app-name = Augur Git
 app-identifier = Identifier
 app-data-dir = Data location
 compare-window-title = Compare revisions

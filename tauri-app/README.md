@@ -1,4 +1,4 @@
-# Augur Git Tauri
+# Augur Git
 
 The primary Augur Git application, built with Tauri 2, React, and Vite. This is
 an independently maintained application with its own frontend, Rust workspace,

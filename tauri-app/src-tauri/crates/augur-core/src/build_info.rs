@@ -5,7 +5,7 @@
 //! failing to compile.
 
 /// Product name shown in the interface, window titles, and About window.
-pub const APP_NAME: &str = "Augur Git Tauri";
+pub const APP_NAME: &str = "Augur Git";
 /// Executable name of the desktop application.
 pub const APP_BINARY: &str = "augur-git-tauri";
 /// Bundle and application identifier used for this application's identity and

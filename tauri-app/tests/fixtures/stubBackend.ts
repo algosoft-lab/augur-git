@@ -337,7 +337,7 @@ function install(
   }
 
   const build = {
-    name: 'Augur Git Tauri',
+    name: 'Augur Git',
     binary: 'augur-git-tauri',
     identifier: 'com.augur.git.tauri',
     version: '0.1.0',

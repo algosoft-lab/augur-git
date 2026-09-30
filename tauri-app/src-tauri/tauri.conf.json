@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Augur Git Tauri",
+        "title": "Augur Git",
         "url": "index.html?window=main",
         "width": 1280,
         "height": 800,

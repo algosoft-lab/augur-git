@@ -20,7 +20,7 @@ export function renderUpdaterManifest({ version, url, signature, pubDate }) {
   return JSON.stringify(
     {
       version,
-      notes: `Augur Git Tauri nightly ${version}`,
+      notes: `Augur Git nightly ${version}`,
       pub_date: pubDate ?? new Date().toISOString(),
       platforms: {
         'windows-x86_64': {

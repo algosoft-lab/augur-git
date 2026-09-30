@@ -742,9 +742,9 @@ test.describe('commit selection', () => {
 
     const dialog = page.getByTestId('commit-message-dialog');
     await expect(dialog).toBeVisible();
-    // The message is fetched on demand and rendered in full: the subject on its
-    // own line, the body under it. The backend already splits the first line off
-    // as the subject, so the body must not repeat it.
+    // The message is fetched on demand and rendered in full: the subject is
+    // the dialog's title and the body sits under it. The backend already
+    // splits the first line off as the subject, so the body must not repeat it.
     await expect(page.getByTestId('commit-message-subject')).toHaveText(
       'Add the Tauri command surface'
     );

@@ -22,7 +22,7 @@ export function Welcome({
       <div className="welcome__brand">
         <img src="/logo.svg" alt="" />
         <div>
-          <div className="welcome__title">{build?.name ?? 'Augur Git Tauri'}</div>
+          <div className="welcome__title">{build?.name ?? 'Augur Git'}</div>
           <div className="welcome__tagline">{t(translate, 'app-tagline')}</div>
         </div>
       </div>
