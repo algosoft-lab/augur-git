@@ -378,7 +378,8 @@ fn install_watchers(
     generation: u64,
     sender: &Sender<Message>,
 ) -> notify::Result<ActiveWatch> {
-    let root = PathBuf::from(target.repo.path());
+    let root = std::fs::canonicalize(target.repo.path())
+        .map_err(|error| notify::Error::generic(&error.to_string()))?;
     let metadata = git_metadata_paths(&target.repo)
         .map_err(|error| notify::Error::generic(&error.to_string()))?;
     let signal = Arc::new(WatchSignal::default());
@@ -448,16 +449,17 @@ fn git_metadata_paths(repo: &GitRepo) -> std::io::Result<Vec<PathBuf>> {
             String::from_utf8_lossy(&output.stderr).trim().to_string(),
         ));
     }
-    let root = PathBuf::from(repo.path());
+    let root = std::fs::canonicalize(repo.path())?;
     let paths = String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(|line| {
             let path = PathBuf::from(line.trim());
-            if path.is_absolute() {
+            let path = if path.is_absolute() {
                 path
             } else {
                 root.join(path)
-            }
+            };
+            std::fs::canonicalize(&path).unwrap_or(path)
         })
         .collect::<Vec<_>>();
     if paths.is_empty() {
@@ -625,6 +627,9 @@ mod tests {
         let (event_tx, event_rx) = mpsc::channel();
         let repo = GitRepo::local(repository.0.to_string_lossy().into_owned());
         let handle = spawn_open(repo.clone(), event_tx).expect("temporary repository opens");
+        wait_for_status(&event_rx, |_, _| true);
+        drain_events_until_quiet(&event_rx);
+
         let controller = AutoRefreshController::new(true);
         controller.set_target(Some(RefreshTarget {
             id: 1,
@@ -632,6 +637,8 @@ mod tests {
             handle: handle.clone(),
         }));
         controller.set_focused(true);
+        wait_for_status(&event_rx, |_, _| true);
+        drain_events_until_quiet(&event_rx);
 
         fs::write(repository.0.join("external.txt"), "created\n").unwrap();
         wait_for_status(&event_rx, |files, _| {

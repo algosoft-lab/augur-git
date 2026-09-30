@@ -120,7 +120,9 @@ mod tests {
     use super::*;
 
     const ENGLISH_FALLBACK_KEYS: &[&str] = &[
+        "auto-check-updates",
         "auto-refresh-title",
+        "check-for-updates",
         "diff-image-absent",
         "diff-image-after",
         "diff-image-before",
@@ -129,9 +131,15 @@ mod tests {
         "diff-image-too-large",
         "diff-image-unavailable",
         "diff-image-unsupported",
+        "diff-soft-wrap",
         "diff-text-mode",
+        "download-update",
         "graph-history-current-short",
+        "homebrew-upgrade-hint",
+        "install-update",
         "menu-more",
+        "open-release-page",
+        "review-update",
         "sidecar-back",
         "sidecar-changes",
         "sidecar-conflicts",
@@ -143,6 +151,16 @@ mod tests {
         "sidecar-select-repository",
         "toolbar-ahead",
         "toolbar-behind",
+        "update-notice-description",
+        "update-notice-title",
+        "update-status-available",
+        "update-status-checking",
+        "update-status-downloaded",
+        "update-status-downloading",
+        "update-status-error",
+        "update-status-idle",
+        "update-status-up-to-date",
+        "updates-title",
     ];
 
     #[test]

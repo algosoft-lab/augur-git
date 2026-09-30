@@ -1,7 +1,7 @@
 //! Nightly update checks and the signed Windows installation flow.
 
 #[cfg(any(target_os = "macos", test))]
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -629,7 +629,7 @@ fn current_install_channel() -> InstallChannel {
 }
 
 #[cfg(any(target_os = "macos", test))]
-fn homebrew_cask_installed(prefix: &Option<String>, arch: &str) -> bool {
+fn homebrew_cask_path(prefix: &Option<String>, arch: &str) -> Option<PathBuf> {
     let root = prefix
         .as_deref()
         .filter(|value| !value.trim().is_empty())
@@ -638,7 +638,12 @@ fn homebrew_cask_installed(prefix: &Option<String>, arch: &str) -> bool {
             "aarch64" => Some(Path::new("/opt/homebrew")),
             _ => Some(Path::new("/usr/local")),
         });
-    root.is_some_and(|root| root.join("Caskroom/augur-git").is_dir())
+    root.map(|root| root.join("Caskroom/augur-git"))
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn homebrew_cask_installed(prefix: &Option<String>, arch: &str) -> bool {
+    homebrew_cask_path(prefix, arch).is_some_and(|path| path.is_dir())
 }
 
 #[cfg(test)]
@@ -749,10 +754,34 @@ mod tests {
 
     #[test]
     fn homebrew_detection_uses_the_selected_prefix_and_cask_token() {
+        use std::fs;
+
+        let prefix =
+            std::env::temp_dir().join(format!("augur-homebrew-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&prefix);
+        let prefix_string = prefix.to_string_lossy().into_owned();
         assert!(!homebrew_cask_installed(
-            &Some("/tmp/not-brew".into()),
+            &Some(prefix_string.clone()),
             "aarch64"
         ));
-        assert!(!homebrew_cask_installed(&None, "aarch64"));
+
+        fs::create_dir_all(prefix.join("Caskroom/augur-git")).unwrap();
+        assert!(homebrew_cask_installed(
+            &Some(prefix_string.clone()),
+            "aarch64"
+        ));
+        assert_eq!(
+            homebrew_cask_path(&Some(prefix_string), "aarch64"),
+            Some(prefix.join("Caskroom/augur-git"))
+        );
+        assert_eq!(
+            homebrew_cask_path(&None, "aarch64"),
+            Some(PathBuf::from("/opt/homebrew/Caskroom/augur-git"))
+        );
+        assert_eq!(
+            homebrew_cask_path(&None, "x86_64"),
+            Some(PathBuf::from("/usr/local/Caskroom/augur-git"))
+        );
+        fs::remove_dir_all(prefix).unwrap();
     }
 }
