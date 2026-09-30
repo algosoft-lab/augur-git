@@ -119,12 +119,37 @@ fn parse_catalog(source: &'static str) -> HashMap<&'static str, &'static str> {
 mod tests {
     use super::*;
 
-    const ENGLISH_FALLBACK_KEYS: &[&str] = &["auto-refresh-title"];
+    const ENGLISH_FALLBACK_KEYS: &[&str] = &[
+        "auto-refresh-title",
+        "graph-history-current-short",
+        "menu-more",
+        "sidecar-back",
+        "sidecar-changes",
+        "sidecar-conflicts",
+        "sidecar-diff",
+        "sidecar-diff-file",
+        "sidecar-graph-lanes-scroll",
+        "sidecar-history",
+        "sidecar-navigation",
+        "sidecar-select-repository",
+        "toolbar-ahead",
+        "toolbar-behind",
+    ];
 
     #[test]
     fn translates_and_falls_back_to_english() {
         assert_eq!(text(Locale::English, "toolbar-refresh"), "Refresh");
         assert_eq!(text(Locale::SimplifiedChinese, "toolbar-refresh"), "刷新");
+        assert_eq!(text(Locale::English, "menu-view"), "View");
+        assert_eq!(text(Locale::SimplifiedChinese, "menu-view"), "视图");
+        assert_eq!(text(Locale::English, "menu-appearance"), "Themes…");
+        assert_eq!(text(Locale::SimplifiedChinese, "menu-appearance"), "主题…");
+        assert_eq!(text(Locale::English, "menu-branch"), "Branch");
+        assert_eq!(text(Locale::SimplifiedChinese, "menu-branch"), "分支");
+        assert_eq!(
+            text(Locale::SimplifiedChinese, "sidecar-switch-mode"),
+            "切换到 Sidecar 模式"
+        );
         assert_eq!(text(Locale::English, "missing-key"), "missing-key");
     }
 

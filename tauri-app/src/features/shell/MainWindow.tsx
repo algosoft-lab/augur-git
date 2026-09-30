@@ -34,6 +34,7 @@ export function MainWindow() {
   const notify = useStore((state) => state.notify);
   const [wslOpen, setWslOpen] = useState(false);
   const targetGeneration = useRef(0);
+  const toggleWindowModeRef = useRef<() => void>(() => undefined);
 
   const pickFolder = async () => {
     const selected = await open({
@@ -53,13 +54,16 @@ export function MainWindow() {
     // A new tab is a start page, not a folder dialog: it shows the recent
     // repositories and a repository opened into it takes the tab's slot.
     const onNewTab = () => addStartTab();
+    const onToggleMode = () => toggleWindowModeRef.current();
     window.addEventListener('augur:open-repository', onOpen);
     window.addEventListener('augur:open-wsl-repository', onWsl);
     window.addEventListener('augur:new-tab', onNewTab);
+    window.addEventListener('augur:toggle-window-mode', onToggleMode);
     return () => {
       window.removeEventListener('augur:open-repository', onOpen);
       window.removeEventListener('augur:open-wsl-repository', onWsl);
       window.removeEventListener('augur:new-tab', onNewTab);
+      window.removeEventListener('augur:toggle-window-mode', onToggleMode);
     };
   }, []);
 
@@ -158,6 +162,7 @@ export function MainWindow() {
     }
     await setWindowMode('sidecar');
   };
+  toggleWindowModeRef.current = () => void toggleWindowMode();
 
   return (
     <div className="app">

@@ -18,6 +18,85 @@ import { firstLine } from '../../app/repoState';
 import { t, ta } from '../../i18n/strings';
 import { copyAgentPrompt } from '../agentPrompt/copyAgentPrompt';
 
+/** Shared branch submenu contents for the toolbar and application Edit menu. */
+export function createBranchMenuItems(
+  repo: RepoState | null,
+  translate: (key: string) => string,
+  onSelect: (action: string) => void
+): MenuItemSpec[] {
+  const blocked = repo?.hasConflicts ?? true;
+  const branch = repo?.branch ?? '';
+  const hasBranches = repo ? hasLocalBranches(repo) : false;
+  return [
+    {
+      id: 'branch-new',
+      label: translate('menu-branch-new'),
+      icon: <Icon name="git-branch-plus" />,
+      disabled: !repo || blocked,
+      onSelect: () => onSelect('branch-new')
+    },
+    {
+      id: 'branch-rename',
+      label: translate('menu-branch-rename'),
+      icon: <Icon name="pencil" />,
+      disabled: !repo || branch.length === 0,
+      onSelect: () => onSelect('branch-rename')
+    },
+    {
+      id: 'stash',
+      label: translate('menu-stash'),
+      icon: <Icon name="archive" />,
+      disabled: !repo || repo.stashableCount === 0,
+      separatorBefore: true,
+      onSelect: () => onSelect('stash')
+    },
+    {
+      id: 'stash-pop',
+      label: translate('menu-stash-pop'),
+      icon: <Icon name="archive-restore" />,
+      disabled: !repo || repo.refs.stashes.length === 0 || blocked,
+      onSelect: () => onSelect('stash-pop')
+    },
+    {
+      id: 'merge',
+      label: translate('menu-merge'),
+      icon: <Icon name="git-merge" />,
+      disabled: !repo || !hasBranches || blocked,
+      separatorBefore: true,
+      onSelect: () => onSelect('merge')
+    },
+    {
+      id: 'merge-no-ff',
+      label: translate('menu-merge-no-ff'),
+      icon: <Icon name="git-merge" />,
+      disabled: !repo || !hasBranches || blocked,
+      onSelect: () => onSelect('merge-no-ff')
+    },
+    {
+      id: 'rebase',
+      label: translate('menu-rebase'),
+      icon: <Icon name="git-commit-horizontal" />,
+      disabled: !repo || !hasBranches || blocked,
+      onSelect: () => onSelect('rebase')
+    },
+    {
+      id: 'apply-patch',
+      label: translate('menu-apply-patch'),
+      icon: <Icon name="upload" />,
+      disabled: !repo || blocked,
+      separatorBefore: true,
+      onSelect: () => onSelect('apply-patch')
+    },
+    {
+      id: 'apply-patch-ai',
+      label: translate('agent-prompt-apply-patch'),
+      icon: <Icon name="copy" />,
+      disabled: !repo || blocked || repo.busy,
+      onSelect: () => onSelect('apply-patch-ai')
+    }
+  ];
+}
+
 export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: boolean }) {
   const translate = useStore((state) => state.t);
   const runAction = useStore((state) => state.runAction);
@@ -44,80 +123,52 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
     setPatchInFlight(null);
   }, [patchInFlight, repo.busy, repo.message]);
 
-  const branchItems: MenuItemSpec[] = [
-    {
-      id: 'branch-new',
-      label: t(translate, 'menu-branch-new'),
-      icon: <Icon name="git-branch-plus" />,
-      disabled: blocked,
-      onSelect: () => openOverlay({ kind: 'newBranch' })
-    },
-    {
-      id: 'branch-rename',
-      label: t(translate, 'menu-branch-rename'),
-      icon: <Icon name="pencil" />,
-      disabled: repo.branch.length === 0,
-      onSelect: () => openOverlay({ kind: 'renameBranch', old: repo.branch })
-    },
-    {
-      id: 'stash',
-      label: t(translate, 'menu-stash'),
-      icon: <Icon name="archive" />,
-      disabled: repo.stashableCount === 0,
-      separatorBefore: true,
-      onSelect: () => openOverlay({ kind: 'stash' })
-    },
-    {
-      id: 'stash-pop',
-      label: t(translate, 'menu-stash-pop'),
-      icon: <Icon name="archive-restore" />,
-      disabled: repo.refs.stashes.length === 0 || blocked,
-      onSelect: () => {
-        void runAction(repo.id, { action: 'stashPop', stashRef: null });
-      }
-    },
-    {
-      id: 'merge',
-      label: t(translate, 'menu-merge'),
-      icon: <Icon name="git-merge" />,
-      disabled: !hasLocalBranches(repo) || blocked,
-      separatorBefore: true,
-      onSelect: () => openOverlay({ kind: 'merge', noFf: false })
-    },
-    {
-      id: 'merge-no-ff',
-      label: t(translate, 'menu-merge-no-ff'),
-      icon: <Icon name="git-merge" />,
-      disabled: !hasLocalBranches(repo) || blocked,
-      onSelect: () => openOverlay({ kind: 'merge', noFf: true })
-    },
-    {
-      id: 'rebase',
-      label: t(translate, 'menu-rebase'),
-      icon: <Icon name="git-commit-horizontal" />,
-      disabled: !hasLocalBranches(repo) || blocked,
-      onSelect: () => openOverlay({ kind: 'rebase' })
-    },
-    {
-      id: 'apply-patch',
-      label: t(translate, 'menu-apply-patch'),
-      icon: <Icon name="upload" />,
-      disabled: blocked,
-      separatorBefore: true,
-      onSelect: () => {
-        void pickAndApplyPatch(repo.id, setPatchInFlight);
-      }
-    },
-    {
-      id: 'apply-patch-ai',
-      label: t(translate, 'agent-prompt-apply-patch'),
-      icon: <Icon name="copy" />,
-      disabled: blocked || repo.busy,
-      onSelect: () => {
-        void pickAndCopyPatchPrompt(repo.id);
+  useEffect(() => {
+    const onPatchAction = (event: Event) => {
+      const detail = (event as CustomEvent<{ repoId: number; copyPrompt: boolean }>).detail;
+      if (detail?.repoId !== repo.id || repo.busy || repo.hasConflicts) return;
+      if (detail.copyPrompt) void pickAndCopyPatchPrompt(repo.id);
+      else void pickAndApplyPatch(repo.id, setPatchInFlight);
+    };
+    window.addEventListener('augur:toolbar-patch-action', onPatchAction);
+    return () => window.removeEventListener('augur:toolbar-patch-action', onPatchAction);
+  }, [repo.busy, repo.hasConflicts, repo.id]);
+
+  const branchItems = createBranchMenuItems(
+    repo,
+    (key) => t(translate, key),
+    (action) => {
+      switch (action) {
+        case 'branch-new':
+          openOverlay({ kind: 'newBranch' });
+          break;
+        case 'branch-rename':
+          openOverlay({ kind: 'renameBranch', old: repo.branch });
+          break;
+        case 'stash':
+          openOverlay({ kind: 'stash' });
+          break;
+        case 'stash-pop':
+          void runAction(repo.id, { action: 'stashPop', stashRef: null });
+          break;
+        case 'merge':
+          openOverlay({ kind: 'merge', noFf: false });
+          break;
+        case 'merge-no-ff':
+          openOverlay({ kind: 'merge', noFf: true });
+          break;
+        case 'rebase':
+          openOverlay({ kind: 'rebase' });
+          break;
+        case 'apply-patch':
+          void pickAndApplyPatch(repo.id, setPatchInFlight);
+          break;
+        case 'apply-patch-ai':
+          void pickAndCopyPatchPrompt(repo.id);
+          break;
       }
     }
-  ];
+  );
 
   const compactMoreItems: MenuItemSpec[] = [
     ...branchItems,

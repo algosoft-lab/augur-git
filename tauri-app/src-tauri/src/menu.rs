@@ -9,7 +9,7 @@
 use tauri::menu::{IsMenuItem, Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Runtime};
 
-use augur_core::config::RecentRepo;
+use augur_core::config::{RecentRepo, WindowMode};
 use augur_core::i18n::{self, Locale};
 use augur_core::keymap::ResolvedShortcut;
 
@@ -22,6 +22,24 @@ pub mod ids {
     pub const OPEN_WSL_REPOSITORY: &str = "menu.open-wsl-repository";
     pub const NEW_TAB: &str = "menu.new-tab";
     pub const SETTINGS: &str = "menu.settings";
+    pub const APPEARANCE: &str = "menu.view.appearance";
+    pub const MODE_TOGGLE: &str = "menu.view.mode-toggle";
+    pub const DIFF_FONT_INCREASE: &str = "menu.view.diff-font-increase";
+    pub const DIFF_FONT_DECREASE: &str = "menu.view.diff-font-decrease";
+    pub const DIFF_FONT_RESET: &str = "menu.view.diff-font-reset";
+    pub const FETCH: &str = "menu.repo.fetch";
+    pub const PULL: &str = "menu.repo.pull";
+    pub const PUSH: &str = "menu.repo.push";
+    pub const REFRESH: &str = "menu.repo.refresh";
+    pub const BRANCH_NEW: &str = "menu.branch.branch-new";
+    pub const BRANCH_RENAME: &str = "menu.branch.branch-rename";
+    pub const BRANCH_STASH: &str = "menu.branch.stash";
+    pub const BRANCH_STASH_POP: &str = "menu.branch.stash-pop";
+    pub const BRANCH_MERGE: &str = "menu.branch.merge";
+    pub const BRANCH_MERGE_NO_FF: &str = "menu.branch.merge-no-ff";
+    pub const BRANCH_REBASE: &str = "menu.branch.rebase";
+    pub const BRANCH_APPLY_PATCH: &str = "menu.branch.apply-patch";
+    pub const BRANCH_APPLY_PATCH_AI: &str = "menu.branch.apply-patch-ai";
     pub const ABOUT: &str = "menu.about";
     pub const QUIT: &str = "menu.quit";
     pub const RECENT_PREFIX: &str = "menu.recent.";
@@ -123,11 +141,12 @@ pub fn install<R: Runtime>(
     locale: Locale,
     shortcuts: &[ResolvedShortcut],
     recent: &[RecentRepo],
+    window_mode: WindowMode,
 ) {
     if !cfg!(target_os = "macos") {
         return;
     }
-    match build(app, locale, shortcuts, recent) {
+    match build(app, locale, shortcuts, recent, window_mode) {
         Ok(menu) => {
             if let Err(error) = app.set_menu(menu) {
                 log::error!("[menu] failed to install the native menu: {error}");
@@ -142,6 +161,7 @@ fn build<R: Runtime>(
     locale: Locale,
     shortcuts: &[ResolvedShortcut],
     recent: &[RecentRepo],
+    window_mode: WindowMode,
 ) -> tauri::Result<Menu<R>> {
     let quit_accelerator = shortcuts
         .iter()
@@ -164,6 +184,69 @@ fn build<R: Runtime>(
         MenuItemBuilder::with_id(ids::NEW_TAB, i18n::text(locale, "menu-new-tab")).build(app)?;
     let settings =
         MenuItemBuilder::with_id(ids::SETTINGS, i18n::text(locale, "menu-settings")).build(app)?;
+    let appearance =
+        MenuItemBuilder::with_id(ids::APPEARANCE, i18n::text(locale, "menu-appearance"))
+            .build(app)?;
+    let mode_label = match window_mode {
+        WindowMode::Desktop => "sidecar-switch-mode",
+        WindowMode::Sidecar => "sidecar-switch-desktop",
+    };
+    let mode_toggle =
+        MenuItemBuilder::with_id(ids::MODE_TOGGLE, i18n::text(locale, mode_label)).build(app)?;
+    let diff_font_increase = MenuItemBuilder::with_id(
+        ids::DIFF_FONT_INCREASE,
+        i18n::text(locale, "shortcut-diff-font-increase"),
+    )
+    .build(app)?;
+    let diff_font_decrease = MenuItemBuilder::with_id(
+        ids::DIFF_FONT_DECREASE,
+        i18n::text(locale, "shortcut-diff-font-decrease"),
+    )
+    .build(app)?;
+    let diff_font_reset = MenuItemBuilder::with_id(
+        ids::DIFF_FONT_RESET,
+        i18n::text(locale, "shortcut-diff-font-reset"),
+    )
+    .build(app)?;
+    let fetch =
+        MenuItemBuilder::with_id(ids::FETCH, i18n::text(locale, "toolbar-fetch")).build(app)?;
+    let pull =
+        MenuItemBuilder::with_id(ids::PULL, i18n::text(locale, "toolbar-pull")).build(app)?;
+    let push =
+        MenuItemBuilder::with_id(ids::PUSH, i18n::text(locale, "toolbar-push")).build(app)?;
+    let refresh =
+        MenuItemBuilder::with_id(ids::REFRESH, i18n::text(locale, "toolbar-refresh")).build(app)?;
+    let branch_new =
+        MenuItemBuilder::with_id(ids::BRANCH_NEW, i18n::text(locale, "menu-branch-new"))
+            .build(app)?;
+    let branch_rename =
+        MenuItemBuilder::with_id(ids::BRANCH_RENAME, i18n::text(locale, "menu-branch-rename"))
+            .build(app)?;
+    let branch_stash =
+        MenuItemBuilder::with_id(ids::BRANCH_STASH, i18n::text(locale, "menu-stash")).build(app)?;
+    let branch_stash_pop =
+        MenuItemBuilder::with_id(ids::BRANCH_STASH_POP, i18n::text(locale, "menu-stash-pop"))
+            .build(app)?;
+    let branch_merge =
+        MenuItemBuilder::with_id(ids::BRANCH_MERGE, i18n::text(locale, "menu-merge")).build(app)?;
+    let branch_merge_no_ff = MenuItemBuilder::with_id(
+        ids::BRANCH_MERGE_NO_FF,
+        i18n::text(locale, "menu-merge-no-ff"),
+    )
+    .build(app)?;
+    let branch_rebase =
+        MenuItemBuilder::with_id(ids::BRANCH_REBASE, i18n::text(locale, "menu-rebase"))
+            .build(app)?;
+    let branch_apply_patch = MenuItemBuilder::with_id(
+        ids::BRANCH_APPLY_PATCH,
+        i18n::text(locale, "menu-apply-patch"),
+    )
+    .build(app)?;
+    let branch_apply_patch_ai = MenuItemBuilder::with_id(
+        ids::BRANCH_APPLY_PATCH_AI,
+        i18n::text(locale, "agent-prompt-apply-patch"),
+    )
+    .build(app)?;
     let about =
         MenuItemBuilder::with_id(ids::ABOUT, i18n::text(locale, "menu-about")).build(app)?;
     let mut quit_builder = MenuItemBuilder::with_id(ids::QUIT, i18n::text(locale, "menu-quit"));
@@ -219,8 +302,38 @@ fn build<R: Runtime>(
     let file_menu = SubmenuBuilder::new(app, i18n::text(locale, "menu-file"))
         .items(&file_items)
         .build()?;
+    let branch_menu = SubmenuBuilder::new(app, i18n::text(locale, "menu-branch"))
+        .item(&branch_new)
+        .item(&branch_rename)
+        .separator()
+        .item(&branch_stash)
+        .item(&branch_stash_pop)
+        .separator()
+        .item(&branch_merge)
+        .item(&branch_merge_no_ff)
+        .item(&branch_rebase)
+        .separator()
+        .item(&branch_apply_patch)
+        .item(&branch_apply_patch_ai)
+        .build()?;
     let edit_menu = SubmenuBuilder::new(app, i18n::text(locale, "menu-edit"))
+        .item(&fetch)
+        .item(&pull)
+        .item(&push)
+        .item(&refresh)
+        .separator()
+        .item(&branch_menu)
+        .separator()
         .item(&settings)
+        .build()?;
+    let view_menu = SubmenuBuilder::new(app, i18n::text(locale, "menu-view"))
+        .item(&mode_toggle)
+        .separator()
+        .item(&diff_font_increase)
+        .item(&diff_font_decrease)
+        .item(&diff_font_reset)
+        .separator()
+        .item(&appearance)
         .build()?;
     let help_menu = SubmenuBuilder::new(app, i18n::text(locale, "menu-help"))
         .item(&about)
@@ -238,6 +351,7 @@ fn build<R: Runtime>(
     }
     submenus.push(&file_menu);
     submenus.push(&edit_menu);
+    submenus.push(&view_menu);
     submenus.push(&help_menu);
 
     Menu::with_items(app, &submenus)

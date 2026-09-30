@@ -201,7 +201,9 @@ fn install_menu_hooks(app: &tauri::AppHandle) {
     });
     let handle_for_rebuild = handle.clone();
     app.listen(events::APP_EVENT, move |event| {
-        if event.payload().to_string().contains("settingsChanged") {
+        if event.payload().to_string().contains("settingsChanged")
+            || event.payload().to_string().contains("workspaceChanged")
+        {
             rebuild_menu(&handle_for_rebuild);
         }
     });
@@ -216,7 +218,8 @@ fn rebuild_menu(app: &tauri::AppHandle) {
     let config = persistence.config();
     let locale = i18n::resolve(&config.language);
     let shortcuts = persistence.resolved_shortcuts();
-    menu::install(app, locale, &shortcuts, &config.recent_repos);
+    let window_mode = persistence.workspace().window_mode;
+    menu::install(app, locale, &shortcuts, &config.recent_repos, window_mode);
 }
 
 /// Write logs to stdout in a debug build and to the platform log directory

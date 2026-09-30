@@ -15,7 +15,7 @@ use augur_core::git::{GitError, GitRepo};
 use augur_core::keymap;
 
 use crate::commands::repo::CommandError;
-use crate::events::{AppEvent, OPEN_PATHS_EVENT, OpenPathsPayload};
+use crate::events::{AppEvent, OPEN_PATHS_EVENT, OpenPathsPayload, SETTINGS_NAVIGATE_EVENT};
 use crate::state::AppState;
 
 type Result<T> = std::result::Result<T, CommandError>;
@@ -340,6 +340,7 @@ pub async fn set_window_mode(
 
     let stored = workspace.clone();
     state.update_workspace(|workspace| *workspace = stored);
+    state.persistence().notify(AppEvent::WorkspaceChanged);
     Ok(workspace)
 }
 
@@ -472,28 +473,66 @@ pub async fn open_about_window(app: AppHandle, state: State<'_, AppState>) -> Re
     Ok(())
 }
 
+/// A destination section for opening or navigating the settings window.
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SettingsSection {
+    General,
+    Appearance,
+    Layout,
+    Shortcuts,
+}
+
+impl SettingsSection {
+    fn query_value(self) -> &'static str {
+        match self {
+            Self::General => "general",
+            Self::Appearance => "appearance",
+            Self::Layout => "layout",
+            Self::Shortcuts => "shortcuts",
+        }
+    }
+}
+
+#[derive(Clone, serde::Serialize)]
+struct SettingsNavigation {
+    section: SettingsSection,
+}
+
 /// The settings window, opened once and focused on repeat requests.
 ///
 /// Async for the same Windows reentrancy reason as `open_about_window`.
 #[tauri::command]
-pub async fn open_settings_window(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+pub async fn open_settings_window(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    section: Option<SettingsSection>,
+) -> Result<()> {
     let label = "settings";
     if let Some(window) = app.get_webview_window(label) {
+        if let Some(section) = section {
+            let _ = window.emit(SETTINGS_NAVIGATE_EVENT, SettingsNavigation { section });
+        }
         let _ = window.unminimize();
         let _ = window.set_focus();
         return Ok(());
     }
     let title = resolved_title(&state.settings().config.language, "settings-title");
-    let builder = WebviewWindowBuilder::new(
-        &app,
-        label,
-        WebviewUrl::App("index.html?window=settings".into()),
-    )
-    .title(title)
-    .inner_size(780.0, 560.0)
-    .min_inner_size(780.0, 560.0)
-    .resizable(false)
-    .decorations(cfg!(target_os = "macos"));
+    let url = section.map_or_else(
+        || "index.html?window=settings".to_string(),
+        |section| {
+            format!(
+                "index.html?window=settings&section={}",
+                section.query_value()
+            )
+        },
+    );
+    let builder = WebviewWindowBuilder::new(&app, label, WebviewUrl::App(url.into()))
+        .title(title)
+        .inner_size(780.0, 560.0)
+        .min_inner_size(780.0, 560.0)
+        .resizable(false)
+        .decorations(cfg!(target_os = "macos"));
     #[cfg(target_os = "macos")]
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)

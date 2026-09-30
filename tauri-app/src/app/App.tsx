@@ -14,15 +14,17 @@ import { CompareWindow } from '../features/compare/CompareWindow';
 import { MainWindow } from '../features/shell/MainWindow';
 import { SettingsWindow } from '../features/settings/SettingsWindow';
 import { applyTheme } from '../styles/themes';
-import { useStore, type WindowRole } from './store';
-import { activeRepo } from './store';
+import { activeRepo, hasLocalBranches, useStore, type WindowRole } from './store';
+import type { SettingsSection } from '../bridge/types';
 import { DEFAULT_THEME, DEFAULT_TYPOGRAPHY } from '../styles/themes';
 import { hasOpenPopup, keysForCommand, matchesShortcut } from './keyboard';
 import { triggerPull, triggerPush } from '../features/repository/Toolbar';
+import { MENU_ACTION_EVENT } from './menu';
 
 interface WindowTarget {
   role: WindowRole;
   compareRepoId: number | null;
+  settingsSection: SettingsSection | null;
 }
 
 function readTarget(): WindowTarget {
@@ -32,16 +34,25 @@ function readTarget(): WindowTarget {
     const repo = Number(params.get('repo'));
     return {
       role: 'compare',
-      compareRepoId: Number.isFinite(repo) && repo > 0 ? repo : null
+      compareRepoId: Number.isFinite(repo) && repo > 0 ? repo : null,
+      settingsSection: null
     };
   }
   if (requested === 'about') {
-    return { role: 'about', compareRepoId: null };
+    return { role: 'about', compareRepoId: null, settingsSection: null };
   }
   if (requested === 'settings') {
-    return { role: 'settings', compareRepoId: null };
+    const section = params.get('section');
+    const settingsSection: SettingsSection | null =
+      section === 'general' ||
+      section === 'appearance' ||
+      section === 'layout' ||
+      section === 'shortcuts'
+        ? section
+        : null;
+    return { role: 'settings', compareRepoId: null, settingsSection };
   }
-  return { role: 'main', compareRepoId: null };
+  return { role: 'main', compareRepoId: null, settingsSection: null };
 }
 
 export function App() {
@@ -50,6 +61,9 @@ export function App() {
   const theme = useStore((state) => state.config.theme);
   const typography = useStore((state) => state.config.typography);
   const [fatal, setFatal] = useState<string | null>(null);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(
+    target.settingsSection
+  );
 
   // The document is styled before anything is fetched, so a failure during
   // start-up is a readable message rather than an unstyled white page.
@@ -60,6 +74,12 @@ export function App() {
   useEffect(() => {
     let cancelled = false;
     const unlisteners: (() => void)[] = [];
+    const onInWindowMenuAction = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      if (typeof id === 'string') void handleMenuAction(id);
+    };
+    window.addEventListener(MENU_ACTION_EVENT, onInWindowMenuAction);
+    unlisteners.push(() => window.removeEventListener(MENU_ACTION_EVENT, onInWindowMenuAction));
 
     const boot = async () => {
       try {
@@ -111,6 +131,7 @@ export function App() {
             void handleMenuAction(id);
           })
         );
+        await subscribe(ipc.onSettingsNavigate(setSettingsSection));
         await store.initialize(target.role, target.compareRepoId);
         if (!cancelled) {
           applyThemeFromState();
@@ -250,7 +271,7 @@ export function App() {
   if (target.role === 'about') {
     surface = <AboutWindow />;
   } else if (target.role === 'settings') {
-    surface = <SettingsWindow />;
+    surface = <SettingsWindow initialSection={settingsSection ?? 'general'} />;
   } else if (target.role === 'compare') {
     surface = <CompareWindow repoId={target.compareRepoId} />;
   } else {
@@ -361,6 +382,86 @@ async function handleMenuAction(id: string): Promise<void> {
     case 'menu.settings':
       await ipc.openSettingsWindow();
       break;
+    case 'menu.view.appearance':
+      await ipc.openSettingsWindow('appearance');
+      break;
+    case 'menu.view.mode-toggle':
+      window.dispatchEvent(new CustomEvent('augur:toggle-window-mode'));
+      break;
+    case 'menu.view.diff-font-increase':
+    case 'menu.view.diff-font-decrease':
+    case 'menu.view.diff-font-reset': {
+      const current = state.config.typography.diff_font_size;
+      const next =
+        id === 'menu.view.diff-font-increase'
+          ? Math.min(20, current + 1)
+          : id === 'menu.view.diff-font-decrease'
+            ? Math.max(12, current - 1)
+            : 16;
+      if (next !== current) await state.setTypography({ diff_font_size: next });
+      break;
+    }
+    case 'menu.repo.fetch': {
+      const repo = activeRepo(state);
+      if (repo && repo.refs.remotes.length > 0 && !repo.busy) {
+        void state.runAction(repo.id, { action: 'fetch' });
+      }
+      break;
+    }
+    case 'menu.repo.pull': {
+      const repo = activeRepo(state);
+      if (repo) triggerPull(repo);
+      break;
+    }
+    case 'menu.repo.push': {
+      const repo = activeRepo(state);
+      if (repo) triggerPush(repo);
+      break;
+    }
+    case 'menu.repo.refresh': {
+      const repo = activeRepo(state);
+      if (repo) void state.refresh(repo.id);
+      break;
+    }
+    case 'menu.branch.branch-new':
+    case 'menu.branch.branch-rename':
+    case 'menu.branch.stash':
+    case 'menu.branch.stash-pop':
+    case 'menu.branch.merge':
+    case 'menu.branch.merge-no-ff':
+    case 'menu.branch.rebase':
+    case 'menu.branch.apply-patch':
+    case 'menu.branch.apply-patch-ai': {
+      const repo = activeRepo(state);
+      if (!repo || repo.busy) break;
+      if (id === 'menu.branch.branch-new') {
+        if (!repo.hasConflicts) state.openOverlay({ kind: 'newBranch' });
+      } else if (id === 'menu.branch.branch-rename') {
+        if (repo.branch.length > 0) state.openOverlay({ kind: 'renameBranch', old: repo.branch });
+      } else if (id === 'menu.branch.stash') {
+        if (repo.stashableCount > 0) state.openOverlay({ kind: 'stash' });
+      } else if (id === 'menu.branch.stash-pop') {
+        if (repo.refs.stashes.length > 0 && !repo.hasConflicts) {
+          void state.runAction(repo.id, { action: 'stashPop', stashRef: null });
+        }
+      } else if (id === 'menu.branch.merge' || id === 'menu.branch.merge-no-ff') {
+        if (hasLocalBranches(repo) && !repo.hasConflicts) {
+          state.openOverlay({ kind: 'merge', noFf: id === 'menu.branch.merge-no-ff' });
+        }
+      } else if (id === 'menu.branch.rebase') {
+        if (hasLocalBranches(repo) && !repo.hasConflicts) state.openOverlay({ kind: 'rebase' });
+      } else if (!repo.hasConflicts) {
+        window.dispatchEvent(
+          new CustomEvent('augur:toolbar-patch-action', {
+            detail: {
+              repoId: repo.id,
+              copyPrompt: id === 'menu.branch.apply-patch-ai'
+            }
+          })
+        );
+      }
+      break;
+    }
     case 'menu.about':
       await ipc.openAboutWindow();
       break;

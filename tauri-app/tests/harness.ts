@@ -137,6 +137,8 @@ export interface BootOptions {
   wslDelay?: number;
   /** Window role, from the same query parameter the backend uses. */
   window?: 'main' | 'compare' | 'about' | 'settings';
+  /** Initial settings section requested by a direct settings-window entry. */
+  settingsSection?: 'general' | 'appearance' | 'layout' | 'shortcuts';
   /** Repository id passed to a compare window. */
   repoId?: number;
 }
@@ -184,6 +186,9 @@ export async function boot(page: Page, options: BootOptions = {}): Promise<StubA
   const params = new URLSearchParams({ window: role });
   if (role === 'compare' && options.repoId !== undefined) {
     params.set('repo', String(options.repoId));
+  }
+  if (role === 'settings' && options.settingsSection) {
+    params.set('section', options.settingsSection);
   }
   if (options.windows || options.macos) {
     await page.addInitScript(

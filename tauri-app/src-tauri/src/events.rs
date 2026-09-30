@@ -25,6 +25,8 @@ pub const APP_EVENT: &str = "augur://app-event";
 pub const OPEN_PATHS_EVENT: &str = "augur://open-paths";
 /// Event name used when a native menu item is activated.
 pub const MENU_EVENT: &str = "augur://menu";
+/// Event used to select a section in the already-open settings window.
+pub const SETTINGS_NAVIGATE_EVENT: &str = "augur://settings-navigate";
 /// Event name used when a repository folder is dropped onto a window.
 pub const DROP_EVENT: &str = "augur://drop-paths";
 

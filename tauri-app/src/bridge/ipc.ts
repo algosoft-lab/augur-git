@@ -34,6 +34,7 @@ import type {
   RebaseProbe,
   RepoEventEnvelope,
   RepoSummary,
+  SettingsSection,
   ShortcutState,
   ThemePreference,
   TypographySettings,
@@ -48,6 +49,7 @@ import type {
 export const REPO_EVENT = 'augur://repo-event';
 export const APP_EVENT = 'augur://app-event';
 export const MENU_EVENT = 'augur://menu';
+export const SETTINGS_NAVIGATE_EVENT = 'augur://settings-navigate';
 export const OPEN_PATHS_EVENT = 'augur://open-paths';
 export const DROP_EVENT = 'augur://drop-paths';
 
@@ -301,8 +303,8 @@ export async function openAboutWindow(): Promise<void> {
   return invoke<void>('open_about_window');
 }
 
-export async function openSettingsWindow(): Promise<void> {
-  return invoke<void>('open_settings_window');
+export async function openSettingsWindow(section?: SettingsSection): Promise<void> {
+  return invoke<void>('open_settings_window', { section: section ?? null });
 }
 
 export async function openCompareWindow(repoId: number): Promise<string> {
@@ -352,6 +354,14 @@ export function onAppEvent(handler: (event: AppEvent) => void): Promise<Unlisten
 
 export function onMenuEvent(handler: (id: string) => void): Promise<UnlistenFn> {
   return listen<{ id: string }>(MENU_EVENT, (event) => handler(event.payload.id));
+}
+
+export function onSettingsNavigate(
+  handler: (section: SettingsSection) => void
+): Promise<UnlistenFn> {
+  return listen<{ section: SettingsSection }>(SETTINGS_NAVIGATE_EVENT, (event) =>
+    handler(event.payload.section)
+  );
 }
 
 export function onOpenPaths(handler: (paths: string[]) => void): Promise<UnlistenFn> {

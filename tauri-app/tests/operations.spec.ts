@@ -44,6 +44,64 @@ function cleanRepo() {
   return repo;
 }
 
+async function selectEditMenuItem(
+  page: import('@playwright/test').Page,
+  item: string
+): Promise<void> {
+  await page.getByTestId('menu-file-trigger').click();
+  await page.getByTestId('menu-file-edit').click();
+  await page.getByTestId(`menu-file-${item}`).click();
+}
+
+test.describe('Edit menu operations', () => {
+  test('fetches from Edit', async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()], windows: true });
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+
+    await selectEditMenuItem(page, 'fetch');
+
+    await expect(page.getByTestId('status-message')).toContainText(LABELS.fetch ?? '');
+    expect((await stub.commands()).some((entry) => entry.cmd === 'run_action')).toBe(true);
+  });
+
+  test('pulls with the configured strategy from Edit', async ({ page }) => {
+    const stub = await boot(page, { open: [cleanRepo()], windows: true, pullAction: 'rebase' });
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+
+    await selectEditMenuItem(page, 'pull');
+
+    await expect(page.getByTestId('status-message')).toContainText(LABELS.pullRebase ?? '');
+    expect(
+      (await stub.commandNames()).filter((command) => command === 'probe_rebase')
+    ).toHaveLength(1);
+  });
+
+  test('pushes from Edit while preserving the upstream prompt', async ({ page }) => {
+    const repo = cleanRepo();
+    repo.status.upstream = null;
+    const stub = await boot(page, { open: [repo], windows: true });
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+
+    await selectEditMenuItem(page, 'push');
+    await expect(page.getByTestId('push-upstream-dialog')).toBeVisible();
+    await page.getByTestId('push-upstream-confirm').click();
+
+    await expect(page.getByTestId('status-message')).toContainText(LABELS.pushSetUpstream ?? '');
+    expect((await stub.commands()).some((entry) => entry.cmd === 'run_action')).toBe(true);
+  });
+
+  test('refreshes from Edit', async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()], windows: true });
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+
+    await selectEditMenuItem(page, 'refresh');
+
+    expect(
+      (await stub.commandNames()).filter((command) => command === 'refresh_repository')
+    ).toHaveLength(1);
+  });
+});
+
 test.describe('toolbar operations', () => {
   test('fetches and reports the reference command label', async ({ page }) => {
     await openRepository(page);
@@ -64,9 +122,9 @@ test.describe('toolbar operations', () => {
     await page.getByTestId('toolbar-pull').click();
 
     await expect(page.getByTestId('status-message')).toContainText(LABELS.pullRebase ?? '');
-    expect((await stub.commandNames()).filter((command) => command === 'probe_rebase')).toHaveLength(
-      1
-    );
+    expect(
+      (await stub.commandNames()).filter((command) => command === 'probe_rebase')
+    ).toHaveLength(1);
     const actions = (await stub.commands()).filter((entry) => entry.cmd === 'run_action');
     expect(actions).toHaveLength(1);
     expect((actions[0]!.args as any).action.action).toBe('pullRebase');

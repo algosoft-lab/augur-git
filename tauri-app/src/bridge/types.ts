@@ -119,6 +119,7 @@ export interface WorkspaceState {
 }
 
 export type WindowMode = 'desktop' | 'sidecar';
+export type SettingsSection = 'general' | 'appearance' | 'layout' | 'shortcuts';
 
 export interface WindowBounds {
   x: number;

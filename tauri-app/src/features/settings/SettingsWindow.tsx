@@ -9,7 +9,7 @@
  * backend when the language changes.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Icon } from '../../components/Icon';
 import { Select, Slider, TextInput } from '../../components/controls';
@@ -17,7 +17,8 @@ import * as ipc from '../../bridge/ipc';
 import type {
   DiffLayoutPreference,
   GraphHistoryPreference,
-  LanguagePreference
+  LanguagePreference,
+  SettingsSection
 } from '../../bridge/types';
 import { useStore } from '../../app/store';
 import { findShortcutConflict, SHORTCUT_COMMANDS } from '../../app/keyboard';
@@ -26,7 +27,7 @@ import { THEME_GROUPS } from '../../styles/theme-catalog';
 import { IS_MACOS, WindowControls } from '../shell/WindowControls';
 import { handleTitleBarMouseDown } from '../shell/titleBarDrag';
 
-type Section = 'general' | 'appearance' | 'layout' | 'shortcuts';
+type Section = SettingsSection;
 
 const SECTIONS: { id: Section; key: string }[] = [
   { id: 'general', key: 'settings-general' },
@@ -51,10 +52,45 @@ const HISTORIES: { value: GraphHistoryPreference; key: string }[] = [
   { value: 'current-branch', key: 'graph-history-current' }
 ];
 
-export function SettingsWindow() {
+function focusThemeSelector(): void {
+  document.querySelector<HTMLButtonElement>('[data-testid="settings-theme"]')?.focus();
+}
+
+export function SettingsWindow({ initialSection = 'general' }: { initialSection?: Section }) {
   const translate = useStore((state) => state.t);
-  const [section, setSection] = useState<Section>('general');
+  const [section, setSection] = useState<Section>(initialSection);
   const [fonts, setFonts] = useState<string[]>([]);
+  const focusThemeAfterNavigation = useRef(initialSection === 'appearance');
+
+  useEffect(() => {
+    if (section === 'appearance' && focusThemeAfterNavigation.current) {
+      focusThemeAfterNavigation.current = false;
+      focusThemeSelector();
+    }
+  }, [section]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let cleanup: () => void = () => {};
+    void ipc
+      .onSettingsNavigate((nextSection) => {
+        setSection(nextSection);
+        if (nextSection === 'appearance') {
+          focusThemeAfterNavigation.current = true;
+          window.setTimeout(() => {
+            if (!cancelled) focusThemeSelector();
+          }, 0);
+        }
+      })
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else cleanup = unlisten;
+      });
+    return () => {
+      cancelled = true;
+      cleanup();
+    };
+  }, []);
 
   useEffect(() => {
     void ipc

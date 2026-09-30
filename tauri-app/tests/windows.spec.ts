@@ -629,6 +629,20 @@ test.describe('custom title bar', () => {
 });
 
 test.describe('settings window', () => {
+  test('opens directly to the theme selector and responds to navigation requests', async ({
+    page
+  }) => {
+    const stub = await boot(page, { window: 'settings', settingsSection: 'appearance' });
+
+    await expect(page.getByTestId('settings-appearance')).toBeVisible();
+    await expect(page.getByTestId('settings-theme')).toBeFocused();
+
+    await page.getByTestId('settings-nav-general').click();
+    await stub.emit('augur://settings-navigate', { section: 'appearance' });
+    await expect(page.getByTestId('settings-appearance')).toBeVisible();
+    await expect(page.getByTestId('settings-theme')).toBeFocused();
+  });
+
   test('marks the current choice in a mode menu', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
@@ -881,6 +895,73 @@ test.describe('the in-window menu', () => {
     expect(await stub.commandNames()).toContain('open_settings_window');
   });
 
+  test('switches window mode from View and updates the available destination', async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()], windows: true });
+
+    await page.getByTestId('menu-file-trigger').click();
+    await page.getByTestId('menu-file-view').click();
+    await page.getByTestId('menu-file-mode-toggle').click();
+    await expect(page.getByTestId('sidecar-window')).toBeVisible();
+
+    await page.getByTestId('menu-file-trigger').click();
+    await page.getByTestId('menu-file-view').click();
+    await expect(page.getByTestId('menu-file-mode-toggle')).toHaveText('Switch to Desktop mode');
+    await page.getByTestId('menu-file-mode-toggle').click();
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+  });
+
+  test('opens the theme settings section from View', async ({ page }) => {
+    const stub = await boot(page, { windows: true });
+
+    await page.getByTestId('menu-file-trigger').click();
+    await page.getByTestId('menu-file-view').click();
+    await page.getByTestId('menu-file-appearance').click();
+
+    const settings = (await stub.commands()).find((entry) => entry.cmd === 'open_settings_window');
+    expect(settings?.args.section).toBe('appearance');
+  });
+
+  test('adjusts diff font size from View and respects its bounds', async ({ page }) => {
+    const stub = await boot(page, {
+      open: [fixtureRepo()],
+      typography: { diff_font_size: 20 },
+      windows: true
+    });
+    const openView = async () => {
+      await page.getByTestId('menu-file-trigger').click();
+      await page.getByTestId('menu-file-view').click();
+    };
+
+    await openView();
+    await page.getByTestId('menu-file-diff-font-increase').click();
+    expect((await stub.commands()).filter((entry) => entry.cmd === 'set_typography')).toHaveLength(
+      0
+    );
+
+    await openView();
+    await page.getByTestId('menu-file-diff-font-decrease').click();
+    await openView();
+    await page.getByTestId('menu-file-diff-font-reset').click();
+
+    const typography = (await stub.commands())
+      .filter((entry) => entry.cmd === 'set_typography')
+      .map((entry) => (entry.args.typography as { diff_font_size: number }).diff_font_size);
+    expect(typography).toEqual([19, 16]);
+  });
+
+  test('opens the shared Branch actions from Edit', async ({ page }) => {
+    const repo = fixtureRepo();
+    repo.status.files = repo.status.files.filter((file) => file.index !== 'U');
+    await boot(page, { open: [repo], windows: true });
+
+    await page.getByTestId('menu-file-trigger').click();
+    await page.getByTestId('menu-file-edit').click();
+    await page.getByTestId('menu-file-branch').click();
+    await page.getByTestId('menu-file-branch-new').click();
+
+    await expect(page.getByTestId('branch-dialog')).toBeVisible();
+  });
+
   test('opens About from the Help menu on the welcome page', async ({ page }) => {
     const stub = await boot(page, { windows: true });
 
@@ -968,6 +1049,22 @@ test.describe('the native menu bridge', () => {
       (window as any).__STUB__.emit('augur://menu', { id: 'menu.settings' });
     });
     expect(await stub.commandNames()).toContain('open_settings_window');
+
+    await page.evaluate(() => {
+      (window as any).__STUB__.emit('augur://menu', { id: 'menu.view.appearance' });
+    });
+    const settings = (await stub.commands()).filter(
+      (entry) => entry.cmd === 'open_settings_window'
+    );
+    expect(settings.at(-1)?.args.section).toBe('appearance');
+
+    await page.evaluate(() => {
+      (window as any).__STUB__.emit('augur://menu', { id: 'menu.view.diff-font-increase' });
+    });
+    const typography = (await stub.commands()).filter((entry) => entry.cmd === 'set_typography');
+    expect((typography.at(-1)?.args.typography as { diff_font_size: number }).diff_font_size).toBe(
+      17
+    );
   });
 
   test('opens paths handed over by a second launch', async ({ page }) => {

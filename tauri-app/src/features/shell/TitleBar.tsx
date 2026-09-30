@@ -7,12 +7,14 @@
 import { Icon } from '../../components/Icon';
 import * as ipc from '../../bridge/ipc';
 import { Menu, type MenuItemSpec } from '../../components/controls';
-import { useStore } from '../../app/store';
+import { activeRepo, useStore } from '../../app/store';
+import { dispatchMenuAction } from '../../app/menu';
 import { t } from '../../i18n/strings';
 import { TabBar } from './TabBar';
 import { IS_MACOS, WindowControls } from './WindowControls';
 import { handleTitleBarMouseDown } from './titleBarDrag';
 import type { WindowMode } from '../../bridge/types';
+import { createBranchMenuItems } from '../repository/Toolbar';
 
 export function TitleBar({
   onOpenRepository,
@@ -39,6 +41,10 @@ export function TitleBar({
   const activeTabKey = useStore((state) => state.activeTabKey);
   const selectTab = useStore((state) => state.selectTab);
   const repos = useStore((state) => state.repos);
+  const repo = useStore((state) => activeRepo(state));
+
+  const hasRemote = Boolean(repo && repo.refs.remotes.length > 0);
+  const networkAvailable = hasRemote && !repo?.busy;
 
   const recentItems: MenuItemSpec[] = recent.length
     ? recent.map((repo, index) => ({
@@ -83,14 +89,95 @@ export function TitleBar({
     }
   ];
 
+  const branchItems = createBranchMenuItems(
+    repo,
+    (key) => t(translate, key),
+    (action) => dispatchMenuAction(`menu.branch.${action}`)
+  );
+
   const editItems: MenuItemSpec[] = [
+    {
+      id: 'fetch',
+      label: t(translate, 'toolbar-fetch'),
+      icon: <Icon name="download" />,
+      disabled: !networkAvailable,
+      onSelect: () => dispatchMenuAction('menu.repo.fetch')
+    },
+    {
+      id: 'pull',
+      label: t(translate, 'toolbar-pull'),
+      icon: <Icon name="download" />,
+      disabled: !networkAvailable || Boolean(repo?.hasConflicts),
+      onSelect: () => dispatchMenuAction('menu.repo.pull')
+    },
+    {
+      id: 'push',
+      label: t(translate, 'toolbar-push'),
+      icon: <Icon name="upload" />,
+      disabled: !networkAvailable,
+      onSelect: () => dispatchMenuAction('menu.repo.push')
+    },
+    {
+      id: 'refresh',
+      label: t(translate, 'toolbar-refresh'),
+      icon: <Icon name="refresh-cw" />,
+      disabled: !repo,
+      onSelect: () => dispatchMenuAction('menu.repo.refresh')
+    },
+    {
+      id: 'branch',
+      label: t(translate, 'menu-branch'),
+      icon: <Icon name="git-branch" />,
+      disabled: !repo || repo.busy,
+      separatorBefore: true,
+      children: branchItems
+    },
     {
       id: 'settings',
       label: t(translate, 'menu-settings'),
       icon: <Icon name="settings" />,
+      separatorBefore: true,
       onSelect: () => {
         void ipc.openSettingsWindow();
       }
+    }
+  ];
+
+  const viewItems: MenuItemSpec[] = [
+    {
+      id: 'mode-toggle',
+      label: t(
+        translate,
+        windowMode === 'desktop' ? 'sidecar-switch-mode' : 'sidecar-switch-desktop'
+      ),
+      icon: <Icon name="panel-right" />,
+      onSelect: onToggleMode
+    },
+    {
+      id: 'diff-font-increase',
+      label: t(translate, 'shortcut-diff-font-increase'),
+      icon: <Icon name="plus" />,
+      separatorBefore: true,
+      onSelect: () => dispatchMenuAction('menu.view.diff-font-increase')
+    },
+    {
+      id: 'diff-font-decrease',
+      label: t(translate, 'shortcut-diff-font-decrease'),
+      icon: <Icon name="minus" />,
+      onSelect: () => dispatchMenuAction('menu.view.diff-font-decrease')
+    },
+    {
+      id: 'diff-font-reset',
+      label: t(translate, 'shortcut-diff-font-reset'),
+      icon: <Icon name="undo" />,
+      onSelect: () => dispatchMenuAction('menu.view.diff-font-reset')
+    },
+    {
+      id: 'appearance',
+      label: t(translate, 'menu-appearance'),
+      icon: <Icon name="settings" />,
+      separatorBefore: true,
+      onSelect: () => dispatchMenuAction('menu.view.appearance')
     }
   ];
 
@@ -108,6 +195,7 @@ export function TitleBar({
   const menuItems: MenuItemSpec[] = [
     { id: 'file', label: t(translate, 'menu-file'), children: fileItems },
     { id: 'edit', label: t(translate, 'menu-edit'), children: editItems },
+    { id: 'view', label: t(translate, 'menu-view'), children: viewItems },
     { id: 'help', label: t(translate, 'menu-help'), children: helpItems },
     {
       id: 'quit',
