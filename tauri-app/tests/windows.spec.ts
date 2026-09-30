@@ -992,6 +992,24 @@ test.describe('the About window', () => {
     await expect(page.getByTestId('about-identifier')).toHaveText('com.augur.git.tauri');
     await expect(page.getByTestId('about')).toContainText('com.augur.git.tauri/settings.json');
   });
+
+  test('keeps its title clear of the macOS traffic lights', async ({ page }) => {
+    // The backend opens this window with an overlay title bar, so the traffic
+    // lights are drawn on top of the webview and the title has to start after
+    // them rather than underneath.
+    await boot(page, { window: 'about', macos: true });
+
+    const title = page.getByTestId('about-title');
+    const bounds = await title.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.x).toBeGreaterThanOrEqual(78);
+    // Dragging stays on the empty part of the bar, so the title text keeps
+    // its normal text selection behavior.
+    await expect(page.locator('.window-titlebar__drag')).toHaveAttribute(
+      'data-tauri-drag-region',
+      'true'
+    );
+  });
 });
 
 test.describe('the in-window menu', () => {

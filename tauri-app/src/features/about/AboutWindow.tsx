@@ -10,6 +10,8 @@ import { useStore } from '../../app/store';
 import * as ipc from '../../bridge/ipc';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { t, ta } from '../../i18n/strings';
+import { IS_MACOS } from '../shell/WindowControls';
+import { handleTitleBarMouseDown } from '../shell/titleBarDrag';
 
 const releaseUrl = 'https://github.com/algosoft-lab/augur-git/releases/tag/tauri-nightly';
 
@@ -51,8 +53,18 @@ export function AboutWindow() {
 
   return (
     <div className="window-page">
-      <div className="window-page__title" data-tauri-drag-region>
-        {t(translate, 'about-title')}
+      {/* The shared title bar reserves the space the macOS traffic lights overlay on. */}
+      <div
+        className={`window-titlebar${IS_MACOS ? ' window-titlebar--macos' : ''}`}
+        onMouseDown={handleTitleBarMouseDown}
+      >
+        <span className="about__title" data-testid="about-title">
+          {t(translate, 'about-title')}
+        </span>
+        <div
+          className="window-titlebar__drag"
+          {...(IS_MACOS ? { 'data-tauri-drag-region': true } : {})}
+        />
       </div>
       <div className="about about--scroll" data-testid="about">
         <div className="about__identity">

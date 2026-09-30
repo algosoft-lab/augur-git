@@ -1640,22 +1640,16 @@ body .diff ::selection {
   overflow: hidden;
 }
 
-.window-page__title {
-  display: flex;
-  height: 30px;
-  flex: 0 0 auto;
-  align-items: center;
-  padding: 0 12px;
-  background: var(--title-bar-background);
-  border-bottom: 1px solid var(--border);
-  font-size: calc(var(--ui-font-size) * 0.75);
-  font-weight: 600;
-}
-
 .window-page__body {
   display: flex;
   min-height: 0;
   flex: 1 1 auto;
+}
+
+.about__title {
+  flex: 0 0 auto;
+  font-size: calc(var(--ui-font-size) * 0.8125);
+  font-weight: 600;
 }
 
 /* The settings window fills the OS window under its own title bar. */
