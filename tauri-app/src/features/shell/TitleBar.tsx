@@ -258,10 +258,19 @@ export function TitleBar({
         </Menu>
       ) : null}
       {build?.name && !sidecar ? (
-        <span className="title-bar__brand">
+        <button
+          type="button"
+          className="title-bar__brand"
+          title={t(translate, 'menu-about')}
+          aria-label={t(translate, 'menu-about')}
+          data-testid="title-about"
+          onClick={() => {
+            void ipc.openAboutWindow();
+          }}
+        >
           <span>{build.name}</span>
           <Icon name="git-branch" size={14} />
-        </span>
+        </button>
       ) : null}
       {sidecar ? (
         tabs.length > 0 ? (

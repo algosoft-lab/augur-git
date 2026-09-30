@@ -1174,6 +1174,15 @@ test.describe('the in-window menu', () => {
     expect(await stub.commandNames()).toContain('open_settings_window');
   });
 
+  test('opens About from the title-bar app name', async ({ page }) => {
+    const stub = await boot(page, { windows: true });
+    const brand = page.getByTestId('title-about');
+    await expect(brand).toBeVisible();
+    await expect(brand).toHaveAttribute('aria-label', 'About Augur Git');
+    await brand.click();
+    expect(await stub.commandNames()).toContain('open_about_window');
+  });
+
   test('places the title card before tabs and settings before window controls', async ({
     page
   }) => {

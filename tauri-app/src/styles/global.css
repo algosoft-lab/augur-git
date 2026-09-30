@@ -140,11 +140,20 @@ body .diff ::selection {
   font-weight: 700;
   color: var(--primary-foreground);
   white-space: nowrap;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
 }
 
 .title-bar__brand svg {
   flex: 0 0 auto;
   color: var(--primary-foreground);
+}
+
+/* Nudge the chip toward its own label color instead of the neutral list hover
+ * fill, which would overpower the accent background it sits on. */
+.title-bar__brand:hover,
+.title-bar__brand:focus-visible {
+  background: color-mix(in srgb, var(--primary-background) 88%, var(--primary-foreground));
 }
 
 .title-bar__settings {
