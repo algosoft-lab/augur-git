@@ -433,22 +433,22 @@ jobs:
             --repo "${REPOSITORY}" \
             --clobber
 
-          aliases="$(printf '%s\n' \
-            augur-git-tauri-windows-x86_64-nsis.exe \
-            augur-git-tauri-windows-x86_64-nsis.exe.sig \
-            augur-git-tauri-macos-arm64.dmg \
-            augur-git-tauri-linux-x86_64.AppImage \
-            augur-git-tauri-linux-x86_64.deb \
-            augur-git-tauri-linux-x86_64.tar.gz | sort)"
+          expected_assets="$(printf '%s\n' \
+            'rolling-windows.exe|augur-git-tauri-windows-x86_64-nsis.exe' \
+            'rolling-windows.exe.sig|augur-git-tauri-windows-x86_64-nsis.exe.sig' \
+            'rolling-macos.dmg|augur-git-tauri-macos-arm64.dmg' \
+            'rolling-linux.AppImage|augur-git-tauri-linux-x86_64.AppImage' \
+            'rolling-linux.deb|augur-git-tauri-linux-x86_64.deb' \
+            'rolling-linux.tar.gz|augur-git-tauri-linux-x86_64.tar.gz' | sort)"
           assets_ready=false
           for attempt in {1..10}; do
-            listed_assets="$(gh api --paginate "repos/${REPOSITORY}/releases/${release_id}/assets?per_page=100" --jq '.[].name' | sort)"
+            listed_assets="$(gh api --paginate "repos/${REPOSITORY}/releases/${release_id}/assets?per_page=100" --jq '.[] | "\(.name)|\(.label // "")"' | sort)"
             missing_assets=""
-            while IFS= read -r alias; do
-              if ! grep -Fxq -- "${alias}" <<< "${listed_assets}"; then
-                missing_assets+="${alias}"$'\n'
+            while IFS= read -r expected_asset; do
+              if ! grep -Fxq -- "${expected_asset}" <<< "${listed_assets}"; then
+                missing_assets+="${expected_asset}"$'\n'
               fi
-            done <<< "${aliases}"
+            done <<< "${expected_assets}"
 
             if [[ -z "${missing_assets}" ]]; then
               assets_ready=true
