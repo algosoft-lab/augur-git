@@ -15,6 +15,7 @@ import { useActiveRepoId } from './useActiveRepo';
 export function ForcePushDialog() {
   const translate = useStore((state) => state.t);
   const repoId = useActiveRepoId();
+  const repo = useStore((state) => (repoId ? state.repos[repoId] : undefined));
   const closeOverlay = useStore((state) => state.closeOverlay);
   const runAction = useStore((state) => state.runAction);
 
@@ -27,7 +28,11 @@ export function ForcePushDialog() {
         </>
       }
       onBackdrop={closeOverlay}
-      body={<div className="muted">{t(translate, 'push-force-warning')}</div>}
+      body={
+        <div className="muted">
+          {ta(translate, 'push-force-warning', { branch: repo?.branch || 'HEAD' })}
+        </div>
+      }
       footer={
         <>
           <button

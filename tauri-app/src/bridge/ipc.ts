@@ -34,7 +34,10 @@ import type {
   ColumnVisibility,
   RefLabel,
   RebaseProbe,
+  RebaseTarget,
   RepoEventEnvelope,
+  ResetPreview,
+  ResetTarget,
   RepoSummary,
   SettingsSection,
   ShortcutState,
@@ -202,8 +205,15 @@ export async function probeMerge(repoId: number, source: string): Promise<MergeP
   return invoke<MergeProbe>('probe_merge', { repoId, source });
 }
 
-export async function probeRebase(repoId: number, source: string | null): Promise<RebaseProbe> {
-  return invoke<RebaseProbe>('probe_rebase', { repoId, source });
+export async function probeRebase(
+  repoId: number,
+  target: RebaseTarget | null
+): Promise<RebaseProbe> {
+  return invoke<RebaseProbe>('probe_rebase', { repoId, target });
+}
+
+export async function previewReset(repoId: number, target: ResetTarget): Promise<ResetPreview> {
+  return invoke<ResetPreview>('preview_reset', { repoId, target });
 }
 
 export async function readCommitMessage(repoId: number, oid: string): Promise<CommitMessage> {

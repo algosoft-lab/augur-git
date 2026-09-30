@@ -77,7 +77,7 @@ test.describe('repositories', () => {
     await expect(page.getByTestId('stash-row-stash@{0}')).toBeVisible();
 
     // Toolbar: the branch and the ahead/behind counters.
-    await expect(page.getByTestId('toolbar-branch')).toBeVisible();
+    await expect(page.getByTestId('toolbar-more')).toBeVisible();
     await expect(page.getByTestId('toolbar-fetch')).toBeEnabled();
     await expect(page.getByTestId('toolbar')).toContainText('2');
     await expect(page.getByTestId('toolbar')).toContainText('1');

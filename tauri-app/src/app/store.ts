@@ -120,6 +120,7 @@ export type Overlay =
   | { kind: 'stashDrop'; reference: string }
   | { kind: 'merge'; noFf: boolean }
   | { kind: 'rebase' }
+  | { kind: 'reset' }
   | { kind: 'deleteRef'; name: string; isTag: boolean }
   | { kind: 'deleteRemoteBranch'; remote: string; branch: string }
   | { kind: 'forcePush' }
@@ -1378,9 +1379,13 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     },
 
     async runAction(repoId, action) {
-      if (action.action === 'merge' || action.action === 'rebase') {
+      if (action.action === 'merge') {
         // Remembered only so a later conflict dialog can name the source.
         integrationSources.set(repoId, action.source);
+      } else if (action.action === 'rebase') {
+        const target =
+          action.target.kind === 'branch' ? action.target.name : action.target.sha.slice(0, 12);
+        integrationSources.set(repoId, target);
       }
       get().setBusy(repoId, true);
       try {

@@ -13,8 +13,8 @@ use tauri::{AppHandle, State};
 use augur_core::config::{GraphHistoryPreference, LocationConfig};
 use augur_core::git::operation_probe::{MergeState, RebaseState};
 use augur_core::git::{
-    CheckoutTarget, CommitMessage, FileStatus, WorkingTreeAction, WorkingTreeDiffKind,
-    WorkingTreeScope,
+    CheckoutTarget, CommitMessage, FileStatus, RebaseTarget, ResetTarget, WorkingTreeAction,
+    WorkingTreeDiffKind, WorkingTreeScope,
 };
 
 use crate::git_args::GitAction;
@@ -305,6 +305,18 @@ pub fn working_tree_operation(
 /// Run one named Git operation.
 #[tauri::command]
 pub fn run_action(state: State<'_, AppState>, repo_id: u64, action: GitAction) -> Result<()> {
+    if let GitAction::Reset {
+        mode,
+        expected_head,
+        target_oid,
+    } = &action
+    {
+        return state
+            .with_repo(repo_id, |session| {
+                session.reset(*mode, expected_head.clone(), target_oid.clone());
+            })
+            .ok_or_else(|| CommandError::missing_repo(repo_id));
+    }
     let args = action
         .args()
         .map_err(|error| CommandError::new("err-invalid-action", error))?;
@@ -379,6 +391,7 @@ pub struct RebaseProbe {
     pub state: RebaseState,
     pub other_operation_in_progress: bool,
     pub target_known: bool,
+    pub target_oid: Option<String>,
 }
 
 /// Inspect the repository before a merge.
@@ -414,28 +427,42 @@ pub async fn probe_merge(
 pub async fn probe_rebase(
     state: State<'_, AppState>,
     repo_id: u64,
-    source: Option<String>,
+    target: Option<RebaseTarget>,
 ) -> Result<RebaseProbe> {
     let repo = state
         .with_repo(repo_id, |session| session.repo().clone())
         .ok_or_else(|| CommandError::missing_repo(repo_id))?;
     let probe = run_blocking(move || {
-        let target = match source.as_deref() {
-            Some(branch) => {
-                augur_core::git::operation_probe::resolve_branch_oid(&repo, branch).ok()
+        let target_oid = match target.as_ref() {
+            Some(target) => {
+                augur_core::git::operation_probe::resolve_rebase_target(&repo, target).ok()
             }
             None => None,
         };
         let other = augur_core::git::operation_probe::has_other_git_operation_except_rebase(&repo)?;
         let state = augur_core::git::operation_probe::probe_rebase_state(&repo)?;
-        Ok((state, target.is_some(), other))
+        Ok((state, target_oid, other))
     })
     .await?;
     Ok(RebaseProbe {
         state: probe.0,
-        target_known: probe.1,
+        target_known: probe.1.is_some(),
+        target_oid: probe.1,
         other_operation_in_progress: probe.2,
     })
+}
+
+/// Resolve and preview a reset target without changing the repository.
+#[tauri::command]
+pub async fn preview_reset(
+    state: State<'_, AppState>,
+    repo_id: u64,
+    target: ResetTarget,
+) -> Result<augur_core::git::operation_probe::ResetPreview> {
+    let repo = state
+        .with_repo(repo_id, |session| session.repo().clone())
+        .ok_or_else(|| CommandError::missing_repo(repo_id))?;
+    run_blocking(move || augur_core::git::operation_probe::preview_reset(&repo, &target)).await
 }
 
 /// Read a commit message without touching the working tree, for the clipboard.

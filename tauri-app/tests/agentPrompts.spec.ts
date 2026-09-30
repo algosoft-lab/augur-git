@@ -54,8 +54,8 @@ test.describe('provider-neutral Agent prompts', () => {
   test('copies a merge prompt for the selected source branch', async ({ page }) => {
     const stub = await boot(page, { open: [repoWithoutConflicts()] });
 
-    await page.getByTestId('branch-menu-trigger').click();
-    await page.getByTestId('branch-menu-merge').click();
+    await page.getByTestId('more-menu-trigger').click();
+    await page.getByTestId('more-menu-merge').click();
     await page.getByTestId('merge-copy-prompt').click();
 
     const request = (await stub.commands()).find((entry) => entry.cmd === 'generate_agent_prompt');
@@ -68,8 +68,8 @@ test.describe('provider-neutral Agent prompts', () => {
   test('copies a rebase prompt for the selected source branch', async ({ page }) => {
     const stub = await boot(page, { open: [repoWithoutConflicts()] });
 
-    await page.getByTestId('branch-menu-trigger').click();
-    await page.getByTestId('branch-menu-rebase').click();
+    await page.getByTestId('more-menu-trigger').click();
+    await page.getByTestId('more-menu-rebase').click();
     await page.getByTestId('rebase-copy-prompt').click();
 
     const request = (await stub.commands()).find((entry) => entry.cmd === 'generate_agent_prompt');
@@ -130,8 +130,8 @@ test.describe('provider-neutral Agent prompts', () => {
       failingActions: ['applyPatch']
     });
 
-    await page.getByTestId('branch-menu-trigger').click();
-    await page.getByTestId('branch-menu-apply-patch').click();
+    await page.getByTestId('more-menu-trigger').click();
+    await page.getByTestId('more-menu-apply-patch').click();
     await expect(page.getByTestId('patch-prompt-error')).toBeVisible();
     await page.getByTestId('patch-prompt-error-copy').click();
 

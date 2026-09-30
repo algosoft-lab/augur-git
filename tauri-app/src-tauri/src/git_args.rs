@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use augur_core::git::{CheckoutTarget, CompareRevision};
+use augur_core::git::{CheckoutTarget, CompareRevision, RebaseTarget, ResetMode};
 
 /// A repository operation the interface can request.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,7 +84,13 @@ pub enum GitAction {
         no_ff: bool,
     },
     Rebase {
-        source: String,
+        target: RebaseTarget,
+    },
+    /// Reset HEAD to a target reviewed in the interface.
+    Reset {
+        mode: ResetMode,
+        expected_head: String,
+        target_oid: String,
     },
     AbortMerge,
     AbortRebase,
@@ -128,6 +134,7 @@ impl GitAction {
                 | GitAction::StashDrop { .. }
                 | GitAction::Merge { .. }
                 | GitAction::Rebase { .. }
+                | GitAction::Reset { .. }
                 | GitAction::AbortMerge
                 | GitAction::AbortRebase
                 | GitAction::AbortStashApply
@@ -161,6 +168,11 @@ impl GitAction {
             GitAction::Merge { no_ff: true, .. } => "merge --no-ff",
             GitAction::Merge { .. } => "merge",
             GitAction::Rebase { .. } => "rebase",
+            GitAction::Reset {
+                mode: ResetMode::Hard,
+                ..
+            } => "reset --hard",
+            GitAction::Reset { .. } => "reset --soft",
             GitAction::AbortMerge => "merge --abort",
             GitAction::AbortRebase => "rebase --abort",
             GitAction::AbortStashApply => "stash pop abort",
@@ -241,7 +253,32 @@ impl GitAction {
                     strs(&["merge", source])
                 }
             }
-            GitAction::Rebase { source } => strs(&["rebase", source]),
+            GitAction::Rebase { target } => {
+                let destination = match target {
+                    RebaseTarget::Branch { name } => format!("refs/heads/{name}"),
+                    RebaseTarget::Commit { sha } => {
+                        if !is_full_object_id(sha) {
+                            return Err("rebase target must be a full hexadecimal commit id".into());
+                        }
+                        sha.clone()
+                    }
+                };
+                strs(&["rebase", &destination])
+            }
+            GitAction::Reset {
+                mode,
+                expected_head,
+                target_oid,
+            } => {
+                if !is_full_object_id(expected_head) || !is_full_object_id(target_oid) {
+                    return Err("reset target must be a resolved commit id".into());
+                }
+                let mode_arg = match mode {
+                    ResetMode::Soft => "--soft",
+                    ResetMode::Hard => "--hard",
+                };
+                strs(&["reset", mode_arg, target_oid])
+            }
             GitAction::AbortMerge => strs(&["merge", "--abort"]),
             GitAction::AbortRebase => strs(&["rebase", "--abort"]),
             GitAction::AbortStashApply => strs(&["reset", "--hard"]),
@@ -259,6 +296,10 @@ impl GitAction {
             ]),
         })
     }
+}
+
+fn is_full_object_id(value: &str) -> bool {
+    matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn strs(values: &[&str]) -> Vec<String> {
@@ -362,6 +403,38 @@ mod tests {
         assert_eq!(args(GitAction::PullRebase), ["pull", "--rebase"]);
         assert_eq!(args(GitAction::Push), ["push"]);
         assert_eq!(args(GitAction::PushForce), ["push", "--force"]);
+        assert_eq!(
+            args(GitAction::Rebase {
+                target: RebaseTarget::Branch {
+                    name: "feature/topic".into()
+                }
+            }),
+            ["rebase", "refs/heads/feature/topic"]
+        );
+        assert_eq!(
+            args(GitAction::Rebase {
+                target: RebaseTarget::Commit {
+                    sha: "a".repeat(40)
+                }
+            }),
+            ["rebase", "a".repeat(40).as_str()]
+        );
+        assert_eq!(
+            args(GitAction::Reset {
+                mode: ResetMode::Soft,
+                expected_head: "b".repeat(40),
+                target_oid: "a".repeat(40)
+            }),
+            ["reset", "--soft", "a".repeat(40).as_str()]
+        );
+        assert_eq!(
+            args(GitAction::Reset {
+                mode: ResetMode::Hard,
+                expected_head: "b".repeat(40),
+                target_oid: "a".repeat(40)
+            }),
+            ["reset", "--hard", "a".repeat(40).as_str()]
+        );
         assert_eq!(
             args(GitAction::PushSetUpstream {
                 remote: "origin".into(),
@@ -597,6 +670,14 @@ mod tests {
             }
             .refreshes_after_success()
         );
+        assert!(
+            GitAction::Reset {
+                mode: ResetMode::Soft,
+                expected_head: "a".repeat(40),
+                target_oid: "b".repeat(40)
+            }
+            .refreshes_after_success()
+        );
         assert!(!GitAction::CopyCommitMessage { oid: "a".into() }.refreshes_after_success());
     }
 
@@ -647,6 +728,22 @@ mod tests {
         }))
         .expect("merge wire shape");
         assert_eq!(args(wire), ["merge", "feature", "--no-ff"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "rebase",
+            "target": { "kind": "commit", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+        }))
+        .expect("rebase commit target wire shape");
+        assert_eq!(args(wire), ["rebase", "a".repeat(40).as_str()]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "reset",
+            "mode": "hard",
+            "expectedHead": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "targetOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }))
+        .expect("reset action wire shape");
+        assert_eq!(args(wire), ["reset", "--hard", "a".repeat(40).as_str()]);
 
         let wire: GitAction = serde_json::from_value(serde_json::json!({
             "action": "stashPop", "stashRef": null

@@ -461,25 +461,37 @@ body .diff ::selection {
   padding: 0 8px;
   background: var(--tab-bar-background);
   border-bottom: 1px solid var(--border);
-  /* The reference has the same button set and simply lets the row run past the
-   * edge. Clipping would strand the last controls where they cannot be reached
-   * at all, so the row scrolls instead and looks unchanged when it fits. */
+  overflow: visible;
+}
+
+.toolbar__scroll {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 4px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
 }
 
-.toolbar::-webkit-scrollbar {
+.toolbar__scroll::-webkit-scrollbar {
   display: none;
 }
 
-.toolbar > * {
+.toolbar__scroll > * {
   flex: 0 0 auto;
 }
 
-.toolbar__spacer {
-  flex: 1 1 auto;
-  min-width: 8px;
+.toolbar__scroll > .toolbar__spacer {
+  flex: 1 0 8px;
+}
+
+.toolbar__more {
+  flex: 0 0 auto;
+  z-index: 2;
+  padding-left: 4px;
+  background: var(--tab-bar-background);
 }
 
 .count-badge {
@@ -2393,7 +2405,7 @@ body .diff ::selection {
   height: 30px;
   gap: 2px;
   padding: 0 5px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .toolbar--sidecar .tool-button__label {
@@ -2407,7 +2419,11 @@ body .diff ::selection {
   padding: 0;
 }
 
-.toolbar--sidecar .toolbar__spacer {
+.toolbar--sidecar .toolbar__scroll {
+  gap: 2px;
+}
+
+.toolbar--sidecar .toolbar__scroll > .toolbar__spacer {
   min-width: 0;
 }
 

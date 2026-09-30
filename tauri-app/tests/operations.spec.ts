@@ -191,7 +191,7 @@ test.describe('toolbar operations', () => {
     // The tag sync mirrors the remotes, so it needs one to mirror.
     await expect(page.getByTestId('tags-sync')).toBeDisabled();
     // Local actions stay available.
-    await expect(page.getByTestId('toolbar-branch')).toBeEnabled();
+    await expect(page.getByTestId('toolbar-more')).toBeEnabled();
   });
 
   test('blocks integration actions while a merge is unresolved', async ({ page }) => {
@@ -199,20 +199,20 @@ test.describe('toolbar operations', () => {
 
     // The fixture has an unmerged file, so the actions that would replace the
     // in-progress merge are refused.
-    await page.getByTestId('branch-menu-trigger').click();
-    await expect(page.getByTestId('branch-menu-merge')).toBeDisabled();
-    await expect(page.getByTestId('branch-menu-merge-no-ff')).toBeDisabled();
-    await expect(page.getByTestId('branch-menu-rebase')).toBeDisabled();
+    await page.getByTestId('more-menu-trigger').click();
+    await expect(page.getByTestId('more-menu-merge')).toBeDisabled();
+    await expect(page.getByTestId('more-menu-merge-no-ff')).toBeDisabled();
+    await expect(page.getByTestId('more-menu-rebase')).toBeDisabled();
     // Stashing is still offered, because it leaves the merge alone.
-    await expect(page.getByTestId('branch-menu-stash')).toBeEnabled();
+    await expect(page.getByTestId('more-menu-stash')).toBeEnabled();
     // Everything that would disturb the unresolved merge is refused: recording
     // a branch, popping a stash, and applying a patch that could overwrite the
     // conflicted file.
-    await expect(page.getByTestId('branch-menu-branch-new')).toBeDisabled();
-    await expect(page.getByTestId('branch-menu-stash-pop')).toBeDisabled();
-    await expect(page.getByTestId('branch-menu-apply-patch')).toBeDisabled();
+    await expect(page.getByTestId('more-menu-branch-new')).toBeDisabled();
+    await expect(page.getByTestId('more-menu-stash-pop')).toBeDisabled();
+    await expect(page.getByTestId('more-menu-apply-patch')).toBeDisabled();
     // Renaming writes a ref and does not touch the working tree.
-    await expect(page.getByTestId('branch-menu-branch-rename')).toBeEnabled();
+    await expect(page.getByTestId('more-menu-branch-rename')).toBeEnabled();
   });
 
   test('does not discard files while conflicts are unresolved', async ({ page }) => {
@@ -523,8 +523,8 @@ test.describe('tag section', () => {
     const stub = await boot(page, { open: [fixtureRepo()] });
     await expect(page.getByTestId('repo-7')).toBeVisible();
 
-    await page.getByTestId('branch-menu-trigger').click();
-    await expect(page.getByTestId('branch-menu-merge')).toBeDisabled();
+    await page.getByTestId('more-menu-trigger').click();
+    await expect(page.getByTestId('more-menu-merge')).toBeDisabled();
 
     await expect(page.getByTestId('tags-sync')).toBeEnabled();
     await page.getByTestId('tags-sync').click();
@@ -538,8 +538,8 @@ test.describe('branch dialogs', () => {
     await boot(page, { open: [cleanRepo()] });
     await expect(page.getByTestId('repo-7')).toBeVisible();
 
-    await page.getByTestId('branch-menu-trigger').click();
-    await page.getByTestId('branch-menu-branch-new').click();
+    await page.getByTestId('more-menu-trigger').click();
+    await page.getByTestId('more-menu-branch-new').click();
     await expect(page.getByTestId('branch-dialog')).toBeVisible();
 
     const input = page.getByTestId('branch-name-input');
@@ -575,8 +575,8 @@ test.describe('branch dialogs', () => {
     const stub = await boot(page, { open: [cleanRepo()] });
     await expect(page.getByTestId('repo-7')).toBeVisible();
 
-    await page.getByTestId('branch-menu-trigger').click();
-    await page.getByTestId('branch-menu-branch-new').click();
+    await page.getByTestId('more-menu-trigger').click();
+    await page.getByTestId('more-menu-branch-new').click();
     await page.getByTestId('branch-name-input').fill('feature/tauri-2');
     await page.getByTestId('branch-dialog-confirm').click();
 
@@ -655,7 +655,8 @@ test.describe('push confirmations', () => {
     const stub = await boot(page, { open: [cleanRepo()] });
     await expect(page.getByTestId('repo-7')).toBeVisible();
 
-    await page.getByTestId('toolbar-push-force').click();
+    await page.getByTestId('toolbar-more').click();
+    await page.getByTestId('more-menu-push-force').click();
 
     // The dialog is the only path to the operation.
     await expect(page.getByTestId('force-push-dialog')).toBeVisible();
@@ -672,7 +673,8 @@ test.describe('push confirmations', () => {
     const stub = await boot(page, { open: [cleanRepo()] });
     await expect(page.getByTestId('repo-7')).toBeVisible();
 
-    await page.getByTestId('toolbar-push-force').click();
+    await page.getByTestId('toolbar-more').click();
+    await page.getByTestId('more-menu-push-force').click();
     await page.getByTestId('force-push-cancel').click();
 
     await expect(page.getByTestId('force-push-dialog')).toHaveCount(0);
@@ -780,8 +782,8 @@ test.describe('merge and rebase', () => {
     await boot(page, { open: [cleanRepo()], probeMerge: { already_merged: true } });
     await expect(page.getByTestId('repo-7')).toBeVisible();
 
-    await page.getByTestId('branch-menu-trigger').click();
-    await page.getByTestId('branch-menu-merge').click();
+    await page.getByTestId('more-menu-trigger').click();
+    await page.getByTestId('more-menu-merge').click();
     await expect(page.getByTestId('merge-dialog')).toBeVisible();
     await page.getByTestId('merge-dialog-confirm').click();
 
@@ -794,8 +796,8 @@ test.describe('merge and rebase', () => {
     await boot(page, { open: [cleanRepo()] });
     await expect(page.getByTestId('repo-7')).toBeVisible();
 
-    await page.getByTestId('branch-menu-trigger').click();
-    await page.getByTestId('branch-menu-merge-no-ff').click();
+    await page.getByTestId('more-menu-trigger').click();
+    await page.getByTestId('more-menu-merge-no-ff').click();
 
     const dialog = page.getByTestId('merge-dialog');
     await expect(dialog).toBeVisible();
@@ -816,8 +818,8 @@ test.describe('merge and rebase', () => {
     await boot(page, { open: [dirty], probeRebase: { has_changes: true } });
     await expect(page.getByTestId('repo-7')).toBeVisible();
 
-    await page.getByTestId('branch-menu-trigger').click();
-    await page.getByTestId('branch-menu-rebase').click();
+    await page.getByTestId('more-menu-trigger').click();
+    await page.getByTestId('more-menu-rebase').click();
     await expect(page.getByTestId('rebase-dialog')).toBeVisible();
     await page.getByTestId('rebase-dialog-confirm').click();
 
@@ -833,8 +835,8 @@ test.describe('merge and rebase', () => {
     });
     await expect(page.getByTestId('repo-7')).toBeVisible();
 
-    await page.getByTestId('branch-menu-trigger').click();
-    await page.getByTestId('branch-menu-rebase').click();
+    await page.getByTestId('more-menu-trigger').click();
+    await page.getByTestId('more-menu-rebase').click();
     await page.getByTestId('rebase-dialog-confirm').click();
 
     await expect(page.getByTestId('status-message')).toContainText(

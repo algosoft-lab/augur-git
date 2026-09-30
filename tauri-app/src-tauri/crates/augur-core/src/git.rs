@@ -462,6 +462,38 @@ pub enum CheckoutTarget {
     Commit { commit: String },
 }
 
+/// How a history reset updates the index and working tree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ResetMode {
+    Soft,
+    Hard,
+}
+
+/// The destination for an ordinary branch rebase.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum RebaseTarget {
+    Branch { name: String },
+    Commit { sha: String },
+}
+
+/// A reset target chosen in the reset dialog.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum ResetTarget {
+    HeadAncestor { steps: u32 },
+    Commit { sha: String },
+}
+
 /// UI → 后台指令
 pub enum GitCommand {
     /// 刷新仓库快照（status → branch → log 顺序执行，各发事件）
@@ -477,6 +509,12 @@ pub enum GitCommand {
         label: String,
         args: Vec<String>,
         refresh_after_success: bool,
+    },
+    /// Reset to a previewed commit after rechecking the repository snapshot.
+    Reset {
+        mode: ResetMode,
+        expected_head: String,
+        target_oid: String,
     },
     /// Query file metadata and line counts for the selected commit.
     CommitNumstat { request_id: u64, oid: String },
@@ -591,6 +629,15 @@ impl GitHandle {
             label: label.into(),
             args,
             refresh_after_success,
+        });
+    }
+
+    /// Reset to a commit only if the HEAD captured by the preview is unchanged.
+    pub fn reset(&self, mode: ResetMode, expected_head: String, target_oid: String) {
+        let _ = self.cmd_tx.send(GitCommand::Reset {
+            mode,
+            expected_head,
+            target_oid,
         });
     }
 
@@ -871,6 +918,29 @@ fn worker_loop(
                     refresh_all(&repo, &event_tx, &mut log_state, false);
                 }
             }
+            Ok(GitCommand::Reset {
+                mode,
+                expected_head,
+                target_oid,
+            }) => {
+                let (label, mode_arg) = match mode {
+                    ResetMode::Soft => ("reset --soft", "--soft"),
+                    ResetMode::Hard => ("reset --hard", "--hard"),
+                };
+                let args = vec![
+                    "reset".to_string(),
+                    mode_arg.to_string(),
+                    target_oid.clone(),
+                ];
+                match operation_probe::validate_reset(&repo, &expected_head, &target_oid) {
+                    Ok(()) => {
+                        if run_git(&repo, label, &args, &event_tx) {
+                            refresh_all(&repo, &event_tx, &mut log_state, false);
+                        }
+                    }
+                    Err(detail) => reject_git(&event_tx, label, &detail),
+                }
+            }
             Ok(GitCommand::CommitNumstat { request_id, oid }) => {
                 if commit_generation.load(Ordering::Acquire) == request_id {
                     run_numstat(&repo, request_id, &oid, &event_tx);
@@ -1085,6 +1155,19 @@ fn run_git(repo: &GitRepo, label: &str, args: &[String], event_tx: &Sender<GitEv
             false
         }
     }
+}
+
+/// Report a guarded operation that was rejected before Git could run.
+fn reject_git(event_tx: &Sender<GitEvent>, label: &str, detail: &str) {
+    let _ = event_tx.send(GitEvent::CommandStarted {
+        label: label.to_string(),
+        subcommand: "reset".to_string(),
+    });
+    let _ = event_tx.send(GitEvent::CommandDone {
+        label: label.to_string(),
+        success: false,
+        message: detail.to_string(),
+    });
 }
 
 /// Bound logged git output so a chatty command cannot flood the diagnostic
@@ -1915,6 +1998,88 @@ mod tests {
 
         handle.close();
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reset_worker_preserves_changes_for_soft_and_discards_them_for_hard() {
+        use std::fs;
+        use std::process::Command;
+        use std::sync::mpsc;
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "augur-git-reset-worker-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        };
+        git(&["init", "--quiet", "--initial-branch=main"]);
+        git(&["config", "user.name", "Augur Test"]);
+        git(&["config", "user.email", "augur-test@example.invalid"]);
+        fs::write(root.join("file.txt"), "first\n").unwrap();
+        git(&["add", "file.txt"]);
+        git(&["commit", "--quiet", "-m", "first"]);
+        let target = git(&["rev-parse", "HEAD"]);
+        fs::write(root.join("file.txt"), "second\n").unwrap();
+        git(&["add", "file.txt"]);
+        git(&["commit", "--quiet", "-m", "second"]);
+        let expected_head = git(&["rev-parse", "HEAD"]);
+        fs::write(root.join("file.txt"), "dirty\n").unwrap();
+
+        let (event_tx, event_rx) = mpsc::channel();
+        let handle = spawn_open(GitRepo::local(root.to_string_lossy()), event_tx).unwrap();
+        handle.reset(ResetMode::Soft, expected_head, target.clone());
+        let soft = wait_for_command(&event_rx, "reset --soft");
+        assert!(soft);
+        assert_eq!(git(&["rev-parse", "HEAD"]), target);
+        assert_eq!(
+            fs::read_to_string(root.join("file.txt")).unwrap(),
+            "dirty\n"
+        );
+        assert!(!git(&["status", "--porcelain"]).is_empty());
+
+        handle.reset(ResetMode::Hard, target.clone(), target.clone());
+        let hard = wait_for_command(&event_rx, "reset --hard");
+        assert!(hard);
+        assert_eq!(
+            fs::read_to_string(root.join("file.txt")).unwrap(),
+            "first\n"
+        );
+        assert!(git(&["status", "--porcelain"]).is_empty());
+
+        handle.close();
+        let _ = fs::remove_dir_all(root);
+
+        fn wait_for_command(event_rx: &std::sync::mpsc::Receiver<GitEvent>, label: &str) -> bool {
+            loop {
+                match event_rx.recv_timeout(Duration::from_secs(5)) {
+                    Ok(GitEvent::CommandDone {
+                        label: done_label,
+                        success,
+                        ..
+                    }) if done_label == label => return success,
+                    Ok(_) => continue,
+                    Err(error) => panic!("{label} should finish before timeout: {error}"),
+                }
+            }
+        }
     }
 
     #[test]

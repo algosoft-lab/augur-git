@@ -20,6 +20,7 @@ import {
 } from './integrationDialogs';
 import { DiscardDialog, StashDialog, StashDropDialog } from './workingTreeDialogs';
 import { ForcePushDialog, PushUpstreamDialog } from './pushDialogs';
+import { ResetDialog } from './resetDialog';
 import { OperationErrorDialog } from './reportDialogs';
 
 export function Overlays({
@@ -68,6 +69,8 @@ function OverlayBody({ overlay }: { overlay: Overlay }) {
       return <MergeDialog noFf={overlay.noFf} />;
     case 'rebase':
       return <RebaseDialog />;
+    case 'reset':
+      return <ResetDialog />;
     case 'deleteRef':
       return <DeleteRefDialog name={overlay.name} isTag={overlay.isTag} />;
     case 'deleteRemoteBranch':

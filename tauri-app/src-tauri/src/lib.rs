@@ -67,6 +67,7 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             commands::repo::export_patch,
             commands::repo::probe_merge,
             commands::repo::probe_rebase,
+            commands::repo::preview_reset,
             commands::repo::read_commit_message,
             commands::repo::set_graph_history,
             commands::repo::graph_layout,

@@ -13,6 +13,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { Icon } from '../../components/Icon';
 import { DialogCard, Menu, ToolButton, type MenuItemSpec } from '../../components/controls';
 import * as ipc from '../../bridge/ipc';
+import type { RebaseTarget } from '../../bridge/types';
 import { hasLocalBranches, useStore, type RepoState } from '../../app/store';
 import { firstLine } from '../../app/repoState';
 import { t, ta } from '../../i18n/strings';
@@ -76,7 +77,7 @@ export function createBranchMenuItems(
       id: 'rebase',
       label: translate('menu-rebase'),
       icon: <Icon name="git-commit-horizontal" />,
-      disabled: !repo || !hasBranches || blocked,
+      disabled: !repo || blocked,
       onSelect: () => onSelect('rebase')
     },
     {
@@ -170,29 +171,41 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
     }
   );
 
+  const resetItem: MenuItemSpec = {
+    id: 'reset',
+    label: t(translate, 'menu-reset'),
+    icon: <Icon name="undo" />,
+    disabled: repo.busy || !repo.head || repo.hasConflicts,
+    separatorBefore: true,
+    danger: true,
+    onSelect: () => openOverlay({ kind: 'reset' })
+  };
+  const forcePushItem: MenuItemSpec = {
+    id: 'push-force',
+    label: t(translate, 'toolbar-push-force'),
+    icon: <Icon name="triangle-alert" />,
+    disabled: !network,
+    danger: true,
+    onSelect: () => openOverlay({ kind: 'forcePush' })
+  };
   const compactMoreItems: MenuItemSpec[] = [
     ...branchItems,
-    {
-      id: 'push-force',
-      label: t(translate, 'toolbar-push-force'),
-      icon: <Icon name="triangle-alert" />,
-      disabled: !network,
-      separatorBefore: true,
-      onSelect: () => openOverlay({ kind: 'forcePush' })
-    },
     {
       id: 'compare',
       label: t(translate, 'toolbar-compare'),
       icon: <Icon name="git-branch" />,
       disabled: repo.busy,
       onSelect: () => void ipc.openCompareWindow(repo.id)
-    }
+    },
+    resetItem,
+    forcePushItem
   ];
+  const moreItems = [...branchItems, resetItem, forcePushItem];
 
   return (
     <div className={`toolbar${compact ? ' toolbar--sidecar' : ''}`} data-testid="toolbar">
       {compact ? (
-        <>
+        <div className="toolbar__scroll">
           <ToolButton
             label={t(translate, 'toolbar-fetch')}
             icon={<Icon name="download" />}
@@ -224,15 +237,6 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
             testId="toolbar-refresh"
             onClick={() => void refresh(repo.id)}
           />
-          <Menu items={compactMoreItems} testId="sidecar-more-menu" align="end">
-            <ToolButton
-              label={t(translate, 'menu-more')}
-              tooltip={t(translate, 'menu-more')}
-              icon={<Icon name="menu" />}
-              compact
-              testId="sidecar-more"
-            />
-          </Menu>
           <span className="toolbar__spacer" />
           <span className="count-badge count-badge--ahead" title={t(translate, 'toolbar-ahead')}>
             <Icon name="chevron-up" size={10} /> {repo.ahead}
@@ -240,18 +244,9 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
           <span className="count-badge count-badge--behind" title={t(translate, 'toolbar-behind')}>
             <Icon name="chevron-down" size={10} /> {repo.behind}
           </span>
-        </>
+        </div>
       ) : (
-        <>
-          <Menu items={branchItems} testId="branch-menu">
-            <ToolButton
-              label={t(translate, 'toolbar-branch')}
-              icon={<Icon name="git-branch" />}
-              tooltip={t(translate, 'toolbar-branch')}
-              disabled={repo.busy}
-              testId="toolbar-branch"
-            />
-          </Menu>
+        <div className="toolbar__scroll">
           <ToolButton
             label={t(translate, 'toolbar-fetch')}
             icon={<Icon name="download" />}
@@ -272,14 +267,6 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
             disabled={!network}
             testId="toolbar-push"
             onClick={() => triggerPush(repo)}
-          />
-          <ToolButton
-            label={t(translate, 'toolbar-push-force')}
-            icon={<Icon name="triangle-alert" />}
-            disabled={!network}
-            testId="toolbar-push-force"
-            // Never runs directly: the confirmation comes first.
-            onClick={() => openOverlay({ kind: 'forcePush' })}
           />
           <ToolButton
             label={t(translate, 'toolbar-compare')}
@@ -308,8 +295,24 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
             testId="toolbar-refresh"
             onClick={() => void refresh(repo.id)}
           />
-        </>
+        </div>
       )}
+      <div className="toolbar__more">
+        <Menu
+          items={compact ? compactMoreItems : moreItems}
+          testId={compact ? 'sidecar-more-menu' : 'more-menu'}
+          align="end"
+        >
+          <ToolButton
+            label={t(translate, 'menu-more')}
+            tooltip={t(translate, 'menu-more')}
+            icon={<Icon name="menu" />}
+            compact={compact}
+            disabled={!compact && repo.busy}
+            testId={compact ? 'sidecar-more' : 'toolbar-more'}
+          />
+        </Menu>
+      </div>
       {patchFailure?.repoId === repo.id ? (
         <DialogCard
           testId="patch-prompt-error"
@@ -439,11 +442,11 @@ async function pickAndCopyPatchPrompt(repoId: number): Promise<void> {
  * fails inside Git with a message that is hard to act on. Both are refused here
  * with a specific message instead.
  */
-export async function preflightRebase(repo: RepoState, source: string | null): Promise<void> {
+export async function preflightRebase(repo: RepoState, target: RebaseTarget | null): Promise<void> {
   const store = useStore.getState();
   let probe;
   try {
-    probe = await ipc.probeRebase(repo.id, source);
+    probe = await ipc.probeRebase(repo.id, target);
   } catch (error) {
     // A closed repository has nowhere to report to; anything else is a
     // preflight failure, which the reference names with Git's own first line
@@ -465,12 +468,20 @@ export async function preflightRebase(repo: RepoState, source: string | null): P
     store.setMessage(repo.id, t(store.t, 'rebase-preflight-operation-in-progress'), false);
     return;
   }
-  if (source && probe.has_changes) {
+  if (target && !probe.target_known) {
+    store.setMessage(repo.id, t(store.t, 'rebase-target-invalid'), false);
+    return;
+  }
+  if (target && probe.has_changes) {
     store.setMessage(repo.id, t(store.t, 'rebase-preflight-dirty'), false);
     return;
   }
-  if (source) {
-    void store.runAction(repo.id, { action: 'rebase', source });
+  if (target) {
+    const resolvedTarget =
+      target.kind === 'commit' && probe.target_oid
+        ? { kind: 'commit' as const, sha: probe.target_oid }
+        : target;
+    void store.runAction(repo.id, { action: 'rebase', target: resolvedTarget });
   } else {
     void store.runAction(repo.id, { action: 'pullRebase' });
   }

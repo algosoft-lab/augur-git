@@ -349,7 +349,8 @@ export type GitAction =
   | { action: 'deleteBranch'; name: string; force: boolean }
   | { action: 'deleteTag'; name: string }
   | { action: 'merge'; source: string; noFf: boolean }
-  | { action: 'rebase'; source: string }
+  | { action: 'rebase'; target: RebaseTarget }
+  | { action: 'reset'; mode: ResetMode; expectedHead: string; targetOid: string }
   | { action: 'abortMerge' }
   | { action: 'abortRebase' }
   | { action: 'abortStashApply' }
@@ -542,6 +543,21 @@ export interface RebaseState {
 export interface RebaseProbe extends RebaseState {
   other_operation_in_progress: boolean;
   target_known: boolean;
+  target_oid: string | null;
+}
+
+export type RebaseTarget = { kind: 'branch'; name: string } | { kind: 'commit'; sha: string };
+
+export type ResetTarget = { kind: 'headAncestor'; steps: number } | { kind: 'commit'; sha: string };
+
+export type ResetMode = 'soft' | 'hard';
+
+export interface ResetPreview {
+  head_oid: string;
+  target_oid: string;
+  target_subject: string;
+  moved_commits: number;
+  has_changes: boolean;
 }
 
 export type ThemeTokens = Record<string, string>;

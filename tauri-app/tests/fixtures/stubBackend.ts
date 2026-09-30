@@ -1041,10 +1041,12 @@ function install(
       ...(options.probeMerge ?? {})
     }),
 
-    probe_rebase: () => ({
+    probe_rebase: (args: any) => ({
       other_operation_in_progress: false,
       rebase_in_progress: false,
       has_changes: false,
+      target_known: args.target !== null,
+      target_oid: 'a'.repeat(40),
       ...(options.probeRebase ?? {})
     }),
 

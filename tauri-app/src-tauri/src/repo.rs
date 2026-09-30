@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter};
 use augur_core::config::LocationConfig;
 use augur_core::diff::{DiffDocument, FileChange};
 use augur_core::git::{
-    FileStatus, GitError, GitEvent, GitHandle, GitRepo, LogScope, WorkingTreeAction,
+    FileStatus, GitError, GitEvent, GitHandle, GitRepo, LogScope, ResetMode, WorkingTreeAction,
 };
 
 use crate::events::{REPO_EVENT, RepoEvent, RepoEventEnvelope};
@@ -84,6 +84,11 @@ impl RepoSession {
 
     pub fn refresh(&self) {
         self.handle.refresh();
+    }
+
+    /// Queue a reset guarded by the HEAD and target captured in its preview.
+    pub fn reset(&self, mode: ResetMode, expected_head: String, target_oid: String) {
+        self.handle.reset(mode, expected_head, target_oid);
     }
 
     pub fn set_log_scope(&self, scope: LogScope) {

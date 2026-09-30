@@ -12,7 +12,17 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use std::process::{Command, Output};
 
-use super::{GitRepo, RepoLocation};
+use super::{CompareRevision, GitRepo, RebaseTarget, RepoLocation, ResetTarget};
+
+/// Read-only details used to confirm a reset against the exact repository snapshot.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ResetPreview {
+    pub head_oid: String,
+    pub target_oid: String,
+    pub target_subject: String,
+    pub moved_commits: usize,
+    pub has_changes: bool,
+}
 
 /// Marker files that represent a stateful operation other than merge or
 /// rebase. `REBASE_HEAD` is intentionally absent: Git may leave that file
@@ -148,21 +158,113 @@ pub fn has_other_git_operation(repo: &GitRepo) -> Result<bool, String> {
 /// Resolve a local branch to an immutable commit object id. The branch name is
 /// passed as one structured argument, never interpolated into a command line.
 pub fn resolve_branch_oid(repo: &GitRepo, branch: &str) -> Result<String, String> {
-    let reference = format!("refs/heads/{branch}^{{commit}}");
+    let reference = format!("refs/heads/{branch}");
+    resolve_commit_id(repo, &reference)
+        .map_err(|error| format!("could not resolve branch: {error}"))
+}
+
+/// Resolve a typed rebase destination to an immutable commit id.
+pub fn resolve_rebase_target(repo: &GitRepo, target: &RebaseTarget) -> Result<String, String> {
+    match target {
+        RebaseTarget::Branch { name } => resolve_branch_oid(repo, name),
+        RebaseTarget::Commit { sha } => resolve_user_commit_id(repo, sha),
+    }
+}
+
+/// Resolve a reset target, verify it is reachable from HEAD, and collect the
+/// information shown before the user confirms the operation.
+pub fn preview_reset(repo: &GitRepo, target: &ResetTarget) -> Result<ResetPreview, String> {
+    let state = probe_repo_state(repo)?;
+    let head_oid = resolve_commit_id(repo, "HEAD")?;
+    if has_other_git_operation(repo)? {
+        return Err("another Git operation is in progress".to_string());
+    }
+
+    let target_oid = match target {
+        ResetTarget::HeadAncestor { steps } if *steps > 0 => {
+            resolve_commit_id(repo, &format!("HEAD~{steps}"))?
+        }
+        ResetTarget::HeadAncestor { .. } => {
+            return Err("HEAD~ must be followed by a positive number".to_string());
+        }
+        ResetTarget::Commit { sha } => resolve_user_commit_id(repo, sha)?,
+    };
+    if !is_ancestor(repo, &target_oid)? {
+        return Err("reset target is not an ancestor of the current HEAD".to_string());
+    }
+
+    let moved_commits = git_output(
+        repo,
+        &["rev-list", "--count", &format!("{target_oid}..{head_oid}")],
+    )?
+    .parse::<usize>()
+    .map_err(|_| "Git returned an invalid commit count".to_string())?;
+    let target_subject = git_output(repo, &["show", "--no-patch", "--format=%s", &target_oid])?;
+
+    Ok(ResetPreview {
+        head_oid,
+        target_oid,
+        target_subject,
+        moved_commits,
+        has_changes: state.has_changes,
+    })
+}
+
+/// Recheck the reset preview immediately before changing HEAD.
+pub fn validate_reset(repo: &GitRepo, expected_head: &str, target_oid: &str) -> Result<(), String> {
+    if !CompareRevision::is_supported_commit_id(expected_head)
+        || !CompareRevision::is_supported_commit_id(target_oid)
+    {
+        return Err("reset requires resolved commit ids".to_string());
+    }
+    let current_head = resolve_commit_id(repo, "HEAD")?;
+    if current_head != expected_head {
+        return Err("HEAD changed after the reset preview; review the target again".to_string());
+    }
+    if has_other_git_operation(repo)? {
+        return Err("another Git operation is in progress".to_string());
+    }
+    let resolved_target = resolve_user_commit_id(repo, target_oid)?;
+    if resolved_target != target_oid || !is_ancestor(repo, target_oid)? {
+        return Err("reset target is no longer an ancestor of the current HEAD".to_string());
+    }
+    Ok(())
+}
+
+fn resolve_user_commit_id(repo: &GitRepo, sha: &str) -> Result<String, String> {
+    if !CompareRevision::is_supported_commit_id(sha) {
+        return Err("enter a 7–64 character hexadecimal commit id".to_string());
+    }
+    resolve_commit_id(repo, sha)
+}
+
+fn resolve_commit_id(repo: &GitRepo, revision: &str) -> Result<String, String> {
+    let commit = format!("{revision}^{{commit}}");
     let output = git_command_in_repo(repo)
-        .args(["rev-parse", "--verify"])
-        .arg(reference)
+        .args(["rev-parse", "--verify", "--end-of-options"])
+        .arg(commit)
         .output()
-        .map_err(|error| format!("failed to resolve merge target: {error}"))?;
+        .map_err(|error| format!("failed to resolve commit: {error}"))?;
     if !output.status.success() {
         return Err(command_error(&output, "git rev-parse"));
     }
     let oid = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if oid.is_empty() {
-        Err("merge target resolved to an empty object id".to_string())
+        Err("commit resolved to an empty object id".to_string())
     } else {
         Ok(oid)
     }
+}
+
+fn git_output(repo: &GitRepo, args: &[&str]) -> Result<String, String> {
+    let output = git_command_in_repo(repo)
+        .args(args)
+        .output()
+        .map_err(|error| format!("failed to run git {}: {error}", args.join(" ")))?;
+    if !output.status.success() {
+        return Err(command_error(&output, &format!("git {}", args.join(" "))));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 /// Whether `target_oid` is reachable from HEAD.
@@ -323,6 +425,12 @@ pub fn parse_status(output: &[u8]) -> RepoState {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+    use std::process::Command;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use super::*;
 
     #[test]
@@ -374,5 +482,119 @@ mod tests {
             ..RebaseState::default()
         };
         assert!(leftover.blocks_integration());
+    }
+
+    #[test]
+    fn reset_preview_resolves_only_current_history_ancestors() {
+        let repo = TestRepo::new();
+        repo.write("file.txt", "first\n");
+        repo.commit("first");
+        let first = repo.git(&["rev-parse", "HEAD"]);
+        repo.git(&["switch", "-c", "side", &first]);
+        repo.write("side.txt", "side\n");
+        repo.commit("side");
+        let side = repo.git(&["rev-parse", "HEAD"]);
+        repo.git(&["switch", "main"]);
+        repo.write("file.txt", "second\n");
+        repo.commit("second");
+
+        let preview = preview_reset(&repo.handle(), &ResetTarget::HeadAncestor { steps: 1 })
+            .expect("HEAD~1 should resolve");
+        assert_eq!(preview.target_oid, first);
+        assert_eq!(preview.moved_commits, 1);
+        assert_eq!(preview.target_subject, "first");
+        validate_reset(&repo.handle(), &preview.head_oid, &preview.target_oid)
+            .expect("the previewed ancestor should still be valid");
+
+        assert!(preview_reset(&repo.handle(), &ResetTarget::Commit { sha: side.clone() }).is_err());
+        assert!(
+            preview_reset(
+                &repo.handle(),
+                &ResetTarget::Commit {
+                    sha: "invalid".into()
+                }
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn reset_rejects_a_changed_head_and_an_active_git_operation() {
+        let repo = TestRepo::new();
+        repo.write("file.txt", "first\n");
+        repo.commit("first");
+        let first = repo.git(&["rev-parse", "HEAD"]);
+        repo.write("file.txt", "second\n");
+        repo.commit("second");
+        let preview = preview_reset(&repo.handle(), &ResetTarget::HeadAncestor { steps: 1 })
+            .expect("HEAD~1 should resolve");
+
+        repo.write("file.txt", "third\n");
+        repo.commit("third");
+        assert!(validate_reset(&repo.handle(), &preview.head_oid, &first).is_err());
+
+        fs::write(repo.path.join(".git/CHERRY_PICK_HEAD"), &first)
+            .expect("write active-operation marker");
+        assert!(preview_reset(&repo.handle(), &ResetTarget::Commit { sha: first }).is_err());
+    }
+
+    struct TestRepo {
+        path: PathBuf,
+    }
+
+    static TEST_REPO_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    impl TestRepo {
+        fn new() -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or_default();
+            let sequence = TEST_REPO_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "augur-git-reset-probe-{}-{nonce}-{sequence}",
+                std::process::id(),
+            ));
+            fs::create_dir(&path).expect("create temporary repository");
+            let repo = Self { path };
+            repo.git(&["init", "-q", "--initial-branch=main"]);
+            repo.git(&["config", "user.email", "test@example.com"]);
+            repo.git(&["config", "user.name", "augur-git test"]);
+            repo
+        }
+
+        fn handle(&self) -> GitRepo {
+            GitRepo::local(self.path.to_string_lossy())
+        }
+
+        fn write(&self, path: &str, contents: &str) {
+            fs::write(self.path.join(path), contents).expect("write test file");
+        }
+
+        fn commit(&self, message: &str) {
+            self.git(&["add", "--all"]);
+            self.git(&["commit", "-q", "-m", message]);
+        }
+
+        fn git(&self, args: &[&str]) -> String {
+            let output = Command::new("git")
+                .arg("-C")
+                .arg(&self.path)
+                .args(args)
+                .output()
+                .expect("run git test command");
+            assert!(
+                output.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        }
+    }
+
+    impl Drop for TestRepo {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
     }
 }

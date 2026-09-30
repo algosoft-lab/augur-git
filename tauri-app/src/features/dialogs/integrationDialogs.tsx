@@ -13,6 +13,7 @@ import { useState } from 'react';
 import { Icon } from '../../components/Icon';
 import { Checkbox, DialogCard } from '../../components/controls';
 import * as ipc from '../../bridge/ipc';
+import type { RebaseTarget } from '../../bridge/types';
 import { integrationBlocked, localBranches, useStore } from '../../app/store';
 import { preflightRebase } from '../repository/Toolbar';
 import { t, ta } from '../../i18n/strings';
@@ -137,18 +138,28 @@ export function RebaseDialog() {
   const repoId = useActiveRepoId();
   const repo = useStore((state) => (repoId ? state.repos[repoId] : undefined));
   const closeOverlay = useStore((state) => state.closeOverlay);
+  const [targetKind, setTargetKind] = useState<'branch' | 'commit'>('branch');
   const [source, setSource] = useState(() => (repo ? (localBranches(repo)[0] ?? '') : ''));
+  const [sha, setSha] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const branches = repo ? localBranches(repo) : [];
+  const target: RebaseTarget | null =
+    targetKind === 'branch'
+      ? source
+        ? { kind: 'branch', name: source }
+        : null
+      : /^[\da-fA-F]{7,64}$/.test(sha.trim())
+        ? { kind: 'commit', sha: sha.trim() }
+        : null;
 
   const confirm = async () => {
-    if (!repoId || !source) {
+    if (!repoId || !repo || !target || busy) {
       return;
     }
+    setBusy(true);
     closeOverlay();
-    if (repo) {
-      await preflightRebase(repo, source);
-    }
+    await preflightRebase(repo, target);
   };
 
   return (
@@ -163,34 +174,58 @@ export function RebaseDialog() {
             {ta(translate, 'rebase-warning', { branch: repo?.branch ?? '' })}
           </div>
           <div className="row">
-            <span className="muted">{t(translate, 'merge-source-label')}</span>
+            <span className="muted">{t(translate, 'rebase-target-label')}</span>
             <select
               className="select__trigger"
-              style={{ flex: 1 }}
-              value={source}
-              data-testid="rebase-source"
-              onChange={(event) => setSource(event.target.value)}
+              value={targetKind}
+              data-testid="rebase-target-kind"
+              onChange={(event) => setTargetKind(event.target.value as typeof targetKind)}
             >
-              {branches.map((branch) => (
-                <option key={branch} value={branch}>
-                  {branch}
-                </option>
-              ))}
+              <option value="branch">{t(translate, 'rebase-target-branch')}</option>
+              <option value="commit">{t(translate, 'rebase-target-sha')}</option>
             </select>
+            {targetKind === 'branch' ? (
+              <select
+                className="select__trigger"
+                style={{ flex: 1 }}
+                value={source}
+                data-testid="rebase-source"
+                onChange={(event) => setSource(event.target.value)}
+              >
+                {branches.map((branch) => (
+                  <option key={branch} value={branch}>
+                    {branch}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className="select__trigger mono"
+                style={{ flex: 1 }}
+                type="text"
+                value={sha}
+                placeholder={t(translate, 'rebase-sha-placeholder')}
+                data-testid="rebase-sha"
+                spellCheck={false}
+                onChange={(event) => setSha(event.target.value)}
+              />
+            )}
           </div>
         </>
       }
       footer={
         <>
-          <button
-            type="button"
-            className="tool-button"
-            disabled={!source}
-            onClick={() => repoId && void copyAgentPrompt(repoId, { kind: 'rebase', source })}
-            data-testid="rebase-copy-prompt"
-          >
-            <Icon name="copy" size={12} /> {t(translate, 'agent-prompt-rebase')}
-          </button>
+          {targetKind === 'branch' ? (
+            <button
+              type="button"
+              className="tool-button"
+              disabled={!source || busy}
+              onClick={() => repoId && void copyAgentPrompt(repoId, { kind: 'rebase', source })}
+              data-testid="rebase-copy-prompt"
+            >
+              <Icon name="copy" size={12} /> {t(translate, 'agent-prompt-rebase')}
+            </button>
+          ) : null}
           <button
             type="button"
             className="tool-button"
@@ -202,7 +237,7 @@ export function RebaseDialog() {
           <button
             type="button"
             className="tool-button tool-button--primary"
-            disabled={!source}
+            disabled={!target || busy}
             onClick={() => void confirm()}
             data-testid="rebase-dialog-confirm"
           >
