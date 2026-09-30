@@ -2182,6 +2182,10 @@ body .diff ::selection {
   padding-inline: 6px;
 }
 
+.title-bar--sidecar > .menu {
+  min-width: 0;
+}
+
 .title-bar--sidecar.title-bar--macos {
   padding-left: 78px;
 }
