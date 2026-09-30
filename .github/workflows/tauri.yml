@@ -442,7 +442,7 @@ jobs:
             augur-git-tauri-linux-x86_64.tar.gz | sort)"
           listed_assets="$(gh api --paginate "repos/${REPOSITORY}/releases/${release_id}/assets?per_page=100" --jq '.[].name' | sort)"
           while IFS= read -r alias; do
-            if ! rg -Fxq "${alias}" <<< "${listed_assets}"; then
+            if ! grep -Fxq -- "${alias}" <<< "${listed_assets}"; then
               echo "Rolling release is missing ${alias}."
               exit 1
             fi
