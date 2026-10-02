@@ -378,7 +378,7 @@ function FileRow({
 /** Map a porcelain status character to its catalog key. */
 export function porcelainKey(code: string, untracked: boolean): string {
   if (untracked) {
-    return 'status-unknown';
+    return 'status-add';
   }
   switch (code) {
     case 'A':
@@ -401,7 +401,7 @@ export function porcelainKey(code: string, untracked: boolean): string {
 /** The CSS colour modifier for a porcelain status character. */
 export function porcelainModifier(code: string, untracked: boolean): string {
   if (untracked) {
-    return 'unknown';
+    return 'add';
   }
   switch (code) {
     case 'A':
