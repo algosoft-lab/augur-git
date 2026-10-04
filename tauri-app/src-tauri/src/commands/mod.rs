@@ -3,3 +3,5 @@
 pub mod agent_prompt;
 pub mod app;
 pub mod repo;
+
+pub mod cli;

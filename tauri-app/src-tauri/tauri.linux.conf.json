@@ -1,0 +1,8 @@
+{
+  "bundle": {
+    "linux": {
+      "deb": { "files": { "/usr/bin/agit": "target/release/agit" } },
+      "appimage": { "files": { "/usr/bin/agit": "target/release/agit" } }
+    }
+  }
+}

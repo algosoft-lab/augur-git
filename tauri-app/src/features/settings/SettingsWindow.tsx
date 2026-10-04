@@ -11,6 +11,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import { CliSettings } from './CliSettings';
+
 import { Icon } from '../../components/Icon';
 import { Select, Slider, TextInput } from '../../components/controls';
 import * as ipc from '../../bridge/ipc';
@@ -174,6 +176,7 @@ function GeneralSection() {
           onChange={(value) => void setView({ auto_refresh: value })}
         />
       </div>
+      <CliSettings />
       <StoreLocation />
     </>
   );

@@ -5,6 +5,8 @@
  * so the application boots exactly as it does inside the real window.
  */
 
+import type { CliStatus } from '../src/bridge/types';
+
 import { test as base, expect, type Page } from '@playwright/test';
 
 import {
@@ -46,6 +48,7 @@ declare global {
 
 /** Options for a test, with the fixture repository already available. */
 export interface BootOptions {
+  cliStatus?: CliStatus;
   /** Repositories the bootstrap reports as open. */
   open?: StubRepo[];
   /** Milliseconds the comparison's per-file diffs take to arrive. */
@@ -152,6 +155,7 @@ export interface BootOptions {
 function optionsFor(options: BootOptions): StubOptions {
   return {
     open: options.open ?? [],
+    cliStatus: options.cliStatus,
     compareDelay: options.compareDelay,
     compareReplyDelay: options.compareReplyDelay,
     failCompare: options.failCompare,

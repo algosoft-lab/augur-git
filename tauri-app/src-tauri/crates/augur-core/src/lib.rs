@@ -7,6 +7,8 @@
 
 pub mod build_info;
 pub mod cli;
+#[cfg(unix)]
+pub mod cli_install;
 pub mod commit_diff;
 pub mod commit_search;
 pub mod config;

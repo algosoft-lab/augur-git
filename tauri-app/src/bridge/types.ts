@@ -561,3 +561,13 @@ export interface ResetPreview {
 }
 
 export type ThemeTokens = Record<string, string>;
+
+export interface CliStatus {
+  state: 'unsupported' | 'available' | 'not-installed' | 'conflict' | 'broken' | 'not-on-path';
+  path: string;
+  canInstall: boolean;
+  canRemove: boolean;
+  packageManaged: boolean;
+  pathCommand: string | null;
+  detail: string;
+}

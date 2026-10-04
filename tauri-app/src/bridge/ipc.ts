@@ -427,3 +427,13 @@ export function onDropPaths(handler: (paths: string[]) => void): Promise<Unliste
 export async function emitOpenPaths(paths: string[]): Promise<void> {
   await emit(OPEN_PATHS_EVENT, { paths });
 }
+
+export function getCliStatus(): Promise<import('./types').CliStatus> {
+  return invoke('get_cli_status');
+}
+export function installCli(): Promise<import('./types').CliStatus> {
+  return invoke('install_cli');
+}
+export function uninstallCli(): Promise<import('./types').CliStatus> {
+  return invoke('uninstall_cli');
+}

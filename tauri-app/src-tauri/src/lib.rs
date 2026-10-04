@@ -48,6 +48,9 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
         .plugin(log_plugin())
         .invoke_handler(tauri::generate_handler![
             commands::agent_prompt::generate_agent_prompt,
+            commands::cli::get_cli_status,
+            commands::cli::install_cli,
+            commands::cli::uninstall_cli,
             commands::repo::bootstrap,
             commands::repo::open_repository,
             commands::repo::close_repository,
@@ -173,38 +176,24 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
 /// A second launch parsed its own arguments; forward the paths to the running
 /// instance and focus its window.
 fn handle_second_launch(app: &tauri::AppHandle, args: &[String], cwd: &str) {
-    let cwd_path = std::path::Path::new(cwd);
-    let requested: Vec<String> = args
-        .iter()
-        .skip(1)
-        .filter(|arg| !arg.starts_with('-'))
-        .cloned()
-        .collect();
-    if requested.is_empty() {
-        // A bare second launch carries no repository to forward; focusing the
-        // running window is all the user asked for.
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.unminimize();
-            let _ = window.show();
-            let _ = window.set_focus();
-        }
-        return;
-    }
-    match cli::resolve_forwarded(&requested, cwd_path) {
-        Ok(paths) => {
-            log::info!(
-                "[cli] forwarding {} path(s) to the running instance",
-                paths.len()
-            );
-            AppState::deliver_open_paths(app, paths);
-        }
-        Err(error) => log::warn!("[cli] forwarded launch rejected: {error}"),
-    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
+    let app = app.clone();
+    let args = args
+        .iter()
+        .skip(1)
+        .map(std::ffi::OsString::from)
+        .collect::<Vec<_>>();
+    let cwd = std::path::PathBuf::from(cwd);
+    // Repository discovery invokes Git; it must not block the native event loop.
+    tauri::async_runtime::spawn_blocking(move || match cli::parse_at(&args, &cwd) {
+        cli::Parsed::Run(invocation) => AppState::deliver_open_paths(&app, invocation.paths),
+        cli::Parsed::UsageError(error) => log::warn!("[cli] forwarded launch rejected: {error}"),
+        _ => {}
+    });
 }
 
 /// Rebuild the native menu when the language or shortcuts change, and forward

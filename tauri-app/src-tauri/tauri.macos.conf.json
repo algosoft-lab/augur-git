@@ -19,5 +19,12 @@
         "hiddenTitle": true
       }
     ]
+  },
+  "bundle": {
+    "macOS": {
+      "files": {
+        "MacOS/agit": "target/release/agit"
+      }
+    }
   }
 }

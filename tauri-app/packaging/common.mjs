@@ -135,3 +135,25 @@ export function assertHostPlatform(expectedPlatform, expectedArch) {
     );
   }
 }
+
+export function buildCli() {
+  run('cargo', ['build', '--manifest-path', join(TAURI_ROOT, 'Cargo.toml'), '-p', 'augur-core', '--bin', 'agit', '--release']);
+  assertCli(join(TARGET_ROOT, 'agit'));
+}
+
+export function assertCli(path) {
+  assertExecutable(path);
+  for (const flag of ['--help', '--version']) {
+    const result = spawnSync(path, [flag], { encoding: 'utf8', timeout: 10000 });
+    if (result.error || result.status !== 0 || !result.stdout.includes('Augur Git')) {
+      throw new Error(`CLI smoke check failed for ${path} ${flag}: ${result.error ?? result.stderr}`);
+    }
+    if (flag === '--help' && !result.stdout.includes('agit [OPTIONS]')) {
+      throw new Error('CLI help does not expose the agit command');
+    }
+  }
+  const invalid = spawnSync(path, ['--not-an-option'], { encoding: 'utf8', timeout: 10000 });
+  if (invalid.status !== 2 || !invalid.stderr.includes('agit:')) {
+    throw new Error('CLI usage errors must be printed to stderr with exit status 2');
+  }
+}

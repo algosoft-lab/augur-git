@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import type { CliStatus } from '../../src/bridge/types';
 
 /**
  * A stub Tauri runtime for browser tests.
@@ -28,6 +29,7 @@ export {
 
 /** The stub's mutable state, so a test can steer it. */
 export interface StubOptions {
+  cliStatus?: CliStatus;
   /** Repositories the bootstrap reports as already open. */
   open: StubRepo[];
   /**
@@ -174,6 +176,7 @@ export function stubSource(options: StubOptions, overrides: Record<string, strin
 
 function install(
   options: {
+    cliStatus?: CliStatus;
     open: StubRepo[];
     available: StubRepo[];
     savedTabs?: string[];
@@ -594,7 +597,27 @@ function install(
     return { ...document, rows: [], aligned_rows: [], binary: true };
   }
 
+  let cliStatus =
+    options.cliStatus ??
+    ({
+      state: 'unsupported',
+      path: '',
+      canInstall: false,
+      canRemove: false,
+      packageManaged: false,
+      pathCommand: null,
+      detail: ''
+    } as CliStatus);
   const handlers: Record<string, (args: any) => unknown> = {
+    get_cli_status: () => cliStatus,
+    install_cli: () => {
+      cliStatus = { ...cliStatus, state: 'available', canRemove: true, pathCommand: null };
+      return cliStatus;
+    },
+    uninstall_cli: () => {
+      cliStatus = { ...cliStatus, state: 'not-installed', canRemove: false };
+      return cliStatus;
+    },
     // Drained, not read: a second collection while one is in flight must not
     // hand the same path out twice.
     take_pending_paths: () => (options.pendingPaths ?? []).splice(0),

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   BUNDLE_ROOT,
+  assertCli,
   OUTPUT_ROOT,
   TARGET_ROOT,
   assertExecutable,
@@ -42,12 +43,15 @@ const archiveDirectory = join(stagingRoot, 'augur-git-tauri-linux-x86_64');
 try {
   mkdirSync(archiveDirectory, { recursive: true });
   cpSync(appBinary, join(archiveDirectory, 'augur-git-tauri'));
+  cpSync(join(TARGET_ROOT, 'agit'), join(archiveDirectory, 'agit'));
   writeFileSync(
     join(archiveDirectory, 'README.txt'),
     [
       'Augur Git Tauri Linux x86-64 raw binaries',
       '',
       'Run ./augur-git-tauri to launch the desktop application.',
+      'Run ./agit . to open the current Git working tree from a terminal.',
+      'Settings > General can install the agit command in a user directory.',
       '',
       'The desktop application uses system GTK 3 and WebKitGTK 4.1 libraries.',
       'Install the runtime libraries required by your Linux distribution.',
@@ -66,6 +70,7 @@ try {
   const rawPackage = join(archiveCheckRoot, 'augur-git-tauri-linux-x86_64');
   const rawApp = join(rawPackage, 'augur-git-tauri');
   assertExecutable(rawApp);
+  assertCli(join(rawPackage, 'agit'));
 } finally {
   removePath(archiveCheckRoot);
 }
@@ -108,6 +113,8 @@ try {
   });
   assertExecutable(join(debRoot, 'usr', 'bin', 'augur-git-tauri'));
   assertExecutable(join(appImageRoot, 'usr', 'bin', 'augur-git-tauri'));
+  assertCli(join(debRoot, 'usr', 'bin', 'agit'));
+  assertCli(join(appImageRoot, 'usr', 'bin', 'agit'));
 } finally {
   removePath(packageCheckRoot);
 }

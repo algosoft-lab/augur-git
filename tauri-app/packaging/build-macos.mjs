@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   BUNDLE_ROOT,
+  assertCli,
   OUTPUT_ROOT,
   assertHostPlatform,
   appendTauriConfig,
@@ -29,6 +30,7 @@ run('bun', appendTauriConfig(['run', 'tauri:build', '--', '--bundles', 'app', '-
 
 const appBundle = findSingleDirectory(join(BUNDLE_ROOT, 'macos'), '.app');
 run('codesign', ['--verify', '--deep', '--strict', appBundle]);
+assertCli(join(appBundle, 'Contents', 'MacOS', 'agit'));
 
 const stagingRoot = mkdtempSync(join(tmpdir(), 'augur-git-tauri-dmg-'));
 try {

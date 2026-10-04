@@ -24,6 +24,7 @@ export function renderCask({ version, sha256 }) {
   depends_on arch: :arm64
 
   app "Augur Git Tauri.app"
+  binary "#{appdir}/Augur Git Tauri.app/Contents/MacOS/agit", target: "agit"
 
   caveats <<~EOS
     Nightly builds use an ad-hoc signature and are not notarized. macOS may ask you to approve the app

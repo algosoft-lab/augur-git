@@ -82,6 +82,9 @@ describe('nightly release metadata', () => {
     expect(cask).toContain('sha256 "' + 'a'.repeat(64) + '"');
     expect(cask).toContain('releases/download/tauri-nightly-0.1.1-nightly.42/');
     expect(cask).toContain('depends_on arch: :arm64');
+    expect(cask).toContain(
+      'binary "#{appdir}/Augur Git Tauri.app/Contents/MacOS/agit", target: "agit"'
+    );
     expect(() => renderCask({ version: '0.1.1-nightly.42', sha256: 'invalid' })).toThrow();
   });
 });

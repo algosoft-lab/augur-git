@@ -55,10 +55,20 @@ pub fn parse_from_env() -> CliInvocation {
 /// Parse an argument list. Pure apart from the filesystem access used to
 /// validate paths, so it is unit-testable.
 pub fn parse(args: &[OsString]) -> Parsed {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    parse_at(args, &cwd)
+}
+
+pub fn parse_at(args: &[OsString], cwd: &Path) -> Parsed {
     let mut requested: Vec<OsString> = Vec::new();
+    let mut options = true;
     for arg in args {
         let lossy = arg.to_string_lossy();
-        if lossy.starts_with('-') && lossy != "-" {
+        if options && lossy == "--" {
+            options = false;
+            continue;
+        }
+        if options && lossy.starts_with('-') && lossy != "-" {
             match lossy.as_ref() {
                 "-h" | "--help" => return Parsed::Help,
                 "-V" | "--version" => return Parsed::Version,
@@ -80,7 +90,7 @@ pub fn parse(args: &[OsString]) -> Parsed {
         return Parsed::Run(CliInvocation { paths: Vec::new() });
     }
 
-    match resolve_paths(&requested) {
+    match resolve_paths(&requested, cwd) {
         Ok(paths) => Parsed::Run(CliInvocation { paths }),
         Err(message) => Parsed::UsageError(message),
     }
@@ -88,11 +98,13 @@ pub fn parse(args: &[OsString]) -> Parsed {
 
 /// Canonicalize and validate every requested path. Each argument must be an
 /// existing directory.
-fn resolve_paths(requested: &[OsString]) -> Result<Vec<String>, String> {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+fn resolve_paths(requested: &[OsString], cwd: &Path) -> Result<Vec<String>, String> {
     let mut resolved = Vec::with_capacity(requested.len());
     for request in requested {
-        resolved.push(resolve_path(request, &cwd)?);
+        let root = resolve_path(request, cwd)?;
+        if !resolved.contains(&root) {
+            resolved.push(root);
+        }
     }
     Ok(resolved)
 }
@@ -112,9 +124,30 @@ fn resolve_path(request: &OsString, cwd: &Path) -> Result<String, String> {
             candidate.to_string_lossy()
         ));
     }
-    Ok(normalize_extended_path(&canonical)
-        .to_string_lossy()
-        .into_owned())
+    let output = crate::git::GitRepo::local("")
+        .command()
+        .arg("-C")
+        .arg(&canonical)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .map_err(|error| format!("could not run Git: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "path '{}' is not a Git working tree: {}",
+            candidate.to_string_lossy(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let root = String::from_utf8(output.stdout)
+        .map_err(|_| "Git returned a non-UTF-8 repository path".to_string())?;
+    let root = root.strip_suffix("\n").unwrap_or(&root);
+    #[cfg(windows)]
+    let root = root.strip_suffix("\r").unwrap_or(root);
+    let root = std::fs::canonicalize(root).map_err(|error| error.to_string())?;
+    normalize_extended_path(&root)
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "repository path is not valid UTF-8".to_string())
 }
 
 /// Resolve paths received from a second launch. The secondary process already
@@ -123,45 +156,39 @@ fn resolve_path(request: &OsString, cwd: &Path) -> Result<String, String> {
 pub fn resolve_forwarded(raw: &[String], cwd: &Path) -> Result<Vec<String>, String> {
     let mut resolved = Vec::with_capacity(raw.len());
     for request in raw {
-        let candidate = Path::new(request);
-        let absolute = if candidate.is_absolute() {
-            candidate.to_path_buf()
-        } else {
-            cwd.join(candidate)
-        };
-        let canonical = std::fs::canonicalize(&absolute)
-            .map_err(|_| format!("path '{}' does not exist", candidate.to_string_lossy()))?;
-        if !canonical.is_dir() {
-            return Err(format!(
-                "path '{}' is not a directory",
-                candidate.to_string_lossy()
-            ));
+        let root = resolve_path(&OsString::from(request), cwd)?;
+        if !resolved.contains(&root) {
+            resolved.push(root);
         }
-        resolved.push(
-            normalize_extended_path(&canonical)
-                .to_string_lossy()
-                .into_owned(),
-        );
     }
     Ok(resolved)
 }
 
 pub fn print_help() {
+    print_help_for(build_info::APP_BINARY);
+}
+
+pub fn print_help_for(binary: &str) {
     println!(
         "{} - Git GUI client
 
 Usage:
   {binary} [OPTIONS] [PATH]...
 
-Opens each PATH as a repository tab. When an application window is already
+Opens the Git working tree containing each PATH as a repository tab. When an application window is already
 running, the paths are forwarded to it; otherwise a new window opens with
 them.
 
 Options:
   -h, --help     Print this help and exit
-  -V, --version  Print version information and exit",
+  -V, --version  Print version information and exit
+  --             Treat following arguments as paths
+
+Examples:
+  {binary} .
+  {binary} ~/projects/repo-a ~/projects/repo-b",
         build_info::version_line(),
-        binary = build_info::APP_BINARY,
+        binary = binary,
     );
 }
 
@@ -175,8 +202,13 @@ mod tests {
 
     #[test]
     fn explicit_existing_directory_is_canonicalized() {
-        let cwd = std::env::current_dir().unwrap();
-        let assets = cwd.join("i18n");
+        let output = crate::git::GitRepo::local("")
+            .command()
+            .args(["rev-parse", "--show-toplevel"])
+            .output()
+            .unwrap();
+        let assets =
+            std::fs::canonicalize(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
         let parsed = parse(&[os("i18n")]);
         let Parsed::Run(invocation) = parsed else {
             panic!("expected a run invocation");
@@ -217,7 +249,7 @@ mod tests {
         let Parsed::Run(invocation) = parsed else {
             panic!("expected a run invocation");
         };
-        assert_eq!(invocation.paths.len(), 2);
+        assert_eq!(invocation.paths.len(), 1);
     }
 
     #[test]
