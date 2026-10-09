@@ -61,6 +61,8 @@ test.describe('pane layout', () => {
     const center = await page.getByTestId('repo-7').locator('.repo__center').boundingBox();
     expect(center!.width).toBeGreaterThanOrEqual(280);
 
+    await page.locator('.graph-row').first().click();
+    await expect(page.getByTestId('bottom-panel')).toBeVisible();
     await dragBy(page, 'diff-splitter', 0, 30);
     const diffHeight = Number.parseFloat(
       await page.getByTestId('bottom-panel').evaluate((element) => getComputedStyle(element).height)
@@ -68,7 +70,6 @@ test.describe('pane layout', () => {
     expect(diffHeight).toBeLessThan(300);
     expect(diffHeight).toBeGreaterThan(280);
 
-    await page.locator('.graph-row').first().click();
     await expect(page.getByTestId('bottom-file-src/lib.rs')).toBeVisible();
     const listBefore = await page
       .getByTestId('bottom-file-list')

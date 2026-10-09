@@ -136,29 +136,33 @@ export function RepoTab({ repo }: { repo: RepoState }) {
       <div className="repo__center">
         <Toolbar repo={repo} />
         <GraphView repo={repo} />
-        <Splitter
-          orientation="horizontal"
-          label="resize diff"
-          testId="diff-splitter"
-          onDragStart={() => {
-            diffDragStart.current = diffHeight ?? 320;
-          }}
-          onDrag={(delta) => {
-            const next = diffDragStart.current - delta;
-            previewLayout({
-              diff_height: clamp(next, MIN_DIFF_HEIGHT, maxDiffHeight)
-            });
-          }}
-          onDragEnd={() => void persistLayout()}
-        />
-        <BottomPanel
-          repo={repo}
-          height={diffHeight}
-          onFileListRatioChange={(ratio) => {
-            previewLayout({ file_list_ratio: ratio });
-          }}
-          onFileListRatioChangeEnd={() => void persistLayout()}
-        />
+        {repo.pane.kind !== 'none' ? (
+          <>
+            <Splitter
+              orientation="horizontal"
+              label="resize diff"
+              testId="diff-splitter"
+              onDragStart={() => {
+                diffDragStart.current = diffHeight ?? 320;
+              }}
+              onDrag={(delta) => {
+                const next = diffDragStart.current - delta;
+                previewLayout({
+                  diff_height: clamp(next, MIN_DIFF_HEIGHT, maxDiffHeight)
+                });
+              }}
+              onDragEnd={() => void persistLayout()}
+            />
+            <BottomPanel
+              repo={repo}
+              height={diffHeight}
+              onFileListRatioChange={(ratio) => {
+                previewLayout({ file_list_ratio: ratio });
+              }}
+              onFileListRatioChangeEnd={() => void persistLayout()}
+            />
+          </>
+        ) : null}
       </div>
 
       <div className="repo__right" style={{ width: rightPanelWidth }} data-testid="repo-right">

@@ -12,19 +12,24 @@ import { diffPayload } from './fixtures/stubBackend';
  */
 
 test.describe('commit selection', () => {
-  test('waits for a user selection instead of showing a permanent commit placeholder', async ({
-    page
-  }) => {
+  test('uses the full center pane for history until a diff is selected', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
-    await expect(page.getByTestId('bottom-no-commit-state')).toBeVisible();
-    await expect(page.getByTestId('bottom-panel')).toContainText('No commit selected');
+    await expect(page.getByTestId('bottom-panel')).toHaveCount(0);
+    await expect(page.getByTestId('diff-splitter')).toHaveCount(0);
     await expect(page.getByTestId('diff-hunk')).toHaveCount(0);
+    const center = await page.getByTestId('repo-7').locator('.repo__center').boundingBox();
+    const graph = await page.getByTestId('graph').boundingBox();
+    expect(center).not.toBeNull();
+    expect(graph).not.toBeNull();
+    expect(Math.abs(center!.y + center!.height - (graph!.y + graph!.height))).toBeLessThanOrEqual(
+      1
+    );
 
     await page.locator('.graph-row').first().click();
+    await expect(page.getByTestId('diff-splitter')).toBeVisible();
+    await expect(page.getByTestId('bottom-panel')).toBeVisible();
     await expect(page.getByTestId('bottom-commit-hash')).toHaveText('13c6ef3');
-    await expect(page.getByTestId('bottom-no-commit-state')).toHaveCount(0);
-    await expect(page.getByTestId('bottom-panel')).not.toContainText('No commit selected');
   });
 
   test('previews supported image changes and switches SVG between image and diff', async ({
@@ -372,13 +377,11 @@ test.describe('commit selection', () => {
   });
 
   test('switches to the side-by-side layout when the preference says so', async ({ page }) => {
-    await boot(page, { open: [fixtureRepo()] });
-
-    await page.evaluate(() => {
-      (window as any).__STUB__.config.view.diff_layout = 'side-by-side';
-    });
+    await boot(page, { open: [fixtureRepo()], diffLayout: 'side-by-side' });
+    await page.setViewportSize({ width: 1800, height: 1000 });
 
     await page.locator('.graph-row').first().click();
+    await expect(page.getByTestId('bottom-panel')).toBeVisible();
     await expect(page.getByTestId('diff-hunk').first()).toBeVisible();
 
     // A single file shows one text cell per row; the file list is what narrows
@@ -648,7 +651,7 @@ test.describe('commit selection', () => {
     await expect(page.getByTestId('bottom-panel')).not.toContainText('No commit selected');
   });
 
-  test('clears the selection back to the placeholder', async ({ page }) => {
+  test('hides the diff panel when clearing the selected commit', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
     await page.locator('.graph-row').first().click();
@@ -657,7 +660,8 @@ test.describe('commit selection', () => {
     await page.getByTestId('bottom-clear-commit').click();
 
     await expect(page.getByTestId('bottom-file-src/lib.rs')).toHaveCount(0);
-    await expect(page.getByTestId('bottom-panel')).toContainText('No commit selected');
+    await expect(page.getByTestId('bottom-panel')).toHaveCount(0);
+    await expect(page.getByTestId('diff-splitter')).toHaveCount(0);
   });
 
   test('loads a working-tree diff and says which side it is', async ({ page }) => {
@@ -948,15 +952,16 @@ test.describe('commit selection', () => {
     // panel must not keep showing a commit the list no longer contains.
     await page.getByTestId('commit-search').fill('nothing matches this');
     await expect(page.getByTestId('commit-search-no-results')).toBeVisible();
-    // The panel stays mounted with its placeholder, as the reference does, but
-    // the diff is gone.
+    // Clearing the selection removes the diff area so history can use the space.
     await expect(page.getByTestId('diff-hunk')).toHaveCount(0);
-    await expect(page.getByTestId('bottom-panel')).toContainText('No commit selected');
+    await expect(page.getByTestId('bottom-panel')).toHaveCount(0);
+    await expect(page.getByTestId('diff-splitter')).toHaveCount(0);
 
     // Restoring the query does not resurrect the selection.
     await page.getByTestId('commit-search').fill('');
     await expect(page.locator('.graph-row')).toHaveCount(8);
     await expect(page.getByTestId('diff-hunk')).toHaveCount(0);
+    await expect(page.getByTestId('bottom-panel')).toHaveCount(0);
   });
 
   test('names each column in a header that tracks the rows', async ({ page }) => {
