@@ -242,15 +242,32 @@ fn read_ref(repo: &GitRepo, reference: &str) -> Result<Option<String>, String> {
 
 fn read_git_path_file(repo: &GitRepo, name: &str) -> Result<Option<String>, String> {
     let path = git_output(repo, ["rev-parse", "--git-path", name])?;
-    let output = repo
-        .command_in_location("cat")
-        .arg(path)
-        .output()
-        .map_err(|error| format!("failed to read Git operation metadata: {error}"))?;
-    if !output.status.success() {
-        return Ok(None);
-    }
-    Ok(nonempty_stdout(&output.stdout))
+    let bytes = match repo.location() {
+        // `cat` is not a Windows program; local repositories read through the
+        // filesystem directly, mirroring `operation_probe::git_path_exists`.
+        RepoLocation::Local => {
+            let path = PathBuf::from(&path);
+            let path = if path.is_absolute() {
+                path
+            } else {
+                Path::new(repo.path()).join(path)
+            };
+            std::fs::read(path).ok()
+        }
+        RepoLocation::Wsl { .. } => {
+            let output = repo
+                .command_in_location("cat")
+                .arg("--")
+                .arg(&path)
+                .output()
+                .map_err(|error| format!("failed to read Git operation metadata: {error}"))?;
+            if !output.status.success() {
+                return Ok(None);
+            }
+            Some(output.stdout)
+        }
+    };
+    Ok(bytes.as_deref().and_then(nonempty_stdout))
 }
 
 fn git_output<const N: usize>(repo: &GitRepo, args: [&str; N]) -> Result<String, String> {

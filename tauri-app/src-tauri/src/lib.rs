@@ -9,6 +9,7 @@ use tauri::{Emitter, Listener, Manager, RunEvent, WindowEvent};
 use tauri_plugin_window_state::StateFlags;
 
 pub mod auto_refresh;
+#[cfg(unix)]
 mod cli_shell;
 pub mod commands;
 pub mod events;
