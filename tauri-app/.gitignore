@@ -19,6 +19,7 @@ coverage/
 /blob-report/
 /playwright/.cache/
 
+
 # Editor and OS noise
 .DS_Store
 .idea/
