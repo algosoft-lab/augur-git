@@ -47,6 +47,17 @@ pub enum GitAction {
         remote: String,
         branch: String,
     },
+    RemoteAdd {
+        name: String,
+        url: String,
+    },
+    RemoteSetUrl {
+        name: String,
+        url: String,
+    },
+    RemoteRemove {
+        name: String,
+    },
     Stash {
         message: String,
     },
@@ -125,6 +136,9 @@ impl GitAction {
                 | GitAction::PushSetUpstream { .. }
                 | GitAction::PushRenameRemote { .. }
                 | GitAction::PushDeleteRemote { .. }
+                | GitAction::RemoteAdd { .. }
+                | GitAction::RemoteSetUrl { .. }
+                | GitAction::RemoteRemove { .. }
                 | GitAction::CreateBranch { .. }
                 | GitAction::RenameBranch { .. }
                 | GitAction::DeleteBranch { .. }
@@ -155,6 +169,9 @@ impl GitAction {
             GitAction::PushSetUpstream { .. } => "push --set-upstream",
             GitAction::PushRenameRemote { .. } => "push --rename",
             GitAction::PushDeleteRemote { .. } => "push --delete",
+            GitAction::RemoteAdd { .. } => "remote add",
+            GitAction::RemoteSetUrl { .. } => "remote set-url",
+            GitAction::RemoteRemove { .. } => "remote remove",
             GitAction::Stash { .. } => "stash",
             GitAction::StashPop { .. } => "stash pop",
             GitAction::StashDrop { .. } => "stash drop",
@@ -229,6 +246,9 @@ impl GitAction {
             GitAction::PushDeleteRemote { remote, branch } => {
                 strs(&["push", remote, "--delete", branch])
             }
+            GitAction::RemoteAdd { name, url } => strs(&["remote", "add", name, url]),
+            GitAction::RemoteSetUrl { name, url } => strs(&["remote", "set-url", name, url]),
+            GitAction::RemoteRemove { name } => strs(&["remote", "remove", name]),
             GitAction::Stash { message } => strs(&["stash", "push", "-m", message]),
             GitAction::StashPop { stash_ref: None } => strs(&["stash", "pop"]),
             GitAction::StashPop {
@@ -466,6 +486,45 @@ mod tests {
                 ":refs/heads/a"
             ]
         );
+    }
+
+    #[test]
+    fn remote_configuration_operations_preserve_each_argument() {
+        let cases = [
+            (
+                GitAction::RemoteAdd {
+                    name: "upstream".into(),
+                    url: "https://example.com/a repo.git".into(),
+                },
+                vec![
+                    "remote",
+                    "add",
+                    "upstream",
+                    "https://example.com/a repo.git",
+                ],
+                "remote add",
+            ),
+            (
+                GitAction::RemoteSetUrl {
+                    name: "origin".into(),
+                    url: "git@example.com:project.git".into(),
+                },
+                vec!["remote", "set-url", "origin", "git@example.com:project.git"],
+                "remote set-url",
+            ),
+            (
+                GitAction::RemoteRemove {
+                    name: "upstream".into(),
+                },
+                vec!["remote", "remove", "upstream"],
+                "remote remove",
+            ),
+        ];
+        for (action, expected, label) in cases {
+            assert_eq!(args(action.clone()), expected);
+            assert_eq!(action.label(), label);
+            assert!(action.refreshes_after_success());
+        }
     }
 
     #[test]
@@ -770,5 +829,29 @@ mod tests {
         }))
         .expect("delete branch wire shape");
         assert_eq!(args(wire), ["branch", "-D", "old"]);
+
+        let add: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "remoteAdd", "name": "upstream", "url": "https://example.com/repo.git"
+        }))
+        .expect("remote add wire shape");
+        assert_eq!(
+            args(add),
+            ["remote", "add", "upstream", "https://example.com/repo.git"]
+        );
+
+        let set_url: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "remoteSetUrl", "name": "origin", "url": "git@example.com:repo.git"
+        }))
+        .expect("remote set-url wire shape");
+        assert_eq!(
+            args(set_url),
+            ["remote", "set-url", "origin", "git@example.com:repo.git"]
+        );
+
+        let remove: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "remoteRemove", "name": "upstream"
+        }))
+        .expect("remote remove wire shape");
+        assert_eq!(args(remove), ["remote", "remove", "upstream"]);
     }
 }

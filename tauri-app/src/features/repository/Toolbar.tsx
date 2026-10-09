@@ -188,6 +188,13 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
     danger: true,
     onSelect: () => openOverlay({ kind: 'forcePush' })
   };
+  const manageRemotesItem: MenuItemSpec = {
+    id: 'manage-remotes',
+    label: t(translate, 'toolbar-manage-remotes'),
+    icon: <Icon name="globe" />,
+    separatorBefore: true,
+    onSelect: () => openOverlay({ kind: 'manageRemotes' })
+  };
   const compactMoreItems: MenuItemSpec[] = [
     ...branchItems,
     {
@@ -197,10 +204,11 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
       disabled: repo.busy,
       onSelect: () => void ipc.openCompareWindow(repo.id)
     },
+    manageRemotesItem,
     resetItem,
     forcePushItem
   ];
-  const moreItems = [...branchItems, resetItem, forcePushItem];
+  const moreItems = [...branchItems, manageRemotesItem, resetItem, forcePushItem];
 
   return (
     <div className={`toolbar${compact ? ' toolbar--sidecar' : ''}`} data-testid="toolbar">

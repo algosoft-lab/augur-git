@@ -152,6 +152,8 @@ pub struct StashInfo {
 pub struct RefsInfo {
     /// 远程名清单（git remote）
     pub remotes: Vec<String>,
+    /// Configured remote names and their fetch URLs.
+    pub remote_urls: Vec<RemoteEntry>,
     /// Remote-tracking branch short names (`origin/main` etc.); symbolic
     /// HEAD aliases are not included.
     pub remote_branches: Vec<String>,
@@ -161,6 +163,12 @@ pub struct RefsInfo {
     pub stashes: Vec<StashInfo>,
     /// Local/remote branches and tags available to revision comparison.
     pub comparison_revisions: Vec<CompareRevision>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteEntry {
+    pub name: String,
+    pub url: String,
 }
 
 /// Line totals reported for one side of the working tree.
@@ -1717,7 +1725,7 @@ fn run_branches(repo: &GitRepo) -> Vec<BranchInfo> {
     branches
 }
 
-/// Collect the sidebar ref snapshot (four read-only quick commands; any
+/// Collect the sidebar ref snapshot (five read-only quick commands; any
 /// failure is treated as an empty section without affecting the others).
 fn run_refs(repo: &GitRepo, event_tx: &Sender<GitEvent>) {
     let out = |args: &[&str]| -> String {
@@ -1743,6 +1751,7 @@ fn run_refs(repo: &GitRepo, event_tx: &Sender<GitEvent>) {
         .unwrap_or_default();
     let refs = RefsInfo {
         remotes: non_empty_lines(&out(&["remote"])),
+        remote_urls: parse_remote_urls(&out(&["remote", "-v"])),
         remote_branches: parse_remote_branches(&out(&[
             "for-each-ref",
             "refs/remotes",
@@ -1753,6 +1762,31 @@ fn run_refs(repo: &GitRepo, event_tx: &Sender<GitEvent>) {
         comparison_revisions,
     };
     let _ = event_tx.send(GitEvent::Refs(refs));
+}
+
+fn parse_remote_urls(text: &str) -> Vec<RemoteEntry> {
+    let mut remotes = Vec::new();
+    for line in text.lines() {
+        let Some((name, endpoint)) = line.split_once('\t') else {
+            continue;
+        };
+        let Some(url) = endpoint.strip_suffix(" (fetch)") else {
+            continue;
+        };
+        if name.is_empty()
+            || url.is_empty()
+            || remotes
+                .iter()
+                .any(|remote: &RemoteEntry| remote.name == name)
+        {
+            continue;
+        }
+        remotes.push(RemoteEntry {
+            name: name.to_string(),
+            url: url.to_string(),
+        });
+    }
+    remotes
 }
 
 /// 非空行列表（trim + 去空行）
@@ -1837,6 +1871,27 @@ mod tests {
         assert_eq!(
             parse_remote_branches(text),
             vec!["origin/build".to_string(), "origin/master".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_remote_urls_keeps_one_fetch_url_per_remote() {
+        let text = "origin\thttps://example.com/project.git (fetch)\n\
+                     origin\tgit@example.com:project.git (push)\n\
+                     upstream\t/path/to/repo with spaces (fetch)\n\
+                     malformed\t (fetch)\n";
+        assert_eq!(
+            parse_remote_urls(text),
+            vec![
+                RemoteEntry {
+                    name: "origin".into(),
+                    url: "https://example.com/project.git".into()
+                },
+                RemoteEntry {
+                    name: "upstream".into(),
+                    url: "/path/to/repo with spaces".into()
+                }
+            ]
         );
     }
 

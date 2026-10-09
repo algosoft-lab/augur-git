@@ -178,8 +178,14 @@ export interface StashInfo {
   description: string;
 }
 
+export interface RemoteEntry {
+  name: string;
+  url: string;
+}
+
 export interface RefsInfo {
   remotes: string[];
+  remote_urls: RemoteEntry[];
   remote_branches: string[];
   tags: string[];
   stashes: StashInfo[];
@@ -339,6 +345,9 @@ export type GitAction =
   | { action: 'pushSetUpstream'; remote: string; branch: string }
   | { action: 'pushRenameRemote'; remote: string; old: string; new: string }
   | { action: 'pushDeleteRemote'; remote: string; branch: string }
+  | { action: 'remoteAdd'; name: string; url: string }
+  | { action: 'remoteSetUrl'; name: string; url: string }
+  | { action: 'remoteRemove'; name: string }
   | { action: 'stash'; message: string }
   | { action: 'stashPop'; stashRef: string | null }
   | { action: 'stashDrop'; stashRef: string }

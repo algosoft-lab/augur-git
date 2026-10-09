@@ -139,6 +139,7 @@ export function Spinner({ size = 13, color, label, rhythm = 'continuous' }: Spin
 }
 
 export interface TextInputProps {
+  id?: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -161,6 +162,7 @@ export interface TextInputProps {
 
 /** A text field that reports Enter and Escape so dialogs can bind them. */
 export function TextInput({
+  id,
   value,
   onChange,
   placeholder,
@@ -183,6 +185,7 @@ export function TextInput({
     >
       {prefix ? <span className="text-input__prefix">{prefix}</span> : null}
       <input
+        id={id}
         data-testid={testId}
         type="text"
         value={value}

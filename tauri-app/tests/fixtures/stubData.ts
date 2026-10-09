@@ -80,6 +80,7 @@ export function fixtureRepo(): StubRepo {
     },
     refs: {
       remotes: ['origin'],
+      remote_urls: [{ name: 'origin', url: 'https://example.com/augur-git.git' }],
       remote_branches: ['origin/master', 'origin/feature/tauri'],
       tags: ['v1.0.0', 'v1.1.0'],
       stashes: [{ reference: 'stash@{0}', description: 'WIP on master: 9ab1c2d' }],

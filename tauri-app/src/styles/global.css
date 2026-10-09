@@ -2350,6 +2350,46 @@ body .diff ::selection {
   font-family: var(--mono-font-family);
 }
 
+.remote-manager {
+  max-height: min(70vh, 620px);
+  overflow-y: auto;
+}
+
+.remote-manager__list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.remote-manager__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+}
+
+.remote-manager__item + .remote-manager__item {
+  border-top: 1px solid var(--border);
+}
+
+.remote-manager__details {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.remote-manager__url {
+  overflow-wrap: anywhere;
+  font-size: calc(var(--ui-font-size) * 0.85);
+}
+
+.remote-manager__empty {
+  padding: 8px 0;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

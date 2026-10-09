@@ -125,6 +125,7 @@ export type Overlay =
   | { kind: 'deleteRemoteBranch'; remote: string; branch: string }
   | { kind: 'forcePush' }
   | { kind: 'pushSetUpstream'; branch: string; remote: string }
+  | { kind: 'manageRemotes' }
   | {
       kind: 'discard';
       scope: { kind: 'workingTree'; staged: boolean; all: boolean };

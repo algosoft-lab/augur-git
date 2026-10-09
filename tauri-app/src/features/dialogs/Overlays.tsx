@@ -22,6 +22,7 @@ import { DiscardDialog, StashDialog, StashDropDialog } from './workingTreeDialog
 import { ForcePushDialog, PushUpstreamDialog } from './pushDialogs';
 import { ResetDialog } from './resetDialog';
 import { OperationErrorDialog } from './reportDialogs';
+import { ManageRemotesDialog } from './remoteDialogs';
 
 export function Overlays({
   wslOpen,
@@ -79,6 +80,8 @@ function OverlayBody({ overlay }: { overlay: Overlay }) {
       return <ForcePushDialog />;
     case 'pushSetUpstream':
       return <PushUpstreamDialog branch={overlay.branch} remote={overlay.remote} />;
+    case 'manageRemotes':
+      return <ManageRemotesDialog />;
     case 'discard':
       return <DiscardDialog overlay={overlay} />;
     case 'mergeConflict':

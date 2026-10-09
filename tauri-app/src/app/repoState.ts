@@ -166,6 +166,7 @@ export function emptyRepo(id: number, path: string, location: LocationConfig): R
 export function emptyRefs(): RefsInfo {
   return {
     remotes: [],
+    remote_urls: [],
     remote_branches: [],
     tags: [],
     stashes: [],

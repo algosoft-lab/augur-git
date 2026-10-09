@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 use augur_core::diff::{DiffDocument, FileChangeStatus};
 use augur_core::git::{
     CompareRevision, CompareRevisionKind, DiffLineStats, FileStatus, GitEvent, GitHandle, GitRepo,
-    LogScope, WorkingTreeDiffKind,
+    LogScope, RemoteEntry, WorkingTreeDiffKind,
 };
 use augur_core::graph::compute_graph;
 
@@ -640,6 +640,19 @@ fn sustained_automatic_refresh_does_not_starve_a_working_tree_diff() {
 fn refs_report_branches_tags_and_an_empty_stash_list() {
     require_git!();
     let mut sandbox = Sandbox::new().expect("sandbox");
+    sandbox.git_ok(&[
+        "remote",
+        "add",
+        "upstream",
+        "https://example.com/project.git",
+    ]);
+    sandbox.git_ok(&[
+        "remote",
+        "set-url",
+        "--push",
+        "upstream",
+        "git@example.com:project.git",
+    ]);
     sandbox.open();
 
     sandbox.handle().refresh();
@@ -657,6 +670,14 @@ fn refs_report_branches_tags_and_an_empty_stash_list() {
         refs.tags
     );
     assert!(refs.stashes.is_empty(), "nothing has been stashed");
+    assert_eq!(
+        refs.remote_urls,
+        vec![RemoteEntry {
+            name: "upstream".into(),
+            url: "https://example.com/project.git".into()
+        }],
+        "the snapshot exposes the fetch URL and not a separately configured push URL"
+    );
     assert!(
         refs.comparison_revisions
             .iter()

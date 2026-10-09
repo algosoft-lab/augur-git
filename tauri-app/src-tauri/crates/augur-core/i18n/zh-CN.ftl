@@ -116,6 +116,28 @@ push-upstream-title = 发布分支？
 push-upstream-warning = 分支 { $branch } 在 { $remote } 上还不存在，将推送该分支并设置 { $remote }/{ $branch } 为其上游。
 push-upstream-confirm = 推送分支
 push-upstream-cancel = 取消
+remotes-title = 管理远程仓库
+remotes-list-label = 已配置的远程仓库
+remotes-form-label = 远程仓库设置
+remotes-empty = 尚未配置远程仓库。请在下方添加。
+remotes-add-title = 添加远程仓库
+remotes-edit-title = 编辑获取地址
+remotes-name-label = 名称
+remotes-url-label = 获取地址
+remotes-url-placeholder = https://example.com/owner/repository.git
+remotes-url-hint = 此处显示获取地址。Git 会保留单独配置的推送地址。
+remotes-url-required = 请输入远程仓库地址。
+remotes-name-invalid = 请输入有效的远程仓库名称。
+remotes-name-exists = 名为 { $name } 的远程仓库已存在。
+remotes-add = 添加远程仓库
+remotes-save = 保存地址
+remotes-add-another = 添加另一个
+remotes-edit = 编辑地址
+remotes-edit-label = 编辑 { $name } 的地址
+remotes-remove = 删除
+remotes-remove-label = 删除 { $name }
+remotes-remove-title = 删除远程仓库？
+remotes-remove-warning = 从此仓库中删除 { $name } 及其远程跟踪分支？
 
 # ===== 工具栏 =====
 toolbar-fetch = 获取
@@ -124,6 +146,7 @@ toolbar-push = 推送
 toolbar-push-force = 推送（强制）
 toolbar-branch = 分支
 toolbar-compare = 比较
+toolbar-manage-remotes = 管理远程仓库…
 toolbar-extensions = 扩展
 toolbar-refresh = 刷新
 
