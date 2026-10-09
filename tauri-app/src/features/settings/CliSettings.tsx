@@ -10,6 +10,7 @@ export function CliSettings() {
   const [status, setStatus] = useState<CliStatus | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
   async function run(action: () => Promise<CliStatus>) {
     setPending(true);
     setError('');
@@ -42,60 +43,90 @@ export function CliSettings() {
       <p className="settings__hint">{t(translate, 'cli-description')}</p>
       {status ? (
         <>
-          <div data-testid="cli-status">{t(translate, `cli-status-${status.state}`)}</div>
+          <div className="cli-settings__status" data-testid="cli-status">
+            <span className="cli-settings__status-mark" aria-hidden="true" />
+            {t(translate, `cli-status-${status.state}`)}
+          </div>
           <div className="settings__hint mono">{status.path}</div>
           {status.detail ? <p className="settings__hint">{status.detail}</p> : null}
           {status.packageManaged ? (
             <p className="settings__hint">{t(translate, 'cli-managed')}</p>
           ) : null}
-          {status.canInstall && status.state !== 'available' && status.state !== 'not-on-path' ? (
+          <div className="cli-settings__actions">
+            {status.canInstall && status.state !== 'available' && status.state !== 'not-on-path' ? (
+              <button
+                type="button"
+                className="cli-settings__button cli-settings__button--primary"
+                disabled={pending}
+                aria-busy={pending}
+                data-testid="cli-install"
+                onClick={() => void run(ipc.installCli)}
+              >
+                {pending ? <span className="cli-settings__spinner" aria-hidden="true" /> : null}
+                {t(translate, status.state === 'broken' ? 'cli-repair' : 'cli-install')}
+              </button>
+            ) : null}
+            {status.canRemove ? (
+              <button
+                type="button"
+                className="cli-settings__button cli-settings__button--danger"
+                disabled={pending}
+                data-testid="cli-uninstall"
+                onClick={() => void run(ipc.uninstallCli)}
+              >
+                {t(translate, 'cli-uninstall')}
+              </button>
+            ) : null}
             <button
               type="button"
-              className="toolbar-button"
+              className="cli-settings__button cli-settings__button--secondary"
               disabled={pending}
-              data-testid="cli-install"
-              onClick={() => void run(ipc.installCli)}
+              data-testid="cli-refresh"
+              onClick={() => void run(ipc.getCliStatus)}
             >
-              {t(translate, status.state === 'broken' ? 'cli-repair' : 'cli-install')}
+              {pending ? <span className="cli-settings__spinner" aria-hidden="true" /> : null}
+              {t(translate, 'cli-refresh')}
             </button>
-          ) : null}
-          {status.canRemove ? (
-            <button
-              type="button"
-              className="toolbar-button"
-              disabled={pending}
-              data-testid="cli-uninstall"
-              onClick={() => void run(ipc.uninstallCli)}
-            >
-              {t(translate, 'cli-uninstall')}
-            </button>
-          ) : null}
+          </div>
           {status.pathCommand ? (
-            <>
+            <div className="cli-settings__path">
               <p className="settings__hint">{t(translate, 'cli-path-hint')}</p>
               <div className="settings__hint mono">{status.pathCommand}</div>
               <button
                 type="button"
-                className="toolbar-button"
-                onClick={() =>
-                  void writeText(status.pathCommand!).catch((error) => setError(String(error)))
-                }
+                className="cli-settings__button cli-settings__button--secondary"
+                data-testid="cli-copy-path"
+                onClick={() => {
+                  setError('');
+                  void writeText(status.pathCommand!).then(
+                    () => setCopied(true),
+                    (error) => setError(String(error))
+                  );
+                }}
               >
+                {copied ? <span aria-hidden="true">✓</span> : null}
                 {t(translate, 'cli-copy-path')}
               </button>
-            </>
+              {copied ? (
+                <span className="cli-settings__copied" role="status">
+                  ✓
+                </span>
+              ) : null}
+            </div>
           ) : null}
         </>
       ) : null}
-      <button
-        type="button"
-        className="toolbar-button"
-        disabled={pending}
-        data-testid="cli-refresh"
-        onClick={() => void run(ipc.getCliStatus)}
-      >
-        {t(translate, 'cli-refresh')}
-      </button>
+      {!status ? (
+        <button
+          type="button"
+          className="cli-settings__button cli-settings__button--secondary"
+          disabled={pending}
+          data-testid="cli-refresh"
+          onClick={() => void run(ipc.getCliStatus)}
+        >
+          {t(translate, 'cli-refresh')}
+        </button>
+      ) : null}
       {error ? (
         <p className="status-conflict" role="alert">
           {error}

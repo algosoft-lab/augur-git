@@ -1784,6 +1784,144 @@ body .diff ::selection {
   font-size: calc(var(--ui-font-size) * 0.7);
 }
 
+.cli-settings__status {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--list-active-background);
+  color: var(--foreground);
+  font-size: calc(var(--ui-font-size) * 0.75);
+  font-weight: 600;
+}
+
+.cli-settings__status-mark {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border: 2px solid var(--muted-foreground);
+  border-radius: 50%;
+}
+
+.cli-settings__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.cli-settings__button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: calc(var(--ui-font-size) * 0.75);
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    background-color 100ms ease,
+    border-color 100ms ease,
+    transform 80ms ease;
+}
+
+.cli-settings__button:hover:not(:disabled) {
+  border-color: var(--accent-background);
+  background: var(--list-hover-background);
+}
+
+.cli-settings__button:active:not(:disabled) {
+  transform: translateY(1px);
+  background: var(--list-active-background);
+}
+
+.cli-settings__button:focus-visible {
+  outline: 2px solid var(--accent-background);
+  outline-offset: 2px;
+}
+
+.cli-settings__button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.cli-settings__button--primary {
+  border-color: var(--primary-background);
+  background: var(--primary-background);
+  color: var(--primary-foreground);
+}
+
+.cli-settings__button--primary:hover:not(:disabled) {
+  border-color: var(--accent-background);
+  background: var(--accent-background);
+}
+
+.cli-settings__button--danger {
+  border-color: var(--base-red);
+  color: var(--base-red);
+}
+
+.cli-settings__button--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--base-red) 12%, var(--background));
+}
+
+.cli-settings__path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 4px;
+}
+
+.cli-settings__path .settings__hint {
+  flex-basis: 100%;
+}
+
+.cli-settings__path .mono {
+  overflow-wrap: anywhere;
+}
+
+.cli-settings__copied {
+  color: var(--base-green);
+  font-size: calc(var(--ui-font-size) * 0.75);
+  font-weight: 700;
+}
+
+.cli-settings__spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: cli-settings-spin 700ms linear infinite;
+}
+
+@keyframes cli-settings-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cli-settings__button {
+    transition: none;
+  }
+
+  .cli-settings__spinner {
+    animation-duration: 2s;
+  }
+}
+
 .settings__row {
   display: flex;
   align-items: center;

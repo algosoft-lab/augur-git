@@ -36,7 +36,22 @@ test('CLI settings offers repair and explains PATH setup', async ({ page }) => {
     }
   });
   await expect(page.getByTestId('cli-install')).toHaveText('Repair agit');
+  await expect(page.getByTestId('cli-install')).toHaveClass(/cli-settings__button--primary/);
+  await expect(page.getByTestId('cli-uninstall')).toHaveClass(/cli-settings__button--danger/);
   await expect(page.getByTestId('settings-cli')).toContainText('fish_add_path ~/.local/bin');
+  await page.getByTestId('cli-install').focus();
+  await expect(page.getByTestId('cli-install')).toBeFocused();
+  await expect(page.getByTestId('cli-install')).toHaveCSS('outline-style', 'solid');
+});
+
+test('CLI settings copies the PATH command and shows feedback', async ({ page }) => {
+  const stub = await boot(page, {
+    window: 'settings',
+    cliStatus: { ...status, pathCommand: 'fish_add_path ~/.local/bin' }
+  });
+  await page.getByTestId('cli-copy-path').click();
+  await expect.poll(() => stub.clipboard()).toBe('fish_add_path ~/.local/bin');
+  await expect(page.getByTestId('settings-cli').locator('[role="status"]')).toHaveText('✓');
 });
 
 for (const state of ['conflict', 'available'] as const) {
