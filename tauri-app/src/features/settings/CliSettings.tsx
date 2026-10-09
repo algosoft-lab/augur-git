@@ -40,7 +40,7 @@ export function CliSettings() {
   const shellAvailable = status?.state === 'not-on-path' && status.shell.state === 'available';
   const shellConflict = status?.shell.state === 'conflict';
   return (
-    <div className="settings__field" data-testid="settings-cli">
+    <div className="settings__field settings__search-target" data-testid="settings-cli">
       <span className="settings__label">{t(translate, 'cli-title')}</span>
       <p className="settings__hint">{t(translate, 'cli-description')}</p>
       {status ? (

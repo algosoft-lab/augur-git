@@ -1793,6 +1793,104 @@ body .diff ::selection {
   overflow-y: auto;
 }
 
+.settings__search {
+  position: relative;
+  z-index: 2;
+  width: min(100%, 560px);
+  flex: 0 0 auto;
+}
+
+.settings__search-label {
+  display: block;
+}
+
+.settings__search-label .text-input {
+  width: 100%;
+  flex: none;
+}
+
+.settings__search-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 24%);
+}
+
+.settings__search-result {
+  display: flex;
+  width: 100%;
+  min-height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: calc(var(--ui-font-size) * 0.78);
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings__search-result:hover,
+.settings__search-result.is-active {
+  background: var(--list-hover-background);
+}
+
+.settings__search-section {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.68);
+}
+
+.settings__search-empty {
+  padding: 9px;
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.75);
+}
+
+.settings__search-target.is-flash,
+.settings__heading.is-flash {
+  border-radius: 6px;
+  animation: settings-search-highlight 1.4s ease-out;
+}
+
+@keyframes settings-search-highlight {
+  from {
+    outline: 2px solid var(--accent-background);
+    outline-offset: 3px;
+  }
+  to {
+    outline: 2px solid transparent;
+    outline-offset: 3px;
+  }
+}
+
+.settings__shortcut-filter {
+  display: block;
+  width: min(100%, 420px);
+}
+
+.settings__shortcut-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings__search-target.is-flash,
+  .settings__heading.is-flash {
+    animation-duration: 1ms;
+  }
+}
+
 .settings__heading {
   font-size: calc(var(--ui-font-size) * 1.25);
   font-weight: 600;

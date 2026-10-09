@@ -372,10 +372,13 @@ discard-confirm = 丢弃
 # ===== 设置面板 =====
 settings-title = 设置
 settings-description = 应用偏好设置
+settings-search-placeholder = 搜索设置…
+settings-search-no-results = 未找到匹配的设置。
 settings-general = 常规
 settings-appearance = 外观
 settings-layout = 布局
 settings-shortcuts = 快捷键
+shortcut-filter-placeholder = 筛选快捷键…
 settings-agents = Agent
 shortcut-edit-description = 输入 p、shift-p、cmd-q 或 ctrl-plus 等按键，多个组合用英文逗号分隔。按回车应用；留空表示解绑。
 shortcut-app-quit = 退出应用

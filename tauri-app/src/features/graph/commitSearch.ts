@@ -12,6 +12,9 @@
  */
 
 import type { LogRow } from '../../bridge/types';
+import { normalize, subsequence } from '../../utils/fuzzy';
+
+export { normalize, subsequence } from '../../utils/fuzzy';
 
 const MIN_HASH_QUERY_LENGTH = 4;
 
@@ -37,29 +40,6 @@ export function matches(row: LogRow, query: string, field: CommitSearchField): b
   );
 }
 
-function subsequence(haystack: string, needle: string): boolean {
-  let from = 0;
-  for (const character of needle) {
-    from = haystack.indexOf(character, from);
-    if (from === -1) {
-      return false;
-    }
-    from += 1;
-  }
-  return true;
-}
-
 function isHashQuery(needle: string): boolean {
   return needle.length >= MIN_HASH_QUERY_LENGTH && /^[0-9a-f]+$/.test(needle);
-}
-
-function normalize(value: string): string {
-  let out = '';
-  for (const character of value) {
-    if (/\s/.test(character) || character === '_' || character === '-') {
-      continue;
-    }
-    out += character.toLowerCase();
-  }
-  return out;
 }

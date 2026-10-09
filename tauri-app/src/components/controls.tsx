@@ -143,6 +143,7 @@ export interface TextInputProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  ariaLabel?: string;
   autoFocus?: boolean;
   monospace?: boolean;
   onSubmit?: () => void;
@@ -166,6 +167,7 @@ export function TextInput({
   value,
   onChange,
   placeholder,
+  ariaLabel,
   autoFocus,
   monospace,
   onSubmit,
@@ -190,6 +192,7 @@ export function TextInput({
         type="text"
         value={value}
         placeholder={placeholder}
+        aria-label={ariaLabel}
         disabled={disabled}
         autoFocus={autoFocus}
         spellCheck={false}

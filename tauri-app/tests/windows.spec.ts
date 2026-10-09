@@ -869,6 +869,46 @@ test.describe('settings window', () => {
     );
   });
 
+  test('searches settings fuzzily and jumps to the selected field', async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()], window: 'settings' });
+
+    const search = page.getByTestId('settings-search');
+    await search.fill('uif');
+    await expect(page.getByTestId('settings-search-result-settings-field-ui-font')).toBeVisible();
+    await search.press('ArrowDown');
+    await expect(
+      page.getByTestId('settings-search-result-settings-field-ui-font-size')
+    ).toHaveAttribute('aria-selected', 'true');
+    await search.press('Enter');
+
+    await expect(page.getByTestId('settings-appearance')).toBeVisible();
+    await expect(page.getByTestId('settings-field-ui-font-size')).toHaveClass(/is-flash/);
+  });
+
+  test('shows an empty state and clears the settings query with Escape', async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()], window: 'settings' });
+
+    const search = page.getByTestId('settings-search');
+    await search.fill('no-such-setting');
+    await expect(page.getByText('No matching settings found.')).toBeVisible();
+    await search.press('Escape');
+    await expect(search).toHaveValue('');
+    await expect(page.getByText('No matching settings found.')).toHaveCount(0);
+  });
+
+  test('fuzzy-filters shortcut rows independently of the global settings search', async ({
+    page
+  }) => {
+    await boot(page, { open: [fixtureRepo()], window: 'settings' });
+    await page.getByTestId('settings-nav-shortcuts').click();
+
+    const filter = page.getByTestId('shortcut-filter');
+    await filter.fill('pul');
+    await expect(page.getByTestId('shortcut-repo.pull')).toBeVisible();
+    await expect(page.getByTestId('shortcut-repo.push')).toHaveCount(0);
+    await expect(page.getByTestId('shortcut-app.quit')).toHaveCount(0);
+  });
+
   test('changes the theme and preserves complete font family names', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()], window: 'settings' });
 

@@ -444,12 +444,15 @@ discard-confirm = Discard
 # ===== Settings panel =====
 settings-title = Settings
 settings-description = Application preferences
+settings-search-placeholder = Search settings…
+settings-search-no-results = No matching settings found.
 settings-general = General
 settings-appearance = Appearance
 settings-layout = Layout
 settings-shortcuts = Shortcuts
 settings-agents = Agents
 shortcut-edit-description = Enter keys like p, shift-p, cmd-q, or ctrl-plus, separated by commas. Press Enter to apply; leave empty to unbind.
+shortcut-filter-placeholder = Filter shortcuts…
 shortcut-app-quit = Quit application
 shortcut-repo-pull = Pull
 shortcut-repo-push = Push
