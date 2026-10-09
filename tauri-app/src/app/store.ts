@@ -189,6 +189,7 @@ interface AppStore {
   pendingEvents: Record<number, RepoEvent[]>;
 
   overlay: Overlay;
+  paletteOpen: boolean;
   notice: Notice | null;
   updateStatus: UpdateStatus | null;
   updateNotice: UpdateNotice | null;
@@ -230,6 +231,8 @@ interface AppStore {
   runAction: (repoId: number, action: GitAction) => Promise<void>;
   openOverlay: (overlay: Overlay) => void;
   closeOverlay: () => void;
+  closePalette: () => void;
+  togglePalette: () => void;
   /**
    * Open a start page as a new tab.
    *
@@ -854,6 +857,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     pendingEvents: {},
 
     overlay: { kind: 'none' },
+    paletteOpen: false,
     notice: null,
     updateStatus: null,
     updateNotice: null,
@@ -1407,11 +1411,24 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     },
 
     openOverlay(overlay) {
-      set({ overlay });
+      set({ overlay, paletteOpen: false });
     },
 
     closeOverlay() {
       set({ overlay: { kind: 'none' } });
+    },
+
+    closePalette() {
+      set({ paletteOpen: false });
+    },
+
+    togglePalette() {
+      const state = get();
+      if (state.paletteOpen) {
+        set({ paletteOpen: false });
+      } else if (state.overlay.kind === 'none') {
+        set({ paletteOpen: true });
+      }
     },
 
     notify(notice) {

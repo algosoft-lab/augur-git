@@ -187,6 +187,23 @@ export function App() {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229) {
         return;
       }
+      const state = useStore.getState();
+      const matches = (command: string) =>
+        matchesShortcut(event, keysForCommand(state.shortcuts.resolved, command));
+      if (matches('app.palette')) {
+        event.preventDefault();
+        if (
+          target.role === 'main' &&
+          (state.paletteOpen ||
+            (state.overlay.kind === 'none' && document.querySelector('[role="dialog"]') === null))
+        ) {
+          state.togglePalette();
+        }
+        return;
+      }
+      if (state.paletteOpen || state.overlay.kind !== 'none') {
+        return;
+      }
       const targetElement = event.target;
       if (!(targetElement instanceof HTMLElement)) {
         return;
@@ -198,12 +215,6 @@ export function App() {
       if (blockedTarget(targetElement) || blockedTarget(document.activeElement) || hasOpenPopup()) {
         return;
       }
-      const state = useStore.getState();
-      if (state.overlay.kind !== 'none') {
-        return;
-      }
-      const matches = (command: string) =>
-        matchesShortcut(event, keysForCommand(state.shortcuts.resolved, command));
 
       if (target.role === 'main') {
         const repo = activeRepo(state);

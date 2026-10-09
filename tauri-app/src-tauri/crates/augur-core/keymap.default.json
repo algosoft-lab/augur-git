@@ -2,6 +2,8 @@
   "bindings": [
     { "command": "app.quit", "keys": ["cmd-q"], "platforms": ["macos"] },
     { "command": "app.quit", "keys": ["alt-f4"], "platforms": ["windows", "linux"] },
+    { "command": "app.palette", "keys": ["cmd-p"], "platforms": ["macos"] },
+    { "command": "app.palette", "keys": ["ctrl-p"], "platforms": ["windows", "linux"] },
     { "command": "repo.pull", "keys": ["p"] },
     { "command": "repo.push", "keys": ["shift-p"] },
     { "command": "repo.fetch", "keys": ["f"] },

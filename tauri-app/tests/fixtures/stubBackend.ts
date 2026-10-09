@@ -280,6 +280,7 @@ function install(
   const typographyModifier = /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? 'cmd' : 'ctrl';
   const defaultShortcuts = [
     { command: 'app.quit', keys: ['CmdOrCtrl+Q'] },
+    { command: 'app.palette', keys: [`${typographyModifier}-p`] },
     { command: 'repo.pull', keys: ['p'] },
     { command: 'repo.push', keys: ['shift-p'] },
     { command: 'repo.fetch', keys: ['f'] },

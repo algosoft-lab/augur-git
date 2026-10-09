@@ -7,6 +7,7 @@ export interface ShortcutCommandDefinition {
 
 export const SHORTCUT_COMMANDS: ShortcutCommandDefinition[] = [
   { command: 'app.quit', label: 'shortcut-app-quit' },
+  { command: 'app.palette', label: 'shortcut-app-palette' },
   { command: 'repo.pull', label: 'shortcut-repo-pull' },
   { command: 'repo.push', label: 'shortcut-repo-push' },
   { command: 'repo.fetch', label: 'shortcut-repo-fetch' },
@@ -213,6 +214,7 @@ function contextsOverlap(left: string, right: string): boolean {
   const global = (command: string) =>
     [
       'app.quit',
+      'app.palette',
       'repo.pull',
       'repo.push',
       'repo.fetch',

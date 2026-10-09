@@ -21,8 +21,9 @@ pub const SYSTEM_DEFAULTS_JSON: &str = include_str!("../keymap.default.json");
 /// Command that quits the application.
 pub const QUIT_COMMAND: &str = "app.quit";
 
-pub const COMMANDS: [&str; 15] = [
+pub const COMMANDS: [&str; 16] = [
     QUIT_COMMAND,
+    "app.palette",
     "repo.pull",
     "repo.push",
     "repo.fetch",
@@ -358,6 +359,7 @@ fn contexts_overlap(left: &str, right: &str) -> bool {
         matches!(
             command,
             "app.quit"
+                | "app.palette"
                 | "repo.pull"
                 | "repo.push"
                 | "repo.fetch"
@@ -425,6 +427,26 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(quit.len(), 1, "exactly one quit default per platform");
         assert!(!quit[0].keys.is_empty());
+    }
+
+    #[test]
+    fn command_palette_has_a_primary_modifier_default() {
+        let defaults = system_defaults();
+        let palette = defaults
+            .bindings
+            .iter()
+            .filter(|entry| {
+                entry.command == "app.palette" && entry.matches_platform(std::env::consts::OS)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(palette.len(), 1);
+        let modifier = if cfg!(target_os = "macos") {
+            "cmd-p"
+        } else {
+            "ctrl-p"
+        };
+        assert_eq!(palette[0].keys, vec![modifier]);
+        assert!(COMMANDS.contains(&"app.palette"));
     }
 
     #[test]

@@ -64,4 +64,13 @@ describe('keyboard shortcuts', () => {
       ])
     ).toEqual({ left: 'app.quit', right: 'repo.pull', key: `${primaryModifier}-q` });
   });
+
+  it('treats the command palette shortcut as global for conflict checks', () => {
+    expect(
+      findShortcutConflict([
+        { command: 'app.palette', keys: ['ctrl-p'] },
+        { command: 'repo.pull', keys: ['ctrl-p'] }
+      ])
+    ).toEqual({ left: 'app.palette', right: 'repo.pull', key: 'ctrl-p' });
+  });
 });

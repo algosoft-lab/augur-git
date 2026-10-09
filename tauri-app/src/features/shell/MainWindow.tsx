@@ -22,6 +22,7 @@ import { t } from '../../i18n/strings';
 import { SidecarWindow } from './SidecarWindow';
 import { UpdateNoticeCard } from './UpdateNoticeCard';
 import { DropOverlay } from './DropOverlay';
+import { CommandPalette } from '../palette/CommandPalette';
 
 export function MainWindow() {
   const translate = useStore((state) => state.t);
@@ -195,6 +196,7 @@ export function MainWindow() {
       )}
       {windowMode === 'sidecar' ? null : <StatusBar repo={activeRepo} />}
       <Overlays wslOpen={wslOpen} onWslOpenChange={setWslOpen} onOpenPaths={openPaths} />
+      <CommandPalette />
       <UpdateNoticeCard />
       {notice ? (
         <div className={`notice notice--${notice.level}`} data-testid="notice">
