@@ -154,7 +154,7 @@ toolbar-refresh = 刷新
 
 # ===== 提交图 =====
 graph-empty = 暂无提交
-commit-search-placeholder = 搜索提交信息…
+commit-search-placeholder = 搜索提交信息或哈希…
 commit-search-subject = 标题
 commit-search-full-message = 完整信息
 commit-search-results = { $matches } / { $total }

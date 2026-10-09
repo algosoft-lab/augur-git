@@ -193,7 +193,7 @@ sidecar-conflicts = Conflicts
 
 # ===== Commit graph =====
 graph-empty = No commits
-commit-search-placeholder = Search commit messages…
+commit-search-placeholder = Search commit messages or hashes…
 commit-search-subject = Subject
 commit-search-full-message = Full message
 commit-search-results = { $matches } / { $total }
