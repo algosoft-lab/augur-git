@@ -105,6 +105,43 @@ body .diff ::selection {
   color: var(--foreground);
 }
 
+.drop-overlay {
+  position: absolute;
+  z-index: 150;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--background);
+  pointer-events: none;
+}
+
+.drop-overlay__content {
+  display: flex;
+  width: min(520px, 100%);
+  min-height: 260px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  border: 2px dashed var(--drag-border);
+  border-radius: 12px;
+  color: var(--drag-border);
+  text-align: center;
+}
+
+.drop-overlay__title {
+  color: var(--foreground);
+  font-size: calc(var(--ui-font-size) * 1.25);
+  font-weight: 600;
+}
+
+.drop-overlay__hint {
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.8);
+}
+
 /* ===== Title bar ===== */
 
 .title-bar {

@@ -29,6 +29,8 @@ pub const MENU_EVENT: &str = "augur://menu";
 pub const SETTINGS_NAVIGATE_EVENT: &str = "augur://settings-navigate";
 /// Event name used when a repository folder is dropped onto a window.
 pub const DROP_EVENT: &str = "augur://drop-paths";
+/// Event name used to show or hide the folder-drag prompt.
+pub const DRAG_STATE_EVENT: &str = "augur://drag-state";
 
 /// A parsed single-file diff, prepared for the viewer.
 ///
@@ -258,9 +260,28 @@ pub struct OpenPathsPayload {
     pub paths: Vec<String>,
 }
 
+/// Drag state for a native folder drag over one webview.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DragStatePayload {
+    pub label: String,
+    pub active: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn drag_state_payload_serializes_for_the_webview() {
+        let payload = DragStatePayload {
+            label: "main".into(),
+            active: true,
+        };
+        let json = serde_json::to_value(payload).unwrap();
+        assert_eq!(json["label"], "main");
+        assert_eq!(json["active"], true);
+    }
 
     #[test]
     fn repo_events_serialize_with_a_tagged_type() {

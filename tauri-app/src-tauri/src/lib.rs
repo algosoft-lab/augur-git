@@ -278,18 +278,53 @@ fn install_window_hooks(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<t
             _ => {}
         })
         .on_webview_event(|webview, event| {
-            if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
-                let folders: Vec<String> = paths
-                    .iter()
-                    .filter(|path| path.is_dir())
-                    .map(|path| path.to_string_lossy().into_owned())
-                    .collect();
-                if !folders.is_empty() {
+            let tauri::WebviewEvent::DragDrop(event) = event else {
+                return;
+            };
+
+            match event {
+                tauri::DragDropEvent::Enter { paths, .. } => {
+                    if paths.iter().any(|path| path.is_dir()) {
+                        let _ = webview.emit(
+                            events::DRAG_STATE_EVENT,
+                            events::DragStatePayload {
+                                label: webview.label().to_string(),
+                                active: true,
+                            },
+                        );
+                    }
+                }
+                tauri::DragDropEvent::Leave => {
                     let _ = webview.emit(
-                        events::DROP_EVENT,
-                        events::OpenPathsPayload { paths: folders },
+                        events::DRAG_STATE_EVENT,
+                        events::DragStatePayload {
+                            label: webview.label().to_string(),
+                            active: false,
+                        },
                     );
                 }
+                tauri::DragDropEvent::Drop { paths, .. } => {
+                    let _ = webview.emit(
+                        events::DRAG_STATE_EVENT,
+                        events::DragStatePayload {
+                            label: webview.label().to_string(),
+                            active: false,
+                        },
+                    );
+                    let folders: Vec<String> = paths
+                        .iter()
+                        .filter(|path| path.is_dir())
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .collect();
+                    if !folders.is_empty() {
+                        let _ = webview.emit(
+                            events::DROP_EVENT,
+                            events::OpenPathsPayload { paths: folders },
+                        );
+                    }
+                }
+                tauri::DragDropEvent::Over { .. } => {}
+                _ => {}
             }
         })
 }

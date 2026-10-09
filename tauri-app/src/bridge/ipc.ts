@@ -61,6 +61,7 @@ export const SETTINGS_NAVIGATE_EVENT = 'augur://settings-navigate';
 export const UPDATE_EVENT = 'augur://update-event';
 export const OPEN_PATHS_EVENT = 'augur://open-paths';
 export const DROP_EVENT = 'augur://drop-paths';
+export const DRAG_STATE_EVENT = 'augur://drag-state';
 
 export interface CommandError {
   key: string;
@@ -421,6 +422,14 @@ export function onOpenPaths(handler: (paths: string[]) => void): Promise<Unliste
 
 export function onDropPaths(handler: (paths: string[]) => void): Promise<UnlistenFn> {
   return listen<{ paths: string[] }>(DROP_EVENT, (event) => handler(event.payload.paths));
+}
+
+export function onDragState(
+  handler: (state: { label: string; active: boolean }) => void
+): Promise<UnlistenFn> {
+  return listen<{ label: string; active: boolean }>(DRAG_STATE_EVENT, (event) =>
+    handler(event.payload)
+  );
 }
 
 /** Tell the backend to open paths in the window that owns the tab list. */

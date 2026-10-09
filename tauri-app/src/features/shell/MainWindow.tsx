@@ -21,11 +21,13 @@ import { Overlays } from '../dialogs/Overlays';
 import { t } from '../../i18n/strings';
 import { SidecarWindow } from './SidecarWindow';
 import { UpdateNoticeCard } from './UpdateNoticeCard';
+import { DropOverlay } from './DropOverlay';
 
 export function MainWindow() {
   const translate = useStore((state) => state.t);
   const tabs = useStore((state) => state.tabs);
   const activeTabKey = useStore((state) => state.activeTabKey);
+  const dragOver = useStore((state) => state.dragOver);
   const repos = useStore((state) => state.repos);
   const notice = useStore((state) => state.notice);
   const openPaths = useStore((state) => state.openPaths);
@@ -207,6 +209,7 @@ export function MainWindow() {
           </button>
         </div>
       ) : null}
+      {dragOver ? <DropOverlay /> : null}
     </div>
   );
 }

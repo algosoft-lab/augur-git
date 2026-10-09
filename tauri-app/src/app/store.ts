@@ -174,6 +174,7 @@ interface AppStore {
   sidecarUi: Record<number, SidecarRepoUi>;
   tabs: TabEntry[];
   activeTabKey: string | null;
+  dragOver: boolean;
   /**
    * Events for a repository that is not in `repos` yet.
    *
@@ -199,6 +200,7 @@ interface AppStore {
   setTranslator: (locale: string, catalog: Record<string, string>) => void;
   openTab: (path: string, location?: LocationConfig, options?: OpenOptions) => Promise<void>;
   openPaths: (paths: string[]) => Promise<void>;
+  setDragOver: (active: boolean) => void;
   closeTab: (key: string) => Promise<void>;
   selectTab: (key: string) => Promise<void>;
   reorderTab: (sourceKey: string, targetKey: string, placement: 'before' | 'after') => void;
@@ -848,6 +850,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     sidecarUi: {},
     tabs: [],
     activeTabKey: null,
+    dragOver: false,
     pendingEvents: {},
 
     overlay: { kind: 'none' },
@@ -933,6 +936,12 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     async openPaths(paths) {
       for (const path of paths) {
         await get().openTab(path);
+      }
+    },
+
+    setDragOver(active) {
+      if (get().dragOver !== active) {
+        set({ dragOver: active });
       }
     },
 

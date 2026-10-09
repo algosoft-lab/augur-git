@@ -136,6 +136,13 @@ export function App() {
           })
         );
         await subscribe(
+          ipc.onDragState(({ label, active }) => {
+            if (target.role === 'main' && label === 'main') {
+              useStore.getState().setDragOver(active);
+            }
+          })
+        );
+        await subscribe(
           ipc.onMenuEvent((id) => {
             void handleMenuAction(id);
           })
