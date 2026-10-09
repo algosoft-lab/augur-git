@@ -600,8 +600,12 @@ err-worker = 后台任务启动失败。
 diff-copy-tooltip = 复制差异
 
 cli-title = 终端命令：agit
-cli-description = 在终端运行 agit . 或 agit /path/to/repository，即可打开 Git 仓库。
+cli-description = 运行 agit 可打开当前目录所属的仓库，也可以传入仓库路径。
 cli-status-available = 可用
+cli-status-shell-available = 用户 shell 中可用；应用启动环境使用了不同的 PATH
+cli-shell-conflict = 用户 shell 优先找到的是另一个 agit 命令：
+cli-shell-not-found = 用户 shell 当前无法找到 agit。
+cli-shell-unknown = 无法确认用户 shell 的 PATH；未修改任何 shell 配置。
 cli-status-not-installed = 尚未安装
 cli-status-conflict = agit 命令已被其他程序占用
 cli-status-broken = 安装已失效，需要修复

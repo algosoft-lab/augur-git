@@ -565,6 +565,13 @@ export type ThemeTokens = Record<string, string>;
 export interface CliStatus {
   state: 'unsupported' | 'available' | 'not-installed' | 'conflict' | 'broken' | 'not-on-path';
   path: string;
+  applicationPath: string | null;
+  shell: {
+    state: 'available' | 'not-found' | 'conflict' | 'unknown';
+    shell: string | null;
+    path: string | null;
+    reason: string | null;
+  };
   canInstall: boolean;
   canRemove: boolean;
   packageManaged: boolean;

@@ -37,6 +37,8 @@ export function CliSettings() {
     };
   }, []);
   if (status?.state === 'unsupported') return null;
+  const shellAvailable = status?.state === 'not-on-path' && status.shell.state === 'available';
+  const shellConflict = status?.shell.state === 'conflict';
   return (
     <div className="settings__field" data-testid="settings-cli">
       <span className="settings__label">{t(translate, 'cli-title')}</span>
@@ -45,15 +47,33 @@ export function CliSettings() {
         <>
           <div className="cli-settings__status" data-testid="cli-status">
             <span className="cli-settings__status-mark" aria-hidden="true" />
-            {t(translate, `cli-status-${status.state}`)}
+            {t(
+              translate,
+              shellAvailable ? 'cli-status-shell-available' : `cli-status-${status.state}`
+            )}
           </div>
           <div className="settings__hint mono">{status.path}</div>
+          {status.shell.state === 'conflict' ? (
+            <p className="settings__hint" data-testid="cli-shell-conflict">
+              {t(translate, 'cli-shell-conflict')}
+              {status.shell.path ? <span className="mono"> {status.shell.path}</span> : null}
+            </p>
+          ) : null}
+          {status.shell.state === 'unknown' ? (
+            <p className="settings__hint">{t(translate, 'cli-shell-unknown')}</p>
+          ) : null}
+          {status.shell.state === 'not-found' ? (
+            <p className="settings__hint">{t(translate, 'cli-shell-not-found')}</p>
+          ) : null}
           {status.detail ? <p className="settings__hint">{status.detail}</p> : null}
           {status.packageManaged ? (
             <p className="settings__hint">{t(translate, 'cli-managed')}</p>
           ) : null}
           <div className="cli-settings__actions">
-            {status.canInstall && status.state !== 'available' && status.state !== 'not-on-path' ? (
+            {status.canInstall &&
+            !shellConflict &&
+            status.state !== 'available' &&
+            status.state !== 'not-on-path' ? (
               <button
                 type="button"
                 className="cli-settings__button cli-settings__button--primary"
@@ -88,7 +108,9 @@ export function CliSettings() {
               {t(translate, 'cli-refresh')}
             </button>
           </div>
-          {status.pathCommand ? (
+          {status.pathCommand &&
+          status.shell.state !== 'available' &&
+          status.shell.state !== 'conflict' ? (
             <div className="cli-settings__path">
               <p className="settings__hint">{t(translate, 'cli-path-hint')}</p>
               <div className="settings__hint mono">{status.pathCommand}</div>

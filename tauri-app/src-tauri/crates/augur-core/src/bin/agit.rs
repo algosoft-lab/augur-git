@@ -5,7 +5,7 @@ fn main() {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
-    let invocation = match cli::parse(&args) {
+    let invocation = match cli::parse_launcher(&args) {
         cli::Parsed::Help => {
             cli::print_help_for("agit");
             return;

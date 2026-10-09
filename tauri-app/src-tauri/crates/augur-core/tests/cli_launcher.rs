@@ -1,6 +1,6 @@
 #![cfg(unix)]
 
-use augur_core::cli::{Parsed, parse_at};
+use augur_core::cli::{Parsed, parse_at, parse_launcher_at};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
@@ -107,6 +107,26 @@ fn resolves_subdirectories_worktrees_and_dash_names_without_partial_launches() {
 }
 
 #[test]
+fn launcher_without_arguments_resolves_the_current_repository_from_a_subdirectory() {
+    let fixture = Fixture::new();
+    let repo = fixture.repo("repo with spaces 中文");
+    let nested = repo.join("nested directory");
+    let Parsed::Run(parsed) = parse_launcher_at(&[], &nested) else {
+        panic!("expected current repository")
+    };
+    assert_eq!(parsed.paths, vec![repo.to_string_lossy()]);
+}
+
+#[test]
+fn launcher_without_arguments_rejects_a_non_repository_directory() {
+    let fixture = Fixture::new();
+    assert!(matches!(
+        parse_launcher_at(&[], &fixture.0),
+        Parsed::UsageError(_)
+    ));
+}
+
+#[test]
 fn launcher_returns_before_gui_exits_and_preserves_argument_boundaries() {
     let fixture = Fixture::new();
     let repo = fixture.repo("repo 'quoted' 中");
@@ -145,6 +165,40 @@ fn launcher_returns_before_gui_exits_and_preserves_argument_boundaries() {
 }
 
 #[test]
+fn bare_launcher_opens_the_worktree_root_in_the_existing_gui() {
+    let fixture = Fixture::new();
+    let repo = fixture.repo("repo with spaces");
+    let launcher = fixture.0.join("agit");
+    fs::copy(env!("CARGO_BIN_EXE_agit"), &launcher).unwrap();
+    let gui = fixture.0.join("augur-git-tauri");
+    fs::write(
+        &gui,
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/arguments\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&gui, fs::Permissions::from_mode(0o755)).unwrap();
+    let output = Command::new(&launcher)
+        .current_dir(repo.join("nested directory"))
+        .env("XDG_CONFIG_HOME", fixture.0.join("config"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let arguments = fixture.0.join("arguments");
+    let start = Instant::now();
+    while !arguments.exists() && start.elapsed() < Duration::from_secs(2) {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        fs::read_to_string(arguments).unwrap(),
+        format!("--\n{}\n", repo.display())
+    );
+}
+
+#[test]
 fn help_version_and_invalid_paths_work_without_a_gui() {
     let fixture = Fixture::new();
     let launcher = fixture.0.join("agit");
@@ -161,8 +215,9 @@ fn help_version_and_invalid_paths_work_without_a_gui() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
     let output = Command::new(&launcher)
+        .current_dir(&fixture.0)
         .env("XDG_CONFIG_HOME", fixture.0.join("config"))
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(2));
 }

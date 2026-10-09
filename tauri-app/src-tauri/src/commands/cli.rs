@@ -4,7 +4,7 @@ static INSTALL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(unix)]
 async fn operation(action: &'static str) -> Result<augur_core::cli_install::Status, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    let mut status = tauri::async_runtime::spawn_blocking(move || {
         let _guard = INSTALL_LOCK
             .lock()
             .map_err(|_| "CLI installation lock failed")?;
@@ -16,7 +16,14 @@ async fn operation(action: &'static str) -> Result<augur_core::cli_install::Stat
         }
     })
     .await
-    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())??;
+    let expected = status.path.clone();
+    if let Ok(shell) =
+        tauri::async_runtime::spawn_blocking(move || crate::cli_shell::detect(&expected)).await
+    {
+        status.shell = shell;
+    }
+    Ok(status)
 }
 
 #[cfg(unix)]

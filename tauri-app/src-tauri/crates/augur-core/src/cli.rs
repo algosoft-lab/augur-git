@@ -59,6 +59,18 @@ pub fn parse(args: &[OsString]) -> Parsed {
     parse_at(args, &cwd)
 }
 
+pub fn parse_launcher(args: &[OsString]) -> Parsed {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    parse_launcher_at(args, &cwd)
+}
+
+pub fn parse_launcher_at(args: &[OsString], cwd: &Path) -> Parsed {
+    if args.is_empty() {
+        return parse_at(&[OsString::from(".")], cwd);
+    }
+    parse_at(args, cwd)
+}
+
 pub fn parse_at(args: &[OsString], cwd: &Path) -> Parsed {
     let mut requested: Vec<OsString> = Vec::new();
     let mut options = true;

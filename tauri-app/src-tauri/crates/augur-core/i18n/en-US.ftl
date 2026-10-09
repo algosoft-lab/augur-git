@@ -674,8 +674,12 @@ diff-copy-tooltip = Copy the diff
 diff-soft-wrap = Soft wrap
 
 cli-title = Terminal command: agit
-cli-description = Open a repository from your terminal with agit . or agit /path/to/repository.
+cli-description = Run agit to open the repository in your current directory, or pass a repository path.
 cli-status-available = Available
+cli-status-shell-available = Available in your user shell; the application's PATH is different
+cli-shell-conflict = Your user shell finds a different agit command first:
+cli-shell-not-found = Your user shell did not find agit.
+cli-shell-unknown = Could not confirm the PATH from your user shell. No shell configuration was changed.
 cli-status-not-installed = Not installed
 cli-status-conflict = Another installation occupies the agit command
 cli-status-broken = The installation needs repair

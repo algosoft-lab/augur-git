@@ -25,11 +25,33 @@ pub struct Context {
 pub struct Status {
     pub state: &'static str,
     pub path: PathBuf,
+    pub application_path: Option<PathBuf>,
+    pub shell: ShellDetection,
     pub can_install: bool,
     pub can_remove: bool,
     pub package_managed: bool,
     pub path_command: Option<String>,
     pub detail: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellDetection {
+    pub state: &'static str,
+    pub shell: Option<String>,
+    pub path: Option<PathBuf>,
+    pub reason: Option<&'static str>,
+}
+
+impl Default for ShellDetection {
+    fn default() -> Self {
+        Self {
+            state: "unknown",
+            shell: None,
+            path: None,
+            reason: Some("shell-not-probed"),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -207,6 +229,8 @@ impl Context {
         let mut status = Status {
             state: "not-installed",
             path: path.clone(),
+            application_path: active.clone(),
+            shell: ShellDetection::default(),
             can_install: true,
             can_remove: ours,
             package_managed: false,
@@ -256,10 +280,20 @@ impl Context {
         }
         if installed && !ours {
             if same(&path, &self.source()) {
-                status.state = "available";
+                status.state = if active.as_ref().is_some_and(|active| same(active, &path)) {
+                    "available"
+                } else {
+                    "not-on-path"
+                };
                 status.package_managed = true;
                 status.can_remove = false;
                 status.can_install = false;
+                if status.state == "not-on-path"
+                    && !std::env::split_paths(&self.search_path)
+                        .any(|dir| same(&dir, path.parent().unwrap()))
+                {
+                    status.path_command = Some(self.command(&path));
+                }
             } else {
                 status.state = "conflict";
                 status.can_install = false;
@@ -530,6 +564,17 @@ mod tests {
         assert_eq!(fixture.context.install().unwrap().state, "available");
         assert_eq!(fixture.context.uninstall().unwrap().state, "not-installed");
     }
+    #[test]
+    fn unrecorded_bundle_launcher_outside_application_path_is_not_on_path() {
+        let fixture = Fixture::new(false);
+        let path = fixture.context.home.join(".local/bin/agit");
+        symlink(fixture.context.source(), &path).unwrap();
+        let status = fixture.context.status().unwrap();
+        assert_eq!(status.state, "not-on-path");
+        assert!(status.path_command.is_some());
+        assert!(status.application_path.is_none());
+    }
+
     #[test]
     fn missing_path_reports_shell_instructions() {
         let fixture = Fixture::new(false);

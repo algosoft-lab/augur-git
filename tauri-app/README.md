@@ -273,11 +273,14 @@ Built-in theme sources and third-party notices are listed in
 ## Terminal command
 
 On macOS and Linux, `agit` opens or focuses Augur Git and returns control to the
-terminal immediately. Each path must be a local Git working tree or a directory
-inside one; subdirectories resolve to the working tree root. Linked worktrees
-and submodules are supported. All paths are checked before launching the GUI.
+terminal immediately. With no path argument, it opens the Git working tree
+containing the current directory. Explicit paths may be a local Git working tree
+or a directory inside one; subdirectories resolve to the working tree root.
+Linked worktrees and submodules are supported. All paths are checked before
+launching the GUI.
 
 ```bash
+agit
 agit .
 agit ~/projects/repo-a ~/projects/repo-b
 agit -- -repository-name
@@ -285,11 +288,12 @@ agit --help
 agit --version
 ```
 
-A bare `agit` opens or focuses the application without opening the terminal's
-working directory. Exit code 0 means the launch was requested successfully, 2
-means invalid arguments or repository paths, and 1 means the launcher could not
-start the application. A successful launch does not acknowledge completion of
-repository loading. WSL repositories are opened through the interface.
+Running `agit` outside a Git working tree reports an error with exit code 2.
+Exit code 0 means the launch was requested successfully, 2 means invalid
+arguments or repository paths, and 1 means the launcher could not start the
+application. A successful launch does not acknowledge completion of repository
+loading. WSL repositories are opened through the interface. Starting the desktop
+application directly still does not open its working directory.
 
 Homebrew cask installations expose `agit` automatically. Debian packages install
 it in `/usr/bin`. Those commands are upgraded and removed by their package
@@ -297,10 +301,12 @@ manager. For manual macOS app bundles, Linux AppImages, and extracted Linux
 archives, open **Settings > General > Terminal command: agit** to install,
 repair, or remove a user-owned command. The installer prefers a writable user
 directory already in the application's PATH and otherwise uses `~/.local/bin`.
-It never replaces a foreign command or requests administrator privileges. If
-needed, Settings provides a shell-specific PATH command to copy; run it once
-and open a new terminal. Detection uses the application's environment, which
-may differ from the terminal's PATH when launched from the desktop.
+It never replaces a foreign command or requests administrator privileges. The
+settings page reports both the application's PATH and a bounded probe of the
+configured bash, zsh, or fish shell. Shell startup files are evaluated for this
+read-only diagnostic; unsupported shells, startup errors, or timeouts are shown
+as unknown. If the shell cannot find the command, Settings provides an optional
+shell-specific PATH command. No shell configuration is changed automatically.
 
 Install a macOS app in a permanent location before installing its command;
 launching from a DMG or a Gatekeeper translocation is unsuitable. Manual app

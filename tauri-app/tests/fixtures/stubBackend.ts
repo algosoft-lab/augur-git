@@ -602,6 +602,8 @@ function install(
     ({
       state: 'unsupported',
       path: '',
+      applicationPath: null,
+      shell: { state: 'unknown', shell: null, path: null, reason: 'shell-not-probed' },
       canInstall: false,
       canRemove: false,
       packageManaged: false,

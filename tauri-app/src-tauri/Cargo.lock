@@ -277,6 +277,7 @@ version = "0.1.0"
 dependencies = [
  "augur-core",
  "fontdb",
+ "libc",
  "log",
  "notify",
  "reqwest",
