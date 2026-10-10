@@ -5,13 +5,14 @@
 //! running instance. Both share one command-line parser and one
 //! single-instance lock, so a second launch never produces a second window.
 
-use tauri::{Emitter, Listener, Manager, RunEvent, WindowEvent};
+use tauri::{Listener, Manager, RunEvent, WindowEvent};
 use tauri_plugin_window_state::StateFlags;
 
 pub mod auto_refresh;
 #[cfg(unix)]
 mod cli_shell;
 pub mod commands;
+pub mod drag_drop;
 pub mod events;
 pub mod fonts;
 pub mod git_args;
@@ -247,85 +248,36 @@ fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .build()
 }
 
-/// Track main-window focus for the active-repository refresh monitor, and
-/// forward dropped folders to the window that received them.
+/// Track main-window focus for the active-repository refresh monitor.
 fn install_window_hooks(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-    builder
-        .on_window_event(|window, event| match event {
-            WindowEvent::Focused(focused) if window.label() == "main" => {
-                if let Some(state) = window.app_handle().try_state::<AppState>() {
-                    state.set_main_window_focused(*focused);
-                }
+    builder.on_window_event(|window, event| match event {
+        // Standard Tauri window-content webviews report native drops as window
+        // events, not as WebviewEvent::DragDrop.
+        WindowEvent::DragDrop(_) => drag_drop::handle_window_event(window, event),
+        WindowEvent::Focused(focused) if window.label() == "main" => {
+            if let Some(state) = window.app_handle().try_state::<AppState>() {
+                state.set_main_window_focused(*focused);
             }
-            // A destroyed webview never runs its own cleanup, so a comparison
-            // started by it would keep running and keep parsing diffs for
-            // nobody. Cancelling here is the only place that still knows which
-            // repository the window belonged to.
-            WindowEvent::Destroyed => {
-                if let Some(state) = window.app_handle().try_state::<AppState>()
-                    && window.label() == "main"
-                {
-                    state.set_main_window_focused(false);
-                }
-                if let Some(repo_id) = window
-                    .label()
-                    .strip_prefix("compare-")
-                    .and_then(|rest| rest.parse::<u64>().ok())
-                    && let Some(state) = window.app_handle().try_state::<AppState>()
-                {
-                    state.with_repo(repo_id, |session| session.cancel_compare());
-                }
+        }
+        // A destroyed webview never runs its own cleanup, so a comparison
+        // started by it would keep running and keep parsing diffs for
+        // nobody. Cancelling here is the only place that still knows which
+        // repository the window belonged to.
+        WindowEvent::Destroyed => {
+            if let Some(state) = window.app_handle().try_state::<AppState>()
+                && window.label() == "main"
+            {
+                state.set_main_window_focused(false);
             }
-            _ => {}
-        })
-        .on_webview_event(|webview, event| {
-            let tauri::WebviewEvent::DragDrop(event) = event else {
-                return;
-            };
-
-            match event {
-                tauri::DragDropEvent::Enter { paths, .. } => {
-                    if paths.iter().any(|path| path.is_dir()) {
-                        let _ = webview.emit(
-                            events::DRAG_STATE_EVENT,
-                            events::DragStatePayload {
-                                label: webview.label().to_string(),
-                                active: true,
-                            },
-                        );
-                    }
-                }
-                tauri::DragDropEvent::Leave => {
-                    let _ = webview.emit(
-                        events::DRAG_STATE_EVENT,
-                        events::DragStatePayload {
-                            label: webview.label().to_string(),
-                            active: false,
-                        },
-                    );
-                }
-                tauri::DragDropEvent::Drop { paths, .. } => {
-                    let _ = webview.emit(
-                        events::DRAG_STATE_EVENT,
-                        events::DragStatePayload {
-                            label: webview.label().to_string(),
-                            active: false,
-                        },
-                    );
-                    let folders: Vec<String> = paths
-                        .iter()
-                        .filter(|path| path.is_dir())
-                        .map(|path| path.to_string_lossy().into_owned())
-                        .collect();
-                    if !folders.is_empty() {
-                        let _ = webview.emit(
-                            events::DROP_EVENT,
-                            events::OpenPathsPayload { paths: folders },
-                        );
-                    }
-                }
-                tauri::DragDropEvent::Over { .. } => {}
-                _ => {}
+            if let Some(repo_id) = window
+                .label()
+                .strip_prefix("compare-")
+                .and_then(|rest| rest.parse::<u64>().ok())
+                && let Some(state) = window.app_handle().try_state::<AppState>()
+            {
+                state.with_repo(repo_id, |session| session.cancel_compare());
             }
-        })
+        }
+        _ => {}
+    })
 }

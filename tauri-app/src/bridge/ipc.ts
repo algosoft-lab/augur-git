@@ -9,6 +9,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import type {
   AppConfig,
@@ -421,13 +422,15 @@ export function onOpenPaths(handler: (paths: string[]) => void): Promise<Unliste
 }
 
 export function onDropPaths(handler: (paths: string[]) => void): Promise<UnlistenFn> {
-  return listen<{ paths: string[] }>(DROP_EVENT, (event) => handler(event.payload.paths));
+  return getCurrentWindow().listen<{ paths: string[] }>(DROP_EVENT, (event) =>
+    handler(event.payload.paths)
+  );
 }
 
 export function onDragState(
   handler: (state: { label: string; active: boolean }) => void
 ): Promise<UnlistenFn> {
-  return listen<{ label: string; active: boolean }>(DRAG_STATE_EVENT, (event) =>
+  return getCurrentWindow().listen<{ label: string; active: boolean }>(DRAG_STATE_EVENT, (event) =>
     handler(event.payload)
   );
 }

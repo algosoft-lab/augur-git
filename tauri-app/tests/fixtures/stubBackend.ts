@@ -217,12 +217,19 @@ function install(
   },
   catalog: Record<string, string>
 ): void {
-  const listeners = new Map<string, Set<(payload: unknown) => void>>();
-  const subscriptions = new Map<number, { event: string; listener: (payload: unknown) => void }>();
+  const listeners = new Map<string, Set<number>>();
+  const subscriptions = new Map<
+    number,
+    {
+      event: string;
+      target: { kind: string; label?: string };
+      handler: (payload: unknown) => void;
+    }
+  >();
   const unregisterListener = (event: string, id: number) => {
     const subscription = subscriptions.get(id);
     if (subscription?.event === event) {
-      listeners.get(event)?.delete(subscription.listener);
+      listeners.get(event)?.delete(id);
       subscriptions.delete(id);
     }
   };
@@ -358,12 +365,49 @@ function install(
    * name and a delivery id, because the JavaScript `listen` helper reads
    * `event.payload` and would otherwise see `undefined`.
    */
-  function emit(name: string, payload: unknown): void {
+  function emit(
+    name: string,
+    payload: unknown,
+    target: { kind: string; label?: string } = { kind: 'Any' }
+  ): void {
     eventId += 1;
     const envelope = { event: name, id: eventId, payload };
-    for (const handler of listeners.get(name) ?? []) {
-      handler(envelope);
+    for (const id of listeners.get(name) ?? []) {
+      const subscription = subscriptions.get(id);
+      if (!subscription || !matchesEventTarget(subscription.target, target)) continue;
+      subscription.handler(envelope);
     }
+  }
+
+  function matchesEventTarget(
+    subscription: { kind: string; label?: string },
+    target: { kind: string; label?: string }
+  ): boolean {
+    if (target.kind === 'Any') return true;
+    if (target.kind === 'AnyLabel') {
+      return (
+        ['AnyLabel', 'Window', 'Webview', 'WebviewWindow'].includes(subscription.kind) &&
+        target.label === subscription.label
+      );
+    }
+    if (target.kind === 'App') return subscription.kind === 'App';
+    if (target.kind === 'Window') {
+      return (
+        ['AnyLabel', 'Window'].includes(subscription.kind) && target.label === subscription.label
+      );
+    }
+    if (target.kind === 'Webview') {
+      return (
+        ['AnyLabel', 'Webview'].includes(subscription.kind) && target.label === subscription.label
+      );
+    }
+    if (target.kind === 'WebviewWindow') {
+      return (
+        ['AnyLabel', 'WebviewWindow'].includes(subscription.kind) &&
+        target.label === subscription.label
+      );
+    }
+    return false;
   }
 
   window.addEventListener('storage', (event) => {
@@ -1327,11 +1371,13 @@ function install(
       // `handler` is the identifier `transformCallback` allocated, which is the
       // name the property is defined under on the global object.
       const id = args.handler;
-      const listener = (payload: unknown) => {
-        (globalThis as any)[`_${id}`]?.(payload);
-      };
-      subscriptions.set(id, { event: args.event, listener });
-      set.add(listener);
+      const handler = (payload: unknown) => (globalThis as any)[`_${id}`]?.(payload);
+      subscriptions.set(id, {
+        event: args.event,
+        target: args.target ?? { kind: 'Any' },
+        handler
+      });
+      set.add(id);
       return Promise.resolve(id);
     },
     'plugin:event|unlisten': (args: any) => {
@@ -1340,6 +1386,10 @@ function install(
     },
     'plugin:event|emit': (args: any) => {
       emit(args.event, args.payload);
+      return null;
+    },
+    'plugin:event|emit_to': (args: any) => {
+      emit(args.event, args.payload, args.target);
       return null;
     },
     'plugin:dialog|open': (args: any) => {

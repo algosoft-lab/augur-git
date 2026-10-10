@@ -130,18 +130,20 @@ export function App() {
             void useStore.getState().openPaths(paths);
           })
         );
-        await subscribe(
-          ipc.onDropPaths((paths) => {
-            void useStore.getState().openPaths(paths);
-          })
-        );
-        await subscribe(
-          ipc.onDragState(({ label, active }) => {
-            if (target.role === 'main' && label === 'main') {
-              useStore.getState().setDragOver(active);
-            }
-          })
-        );
+        if (target.role === 'main') {
+          await subscribe(
+            ipc.onDropPaths((paths) => {
+              void useStore.getState().openPaths(paths);
+            })
+          );
+          await subscribe(
+            ipc.onDragState(({ label, active }) => {
+              if (label === 'main') {
+                useStore.getState().setDragOver(active);
+              }
+            })
+          );
+        }
         await subscribe(
           ipc.onMenuEvent((id) => {
             void handleMenuAction(id);

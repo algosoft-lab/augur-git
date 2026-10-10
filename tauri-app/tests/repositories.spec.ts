@@ -64,15 +64,15 @@ test.describe('repositories', () => {
   }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
 
-    await stub.emit('augur://drag-state', { label: 'compare-7', active: true });
+    await stub.emitToWindow('augur://drag-state', { label: 'compare-7', active: true }, 'main');
     await expect(page.getByTestId('drop-overlay')).toHaveCount(0);
 
-    await stub.emit('augur://drag-state', { label: 'main', active: true });
+    await stub.emitToWindow('augur://drag-state', { label: 'main', active: true }, 'main');
     await expect(page.getByTestId('drop-overlay')).toBeVisible();
     await expect(page.getByTestId('repo-7')).toBeAttached();
     await expect(page.getByTestId('drop-overlay')).toContainText('Drop to open repository');
 
-    await stub.emit('augur://drag-state', { label: 'main', active: false });
+    await stub.emitToWindow('augur://drag-state', { label: 'main', active: false }, 'main');
     await expect(page.getByTestId('drop-overlay')).toHaveCount(0);
     await expect(page.getByTestId('repo-7')).toBeVisible();
   });
@@ -80,13 +80,48 @@ test.describe('repositories', () => {
   test('opens a dropped repository folder and clears the drop page', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
 
-    await stub.emit('augur://drag-state', { label: 'main', active: true });
+    await stub.emitToWindow('augur://drag-state', { label: 'main', active: true }, 'main');
     await expect(page.getByTestId('drop-overlay')).toBeVisible();
-    await stub.emit('augur://drag-state', { label: 'main', active: false });
-    await stub.emit('augur://drop-paths', { paths: ['/Users/dev/projects/other-app'] });
+    await stub.emitToWindow('augur://drag-state', { label: 'main', active: false }, 'main');
+    await stub.emitToWindow(
+      'augur://drop-paths',
+      { paths: ['/Users/dev/projects/other-app'] },
+      'main'
+    );
 
     await expect(page.getByTestId('drop-overlay')).toHaveCount(0);
     await expect(page.getByTestId('repo-9')).toBeVisible();
+  });
+
+  test('opens every folder in a multi-folder drop', async ({ page }) => {
+    const stub = await boot(page);
+
+    await stub.emitToWindow(
+      'augur://drop-paths',
+      {
+        paths: ['/Users/dev/projects/augur-git', '/Users/dev/projects/other-app']
+      },
+      'main'
+    );
+
+    await expect(page.locator('.tab__label')).toHaveText(['augur-git', 'other-app']);
+    await expect(page.locator('.tab.is-active .tab__label')).toHaveText('other-app');
+    expect(
+      (await stub.commands())
+        .filter((entry) => entry.cmd === 'open_repository')
+        .map((entry) => entry.args.path)
+    ).toEqual(['/Users/dev/projects/augur-git', '/Users/dev/projects/other-app']);
+  });
+
+  test('shows a notice when a dropped folder is not a repository', async ({ page }) => {
+    const stub = await boot(page, {
+      openFailure: { key: 'err-not-a-repo', detail: '/Users/dev/projects/empty' }
+    });
+
+    stub.emitToWindow('augur://drop-paths', { paths: ['/Users/dev/projects/other-app'] }, 'main');
+
+    await expect(page.getByTestId('notice')).toContainText('/Users/dev/projects/empty');
+    await expect(page.getByTestId('repo-7')).toHaveCount(0);
   });
 
   test('opens a repository and fills every pane from events', async ({ page }) => {
@@ -720,7 +755,11 @@ test.describe('repositories', () => {
     await page.evaluate(() => {
       const stub = (window as any).__STUB__;
       stub.emit('augur://open-paths', { paths: ['/Users/dev/projects/other-app'] });
-      stub.emit('augur://drop-paths', { paths: ['/Users/dev/projects/other-app'] });
+      stub.emit(
+        'augur://drop-paths',
+        { paths: ['/Users/dev/projects/other-app'] },
+        { kind: 'Window', label: 'main' }
+      );
     });
     await expect(page.getByTestId('repo-9')).toBeVisible();
     await expect(page.locator('.tab')).toHaveCount(1);

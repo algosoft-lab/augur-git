@@ -31,6 +31,7 @@ tauri-app/
     crates/augur-core/       # pure Rust Git domain logic, no UI
     src/
       commands/              # the typed surface exposed to the webview
+      drag_drop.rs           # native file-drop routing to application windows
       events.rs              # the event protocol
       git_args.rs            # named operations to Git argument vectors
       menu.rs                # the native menu

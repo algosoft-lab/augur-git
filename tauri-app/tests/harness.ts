@@ -26,6 +26,8 @@ export interface StubApi {
   commandNames(): string[];
   /** Push a backend event into the running application. */
   emit(event: string, payload: unknown): Promise<void>;
+  /** Push a backend event to the same window targets used by Tauri. */
+  emitToWindow(event: string, payload: unknown, label: string): Promise<void>;
   /** Re-announce a repository's status, refs, and log page. */
   announce(repoId: number): Promise<void>;
   /** Change the stubbed window maximize state and emit a native resize event. */
@@ -39,7 +41,7 @@ declare global {
     __STUB__: {
       log: { cmd: string; args: Record<string, unknown> }[];
       clipboard: string;
-      emit(name: string, payload: unknown): void;
+      emit(name: string, payload: unknown, target?: { kind: string; label?: string }): void;
       setMaximized(value: boolean): void;
       announce(repoId: number): void;
     };
@@ -237,6 +239,13 @@ export async function boot(page: Page, options: BootOptions = {}): Promise<StubA
       await page.evaluate(([name, body]) => window.__STUB__.emit(name as string, body), [
         event,
         payload
+      ] as const);
+    },
+    async emitToWindow(event, payload, label) {
+      await page.evaluate(([name, body, target]) => window.__STUB__.emit(name, body, target), [
+        event,
+        payload,
+        { kind: 'Window', label }
       ] as const);
     },
     async announce(repoId) {

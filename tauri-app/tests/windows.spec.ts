@@ -1323,14 +1323,30 @@ test.describe('the native menu bridge', () => {
     await expect(page.getByTestId('repo-7')).toBeVisible();
   });
 
-  test('opens a dropped folder', async ({ page }) => {
-    await boot(page);
-    await page.evaluate(() => {
-      (window as any).__STUB__.emit('augur://drop-paths', {
-        paths: ['/Users/dev/projects/other-app']
-      });
-    });
+  test('opens a folder drop delivered to the main window', async ({ page }) => {
+    const stub = await boot(page);
+    await stub.emitToWindow(
+      'augur://drop-paths',
+      { paths: ['/Users/dev/projects/other-app'] },
+      'main'
+    );
     await expect(page.getByTestId('repo-9')).toBeVisible();
+    expect((await stub.commands()).filter((entry) => entry.cmd === 'open_repository')).toHaveLength(
+      1
+    );
+  });
+
+  test('does not open folder drops received by an auxiliary window', async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()], window: 'compare', repoId: 7 });
+    await stub.emitToWindow(
+      'augur://drop-paths',
+      { paths: ['/Users/dev/projects/other-app'] },
+      'compare'
+    );
+    await expect(page.getByTestId('compare-window')).toBeVisible();
+    expect((await stub.commands()).filter((entry) => entry.cmd === 'open_repository')).toHaveLength(
+      0
+    );
   });
 
   test('shows a notice pushed by the backend', async ({ page }) => {
