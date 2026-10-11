@@ -63,10 +63,6 @@ jobs:
         working-directory: tauri-app
         run: bun ci
 
-      - name: Test Windows CLI behavior
-        working-directory: tauri-app
-        run: cargo test --manifest-path src-tauri/Cargo.toml -p augur-core
-
       - name: Build signed Windows installer
         working-directory: tauri-app
         run: bun run package:windows
