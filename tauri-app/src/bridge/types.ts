@@ -122,7 +122,7 @@ export interface WorkspaceState {
 }
 
 export type WindowMode = 'desktop' | 'sidecar';
-export type SettingsSection = 'general' | 'appearance' | 'layout' | 'shortcuts';
+export type SettingsSection = 'general' | 'git' | 'appearance' | 'layout' | 'shortcuts';
 
 export interface WindowBounds {
   x: number;
@@ -365,6 +365,33 @@ export type GitAction =
   | { action: 'abortStashApply' }
   | { action: 'commit'; message: string; amend: boolean }
   | { action: 'copyCommitMessage'; oid: string };
+
+// ===== Global Git configuration =====
+
+/** The keys Git configuration writes may touch; the backend rejects the rest. */
+export type GitConfigKey =
+  'user.name' | 'user.email' | 'init.defaultBranch' | 'core.autocrlf' | 'core.editor';
+
+/** One write. A `null` value unsets the key. */
+export interface GitConfigEntry {
+  key: GitConfigKey;
+  value: string | null;
+}
+
+/** The global values of every configurable key. */
+export interface GitConfigSnapshot {
+  userName: string | null;
+  userEmail: string | null;
+  initDefaultBranch: string | null;
+  coreAutocrlf: string | null;
+  coreEditor: string | null;
+}
+
+/** The identity Git would use for a commit in one repository. */
+export interface CommitIdentityProbe {
+  name: string | null;
+  email: string | null;
+}
 
 // ===== Events =====
 

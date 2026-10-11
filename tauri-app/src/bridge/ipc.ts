@@ -17,12 +17,15 @@ import type {
   AgentPromptRequest,
   Bootstrap,
   CommitActionPreference,
+  CommitIdentityProbe,
   CommitMessage,
   CompareRevisionArg,
   DiffLayoutPreference,
   FileChange,
   FileStatus,
   GitAction,
+  GitConfigEntry,
+  GitConfigSnapshot,
   GraphRow,
   ImagePreview,
   ImagePreviewTarget,
@@ -389,6 +392,23 @@ export async function dismissUpdateNotice(commitSha: string): Promise<void> {
 
 export async function repositorySummary(repoId: number): Promise<RepoSummary | null> {
   return invoke<RepoSummary | null>('repository_summary', { repoId });
+}
+
+// ===== Global Git configuration =====
+
+export async function readGitConfig(location?: LocationConfig): Promise<GitConfigSnapshot> {
+  return invoke<GitConfigSnapshot>('read_git_config', { location: location ?? null });
+}
+
+export async function writeGitConfig(
+  entries: GitConfigEntry[],
+  location?: LocationConfig
+): Promise<GitConfigSnapshot> {
+  return invoke<GitConfigSnapshot>('write_git_config', { entries, location: location ?? null });
+}
+
+export async function probeCommitIdentity(repoId: number): Promise<CommitIdentityProbe> {
+  return invoke<CommitIdentityProbe>('probe_commit_identity', { repoId });
 }
 
 // ===== Event subscriptions =====

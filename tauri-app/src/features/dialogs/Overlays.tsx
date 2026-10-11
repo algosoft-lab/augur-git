@@ -19,6 +19,7 @@ import {
   StashPopConflictDialog
 } from './integrationDialogs';
 import { DiscardDialog, StashDialog, StashDropDialog } from './workingTreeDialogs';
+import { GitIdentityDialog } from './GitIdentityDialog';
 import { ForcePushDialog, PushUpstreamDialog } from './pushDialogs';
 import { ResetDialog } from './resetDialog';
 import { OperationErrorDialog } from './reportDialogs';
@@ -112,6 +113,8 @@ function OverlayBody({ overlay }: { overlay: Overlay }) {
       );
     case 'stashPopConflict':
       return <StashPopConflictDialog detail={overlay.detail} />;
+    case 'gitIdentity':
+      return <GitIdentityDialog overlay={overlay} />;
     default:
       return null;
   }

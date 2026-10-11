@@ -136,6 +136,10 @@ export interface StubOptions {
   diffLayout?: 'inline' | 'side-by-side';
   diffSoftWrap?: boolean;
   showUntracked?: boolean;
+  /** The global Git configuration the stub starts with, keyed by Git key. */
+  gitConfig?: Record<string, string | null>;
+  /** The identity `probe_commit_identity` resolves for every repository. */
+  identity?: { name: string | null; email: string | null };
 }
 
 export const DEFAULT_OPTIONS: StubOptions = {
@@ -214,6 +218,8 @@ function install(
       diff_font_size: number;
     }>;
     diffLayout?: 'inline' | 'side-by-side';
+    gitConfig?: Record<string, string | null>;
+    identity?: { name: string | null; email: string | null };
   },
   catalog: Record<string, string>
 ): void {
@@ -242,6 +248,7 @@ function install(
   const failure = options.openFailure ?? null;
   const failing = new Set(options.failingActions ?? []);
   const refusals = options.refusals ?? {};
+  const gitConfigState: Record<string, string | null> = { ...(options.gitConfig ?? {}) };
   let opened = 0;
   let requestCounter = 0;
   let workingDiffCalls = 0;
@@ -1137,6 +1144,43 @@ function install(
       target_oid: 'a'.repeat(40),
       ...(options.probeRebase ?? {})
     }),
+
+    read_git_config: () => ({
+      userName: gitConfigState['user.name'] ?? null,
+      userEmail: gitConfigState['user.email'] ?? null,
+      initDefaultBranch: gitConfigState['init.defaultBranch'] ?? null,
+      coreAutocrlf: gitConfigState['core.autocrlf'] ?? null,
+      coreEditor: gitConfigState['core.editor'] ?? null
+    }),
+
+    write_git_config: (args: any) => {
+      for (const entry of args.entries) {
+        gitConfigState[entry.key] = entry.value;
+      }
+      return {
+        userName: gitConfigState['user.name'] ?? null,
+        userEmail: gitConfigState['user.email'] ?? null,
+        initDefaultBranch: gitConfigState['init.defaultBranch'] ?? null,
+        coreAutocrlf: gitConfigState['core.autocrlf'] ?? null,
+        coreEditor: gitConfigState['core.editor'] ?? null
+      };
+    },
+
+    probe_commit_identity: () => {
+      // Effective resolution. An explicit per-test override is authoritative:
+      // a `null` field means that scope has no value, while a write to the
+      // global configuration fills from there. Without an override the values
+      // come from the written configuration or the fixture default.
+      const override = options.identity;
+      return {
+        name: override
+          ? (override.name ?? gitConfigState['user.name'] ?? null)
+          : (gitConfigState['user.name'] ?? 'Stub Author'),
+        email: override
+          ? (override.email ?? gitConfigState['user.email'] ?? null)
+          : (gitConfigState['user.email'] ?? 'stub@example.com')
+      };
+    },
 
     start_compare: () => {
       compareRequest += 1;

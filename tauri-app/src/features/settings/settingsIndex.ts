@@ -33,6 +33,34 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     labelKey: 'settings-store-location',
     targetTestId: 'settings-field-store-location'
   },
+  {
+    section: 'git',
+    labelKey: 'git-user-name-title',
+    hintKey: 'git-user-name-hint',
+    targetTestId: 'settings-field-git-user-name'
+  },
+  {
+    section: 'git',
+    labelKey: 'git-user-email-title',
+    hintKey: 'git-user-email-hint',
+    targetTestId: 'settings-field-git-user-email'
+  },
+  {
+    section: 'git',
+    labelKey: 'git-default-branch-title',
+    targetTestId: 'settings-field-git-default-branch'
+  },
+  {
+    section: 'git',
+    labelKey: 'git-autocrlf-title',
+    targetTestId: 'settings-field-git-autocrlf'
+  },
+  {
+    section: 'git',
+    labelKey: 'git-editor-title',
+    hintKey: 'git-editor-hint',
+    targetTestId: 'settings-field-git-editor'
+  },
   { section: 'appearance', labelKey: 'theme-title', targetTestId: 'settings-field-theme' },
   { section: 'appearance', labelKey: 'ui-font-title', targetTestId: 'settings-field-ui-font' },
   {
@@ -69,6 +97,7 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
 
 const SECTION_LABEL_KEYS: Record<SettingsSection, string> = {
   general: 'settings-general',
+  git: 'settings-git',
   appearance: 'settings-appearance',
   layout: 'settings-layout',
   shortcuts: 'settings-shortcuts'

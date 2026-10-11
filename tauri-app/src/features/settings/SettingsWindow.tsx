@@ -2,16 +2,17 @@
  * The settings window.
  *
  * A native standalone window, like About: the backend opens it once and focuses
- * it on repeat requests. Four sections cover everything the non-AI build
- * exposes: language, themes and fonts, the default diff and history behavior,
- * and shortcut overrides. Every change is written through the backend
- * immediately so it survives a crash, and the native menu is rebuilt by the
- * backend when the language changes.
+ * it on repeat requests. Five sections cover everything the non-AI build
+ * exposes: language, the global Git configuration, themes and fonts, the
+ * default diff and history behavior, and shortcut overrides. Every change is
+ * written through the backend immediately so it survives a crash, and the
+ * native menu is rebuilt by the backend when the language changes.
  */
 
 import { useEffect, useRef, useState } from 'react';
 
 import { CliSettings } from './CliSettings';
+import { GitConfigSettings } from './GitConfigSettings';
 
 import { Icon } from '../../components/Icon';
 import { Select, Slider, TextInput } from '../../components/controls';
@@ -39,6 +40,7 @@ type Section = SettingsSection;
 
 const SECTIONS: { id: Section; key: string }[] = [
   { id: 'general', key: 'settings-general' },
+  { id: 'git', key: 'settings-git' },
   { id: 'appearance', key: 'settings-appearance' },
   { id: 'layout', key: 'settings-layout' },
   { id: 'shortcuts', key: 'settings-shortcuts' }
@@ -185,6 +187,7 @@ export function SettingsWindow({ initialSection = 'general' }: { initialSection?
             onSelect={selectSearchResult}
           />
           {section === 'general' ? <GeneralSection /> : null}
+          {section === 'git' ? <GitConfigSettings /> : null}
           {section === 'appearance' ? <AppearanceSection fonts={fonts} /> : null}
           {section === 'layout' ? <LayoutSection /> : null}
           {section === 'shortcuts' ? <ShortcutsSection /> : null}

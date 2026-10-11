@@ -55,6 +55,24 @@ appropriate. The last selected mode and both sets of window bounds are saved
 in the workspace document. Switching modes never changes the standalone
 Compare, Settings, or About windows.
 
+## Global Git configuration
+
+The settings window's Git section edits the global Git configuration that
+`git config --global` writes: the commit identity (`user.name`, `user.email`)
+plus the default branch for new repositories, line-ending handling
+(`core.autocrlf`), and the editor Git opens for commit messages. The keys the
+interface may touch are fixed by an allow-list in the backend, and empty fields
+unset a key. A repository-local value still wins over these, which the page
+says so it cannot be mistaken for the effective configuration.
+
+Committing runs an identity probe first: when Git would refuse the commit for
+lack of a name or an email, a dialog collects the two values, writes them to
+the global configuration of the repository's own location — a WSL repository
+writes inside its distro — and retries the interrupted commit. The same dialog
+also opens when a failed commit's output is recognizable as Git's "who are
+you" refusal, which covers a configuration that changed between the probe and
+the command.
+
 ## Requirements
 
 - Rust 1.90 or newer (the workspace uses edition 2024)

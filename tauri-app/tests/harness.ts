@@ -149,9 +149,13 @@ export interface BootOptions {
   /** Window role, from the same query parameter the backend uses. */
   window?: 'main' | 'compare' | 'about' | 'settings';
   /** Initial settings section requested by a direct settings-window entry. */
-  settingsSection?: 'general' | 'appearance' | 'layout' | 'shortcuts';
+  settingsSection?: 'general' | 'git' | 'appearance' | 'layout' | 'shortcuts';
   /** Repository id passed to a compare window. */
   repoId?: number;
+  /** The global Git configuration the stub starts with, keyed by Git key. */
+  gitConfig?: StubOptions['gitConfig'];
+  /** The identity `probe_commit_identity` resolves for every repository. */
+  identity?: StubOptions['identity'];
 }
 
 function optionsFor(options: BootOptions): StubOptions {
@@ -192,7 +196,9 @@ function optionsFor(options: BootOptions): StubOptions {
     pullAction: options.pullAction,
     diffLayout: options.diffLayout,
     diffSoftWrap: options.diffSoftWrap,
-    showUntracked: options.showUntracked
+    showUntracked: options.showUntracked,
+    gitConfig: options.gitConfig,
+    identity: options.identity
   };
 }
 

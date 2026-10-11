@@ -45,6 +45,7 @@ function readTarget(): WindowTarget {
     const section = params.get('section');
     const settingsSection: SettingsSection | null =
       section === 'general' ||
+      section === 'git' ||
       section === 'appearance' ||
       section === 'layout' ||
       section === 'shortcuts'

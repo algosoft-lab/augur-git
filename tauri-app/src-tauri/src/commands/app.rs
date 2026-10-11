@@ -478,6 +478,7 @@ pub async fn open_about_window(app: AppHandle, state: State<'_, AppState>) -> Re
 #[serde(rename_all = "camelCase")]
 pub enum SettingsSection {
     General,
+    Git,
     Appearance,
     Layout,
     Shortcuts,
@@ -487,6 +488,7 @@ impl SettingsSection {
     fn query_value(self) -> &'static str {
         match self {
             Self::General => "general",
+            Self::Git => "git",
             Self::Appearance => "appearance",
             Self::Layout => "layout",
             Self::Shortcuts => "shortcuts",

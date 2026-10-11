@@ -48,7 +48,7 @@ impl RepoLocation {
 }
 
 #[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Everything required to talk to one repository: its location plus the
 /// canonical path as seen from inside that location (`C:\dev\repo` for a

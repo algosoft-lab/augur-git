@@ -15,6 +15,7 @@ import type {
   AppConfig,
   BuildInfo,
   CheckoutTarget,
+  CommitIdentityProbe,
   CompareRevisionArg,
   DiffLayoutPreference,
   FileChange,
@@ -31,6 +32,7 @@ import type {
   WorkspaceState,
   WorkingTreeDiffKind
 } from '../bridge/types';
+import { isGitIdentityError } from '../features/dialogs/identityError';
 import { createTranslator, resolveLocale, type Translator } from '../i18n';
 import {
   applyRepoEvent,
@@ -137,6 +139,13 @@ export type Overlay =
   | { kind: 'rebaseConflict'; label: string; detail: string; source?: string }
   | { kind: 'rebaseError'; label: string; detail: string }
   | { kind: 'stashPopConflict'; detail: string }
+  | {
+      kind: 'gitIdentity';
+      repoId: number;
+      /** The commit that was blocked, retried once the identity is saved. */
+      message: string;
+      amend: boolean;
+    }
   | { kind: 'wslOpen'; distros: string[]; loading: boolean };
 
 /** A transient message shown in the status bar of the main window. */
@@ -779,6 +788,47 @@ function systemLanguage(): string {
   return typeof navigator === 'undefined' ? 'en-US' : navigator.language;
 }
 
+/**
+ * Intercept a commit whose repository has no resolvable identity.
+ *
+ * A commit without `user.name`/`user.email` fails only after Git has built the
+ * whole commit, so the probe runs first and the identity dialog replaces the
+ * dead end. Returns whether the commit was blocked. A failed probe (no git
+ * binary, closed repository) lets the commit through: Git's own error remains
+ * the source of truth, and the failed-command path opens the same dialog when
+ * the message is recognizable.
+ */
+async function guardCommitIdentity(
+  repoId: number,
+  message: string,
+  amend: boolean
+): Promise<boolean> {
+  let identity: CommitIdentityProbe;
+  try {
+    identity = await ipc.probeCommitIdentity(repoId);
+  } catch {
+    return false;
+  }
+  if (identity.name && identity.email) {
+    return false;
+  }
+  const state = get();
+  state.openOverlay({ kind: 'gitIdentity', repoId, message, amend });
+  const repo = state.repos[repoId];
+  if (repo) {
+    set({
+      repos: {
+        ...state.repos,
+        [repoId]: {
+          ...repo,
+          message: { text: state.t('git-identity-blocked'), ok: false }
+        }
+      }
+    });
+  }
+  return true;
+}
+
 function tabKey(path: string, location: LocationConfig): string {
   return location.kind === 'wsl' ? `wsl:${location.distro ?? ''}:${path}` : path;
 }
@@ -1151,6 +1201,23 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       // runs after the reducer so the status text is never delayed by it.
       if (event.type === 'commandDone' && !event.success) {
         watchForConflicts(repoId, event.label, event.message);
+        // The preflight probe lets a commit through only when an identity
+        // resolves, so reaching this means a race, a changed configuration, or
+        // a hook that rewrote the author. The failed attempt keeps its draft,
+        // and the same dialog opens over it.
+        if (
+          (event.label === 'commit' || event.label === 'commit --amend') &&
+          isGitIdentityError(event.message) &&
+          get().overlay.kind === 'none'
+        ) {
+          const state = get();
+          state.openOverlay({
+            kind: 'gitIdentity',
+            repoId,
+            message: state.sidecarUi[repoId]?.commitDraft ?? '',
+            amend: state.config.view.commit_action === 'amend'
+          });
+        }
       }
     },
 
@@ -1400,6 +1467,12 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
         const target =
           action.target.kind === 'branch' ? action.target.name : action.target.sha.slice(0, 12);
         integrationSources.set(repoId, target);
+      }
+      if (action.action === 'commit') {
+        const blocked = await guardCommitIdentity(repoId, action.message, action.amend);
+        if (blocked) {
+          return;
+        }
       }
       get().setBusy(repoId, true);
       try {
