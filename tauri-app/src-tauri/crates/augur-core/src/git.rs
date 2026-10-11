@@ -2114,7 +2114,9 @@ mod tests {
         let hard = wait_for_command(&event_rx, "reset --hard");
         assert!(hard);
         assert_eq!(
-            fs::read_to_string(root.join("file.txt")).unwrap(),
+            fs::read_to_string(root.join("file.txt"))
+                .unwrap()
+                .replace("\r\n", "\n"),
             "first\n"
         );
         assert!(git(&["status", "--porcelain"]).is_empty());
@@ -2209,7 +2211,7 @@ mod tests {
         let args = working_tree::untracked_diff_args("repo", "new file.txt");
         assert!(
             args.windows(2)
-                .any(|pair| { pair[0] == "--" && pair[1] == "/dev/null" })
+                .any(|pair| { pair[0] == "--" && pair[1] == working_tree::null_path() })
         );
         assert_eq!(args.last().map(String::as_str), Some("new file.txt"));
     }

@@ -30,6 +30,12 @@ use crate::state::AppState;
 
 /// Build and run the application with the paths a launch requested.
 pub fn run(invocation: CliInvocation, forwarded: bool) {
+    #[cfg(windows)]
+    let startup_gate = augur_core::cli_install::acquire_startup_gate().unwrap_or_else(|error| {
+        record_startup_gate_failure(&error);
+        std::process::exit(1);
+    });
+
     let builder = install_window_hooks(tauri::Builder::default())
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             handle_second_launch(app, &args, &cwd);
@@ -162,6 +168,9 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
         }
     };
 
+    #[cfg(windows)]
+    drop(startup_gate);
+
     app.run(|app_handle, event| match event {
         RunEvent::ExitRequested { .. } | RunEvent::Exit => {
             if let Some(state) = app_handle.try_state::<AppState>() {
@@ -174,6 +183,30 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
         } => {}
         _ => {}
     });
+}
+
+#[cfg(windows)]
+fn record_startup_gate_failure(error: &str) {
+    let message = format!("[startup] could not acquire the single-instance startup gate: {error}");
+    log::error!("{message}");
+    eprintln!("{}: {message}", augur_core::build_info::APP_NAME);
+
+    // The normal logger is installed after the startup gate, so persist this
+    // early failure directly to the same per-user log directory.
+    if let Some(local_data) = std::env::var_os("LOCALAPPDATA") {
+        let directory = std::path::PathBuf::from(local_data)
+            .join(augur_core::build_info::APP_IDENTIFIER)
+            .join("logs");
+        if std::fs::create_dir_all(&directory).is_ok()
+            && let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(directory.join("startup.log"))
+        {
+            use std::io::Write;
+            let _ = writeln!(file, "{message}");
+        }
+    }
 }
 
 /// A second launch parsed its own arguments; forward the paths to the running

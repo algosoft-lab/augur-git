@@ -13,6 +13,10 @@ use super::{
     WorkingTreeDiffKind, WorkingTreeDiffStats, WorkingTreeScope, read_blob_spec,
 };
 
+pub(super) fn null_path() -> &'static str {
+    if cfg!(windows) { "NUL" } else { "/dev/null" }
+}
+
 /// Read line totals for the index, tracked worktree, and untracked files.
 ///
 /// Each category is independent: a failed query leaves that category unknown
@@ -79,16 +83,17 @@ fn read_untracked_numstat(repo: &GitRepo, path: &str) -> Option<DiffLineStats> {
             "--numstat",
             "-z",
             "--",
-            "/dev/null",
+            null_path(),
             path,
         ])
         .output()
         .ok()?;
     let is_diff_result = output.status.success() || output.status.code() == Some(1);
-    if !is_diff_result || !output.stderr.is_empty() {
+    if !is_diff_result || output.stdout.is_empty() {
         log::warn!(
-            "[git_worktree] failed to read untracked diff statistics: status={:?}",
-            output.status.code()
+            "[git_worktree] failed to read untracked diff statistics: status={:?}, stderr={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr).trim()
         );
         return None;
     }
@@ -151,7 +156,7 @@ pub(super) fn untracked_diff_args(repo_path: &str, path: &str) -> Vec<String> {
         "--no-color".to_string(),
         "--no-ext-diff".to_string(),
         "--".to_string(),
-        "/dev/null".to_string(),
+        null_path().to_string(),
         path.to_string(),
     ]
 }

@@ -658,11 +658,26 @@ function install(
   const handlers: Record<string, (args: any) => unknown> = {
     get_cli_status: () => cliStatus,
     install_cli: () => {
-      cliStatus = { ...cliStatus, state: 'available', canRemove: true, pathCommand: null };
+      cliStatus = {
+        ...cliStatus,
+        state: 'available',
+        canRemove: true,
+        pathCommand: null,
+        windowsPath: cliStatus.windowsPath
+          ? { ...cliStatus.windowsPath, registered: true, processState: 'available' }
+          : undefined
+      };
       return cliStatus;
     },
     uninstall_cli: () => {
-      cliStatus = { ...cliStatus, state: 'not-installed', canRemove: false };
+      cliStatus = {
+        ...cliStatus,
+        state: 'not-installed',
+        canRemove: false,
+        windowsPath: cliStatus.windowsPath
+          ? { ...cliStatus.windowsPath, registered: false, processState: 'missing' }
+          : undefined
+      };
       return cliStatus;
     },
     // Drained, not read: a second collection while one is in flight must not

@@ -63,9 +63,18 @@ jobs:
         working-directory: tauri-app
         run: bun ci
 
+      - name: Test Windows CLI behavior
+        working-directory: tauri-app
+        run: cargo test --manifest-path src-tauri/Cargo.toml -p augur-core
+
       - name: Build signed Windows installer
         working-directory: tauri-app
         run: bun run package:windows
+
+      - name: Verify Windows installer CLI registration
+        working-directory: tauri-app
+        shell: pwsh
+        run: ./packaging/verify-windows-installer.ps1 -InstallerPath ./packaging/out/augur-git-tauri-windows-x86_64-nsis.exe
 
       - name: Upload Windows installer and signature
         uses: actions/upload-artifact@v7.0.1

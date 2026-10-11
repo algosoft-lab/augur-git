@@ -586,4 +586,9 @@ export interface CliStatus {
   packageManaged: boolean;
   pathCommand: string | null;
   detail: string;
+  windowsPath?: {
+    registered: boolean;
+    processState: 'available' | 'missing' | 'conflict';
+    resolvedPath: string | null;
+  };
 }

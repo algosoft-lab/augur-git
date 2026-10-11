@@ -113,6 +113,53 @@ test('CLI settings labels an unavailable shell probe as unknown', async ({ page 
   );
 });
 
+test('Windows CLI settings distinguishes registered PATH from the current process environment', async ({
+  page
+}) => {
+  await boot(page, {
+    window: 'settings',
+    cliStatus: {
+      ...status,
+      state: 'not-on-path',
+      canInstall: false,
+      canRemove: true,
+      windowsPath: {
+        registered: true,
+        processState: 'missing',
+        resolvedPath: null
+      }
+    }
+  });
+  await expect(page.getByTestId('cli-status')).toHaveText('Registered in your user PATH');
+  await expect(page.getByTestId('cli-windows-path-stale')).toContainText(
+    'Open a new terminal to use agit'
+  );
+  await expect(page.getByTestId('settings-cli')).not.toContainText(
+    'Could not confirm the PATH from your user shell'
+  );
+  await expect(page.getByTestId('cli-uninstall')).toBeVisible();
+  await expect(page.getByTestId('cli-copy-path')).toHaveCount(0);
+});
+
+test('Windows CLI settings shows the conflicting command path', async ({ page }) => {
+  await boot(page, {
+    window: 'settings',
+    cliStatus: {
+      ...status,
+      state: 'conflict',
+      canInstall: false,
+      windowsPath: {
+        registered: false,
+        processState: 'conflict',
+        resolvedPath: 'C:\\Tools\\agit.exe'
+      }
+    }
+  });
+  await expect(page.getByTestId('cli-windows-conflict')).toContainText('C:\\Tools\\agit.exe');
+  await expect(page.getByTestId('cli-install')).toHaveCount(0);
+  await expect(page.getByTestId('cli-copy-path')).toHaveCount(0);
+});
+
 test('CLI settings copies the PATH command and shows feedback', async ({ page }) => {
   const stub = await boot(page, {
     window: 'settings',

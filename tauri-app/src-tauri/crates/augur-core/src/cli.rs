@@ -123,6 +123,13 @@ fn resolve_paths(requested: &[OsString], cwd: &Path) -> Result<Vec<String>, Stri
 
 fn resolve_path(request: &OsString, cwd: &Path) -> Result<String, String> {
     let candidate = Path::new(request);
+    #[cfg(windows)]
+    if crate::git::location::is_wsl_unc_path(&candidate.to_string_lossy()) {
+        return Err(
+            "WSL repositories cannot be opened from agit on Windows; open them from the application instead"
+                .into(),
+        );
+    }
     let absolute = if candidate.is_absolute() {
         candidate.to_path_buf()
     } else {
@@ -219,8 +226,9 @@ mod tests {
             .args(["rev-parse", "--show-toplevel"])
             .output()
             .unwrap();
-        let assets =
-            std::fs::canonicalize(String::from_utf8(output.stdout).unwrap().trim()).unwrap();
+        let assets = normalize_extended_path(
+            &std::fs::canonicalize(String::from_utf8(output.stdout).unwrap().trim()).unwrap(),
+        );
         let parsed = parse(&[os("i18n")]);
         let Parsed::Run(invocation) = parsed else {
             panic!("expected a run invocation");
@@ -270,5 +278,18 @@ mod tests {
             parse(&[os("keymap.default.json")]),
             Parsed::UsageError(_)
         ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn wsl_unc_paths_are_rejected_with_a_gui_fallback() {
+        let parsed = parse_at(
+            &[os(r"\\wsl.localhost\Ubuntu\home\user\repo")],
+            Path::new(r"C:\"),
+        );
+        let Parsed::UsageError(error) = parsed else {
+            panic!("expected WSL paths to be rejected");
+        };
+        assert!(error.contains("open them from the application"));
     }
 }

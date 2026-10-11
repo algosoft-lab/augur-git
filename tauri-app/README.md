@@ -273,12 +273,12 @@ Built-in theme sources and third-party notices are listed in
 
 ## Terminal command
 
-On macOS and Linux, `agit` opens or focuses Augur Git and returns control to the
-terminal immediately. With no path argument, it opens the Git working tree
-containing the current directory. Explicit paths may be a local Git working tree
-or a directory inside one; subdirectories resolve to the working tree root.
-Linked worktrees and submodules are supported. All paths are checked before
-launching the GUI.
+`agit` opens or focuses Augur Git and returns control to the terminal
+immediately. With no path argument, it opens the Git working tree containing
+the current directory. Explicit paths may be a local Git working tree or a
+directory inside one; subdirectories resolve to the working tree root. Linked
+worktrees and submodules are supported. All paths are checked before launching
+the GUI.
 
 ```bash
 agit
@@ -298,15 +298,25 @@ application directly still does not open its working directory.
 
 Homebrew cask installations expose `agit` automatically. Debian packages install
 it in `/usr/bin`. Those commands are upgraded and removed by their package
-manager. For manual macOS app bundles, Linux AppImages, and extracted Linux
-archives, open **Settings > General > Terminal command: agit** to install,
-repair, or remove a user-owned command. The installer prefers a writable user
-directory already in the application's PATH and otherwise uses `~/.local/bin`.
-It never replaces a foreign command or requests administrator privileges. The
-settings page reports both the application's PATH and a bounded probe of the
-configured bash, zsh, or fish shell. Shell startup files are evaluated for this
-read-only diagnostic; unsupported shells, startup errors, or timeouts are shown
-as unknown. If the shell cannot find the command, Settings provides an optional
+manager. The Windows installer places `agit.exe` in the application directory's
+`bin` folder and, by default, adds that directory to the current user's PATH.
+Open a new PowerShell, Command Prompt, or Git Bash window after installation or
+changing PATH. Older Windows installations keep the CLI disabled until it is
+enabled in **Settings > General > Terminal command: agit**. The same settings
+page can repair or remove the user PATH registration; removing it leaves the
+bundled launcher in place. The installer and settings page do not change the
+system PATH or shell profile files, and they do not replace another `agit`
+command already ahead of Augur Git on PATH.
+
+For manual macOS app bundles, Linux AppImages, and extracted Linux archives,
+open **Settings > General > Terminal command: agit** to install, repair, or
+remove a user-owned command. The installer prefers a writable user directory
+already in the application's PATH and otherwise uses `~/.local/bin`. It never
+replaces a foreign command or requests administrator privileges. The settings
+page reports both the application's PATH and a bounded probe of the configured
+bash, zsh, or fish shell. Shell startup files are evaluated for this read-only
+diagnostic; unsupported shells, startup errors, or timeouts are shown as
+unknown. If the shell cannot find the command, Settings provides an optional
 shell-specific PATH command. No shell configuration is changed automatically.
 
 Install a macOS app in a permanent location before installing its command;
@@ -317,9 +327,10 @@ AppImage path, avoiding the temporary mount. Moving the application requires
 repairing the command from its new location. Removing the command leaves the
 application and its settings intact.
 
-The CLI ownership record is `~/.local/share/com.augur.git.tauri/cli-install.json`.
-CLI builds are prepared by the Tauri
-`beforeBuildCommand`; macOS and Linux platform configurations include the
-launcher in their packages. Packaging verifies help, version, and usage-error
-exit codes from the packaged launcher. Windows CLI installation is not yet
-supported.
+Unix CLI ownership records are stored at
+`~/.local/share/com.augur.git.tauri/cli-install.json`. Windows stores its user
+PATH choice and ownership metadata under
+`HKCU\Software\com.augur.git.tauri\Cli`. CLI builds are prepared by the Tauri
+`beforeBuildCommand`; each platform packages its launcher. Packaging verifies
+help, version, and usage-error exit codes. Windows startup and PATH behavior
+are also covered by the launcher integration tests.

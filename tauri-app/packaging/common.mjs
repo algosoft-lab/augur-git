@@ -97,7 +97,7 @@ export function assertNonEmptyFile(path) {
 
 export function assertExecutable(path) {
   assertNonEmptyFile(path);
-  if ((statSync(path).mode & 0o111) === 0) {
+  if (process.platform !== 'win32' && (statSync(path).mode & 0o111) === 0) {
     throw new Error('Expected an executable file at ' + path);
   }
 }
@@ -137,8 +137,17 @@ export function assertHostPlatform(expectedPlatform, expectedArch) {
 }
 
 export function buildCli() {
-  run('cargo', ['build', '--manifest-path', join(TAURI_ROOT, 'Cargo.toml'), '-p', 'augur-core', '--bin', 'agit', '--release']);
-  assertCli(join(TARGET_ROOT, 'agit'));
+  run('cargo', [
+    'build',
+    '--manifest-path',
+    join(TAURI_ROOT, 'Cargo.toml'),
+    '-p',
+    'augur-core',
+    '--bin',
+    'agit',
+    '--release'
+  ]);
+  assertCli(join(TARGET_ROOT, process.platform === 'win32' ? 'agit.exe' : 'agit'));
 }
 
 export function assertCli(path) {
@@ -146,7 +155,9 @@ export function assertCli(path) {
   for (const flag of ['--help', '--version']) {
     const result = spawnSync(path, [flag], { encoding: 'utf8', timeout: 10000 });
     if (result.error || result.status !== 0 || !result.stdout.includes('Augur Git')) {
-      throw new Error(`CLI smoke check failed for ${path} ${flag}: ${result.error ?? result.stderr}`);
+      throw new Error(
+        `CLI smoke check failed for ${path} ${flag}: ${result.error ?? result.stderr}`
+      );
     }
     if (flag === '--help' && !result.stdout.includes('agit [OPTIONS]')) {
       throw new Error('CLI help does not expose the agit command');

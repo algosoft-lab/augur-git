@@ -37,8 +37,11 @@ export function CliSettings() {
     };
   }, []);
   if (status?.state === 'unsupported') return null;
-  const shellAvailable = status?.state === 'not-on-path' && status.shell.state === 'available';
-  const shellConflict = status?.shell.state === 'conflict';
+  const windowsPath = status?.windowsPath;
+  const windowsPathStale = windowsPath?.registered && windowsPath.processState === 'missing';
+  const shellAvailable =
+    !windowsPath && status?.state === 'not-on-path' && status.shell.state === 'available';
+  const shellConflict = !windowsPath && status?.shell.state === 'conflict';
   return (
     <div className="settings__field settings__search-target" data-testid="settings-cli">
       <span className="settings__label">{t(translate, 'cli-title')}</span>
@@ -49,20 +52,37 @@ export function CliSettings() {
             <span className="cli-settings__status-mark" aria-hidden="true" />
             {t(
               translate,
-              shellAvailable ? 'cli-status-shell-available' : `cli-status-${status.state}`
+              shellAvailable
+                ? 'cli-status-shell-available'
+                : windowsPathStale
+                  ? 'cli-windows-path-registered'
+                  : `cli-status-${status.state}`
             )}
           </div>
           <div className="settings__hint mono">{status.path}</div>
-          {status.shell.state === 'conflict' ? (
+          {windowsPathStale ? (
+            <p className="settings__hint" data-testid="cli-windows-path-stale">
+              {t(translate, 'cli-windows-path-stale')}
+            </p>
+          ) : null}
+          {windowsPath?.processState === 'conflict' ? (
+            <p className="settings__hint" data-testid="cli-windows-conflict">
+              {t(translate, 'cli-windows-conflict')}
+              {windowsPath.resolvedPath ? (
+                <span className="mono"> {windowsPath.resolvedPath}</span>
+              ) : null}
+            </p>
+          ) : null}
+          {!windowsPath && status.shell.state === 'conflict' ? (
             <p className="settings__hint" data-testid="cli-shell-conflict">
               {t(translate, 'cli-shell-conflict')}
               {status.shell.path ? <span className="mono"> {status.shell.path}</span> : null}
             </p>
           ) : null}
-          {status.shell.state === 'unknown' ? (
+          {!windowsPath && status.shell.state === 'unknown' ? (
             <p className="settings__hint">{t(translate, 'cli-shell-unknown')}</p>
           ) : null}
-          {status.shell.state === 'not-found' ? (
+          {!windowsPath && status.shell.state === 'not-found' ? (
             <p className="settings__hint">{t(translate, 'cli-shell-not-found')}</p>
           ) : null}
           {status.detail ? <p className="settings__hint">{status.detail}</p> : null}
@@ -109,6 +129,7 @@ export function CliSettings() {
             </button>
           </div>
           {status.pathCommand &&
+          !windowsPath &&
           status.shell.state !== 'available' &&
           status.shell.state !== 'conflict' ? (
             <div className="cli-settings__path">
