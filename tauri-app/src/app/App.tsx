@@ -431,6 +431,11 @@ async function handleMenuAction(id: string): Promise<void> {
       if (next !== current) await state.setTypography({ diff_font_size: next });
       break;
     }
+    case 'menu.view.char-diff-toggle':
+      await state.setView({
+        diff_char_diff: !state.config.view.diff_char_diff
+      });
+      break;
     case 'menu.repo.fetch': {
       const repo = activeRepo(state);
       if (repo && repo.refs.remotes.length > 0 && !repo.busy) {

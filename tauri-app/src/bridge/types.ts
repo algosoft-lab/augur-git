@@ -57,6 +57,8 @@ export interface ViewSettings {
   auto_follow: boolean;
   diff_layout: DiffLayoutPreference;
   diff_soft_wrap: boolean;
+  /** Whether changed characters inside a changed line are highlighted. */
+  diff_char_diff: boolean;
   graph_history: GraphHistoryPreference;
   auto_refresh: boolean;
   commit_action: CommitActionPreference;

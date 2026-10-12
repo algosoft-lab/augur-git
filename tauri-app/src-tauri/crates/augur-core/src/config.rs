@@ -259,6 +259,13 @@ pub struct ViewSettings {
     pub auto_follow: bool,
     pub diff_layout: DiffLayoutPreference,
     pub diff_soft_wrap: bool,
+    /// Whether changed characters inside a changed line are highlighted.
+    ///
+    /// The ranges always arrive with the diff payload; this only decides
+    /// whether the viewer paints them. On by default so an upgrade leaves
+    /// existing documents rendering exactly as before, which also covers
+    /// documents written before the field existed.
+    pub diff_char_diff: bool,
     pub graph_history: GraphHistoryPreference,
     #[serde(alias = "auto_refresh_on_focus")]
     pub auto_refresh: bool,
@@ -273,6 +280,7 @@ impl Default for ViewSettings {
             auto_follow: true,
             diff_layout: DiffLayoutPreference::Inline,
             diff_soft_wrap: false,
+            diff_char_diff: true,
             graph_history: GraphHistoryPreference::AllBranches,
             auto_refresh: true,
             commit_action: CommitActionPreference::Commit,
@@ -673,6 +681,7 @@ mod tests {
         assert_eq!(config.language, LanguagePreference::System);
         assert_eq!(config.view.diff_layout, DiffLayoutPreference::Inline);
         assert!(!config.view.diff_soft_wrap);
+        assert!(config.view.diff_char_diff);
         assert_eq!(
             config.view.graph_history,
             GraphHistoryPreference::AllBranches
@@ -700,6 +709,7 @@ mod tests {
             dismissed_update_commit: Some("a".repeat(40)),
             view: ViewSettings {
                 diff_soft_wrap: true,
+                diff_char_diff: false,
                 ..ViewSettings::default()
             },
             ..AppConfig::default()
@@ -707,6 +717,14 @@ mod tests {
         let serialized = serde_json::to_string(&config).unwrap();
         let parsed: AppConfig = serde_json::from_str(&serialized).unwrap();
         assert_eq!(parsed, config);
+    }
+
+    #[test]
+    fn documents_written_before_char_diff_default_to_it_enabled() {
+        let config: AppConfig =
+            serde_json::from_str(r#"{"view":{"diff_soft_wrap":true}}"#).unwrap();
+        assert!(config.view.diff_char_diff);
+        assert!(config.view.diff_soft_wrap);
     }
 
     #[test]

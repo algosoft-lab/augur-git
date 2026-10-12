@@ -71,6 +71,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
   );
   const diffLayout = useStore((state) => state.config.view.diff_layout);
   const diffSoftWrap = useStore((state) => state.config.view.diff_soft_wrap);
+  const diffCharDiff = useStore((state) => state.config.view.diff_char_diff);
   const setView = useStore((state) => state.setView);
 
   const [base, setBase] = useState<Endpoint>({ manualInput: '', selected: null });
@@ -579,6 +580,17 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
             </button>
             <button
               type="button"
+              className={`tool-button tool-button--compact${diffCharDiff ? ' is-active' : ''}`}
+              data-testid="compare-char-diff"
+              title={t(translate, 'diff-char-diff')}
+              aria-label={t(translate, 'diff-char-diff')}
+              aria-pressed={diffCharDiff}
+              onClick={() => void setView({ diff_char_diff: !diffCharDiff })}
+            >
+              <Icon name="type" size={12} />
+            </button>
+            <button
+              type="button"
               className="tool-button tool-button--compact"
               data-testid="compare-copy"
               disabled={!selected || !documents[selected.new_path]}
@@ -608,6 +620,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
             }
             layout={diffLayout}
             softWrap={diffSoftWrap}
+            charDiff={diffCharDiff}
             forceInline={sections.length > 1}
             loading={loading && !finished}
             error={selected && !showAll ? (errors[selected.new_path] ?? null) : null}

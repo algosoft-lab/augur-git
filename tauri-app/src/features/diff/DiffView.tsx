@@ -65,6 +65,13 @@ export interface DiffViewProps {
   sections: DiffSection[];
   layout: 'inline' | 'side-by-side';
   softWrap?: boolean;
+  /**
+   * Whether changed characters inside a changed line are marked.
+   *
+   * The ranges always arrive with the payload, so turning this off is purely a
+   * rendering choice: the line is drawn as plain highlighted text.
+   */
+  charDiff?: boolean;
   /** Override the layout, used to force inline when the panel is narrow. */
   forceInline?: boolean;
   loading?: boolean;
@@ -119,6 +126,7 @@ export function DiffView({
   sections,
   layout,
   softWrap = false,
+  charDiff = true,
   forceInline = false,
   loading,
   error,
@@ -314,6 +322,7 @@ export function DiffView({
             <DiffItem
               item={item}
               layout={effective}
+              charDiff={charDiff}
               compactPreview={compactPreview}
               previewHeight={previewHeight}
               loadPreview={loadPreview}
@@ -329,6 +338,7 @@ export function DiffView({
 function DiffItem({
   item,
   layout,
+  charDiff,
   compactPreview,
   previewHeight,
   loadPreview,
@@ -336,6 +346,7 @@ function DiffItem({
 }: {
   item: Item;
   layout: 'inline' | 'side-by-side';
+  charDiff: boolean;
   compactPreview: boolean;
   previewHeight: number;
   loadPreview: (preview: NonNullable<DiffSection['imagePreview']>) => Promise<ImagePreview>;
@@ -396,7 +407,9 @@ function DiffItem({
       </div>
     );
   }
-  return <DiffRowView row={item.row} document={item.document} layout={layout} />;
+  return (
+    <DiffRowView row={item.row} document={item.document} layout={layout} charDiff={charDiff} />
+  );
 }
 
 function ImagePreviewRow({
@@ -511,15 +524,17 @@ function ImagePreviewRow({
 function DiffRowView({
   row,
   document,
-  layout
+  layout,
+  charDiff
 }: {
   row: DiffRow;
   document: DiffPayload;
   layout: 'inline' | 'side-by-side';
+  charDiff: boolean;
 }) {
   const ranges = {
-    old: document.inline_old,
-    new: document.inline_new
+    old: charDiff ? document.inline_old : null,
+    new: charDiff ? document.inline_new : null
   };
 
   if (row.kind === 'hunk') {
@@ -579,7 +594,7 @@ function DiffRowView({
 }
 
 function oldRanges(
-  ranges: { old: CharRange[][]; new: CharRange[][] },
+  ranges: { old: CharRange[][] | null; new: CharRange[][] | null },
   row: DiffRow
 ): CharRange[] | null {
   if (row.old_line_index === null) {
@@ -589,7 +604,7 @@ function oldRanges(
 }
 
 function newRanges(
-  ranges: { old: CharRange[][]; new: CharRange[][] },
+  ranges: { old: CharRange[][] | null; new: CharRange[][] | null },
   row: DiffRow
 ): CharRange[] | null {
   if (row.new_line_index === null) {

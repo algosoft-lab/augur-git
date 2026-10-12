@@ -558,6 +558,50 @@ test.describe('commit selection', () => {
     await expect(page.getByTestId('bottom-soft-wrap')).toHaveAttribute('aria-pressed', 'true');
   });
 
+  test('toggles character-level diff marks from the diff panel toolbar', async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()] });
+    await page.locator('.graph-row').first().click();
+    await page.getByTestId('bottom-file-src/lib.rs').waitFor();
+
+    // The switch sits between the copy and the clear buttons, and a fresh
+    // install starts with the marks on.
+    await expect(page.getByTestId('bottom-char-diff')).toHaveAttribute('aria-pressed', 'true');
+    await expect(
+      page.locator('[data-testid="bottom-copy-diff"] + [data-testid="bottom-char-diff"]')
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[data-testid="bottom-char-diff"] + [data-testid="bottom-clear-commit"]')
+    ).toHaveCount(1);
+    const marks = page.getByTestId('diff-view').locator('mark');
+    await expect(marks.first()).toBeVisible();
+
+    await page.getByTestId('bottom-char-diff').click();
+    await expect(page.getByTestId('bottom-char-diff')).toHaveAttribute('aria-pressed', 'false');
+    await expect(marks).toHaveCount(0);
+    // Only the marks go away; the line and its syntax highlighting stay.
+    await expect(page.getByTestId('diff-view')).toContainText('count += 2;');
+
+    await page.getByTestId('bottom-char-diff').click();
+    await expect(page.getByTestId('bottom-char-diff')).toHaveAttribute('aria-pressed', 'true');
+    await expect(marks.first()).toBeVisible();
+  });
+
+  test('persists the character-level diff setting after reload', async ({ page }) => {
+    await boot(page, { open: [fixtureRepo()] });
+    await page.locator('.graph-row').first().click();
+    await page.getByTestId('bottom-file-src/lib.rs').waitFor();
+
+    await page.getByTestId('bottom-char-diff').click();
+    await expect(page.getByTestId('bottom-char-diff')).toHaveAttribute('aria-pressed', 'false');
+
+    await page.reload();
+    await expect(page.getByTestId('graph')).toBeVisible();
+    await page.locator('.graph-row').first().click();
+    await page.getByTestId('bottom-file-src/lib.rs').waitFor();
+    await expect(page.getByTestId('bottom-char-diff')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByTestId('diff-view').locator('mark')).toHaveCount(0);
+  });
+
   test('drops a diff that arrives after the selection moved on', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
 

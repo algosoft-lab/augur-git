@@ -6,7 +6,9 @@
 //! The menu is rebuilt whenever the language or the shortcut overrides change,
 //! so labels and key equivalents never drift from the settings page.
 
-use tauri::menu::{IsMenuItem, Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+use tauri::menu::{
+    CheckMenuItemBuilder, IsMenuItem, Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
+};
 use tauri::{AppHandle, Emitter, Runtime};
 
 use augur_core::config::{RecentRepo, WindowMode};
@@ -24,6 +26,7 @@ pub mod ids {
     pub const SETTINGS: &str = "menu.settings";
     pub const APPEARANCE: &str = "menu.view.appearance";
     pub const MODE_TOGGLE: &str = "menu.view.mode-toggle";
+    pub const CHAR_DIFF_TOGGLE: &str = "menu.view.char-diff-toggle";
     pub const DIFF_FONT_INCREASE: &str = "menu.view.diff-font-increase";
     pub const DIFF_FONT_DECREASE: &str = "menu.view.diff-font-decrease";
     pub const DIFF_FONT_RESET: &str = "menu.view.diff-font-reset";
@@ -136,17 +139,29 @@ fn normalize_key(key: &str) -> Option<String> {
 }
 
 /// Build and install the native menu for the given language and shortcuts.
+///
+/// `char_diff_enabled` seeds the View menu's checkable character-level diff
+/// item; the menu is rebuilt on every settings change, so the check state
+/// always follows the persisted preference.
 pub fn install<R: Runtime>(
     app: &AppHandle<R>,
     locale: Locale,
     shortcuts: &[ResolvedShortcut],
     recent: &[RecentRepo],
     window_mode: WindowMode,
+    char_diff_enabled: bool,
 ) {
     if !cfg!(target_os = "macos") {
         return;
     }
-    match build(app, locale, shortcuts, recent, window_mode) {
+    match build(
+        app,
+        locale,
+        shortcuts,
+        recent,
+        window_mode,
+        char_diff_enabled,
+    ) {
         Ok(menu) => {
             if let Err(error) = app.set_menu(menu) {
                 log::error!("[menu] failed to install the native menu: {error}");
@@ -162,6 +177,7 @@ fn build<R: Runtime>(
     shortcuts: &[ResolvedShortcut],
     recent: &[RecentRepo],
     window_mode: WindowMode,
+    char_diff_enabled: bool,
 ) -> tauri::Result<Menu<R>> {
     let quit_accelerator = shortcuts
         .iter()
@@ -193,6 +209,10 @@ fn build<R: Runtime>(
     };
     let mode_toggle =
         MenuItemBuilder::with_id(ids::MODE_TOGGLE, i18n::text(locale, mode_label)).build(app)?;
+    let char_diff_toggle =
+        CheckMenuItemBuilder::with_id(ids::CHAR_DIFF_TOGGLE, i18n::text(locale, "diff-char-diff"))
+            .checked(char_diff_enabled)
+            .build(app)?;
     let diff_font_increase = MenuItemBuilder::with_id(
         ids::DIFF_FONT_INCREASE,
         i18n::text(locale, "shortcut-diff-font-increase"),
@@ -332,6 +352,8 @@ fn build<R: Runtime>(
         .item(&diff_font_increase)
         .item(&diff_font_decrease)
         .item(&diff_font_reset)
+        .separator()
+        .item(&char_diff_toggle)
         .separator()
         .item(&appearance)
         .build()?;

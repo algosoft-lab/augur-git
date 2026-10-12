@@ -872,6 +872,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
         auto_follow: true,
         diff_layout: 'inline',
         diff_soft_wrap: false,
+        diff_char_diff: true,
         graph_history: 'all-branches',
         auto_refresh: true,
         commit_action: 'commit',

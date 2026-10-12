@@ -34,6 +34,7 @@ export function TitleBar({
   const translate = useStore((state) => state.t);
   const build = useStore((state) => state.build);
   const recent = useStore((state) => state.config.recent_repos);
+  const charDiff = useStore((state) => state.config.view.diff_char_diff);
   const openTab = useStore((state) => state.openTab);
   const tabs = useStore((state) => state.tabs);
   const activeTabKey = useStore((state) => state.activeTabKey);
@@ -200,6 +201,13 @@ export function TitleBar({
       label: t(translate, 'shortcut-diff-font-reset'),
       icon: <Icon name="undo" />,
       onSelect: () => dispatchMenuAction('menu.view.diff-font-reset')
+    },
+    {
+      id: 'char-diff-toggle',
+      label: t(translate, 'diff-char-diff'),
+      icon: <Icon name="type" />,
+      checked: charDiff,
+      onSelect: () => dispatchMenuAction('menu.view.char-diff-toggle')
     },
     {
       id: 'appearance',

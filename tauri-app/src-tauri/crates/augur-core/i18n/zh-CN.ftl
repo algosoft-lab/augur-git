@@ -583,6 +583,8 @@ layout-persistence-description = 面板尺寸、左栏折叠状态和窗口几�
 diff-layout-title = Diff 布局
 diff-layout-inline = 内联
 diff-layout-side-by-side = 并排
+char-diff-title = 字符级差异
+char-diff-description = 在每个变更行内高亮发生变化的字符。
 graph-history-title = 提交图历史范围
 graph-history-current = 当前分支及其上游
 graph-history-all = 所有分支
@@ -647,6 +649,7 @@ err-shortcut-conflict = 快捷键冲突: { $detail }
 err-window = 无法打开该窗口。
 err-worker = 后台任务启动失败。
 diff-copy-tooltip = 复制差异
+diff-char-diff = 字符级差异
 
 cli-title = 终端命令：agit
 cli-description = 运行 agit 可打开当前目录所属的仓库，也可以传入仓库路径。

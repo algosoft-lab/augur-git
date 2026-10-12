@@ -135,6 +135,8 @@ export interface StubOptions {
   pullAction?: 'merge' | 'rebase';
   diffLayout?: 'inline' | 'side-by-side';
   diffSoftWrap?: boolean;
+  /** Whether changed characters inside a changed line start out highlighted. */
+  diffCharDiff?: boolean;
   showUntracked?: boolean;
   /** The global Git configuration the stub starts with, keyed by Git key. */
   gitConfig?: Record<string, string | null>;
@@ -203,6 +205,7 @@ function install(
     commitDiffNeverResponds?: boolean;
     showUntracked?: boolean;
     diffSoftWrap?: boolean;
+    diffCharDiff?: boolean;
     refusals?: Record<string, { key: string; detail: string }>;
     layout?: Partial<{
       sidebar_width: number;
@@ -266,6 +269,7 @@ function install(
       auto_follow: true,
       diff_layout: options.diffLayout ?? 'inline',
       diff_soft_wrap: options.diffSoftWrap ?? false,
+      diff_char_diff: options.diffCharDiff ?? true,
       graph_history: 'all-branches',
       auto_refresh: true,
       commit_action: 'commit',

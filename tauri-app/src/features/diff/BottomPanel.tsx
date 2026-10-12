@@ -37,6 +37,7 @@ export function BottomPanel({
   const translate = useStore((state) => state.t);
   const layout = useStore((state) => state.config.view.diff_layout);
   const softWrap = useStore((state) => state.config.view.diff_soft_wrap);
+  const charDiff = useStore((state) => state.config.view.diff_char_diff);
   const ratio = useStore((state) => state.workspace.layout.file_list_ratio);
   const setView = useStore((state) => state.setView);
   const selectCommitFile = useStore((state) => state.selectCommitFile);
@@ -424,6 +425,19 @@ export function BottomPanel({
             <Icon name="copy" size={12} />
           </button>
         ) : null}
+        {sections.length ? (
+          <button
+            type="button"
+            className={`tool-button tool-button--compact${charDiff ? ' is-active' : ''}`}
+            data-testid="bottom-char-diff"
+            title={t(translate, 'diff-char-diff')}
+            aria-label={t(translate, 'diff-char-diff')}
+            aria-pressed={charDiff}
+            onClick={() => void setView({ diff_char_diff: !charDiff })}
+          >
+            <Icon name="type" size={12} />
+          </button>
+        ) : null}
         {commit ? (
           <button
             type="button"
@@ -472,6 +486,7 @@ export function BottomPanel({
           sections={sections}
           layout={layout}
           softWrap={softWrap}
+          charDiff={charDiff}
           forceInline={narrow}
           error={
             pane.kind === 'working'

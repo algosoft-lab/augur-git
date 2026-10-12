@@ -112,6 +112,7 @@ export interface BootOptions {
   pullAction?: StubOptions['pullAction'];
   diffLayout?: StubOptions['diffLayout'];
   diffSoftWrap?: StubOptions['diffSoftWrap'];
+  diffCharDiff?: StubOptions['diffCharDiff'];
   showUntracked?: boolean;
   /**
    * Paths the backend is holding because the window was not listening when they
@@ -196,6 +197,7 @@ function optionsFor(options: BootOptions): StubOptions {
     pullAction: options.pullAction,
     diffLayout: options.diffLayout,
     diffSoftWrap: options.diffSoftWrap,
+    diffCharDiff: options.diffCharDiff,
     showUntracked: options.showUntracked,
     gitConfig: options.gitConfig,
     identity: options.identity

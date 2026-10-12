@@ -83,6 +83,12 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
   { section: 'layout', labelKey: 'diff-layout-title', targetTestId: 'settings-field-diff-layout' },
   {
     section: 'layout',
+    labelKey: 'char-diff-title',
+    hintKey: 'char-diff-description',
+    targetTestId: 'settings-field-char-diff'
+  },
+  {
+    section: 'layout',
     labelKey: 'graph-history-title',
     targetTestId: 'settings-field-graph-history'
   },
