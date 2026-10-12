@@ -10,12 +10,13 @@ use windows_sys::Win32::Foundation::{
     WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::System::Registry::{
-    HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_EXPAND_SZ, REG_OPTION_NON_VOLATILE, REG_SZ,
-    RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
+    RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW,
+    RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_EXPAND_SZ,
+    REG_OPTION_NON_VOLATILE, REG_SZ,
 };
 use windows_sys::Win32::System::Threading::{CreateMutexW, ReleaseMutex, WaitForSingleObject};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    HWND_BROADCAST, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_SETTINGCHANGE,
+    SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
 };
 
 const APP_REGISTRY_KEY: &str = "Software\\com.augur.git.tauri\\Cli";
@@ -354,6 +355,12 @@ fn delete_metadata() -> Result<(), String> {
         if result != ERROR_SUCCESS && result != ERROR_FILE_NOT_FOUND {
             return Err(registry_error(result));
         }
+    }
+    drop(key);
+
+    let result = unsafe { RegDeleteKeyW(HKEY_CURRENT_USER, wide(APP_REGISTRY_KEY).as_ptr()) };
+    if result != ERROR_SUCCESS && result != ERROR_FILE_NOT_FOUND {
+        return Err(registry_error(result));
     }
     Ok(())
 }
