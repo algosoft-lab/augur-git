@@ -31,6 +31,7 @@ export type IconName =
   | 'tag'
   | 'trash-2'
   | 'triangle-alert'
+  | 'type'
   | 'undo'
   | 'upload'
   | 'user'
@@ -185,6 +186,13 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z" />
       <path d="M12 9v4" />
       <path d="M12 17h.01" />
+    </>
+  ),
+  type: (
+    <>
+      <polyline points="4 7 4 4 20 4 20 7" />
+      <line x1="9" x2="15" y1="20" y2="20" />
+      <line x1="12" x2="12" y1="4" y2="20" />
     </>
   ),
   undo: (

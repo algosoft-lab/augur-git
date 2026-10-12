@@ -450,6 +450,7 @@ function AppearanceSection({ fonts }: { fonts: string[] }) {
 function LayoutSection() {
   const translate = useStore((state) => state.t);
   const diffLayout = useStore((state) => state.config.view.diff_layout);
+  const charDiff = useStore((state) => state.config.view.diff_char_diff);
   const history = useStore((state) => state.config.view.graph_history);
   const commitAction = useStore((state) => state.config.view.commit_action);
   const pullAction = useStore((state) => state.config.view.pull_action);
@@ -474,6 +475,22 @@ function LayoutSection() {
           }))}
           onChange={(value) => void setDiffLayout(value)}
         />
+      </div>
+      <div
+        className="settings__field settings__search-target"
+        data-testid="settings-field-char-diff"
+      >
+        <span className="settings__label">{t(translate, 'char-diff-title')}</span>
+        <Select
+          value={charDiff}
+          testId="settings-char-diff"
+          options={[
+            { value: true, label: t(translate, 'setting-enabled') },
+            { value: false, label: t(translate, 'setting-disabled') }
+          ]}
+          onChange={(value) => void setView({ diff_char_diff: value })}
+        />
+        <div className="settings__hint">{t(translate, 'char-diff-description')}</div>
       </div>
       <div
         className="settings__field settings__search-target"

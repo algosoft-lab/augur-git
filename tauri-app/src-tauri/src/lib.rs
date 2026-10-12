@@ -262,7 +262,14 @@ fn rebuild_menu(app: &tauri::AppHandle) {
     let locale = i18n::resolve(&config.language);
     let shortcuts = persistence.resolved_shortcuts();
     let window_mode = persistence.workspace().window_mode;
-    menu::install(app, locale, &shortcuts, &config.recent_repos, window_mode);
+    menu::install(
+        app,
+        locale,
+        &shortcuts,
+        &config.recent_repos,
+        window_mode,
+        config.view.diff_char_diff,
+    );
 }
 
 /// Write logs to stdout in a debug build and to the platform log directory

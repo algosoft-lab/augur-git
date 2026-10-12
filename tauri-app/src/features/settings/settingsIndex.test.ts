@@ -23,6 +23,7 @@ describe('settings search index', () => {
       'settings-field-ui-font-size',
       'settings-field-diff-font-size',
       'settings-field-diff-layout',
+      'settings-field-char-diff',
       'settings-field-graph-history',
       'settings-field-commit-action',
       'settings-field-pull-action',

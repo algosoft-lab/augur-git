@@ -662,6 +662,8 @@ layout-persistence-description = Panel sizes, sidebar collapse, and window geome
 diff-layout-title = Diff layout
 diff-layout-inline = Inline
 diff-layout-side-by-side = Side-by-side
+char-diff-title = Character-level diff
+char-diff-description = Highlights the changed characters inside each changed line.
 graph-history-title = Graph history
 graph-history-current = Current branch and upstream
 graph-history-all = All branches
@@ -727,6 +729,7 @@ err-window = The window could not be opened.
 err-worker = A background task failed to start.
 diff-copy-tooltip = Copy the diff
 diff-soft-wrap = Soft wrap
+diff-char-diff = Character-level diff
 
 cli-title = Terminal command: agit
 cli-description = Run agit to open the repository in your current directory, or pass a repository path.

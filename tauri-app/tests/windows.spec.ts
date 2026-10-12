@@ -79,6 +79,30 @@ test.describe('comparison window', () => {
     await expect(page.getByTestId('bottom-soft-wrap')).toHaveAttribute('aria-pressed', 'false');
   });
 
+  test('syncs the character-level diff toggle between the repository and Compare windows', async ({
+    page
+  }) => {
+    await boot(page, { open: [fixtureRepo()] });
+    await page.locator('.graph-row').first().click();
+    await page.getByTestId('bottom-file-src/lib.rs').waitFor();
+
+    const compare = await page.context().newPage();
+    await boot(compare, {
+      open: [fixtureRepo()],
+      window: 'compare',
+      repoId: 7
+    });
+    await expect(compare.getByTestId('compare-char-diff')).toHaveAttribute('aria-pressed', 'true');
+    await expect(compare.getByTestId('compare-diff').locator('mark').first()).toBeVisible();
+
+    await page.getByTestId('bottom-char-diff').click();
+    await expect(compare.getByTestId('compare-char-diff')).toHaveAttribute('aria-pressed', 'false');
+    await expect(compare.getByTestId('compare-diff').locator('mark')).toHaveCount(0);
+
+    await compare.getByTestId('compare-char-diff').click();
+    await expect(page.getByTestId('bottom-char-diff')).toHaveAttribute('aria-pressed', 'true');
+  });
+
   test('syncs diff typography with the main window and restores it after reload', async ({
     page
   }) => {
@@ -821,6 +845,20 @@ test.describe('settings window', () => {
     await expect(page.getByTestId('settings-theme')).toBeFocused();
   });
 
+  test('switches character-level diff from the layout section and saves the choice', async ({
+    page
+  }) => {
+    const stub = await boot(page, { window: 'settings', settingsSection: 'layout' });
+
+    await expect(page.getByTestId('settings-char-diff')).toContainText('Enabled');
+    await page.getByTestId('settings-char-diff').click();
+    await page.getByTestId('select-option-disabled').click();
+    await expect(page.getByTestId('settings-char-diff')).toContainText('Disabled');
+
+    const call = (await stub.commands()).find((entry) => entry.cmd === 'set_view');
+    expect((call?.args as any).view.diff_char_diff).toBe(false);
+  });
+
   test('marks the current choice in a mode menu', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
@@ -1183,6 +1221,29 @@ test.describe('the in-window menu', () => {
       .filter((entry) => entry.cmd === 'set_typography')
       .map((entry) => (entry.args.typography as { diff_font_size: number }).diff_font_size);
     expect(typography).toEqual([19, 16]);
+  });
+
+  test('marks and toggles character-level diff from View', async ({ page }) => {
+    const stub = await boot(page, { open: [fixtureRepo()], windows: true });
+    const openView = async () => {
+      await page.getByTestId('menu-file-trigger').click();
+      await page.getByTestId('menu-file-view').click();
+    };
+
+    await openView();
+    const item = page.getByTestId('menu-file-char-diff-toggle');
+    await expect(item.locator('.menu__check')).toBeVisible();
+    await item.click();
+
+    await openView();
+    await expect(
+      page.getByTestId('menu-file-char-diff-toggle').locator('.menu__check')
+    ).toHaveCount(0);
+
+    const views = (await stub.commands())
+      .filter((entry) => entry.cmd === 'set_view')
+      .map((entry) => (entry.args.view as { diff_char_diff: boolean }).diff_char_diff);
+    expect(views).toEqual([false]);
   });
 
   test('opens the shared Branch actions from Edit', async ({ page }) => {
