@@ -19,7 +19,9 @@ import type {
   RefLabel,
   RefsInfo,
   RepoEvent,
-  WorkingTreeDiffStats
+  DiffStatCategory,
+  WorkingTreeDiffStats,
+  WorkingTreeDiffStatsReport
 } from '../bridge/types';
 
 export type RepoStatus = 'loading' | 'ready' | 'error';
@@ -62,6 +64,9 @@ export interface RepoState {
   behind: number;
   files: FileStatus[];
   diffStats: WorkingTreeDiffStats;
+  diffStatsReport: WorkingTreeDiffStatsReport;
+  snapshotId: number | null;
+  statusStale: boolean;
   branches: BranchInfo[];
   /** The full refs snapshot: remotes, remote branches, tags, and stashes. */
   refs: RefsInfo;
@@ -128,6 +133,9 @@ export function emptyRepo(id: number, path: string, location: LocationConfig): R
     behind: 0,
     files: [],
     diffStats: { staged: null, unstaged: null, untracked: null },
+    diffStatsReport: pendingDiffStatsReport(),
+    snapshotId: null,
+    statusStale: false,
     branches: [],
     refs: emptyRefs(),
     hasConflicts: false,
@@ -171,6 +179,23 @@ export function emptyRefs(): RefsInfo {
     tags: [],
     stashes: [],
     comparison_revisions: []
+  };
+}
+
+export function pendingDiffStatsReport(): WorkingTreeDiffStatsReport {
+  const pending = (): DiffStatCategory => ({ status: 'pending', stats: null, reason: null });
+  return { staged: pending(), unstaged: pending(), untracked: pending() };
+}
+
+function legacyDiffStatsReport(stats: WorkingTreeDiffStats): WorkingTreeDiffStatsReport {
+  const category = (value: DiffStatCategory['stats']): DiffStatCategory =>
+    value
+      ? { status: 'ready', stats: value, reason: null }
+      : { status: 'skipped', stats: null, reason: 'unavailable' };
+  return {
+    staged: category(stats.staged),
+    unstaged: category(stats.unstaged),
+    untracked: category(stats.untracked)
   };
 }
 
@@ -286,6 +311,9 @@ export function applyRepoEvent(
 ): RepoState {
   switch (event.type) {
     case 'status': {
+      if (state.snapshotId !== null && event.snapshotId < state.snapshotId) {
+        return state;
+      }
       const hasConflicts = event.files.some((file) => isConflicted(file));
       const stashable = event.files.filter(
         (file) => isStaged(file) || hasWorktreeChanges(file) || isConflicted(file)
@@ -294,6 +322,8 @@ export function applyRepoEvent(
         ...state,
         status: 'ready',
         errorMessage: null,
+        statusStale: false,
+        snapshotId: event.snapshotId,
         branch: event.branch,
         head: event.head,
         upstream: event.upstream,
@@ -301,11 +331,27 @@ export function applyRepoEvent(
         behind: event.behind,
         files: event.files,
         diffStats: event.diff_stats ?? { staged: null, unstaged: null, untracked: null },
+        diffStatsReport: event.diff_stats
+          ? legacyDiffStatsReport(event.diff_stats)
+          : pendingDiffStatsReport(),
         branches: event.branches,
         hasConflicts,
         stashableCount: stashable
       };
     }
+    case 'diffStats':
+      if (state.snapshotId !== event.snapshotId) {
+        return state;
+      }
+      return {
+        ...state,
+        diffStatsReport: event.report,
+        diffStats: {
+          staged: event.report.staged.stats,
+          unstaged: event.report.unstaged.stats,
+          untracked: event.report.untracked.stats
+        }
+      };
     case 'logPage': {
       const rows = event.replace ? event.rows : [...state.logRows, ...event.rows];
       return { ...state, logRows: rows, hasMore: event.hasMore };
@@ -516,7 +562,8 @@ export function applyRepoEvent(
     case 'statusError':
       return {
         ...state,
-        status: 'error',
+        status: state.status === 'ready' ? 'ready' : 'error',
+        statusStale: state.status === 'ready',
         errorMessage: renderError(event.error.key, event.error.detail)
       };
     case 'error':

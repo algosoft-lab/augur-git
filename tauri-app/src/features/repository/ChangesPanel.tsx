@@ -12,11 +12,11 @@
  * it destroys work.
  */
 
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Icon } from '../../components/Icon';
-import { ContextMenu, IconButton } from '../../components/controls';
-import type { FileStatus, WorkingTreeAction } from '../../bridge/types';
+import { ContextMenu, IconButton, VirtualList } from '../../components/controls';
+import type { DiffStatCategory, FileStatus, WorkingTreeAction } from '../../bridge/types';
 import * as ipc from '../../bridge/ipc';
 import {
   codeFor,
@@ -26,8 +26,8 @@ import {
   useStore,
   type RepoState
 } from '../../app/store';
-import { t } from '../../i18n/strings';
-import { hasOpenPopup, keysForCommand, matchesShortcut, moveListFocus } from '../../app/keyboard';
+import { t, ta } from '../../i18n/strings';
+import { hasOpenPopup, keysForCommand, matchesShortcut } from '../../app/keyboard';
 import { copyAgentPrompt } from '../agentPrompt/copyAgentPrompt';
 
 interface Group {
@@ -36,6 +36,13 @@ interface Group {
   titleKey: string;
   files: FileStatus[];
 }
+
+type ChangesListItem =
+  | { kind: 'summary'; group: Group }
+  | { kind: 'section'; group: Group }
+  | { kind: 'file'; group: Group; file: FileStatus };
+
+const changeItemHeight = (item: ChangesListItem) => (item.kind === 'section' ? 24 : 22);
 
 export function ChangesPanel({
   repo,
@@ -54,38 +61,35 @@ export function ChangesPanel({
   const shortcuts = useStore((state) => state.shortcuts);
   const ui = useStore((state) => state.sidecarUi[repo.id]);
   const patchSidecarUi = useStore((state) => state.patchSidecarUi);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    if (compact && scrollRef.current) {
-      scrollRef.current.scrollTop = ui?.changesScrollTop ?? 0;
-    }
-  }, [compact, repo.id]);
-
-  const busy = repo.busy;
+  const actionsBlocked = repo.busy || repo.status !== 'ready' || repo.statusStale;
   // The two groups are not exclusive: a partially staged file appears in both,
   // because its two diffs are different files as far as Git is concerned.
-  const { staged, unstaged } = groupFiles(repo.files, showUntracked);
-  const changesStats = showUntracked
-    ? combineStats(repo.diffStats.unstaged, repo.diffStats.untracked)
-    : repo.diffStats.unstaged;
-  const groups: (Group & { stats: { added: number; deleted: number } | null })[] = [];
-  if (staged.length) {
-    groups.push({
-      key: 'staged',
-      titleKey: 'section-staged',
-      files: staged,
-      stats: repo.diffStats.staged
-    });
-  }
-  if (unstaged.length) {
-    groups.push({
-      key: 'changes',
-      titleKey: 'section-changes',
-      files: unstaged,
-      stats: changesStats
-    });
-  }
+  const { staged, unstaged } = useMemo(
+    () => groupFiles(repo.files, showUntracked),
+    [repo.files, showUntracked]
+  );
+  const groups = useMemo(() => {
+    const result: Group[] = [];
+    if (staged.length) result.push({ key: 'staged', titleKey: 'section-staged', files: staged });
+    if (unstaged.length)
+      result.push({ key: 'changes', titleKey: 'section-changes', files: unstaged });
+    return result;
+  }, [staged, unstaged]);
+  const items = useMemo(() => {
+    const result: ChangesListItem[] = [];
+    for (const group of groups) {
+      result.push({ kind: 'summary', group }, { kind: 'section', group });
+      if (!collapsed.includes(group.key)) {
+        for (const file of group.files) result.push({ kind: 'file', group, file });
+      }
+    }
+    return result;
+  }, [collapsed, groups]);
+  const fileItemIndexes = useMemo(
+    () => items.flatMap((item, index) => (item.kind === 'file' ? [index] : [])),
+    [items]
+  );
+  const [focusIndex, setFocusIndex] = useState<number | null>(null);
 
   const toggle = (key: string) => {
     setCollapsed((current) =>
@@ -94,7 +98,7 @@ export function ChangesPanel({
   };
 
   const operate = async (action: WorkingTreeAction, files: FileStatus[], all: boolean) => {
-    if (busy || files.length === 0) {
+    if (actionsBlocked || files.length === 0) {
       return;
     }
     if (action === 'discard') {
@@ -118,12 +122,36 @@ export function ChangesPanel({
     }
   };
 
-  // The total counts every changed path, so a file that is in both groups is
-  // counted once: it is one thing that has two states, not two things.
-  const total = new Set<string>([
-    ...staged.map((file) => file.path),
-    ...unstaged.map((file) => file.path)
-  ]).size;
+  const onListKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (hasOpenPopup()) return;
+    const command = matchesShortcut(
+      event.nativeEvent,
+      keysForCommand(shortcuts.resolved, 'list.next')
+    )
+      ? 'next'
+      : matchesShortcut(event.nativeEvent, keysForCommand(shortcuts.resolved, 'list.previous'))
+        ? 'previous'
+        : null;
+    if (!command || fileItemIndexes.length === 0) return;
+    const current = (event.target as HTMLElement).closest<HTMLElement>('[data-file-index]');
+    const currentIndex = current ? Number(current.dataset.fileIndex) : -1;
+    const position = fileItemIndexes.indexOf(currentIndex);
+    const nextPosition = Math.max(
+      0,
+      Math.min(
+        fileItemIndexes.length - 1,
+        position < 0 ? 0 : position + (command === 'next' ? 1 : -1)
+      )
+    );
+    event.preventDefault();
+    setFocusIndex(fileItemIndexes[nextPosition]!);
+  };
+
+  // Count each changed path once, including files with both staged and unstaged changes.
+  const total = useMemo(
+    () => new Set([...staged, ...unstaged].map((file) => file.path)).size,
+    [staged, unstaged]
+  );
 
   return (
     <div
@@ -136,7 +164,7 @@ export function ChangesPanel({
           <button
             type="button"
             className="tool-button tool-button--compact"
-            disabled={busy}
+            disabled={actionsBlocked}
             data-testid="agent-prompt-resolve-conflicts"
             onClick={() => void copyAgentPrompt(repo.id, { kind: 'resolveConflicts' })}
           >
@@ -148,31 +176,54 @@ export function ChangesPanel({
           {total}
         </span>
       </div>
-      <div
+      <VirtualList
+        items={items}
+        rowHeight={22}
+        itemHeight={changeItemHeight}
+        overscan={8}
         className="changes__scroll"
-        ref={scrollRef}
-        data-keyboard-list="changes"
-        data-testid="changes-scroll"
-        onScroll={
-          compact
-            ? (event) =>
-                patchSidecarUi(repo.id, { changesScrollTop: event.currentTarget.scrollTop })
-            : undefined
+        testId="changes-scroll"
+        keyboardList="changes"
+        focusIndex={focusIndex}
+        initialScrollTop={compact ? (ui?.changesScrollTop ?? 0) : 0}
+        onScrollPosition={
+          compact ? (changesScrollTop) => patchSidecarUi(repo.id, { changesScrollTop }) : undefined
         }
-        onKeyDown={(event) => moveListFocus(event, shortcuts.resolved)}
-      >
-        {groups.length === 0 ? (
+        onKeyDown={onListKeyDown}
+        empty={
           <div className="empty-state" style={{ minHeight: 120 }}>
-            <span className="empty-state__message">{t(translate, 'changes-empty')}</span>
+            <span className="empty-state__message">
+              {repo.status === 'loading'
+                ? ta(translate, 'status-scanning-at', {
+                    repo: repo.path.split(/[/\\]/).filter(Boolean).pop() ?? repo.path
+                  })
+                : repo.status === 'error'
+                  ? (repo.errorMessage ?? t(translate, 'err-unknown'))
+                  : t(translate, 'changes-empty')}
+            </span>
           </div>
-        ) : null}
-        {groups.map((group) => {
+        }
+        renderRow={(item, index) => {
+          const { group } = item;
           const stagedGroup = group.key === 'staged';
-          const isCollapsed = collapsed.includes(group.key);
           const groupTitle = t(translate, group.titleKey);
-          const statsLabel = group.stats ? `+${group.stats.added} −${group.stats.deleted}` : '—';
-          return (
-            <div key={group.key}>
+          if (item.kind === 'summary') {
+            const categories: DiffStatCategory[] = stagedGroup
+              ? [repo.diffStatsReport.staged]
+              : showUntracked
+                ? [repo.diffStatsReport.unstaged, repo.diffStatsReport.untracked]
+                : [repo.diffStatsReport.unstaged];
+            const stats = stagedGroup
+              ? repo.diffStatsReport.staged.stats
+              : showUntracked
+                ? combineStats(
+                    repo.diffStatsReport.unstaged.stats,
+                    repo.diffStatsReport.untracked.stats
+                  )
+                : repo.diffStatsReport.unstaged.stats;
+            const reason = stats ? null : statsUnavailableReason(categories);
+            const statsLabel = stats ? `+${stats.added} −${stats.deleted}` : '—';
+            return (
               <div
                 className="changes__summary"
                 data-testid={`changes-stats-${group.key}`}
@@ -182,25 +233,57 @@ export function ChangesPanel({
                   <Icon name="file" size={11} />
                   <span data-testid={`changes-stats-files-${group.key}`}>{group.files.length}</span>
                 </span>
-                {group.stats ? (
+                {stats ? (
                   <span className="changes__summary-lines">
                     <span
                       className="stat-bar__added"
                       data-testid={`changes-stats-added-${group.key}`}
                     >
-                      +{group.stats.added}
+                      +{stats.added}
                     </span>
                     <span
                       className="stat-bar__deleted"
                       data-testid={`changes-stats-deleted-${group.key}`}
                     >
-                      −{group.stats.deleted}
+                      −{stats.deleted}
                     </span>
                   </span>
+                ) : showUntracked && !stagedGroup ? (
+                  <span className="changes__summary-lines" aria-label={reason ?? undefined}>
+                    <CategoryStat
+                      category={repo.diffStatsReport.unstaged}
+                      label={t(translate, 'changes-stats-tracked')}
+                      reasonText={t(
+                        translate,
+                        `diff-stats-${repo.diffStatsReport.unstaged.reason ?? 'pending'}`
+                      )}
+                      testId="tracked"
+                    />
+                    <CategoryStat
+                      category={repo.diffStatsReport.untracked}
+                      label={t(translate, 'changes-stats-untracked')}
+                      reasonText={t(
+                        translate,
+                        `diff-stats-${repo.diffStatsReport.untracked.reason ?? 'pending'}`
+                      )}
+                      testId="untracked"
+                    />
+                  </span>
                 ) : (
-                  <span className="changes__summary-unavailable">—</span>
+                  <span
+                    className="changes__summary-unavailable"
+                    title={reason ? t(translate, `diff-stats-${reason}`) : undefined}
+                    data-testid={`changes-stats-reason-${group.key}`}
+                  >
+                    —
+                  </span>
                 )}
               </div>
+            );
+          }
+          if (item.kind === 'section') {
+            const isCollapsed = collapsed.includes(group.key);
+            return (
               <div className="changes__row-group changes__section-header">
                 <button
                   type="button"
@@ -217,7 +300,7 @@ export function ChangesPanel({
                   <IconButton
                     icon={<Icon name="minus" size={12} />}
                     tooltip={t(translate, 'changes-unstage-all')}
-                    disabled={busy}
+                    disabled={actionsBlocked}
                     onClick={() => void operate('unstage', group.files, true)}
                     testId="changes-unstage-all"
                   />
@@ -226,45 +309,78 @@ export function ChangesPanel({
                     <IconButton
                       icon={<Icon name="undo" size={12} />}
                       tooltip={t(translate, 'changes-discard-all')}
-                      disabled={busy || repo.hasConflicts}
+                      disabled={actionsBlocked || repo.hasConflicts}
                       onClick={() => void operate('discard', group.files, true)}
                       testId="changes-discard-all"
                     />
                     <IconButton
                       icon={<Icon name="plus" size={12} />}
                       tooltip={t(translate, 'changes-stage-all')}
-                      disabled={busy || repo.hasConflicts}
+                      disabled={actionsBlocked || repo.hasConflicts}
                       onClick={() => void operate('stage', group.files, true)}
                       testId="changes-stage-all"
                     />
                   </>
                 )}
               </div>
-              {isCollapsed
-                ? null
-                : group.files.map((file) => (
-                    <FileRow
-                      key={`${group.key}-${file.path}`}
-                      repo={repo}
-                      file={file}
-                      staged={stagedGroup}
-                      selected={
-                        repo.pane.kind === 'working' &&
-                        repo.pane.staged === stagedGroup &&
-                        repo.pane.file.path === file.path
-                      }
-                      onSelect={() => {
-                        void selectWorkingFile(repo.id, stagedGroup, file);
-                        onOpenDiff?.();
-                      }}
-                      onOperate={(action) => void operate(action, [file], false)}
-                    />
-                  ))}
-            </div>
+            );
+          }
+          return (
+            <FileRow
+              repo={repo}
+              file={item.file}
+              fileIndex={index}
+              staged={stagedGroup}
+              actionsBlocked={actionsBlocked}
+              selected={
+                repo.pane.kind === 'working' &&
+                repo.pane.staged === stagedGroup &&
+                repo.pane.file.path === item.file.path
+              }
+              onSelect={() => {
+                void selectWorkingFile(repo.id, stagedGroup, item.file);
+                onOpenDiff?.();
+              }}
+              onOperate={(action) => void operate(action, [item.file], false)}
+            />
           );
-        })}
-      </div>
+        }}
+      />
     </div>
+  );
+}
+
+function CategoryStat({
+  category,
+  label,
+  reasonText,
+  testId
+}: {
+  category: DiffStatCategory;
+  label: string;
+  reasonText: string;
+  testId: string;
+}) {
+  return category.stats ? (
+    <span
+      className="changes__summary-category"
+      title={label}
+      aria-label={`${label}: +${category.stats.added}, −${category.stats.deleted}`}
+      data-testid={`changes-stats-changes-${testId}`}
+    >
+      <span className="changes__summary-category-label">{label}</span>
+      <span className="stat-bar__added">+{category.stats.added}</span>
+      <span className="stat-bar__deleted">−{category.stats.deleted}</span>
+    </span>
+  ) : (
+    <span
+      className="changes__summary-unavailable"
+      title={`${label}: ${reasonText}`}
+      aria-label={`${label}: ${reasonText}`}
+      data-testid={`changes-stats-changes-${testId}`}
+    >
+      <span className="changes__summary-category-label">{label}</span>—
+    </span>
   );
 }
 
@@ -281,17 +397,27 @@ function combineStats(
   };
 }
 
+function statsUnavailableReason(categories: DiffStatCategory[]): string {
+  const failure = categories.find((category) => category.reason);
+  if (failure?.reason) return failure.reason;
+  return categories.some((category) => category.status === 'pending') ? 'pending' : 'unavailable';
+}
+
 function FileRow({
   repo,
   file,
+  fileIndex,
   staged,
+  actionsBlocked,
   selected,
   onSelect,
   onOperate
 }: {
   repo: RepoState;
   file: FileStatus;
+  fileIndex: number;
   staged: boolean;
+  actionsBlocked: boolean;
   selected: boolean;
   onSelect: () => void;
   onOperate: (action: WorkingTreeAction) => void;
@@ -311,14 +437,14 @@ function FileRow({
       id: 'toggle-stage',
       label: staged ? t(translate, 'changes-unstage') : t(translate, 'changes-stage'),
       icon: <Icon name={staged ? 'minus' : 'plus'} size={12} />,
-      disabled: repo.busy || conflicted,
+      disabled: actionsBlocked || conflicted,
       onSelect: () => onOperate(staged ? 'unstage' : 'stage')
     },
     {
       id: 'discard',
       label: t(translate, 'changes-discard'),
       icon: <Icon name="undo" size={12} />,
-      disabled: repo.busy || repo.hasConflicts || conflicted,
+      disabled: actionsBlocked || repo.hasConflicts || conflicted,
       onSelect: () => onOperate('discard')
     }
   ];
@@ -329,6 +455,7 @@ function FileRow({
         className={`file-row changes__row-group${selected ? ' is-selected' : ''}`}
         tabIndex={0}
         data-keyboard-list-item
+        data-file-index={fileIndex}
         data-testid={`changes-file-${file.path}`}
         onFocus={onSelect}
         onClick={(event) => {
@@ -347,7 +474,7 @@ function FileRow({
             return;
           }
           event.preventDefault();
-          if (!event.repeat && !repo.busy && !conflicted) {
+          if (!event.repeat && !actionsBlocked && !conflicted) {
             onOperate(staged ? 'unstage' : 'stage');
           }
         }}
@@ -366,7 +493,7 @@ function FileRow({
                 ? t(translate, 'changes-unstage')
                 : t(translate, 'changes-stage')
           }
-          disabled={repo.busy || conflicted}
+          disabled={actionsBlocked || conflicted}
           onClick={() => onOperate(staged ? 'unstage' : 'stage')}
           testId={`changes-toggle-${file.path}`}
         />

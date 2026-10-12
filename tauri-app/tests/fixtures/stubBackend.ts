@@ -257,6 +257,7 @@ function install(
   let workingDiffCalls = 0;
   let compareRequest = 0;
   let maximized = false;
+  const snapshotIds = new Map<number, number>();
 
   const config = {
     schema_version: 2,
@@ -381,6 +382,20 @@ function install(
     payload: unknown,
     target: { kind: string; label?: string } = { kind: 'Any' }
   ): void {
+    if (
+      name === 'augur://repo-event' &&
+      payload &&
+      typeof payload === 'object' &&
+      (payload as { type?: string }).type === 'status' &&
+      typeof (payload as { snapshotId?: unknown }).snapshotId !== 'number'
+    ) {
+      const status = payload as { repoId?: number };
+      if (typeof status.repoId === 'number') {
+        const snapshotId = (snapshotIds.get(status.repoId) ?? 0) + 1;
+        snapshotIds.set(status.repoId, snapshotId);
+        payload = { ...status, snapshotId };
+      }
+    }
     eventId += 1;
     const envelope = { event: name, id: eventId, payload };
     for (const id of listeners.get(name) ?? []) {
@@ -435,7 +450,31 @@ function install(
 
   /** Push the full status and refs snapshot a freshly opened repository has. */
   function announce(repo: StubRepo): void {
-    emit('augur://repo-event', { repoId: repo.id, type: 'status', ...repo.status });
+    const { diff_stats: diffStats, ...status } = repo.status;
+    const snapshotId = (snapshotIds.get(repo.id) ?? 0) + 1;
+    snapshotIds.set(repo.id, snapshotId);
+    emit('augur://repo-event', {
+      repoId: repo.id,
+      type: 'status',
+      ...status,
+      snapshotId
+    });
+    setTimeout(() => {
+      const category = (stats: { added: number; deleted: number } | null) =>
+        stats
+          ? { status: 'ready', stats, reason: null }
+          : { status: 'skipped', stats: null, reason: 'unavailable' };
+      emit('augur://repo-event', {
+        repoId: repo.id,
+        type: 'diffStats',
+        snapshotId,
+        report: {
+          staged: category(diffStats.staged),
+          unstaged: category(diffStats.unstaged),
+          untracked: category(diffStats.untracked)
+        }
+      });
+    }, 0);
     emit('augur://repo-event', { repoId: repo.id, type: 'refs', refs: repo.refs });
     emit('augur://repo-event', {
       repoId: repo.id,

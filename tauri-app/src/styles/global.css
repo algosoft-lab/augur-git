@@ -1510,6 +1510,17 @@ body .diff ::selection {
   white-space: nowrap;
 }
 
+.changes__summary-category {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.changes__summary-category-label {
+  color: var(--muted-foreground);
+  font-family: var(--ui-font-family);
+}
+
 .changes__summary-unavailable {
   flex: 0 0 auto;
   color: var(--muted-foreground);

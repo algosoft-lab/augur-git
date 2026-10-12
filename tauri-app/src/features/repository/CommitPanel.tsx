@@ -31,8 +31,10 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
   // Amending rewrites the previous commit, so either kind of staged change is
   // enough; a plain commit needs something staged.
   const hasStaged = repo.files.some(isStagedFile);
-  const canCommit = !repo.busy && hasStaged && message.trim().length > 0;
-  const canCopyPrompt = !repo.busy && !repo.hasConflicts && repo.files.length > 0;
+  const workingTreeUnavailable = repo.status !== 'ready' || repo.statusStale;
+  const canCommit = !repo.busy && !workingTreeUnavailable && hasStaged && message.trim().length > 0;
+  const canCopyPrompt =
+    !repo.busy && !workingTreeUnavailable && !repo.hasConflicts && repo.files.length > 0;
 
   const submit = () => {
     if (!canCommit) {
@@ -80,7 +82,7 @@ export function CommitPanel({ repo }: { repo: RepoState }) {
       id: 'fill-last-message',
       label: t(translate, 'commit-fill-last-message'),
       icon: <Icon name="copy" size={12} />,
-      disabled: repo.busy || !canFillLastMessage,
+      disabled: repo.busy || workingTreeUnavailable || !canFillLastMessage,
       onSelect: () => setMessageText(lastCommitMessage)
     }
   ];

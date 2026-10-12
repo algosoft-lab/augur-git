@@ -82,14 +82,20 @@ impl From<DiffDocument> for DiffPayload {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum RepoEvent {
     Status {
+        #[serde(rename = "snapshotId")]
+        snapshot_id: u64,
         branch: String,
         head: Option<String>,
         upstream: Option<String>,
         ahead: usize,
         behind: usize,
         files: Vec<FileStatus>,
-        diff_stats: augur_core::git::WorkingTreeDiffStats,
         branches: Vec<augur_core::git::BranchInfo>,
+    },
+    DiffStats {
+        #[serde(rename = "snapshotId")]
+        snapshot_id: u64,
+        report: augur_core::git::WorkingTreeDiffStatsReport,
     },
     LogPage {
         rows: Vec<LogRow>,

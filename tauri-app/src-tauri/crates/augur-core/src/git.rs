@@ -40,6 +40,7 @@ pub mod agent_prompt;
 pub mod branch_compare;
 mod commit_log;
 pub mod config_access;
+mod diagnostics;
 pub mod image_preview;
 pub mod location;
 pub mod operation_probe;
@@ -48,6 +49,9 @@ pub mod working_tree;
 
 pub use branch_compare::suggested_patch_filename;
 pub use commit_log::LogScope;
+pub use diagnostics::{
+    DiffStatCategory, DiffStatsStatus, LatestTaskWorker, WorkingTreeDiffStatsReport,
+};
 pub use location::{GitRepo, RepoLocation, parse_unc_path, validate_linux_path};
 pub use progress::progress_verb;
 
@@ -191,19 +195,24 @@ pub struct WorkingTreeDiffStats {
 pub enum GitEvent {
     /// Repository status, tracked upstream, changed files, and branch list.
     Status {
+        snapshot_id: u64,
         branch: String,
         /// Current commit id, or `None` for an unborn branch.
         head: Option<String>,
         /// Tracked upstream ref, when the current branch has one.
         upstream: Option<String>,
         files: Vec<FileStatus>,
-        diff_stats: WorkingTreeDiffStats,
         /// 本地分支列表（(名字, 是否当前分支)）
         branches: Vec<BranchInfo>,
         /// 领先上游提交数
         ahead: usize,
         /// 落后上游提交数
         behind: usize,
+    },
+    /// Per-category line counts for one status snapshot.
+    DiffStats {
+        snapshot_id: u64,
+        report: WorkingTreeDiffStatsReport,
     },
     /// One page of commit log rows with parents for active-lane layout.
     /// `replace` restarts the graph list; otherwise the page appends.
@@ -536,12 +545,6 @@ pub enum GitCommand {
         merge_parent: Option<String>,
         file: FileChange,
     },
-    /// Query a single file from the index or working tree.
-    WorkingTreeFileDiff {
-        request_id: u64,
-        kind: WorkingTreeDiffKind,
-        file: FileStatus,
-    },
     /// Compare two revisions without checkout.
     BranchCompare {
         request_id: u64,
@@ -572,20 +575,54 @@ pub struct GitHandle {
     compare_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
     commit_generation: Arc<AtomicU64>,
     auto_refresh_state: Arc<AtomicU8>,
+    refresh_state: Arc<AtomicU8>,
+    stats_worker: LatestTaskWorker<(u64, Vec<FileStatus>)>,
+    working_diff_worker: LatestTaskWorker<(u64, WorkingTreeDiffKind, FileStatus)>,
 }
 
 const AUTO_REFRESH_PENDING: u8 = 1;
 const AUTO_REFRESH_STATUS: u8 = 2;
 const AUTO_REFRESH_FULL: u8 = 4;
+const REFRESH_PENDING: u8 = 1;
+const REFRESH_DIRTY: u8 = 2;
 
 impl GitHandle {
     /// 请求刷新仓库快照（std mpsc 无界通道，send 即返回）
     pub fn refresh(&self) {
-        let _ = self.cmd_tx.send(GitCommand::Refresh);
+        self.stats_worker.cancel();
+        self.request_refresh();
+    }
+
+    fn request_refresh(&self) {
+        let mut state = self.refresh_state.load(Ordering::Acquire);
+        loop {
+            let enqueue = state & REFRESH_PENDING == 0;
+            let next = state | REFRESH_PENDING | REFRESH_DIRTY;
+            match self.refresh_state.compare_exchange(
+                state,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    if enqueue && self.cmd_tx.send(GitCommand::Refresh).is_err() {
+                        self.refresh_state.store(0, Ordering::Release);
+                    }
+                    return;
+                }
+                Err(current) => state = current,
+            }
+        }
+    }
+
+    fn cancel_diagnostics(&self) {
+        self.stats_worker.cancel();
+        self.working_diff_worker.cancel();
     }
 
     /// Request a coalesced refresh from the active-tab background monitor.
     pub fn refresh_automatically(&self, full: bool) {
+        self.stats_worker.cancel();
         let dirty = if full {
             AUTO_REFRESH_FULL
         } else {
@@ -634,6 +671,9 @@ impl GitHandle {
         args: Vec<String>,
         refresh_after_success: bool,
     ) {
+        if refresh_after_success {
+            self.cancel_diagnostics();
+        }
         let _ = self.cmd_tx.send(GitCommand::Run {
             label: label.into(),
             args,
@@ -643,6 +683,7 @@ impl GitHandle {
 
     /// Reset to a commit only if the HEAD captured by the preview is unchanged.
     pub fn reset(&self, mode: ResetMode, expected_head: String, target_oid: String) {
+        self.cancel_diagnostics();
         let _ = self.cmd_tx.send(GitCommand::Reset {
             mode,
             expected_head,
@@ -702,11 +743,7 @@ impl GitHandle {
         kind: WorkingTreeDiffKind,
         file: FileStatus,
     ) {
-        let _ = self.cmd_tx.send(GitCommand::WorkingTreeFileDiff {
-            request_id,
-            kind,
-            file,
-        });
+        self.working_diff_worker.submit((request_id, kind, file));
     }
 
     /// Start a read-only revision comparison and cancel the previous request.
@@ -751,6 +788,7 @@ impl GitHandle {
         action: WorkingTreeAction,
         scope: WorkingTreeScope,
     ) {
+        self.cancel_diagnostics();
         let _ = self.cmd_tx.send(GitCommand::WorkingTreeOperation {
             request_id,
             action,
@@ -761,6 +799,8 @@ impl GitHandle {
     /// 请求关闭工作线程
     pub fn close(&self) {
         self.cancel_branch_compare();
+        self.stats_worker.shutdown();
+        self.working_diff_worker.shutdown();
         let _ = self.cmd_tx.send(GitCommand::Close);
     }
 }
@@ -790,10 +830,45 @@ pub fn spawn_open(repo: GitRepo, event_tx: Sender<GitEvent>) -> Result<GitHandle
     let compare_generation = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let commit_generation = Arc::new(AtomicU64::new(0));
     let auto_refresh_state = Arc::new(AtomicU8::new(0));
+    let refresh_state = Arc::new(AtomicU8::new(0));
+    let stats_repo = repo.clone();
+    let stats_events = event_tx.clone();
+    let stats_worker: LatestTaskWorker<(u64, Vec<FileStatus>)> = LatestTaskWorker::new(format!("augur-git-stats-{}", repo.path()), move |(snapshot_id, files): (u64, Vec<FileStatus>), cancel| {
+        let started = std::time::Instant::now();
+        let file_count = files.len();
+        let report = diagnostics::read_diff_stats(&stats_repo, &files, cancel);
+        if !cancel.load(Ordering::Acquire) {
+            log::debug!(
+                "[git_worktree] statistics completed: snapshot_id={snapshot_id}, files={file_count}, elapsed_ms={}, staged_status={:?}, staged_reason={:?}, unstaged_status={:?}, unstaged_reason={:?}, untracked_status={:?}, untracked_reason={:?}",
+                started.elapsed().as_millis(),
+                report.staged.status,
+                report.staged.reason,
+                report.unstaged.status,
+                report.unstaged.reason,
+                report.untracked.status,
+                report.untracked.reason
+            );
+            let _ = stats_events.send(GitEvent::DiffStats { snapshot_id, report });
+        }
+    });
+    let diff_repo = repo.clone();
+    let diff_events = event_tx.clone();
+    let working_diff_worker = LatestTaskWorker::new(format!("augur-git-preview-{}", repo.path()), move |(request_id, kind, file), cancel| {
+        working_tree::run_file_diff_cancellable(
+            &diff_repo,
+            request_id,
+            kind,
+            &file,
+            &diff_events,
+            cancel,
+        );
+    });
     thread::spawn({
         let compare_generation = compare_generation.clone();
         let commit_generation = commit_generation.clone();
         let auto_refresh_state = auto_refresh_state.clone();
+        let refresh_state = refresh_state.clone();
+        let stats_worker = stats_worker.clone();
         move || {
             worker_loop(
                 repo,
@@ -802,6 +877,8 @@ pub fn spawn_open(repo: GitRepo, event_tx: Sender<GitEvent>) -> Result<GitHandle
                 compare_generation,
                 commit_generation,
                 auto_refresh_state,
+                refresh_state,
+                stats_worker,
             )
         }
     });
@@ -811,6 +888,9 @@ pub fn spawn_open(repo: GitRepo, event_tx: Sender<GitEvent>) -> Result<GitHandle
         compare_generation,
         commit_generation,
         auto_refresh_state,
+        refresh_state,
+        stats_worker,
+        working_diff_worker,
     })
 }
 
@@ -880,6 +960,8 @@ fn worker_loop(
     compare_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
     commit_generation: Arc<AtomicU64>,
     auto_refresh_state: Arc<AtomicU8>,
+    refresh_state: Arc<AtomicU8>,
+    stats_worker: LatestTaskWorker<(u64, Vec<FileStatus>)>,
 ) {
     // WSL repositories are validated here because the synchronous open path
     // cannot inspect a remote filesystem; the worker exits on failure.
@@ -897,18 +979,28 @@ fn worker_loop(
 
     // Refresh once immediately after opening.
     let mut log_state = commit_log::LogState::default();
-    refresh_all(&repo, &event_tx, &mut log_state, false);
+    let mut snapshot_id = 0;
+    refresh_all(&repo, &event_tx, &mut log_state, false, &mut snapshot_id, &stats_worker);
 
     loop {
         match cmd_rx.recv_timeout(Duration::from_millis(20)) {
-            Ok(GitCommand::Refresh) => refresh_all(&repo, &event_tx, &mut log_state, false),
+            Ok(GitCommand::Refresh) => {
+                run_coalesced_refresh(
+                    &repo,
+                    &event_tx,
+                    &mut log_state,
+                    &refresh_state,
+                    &mut snapshot_id,
+                    &stats_worker,
+                );
+            }
             Ok(GitCommand::AutoRefresh) => {
                 // Changes arriving during Git work queue a fresh command at the tail.
                 let requested = auto_refresh_state.swap(0, Ordering::AcqRel);
                 if requested & AUTO_REFRESH_FULL != 0 {
-                    refresh_all(&repo, &event_tx, &mut log_state, true);
+                    refresh_all(&repo, &event_tx, &mut log_state, true, &mut snapshot_id, &stats_worker);
                 } else if requested & AUTO_REFRESH_STATUS != 0 {
-                    refresh_status(&repo, &event_tx, true);
+                    refresh_status(&repo, &event_tx, true, &mut snapshot_id, &stats_worker);
                 }
             }
             Ok(GitCommand::LogQuery { scope }) => {
@@ -922,9 +1014,9 @@ fn worker_loop(
                 args,
                 refresh_after_success,
             }) => {
-                let success = run_git(&repo, &label, &args, &event_tx);
-                if success && refresh_after_success {
-                    refresh_all(&repo, &event_tx, &mut log_state, false);
+                run_git(&repo, &label, &args, &event_tx);
+                if refresh_after_success {
+                    refresh_all(&repo, &event_tx, &mut log_state, false, &mut snapshot_id, &stats_worker);
                 }
             }
             Ok(GitCommand::Reset {
@@ -944,10 +1036,13 @@ fn worker_loop(
                 match operation_probe::validate_reset(&repo, &expected_head, &target_oid) {
                     Ok(()) => {
                         if run_git(&repo, label, &args, &event_tx) {
-                            refresh_all(&repo, &event_tx, &mut log_state, false);
+                            refresh_all(&repo, &event_tx, &mut log_state, false, &mut snapshot_id, &stats_worker);
                         }
                     }
-                    Err(detail) => reject_git(&event_tx, label, &detail),
+                    Err(detail) => {
+                        reject_git(&event_tx, label, &detail);
+                        refresh_all(&repo, &event_tx, &mut log_state, false, &mut snapshot_id, &stats_worker);
+                    }
                 }
             }
             Ok(GitCommand::CommitNumstat { request_id, oid }) => {
@@ -974,13 +1069,6 @@ fn worker_loop(
                         &event_tx,
                     );
                 }
-            }
-            Ok(GitCommand::WorkingTreeFileDiff {
-                request_id,
-                kind,
-                file,
-            }) => {
-                working_tree::run_file_diff(&repo, request_id, kind, &file, &event_tx);
             }
             Ok(GitCommand::BranchCompare {
                 request_id,
@@ -1026,7 +1114,7 @@ fn worker_loop(
                 };
                 // A mutation can partially complete, so always publish a
                 // fresh status before reporting the operation result.
-                refresh_status(&repo, &event_tx, false);
+                refresh_status(&repo, &event_tx, false, &mut snapshot_id, &stats_worker);
                 log::info!(
                     "[git_worktree] operation finished: action={}, scope={scope_kind:?}, files={}, success={success}",
                     action.description(),
@@ -1055,33 +1143,97 @@ fn refresh_all(
     event_tx: &Sender<GitEvent>,
     log_state: &mut commit_log::LogState,
     background: bool,
+    snapshot_id: &mut u64,
+    stats_worker: &LatestTaskWorker<(u64, Vec<FileStatus>)>,
 ) {
-    refresh_status(repo, event_tx, background);
+    refresh_status(repo, event_tx, background, snapshot_id, stats_worker);
     commit_log::run_page(repo, log_state, true, event_tx);
     run_refs(repo, event_tx);
 }
 
 /// Refresh only the status snapshot after a local index/worktree operation.
-fn refresh_status(repo: &GitRepo, event_tx: &Sender<GitEvent>, background: bool) {
+fn refresh_status(
+    repo: &GitRepo,
+    event_tx: &Sender<GitEvent>,
+    background: bool,
+    snapshot_id: &mut u64,
+    stats_worker: &LatestTaskWorker<(u64, Vec<FileStatus>)>,
+) {
+    let started = std::time::Instant::now();
     let status = run_status(repo, background);
     let branches = run_branches(repo);
     match status {
         Ok((branch, upstream, files, ahead, behind)) => {
-            let diff_stats = working_tree::read_diff_stats(repo, &files);
+            *snapshot_id = snapshot_id.wrapping_add(1).max(1);
+            let current_snapshot = *snapshot_id;
+            let file_count = files.len();
+            let stats_files = files.clone();
             let _ = event_tx.send(GitEvent::Status {
+                snapshot_id: current_snapshot,
                 branch,
                 head: read_head(repo),
                 upstream,
                 files,
-                diff_stats,
                 branches,
                 ahead,
                 behind,
             });
+            log::debug!(
+                "[git_worktree] status completed: snapshot_id={current_snapshot}, files={file_count}, elapsed_ms={}",
+                started.elapsed().as_millis()
+            );
+            stats_worker.submit((current_snapshot, stats_files));
         }
         Err(error) => {
-            log::warn!("[git_worktree] status refresh failed: {}", error.key);
+            log::warn!("[git_worktree] status refresh failed: key={}, elapsed_ms={}", error.key, started.elapsed().as_millis());
             let _ = event_tx.send(GitEvent::StatusError(error));
+        }
+    }
+}
+
+fn run_coalesced_refresh(
+    repo: &GitRepo,
+    event_tx: &Sender<GitEvent>,
+    log_state: &mut commit_log::LogState,
+    refresh_state: &AtomicU8,
+    snapshot_id: &mut u64,
+    stats_worker: &LatestTaskWorker<(u64, Vec<FileStatus>)>,
+) {
+    loop {
+        loop {
+            let state = refresh_state.load(Ordering::Acquire);
+            if state & REFRESH_PENDING == 0 {
+                return;
+            }
+            if refresh_state
+                .compare_exchange(
+                    state,
+                    state & !REFRESH_DIRTY,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                break;
+            }
+        }
+        refresh_all(repo, event_tx, log_state, false, snapshot_id, stats_worker);
+        loop {
+            let state = refresh_state.load(Ordering::Acquire);
+            let next = if state & REFRESH_DIRTY != 0 {
+                state & !REFRESH_DIRTY
+            } else {
+                0
+            };
+            if refresh_state
+                .compare_exchange(state, next, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                if next == 0 {
+                    return;
+                }
+                break;
+            }
         }
     }
 }
@@ -1521,15 +1673,47 @@ fn read_blob(repo: &GitRepo, oid: Option<&str>) -> Option<String> {
 }
 
 pub(crate) fn read_blob_spec(repo: &GitRepo, spec: &str) -> Option<String> {
-    let output = repo
-        .command()
-        .args(["--no-pager", "-C", repo.path(), "cat-file", "blob", spec])
-        .output()
-        .ok()?;
-    if !output.status.success() || output.stdout.len() > MAX_BLOB_SIZE {
+    read_blob_spec_cancellable(repo, spec, &std::sync::atomic::AtomicBool::new(false))
+}
+
+pub(crate) fn read_blob_spec_cancellable(
+    repo: &GitRepo,
+    spec: &str,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Option<String> {
+    let output = diagnostics::run_cancellable(
+        &mut repo
+            .command()
+            .args(["--no-pager", "-C", repo.path(), "cat-file", "blob", spec]),
+        cancel,
+        Duration::from_secs(10),
+        MAX_BLOB_SIZE,
+    )
+    .ok()?;
+    if !output.status.success() {
         return None;
     }
     String::from_utf8(output.stdout).ok()
+}
+
+pub(crate) fn read_blob_spec_until(
+    repo: &GitRepo,
+    spec: &str,
+    cancel: &std::sync::atomic::AtomicBool,
+    deadline: std::time::Instant,
+) -> Result<Option<String>, diagnostics::ProcessFailure> {
+    let output = diagnostics::run_cancellable_until(
+        &mut repo
+            .command()
+            .args(["--no-pager", "-C", repo.path(), "cat-file", "blob", spec]),
+        cancel,
+        deadline,
+        MAX_BLOB_SIZE,
+    )?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    Ok(String::from_utf8(output.stdout).ok())
 }
 
 /// Execute git status and return (branch, upstream, files, ahead, behind).
@@ -1541,8 +1725,7 @@ fn run_status(
     if background {
         command.arg("--no-optional-locks");
     }
-    let output = command
-        .args([
+    let output = diagnostics::run_status_bounded(command.args([
             "-C",
             repo.path(),
             "status",
@@ -1550,9 +1733,22 @@ fn run_status(
             "-z",
             "-b",
             "--untracked-files=all",
-        ])
-        .output()
-        .map_err(|error| GitError::new("err-git-status", error.to_string()))?;
+        ]))
+        .map_err(|error| match error {
+            diagnostics::ProcessFailure::TimedOut => {
+                GitError::new("err-git-status-timeout", "Git status exceeded 10 seconds")
+            }
+            diagnostics::ProcessFailure::OutputTooLarge => {
+                GitError::new("err-git-status-output", "Git status output exceeded 64 MiB")
+            }
+            diagnostics::ProcessFailure::Cancelled => {
+                GitError::new("err-git-status", "Git status was cancelled")
+            }
+            diagnostics::ProcessFailure::Spawn(detail)
+            | diagnostics::ProcessFailure::Read(detail) => {
+                GitError::new("err-git-status", detail)
+            }
+        })?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(GitError::new(

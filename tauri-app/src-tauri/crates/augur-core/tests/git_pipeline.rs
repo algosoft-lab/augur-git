@@ -21,8 +21,8 @@ use std::time::{Duration, Instant};
 
 use augur_core::diff::{DiffDocument, FileChangeStatus};
 use augur_core::git::{
-    CompareRevision, CompareRevisionKind, DiffLineStats, FileStatus, GitEvent, GitHandle, GitRepo,
-    LogScope, RemoteEntry, WorkingTreeDiffKind,
+    CompareRevision, CompareRevisionKind, DiffLineStats, DiffStatsStatus, FileStatus, GitEvent,
+    GitHandle, GitRepo, LogScope, RemoteEntry, WorkingTreeDiffKind,
 };
 use augur_core::graph::compute_graph;
 
@@ -32,6 +32,7 @@ const PATIENCE: Duration = Duration::from_secs(20);
 /// A throwaway repository that removes itself.
 struct Sandbox {
     path: PathBuf,
+    extra_paths: Vec<PathBuf>,
     events: Receiver<GitEvent>,
     handle: Option<GitHandle>,
 }
@@ -51,6 +52,7 @@ impl Sandbox {
         std::fs::create_dir_all(&path).ok()?;
         let sandbox = Sandbox {
             path,
+            extra_paths: Vec::new(),
             events: std::sync::mpsc::channel().1,
             handle: None,
         };
@@ -139,6 +141,9 @@ impl Drop for Sandbox {
             handle.close();
         }
         let _ = std::fs::remove_dir_all(&self.path);
+        for path in &self.extra_paths {
+            let _ = std::fs::remove_dir_all(path);
+        }
     }
 }
 
@@ -176,20 +181,19 @@ fn a_refresh_reports_the_real_repository() {
     sandbox.write("notes.md", "notes\n").unwrap();
     sandbox.open();
 
-    sandbox.handle().refresh();
-
     let status = sandbox
         .wait_for(|event| matches!(event, GitEvent::Status { .. }))
         .expect("a status snapshot");
     let GitEvent::Status {
+        snapshot_id,
         branch,
         head,
         upstream,
         files,
-        diff_stats,
         branches,
         ahead,
         behind,
+        ..
     } = status
     else {
         unreachable!()
@@ -207,8 +211,14 @@ fn a_refresh_reports_the_real_repository() {
         .expect("the modified file");
     assert!(modified.has_worktree_changes());
     assert!(!modified.has_staged_changes());
+    let stats = sandbox
+        .wait_for(|event| matches!(event, GitEvent::DiffStats { snapshot_id: id, .. } if *id == snapshot_id))
+        .expect("asynchronous line totals for the same snapshot");
+    let GitEvent::DiffStats { report, .. } = stats else {
+        unreachable!()
+    };
     assert_eq!(
-        diff_stats.unstaged,
+        report.unstaged.stats,
         Some(DiffLineStats {
             added: 1,
             deleted: 1
@@ -221,7 +231,7 @@ fn a_refresh_reports_the_real_repository() {
         .expect("the untracked file");
     assert!(untracked.is_untracked());
     assert_eq!(
-        diff_stats.untracked,
+        report.untracked.stats,
         Some(DiffLineStats {
             added: 1,
             deleted: 0
@@ -258,36 +268,123 @@ fn status_diff_stats_separate_staged_unstaged_untracked_and_binary_changes() {
     sandbox.open();
     let status = sandbox
         .wait_for(|event| matches!(event, GitEvent::Status { .. }))
-        .expect("a status snapshot with diff totals");
+        .expect("a status snapshot before diff totals");
     let GitEvent::Status {
-        files, diff_stats, ..
+        snapshot_id,
+        files,
+        ..
     } = status
     else {
         unreachable!()
     };
 
+    let stats = sandbox
+        .wait_for(|event| matches!(event, GitEvent::DiffStats { snapshot_id: id, .. } if *id == snapshot_id))
+        .expect("diff totals for the status snapshot");
+    let GitEvent::DiffStats { report, .. } = stats else {
+        unreachable!()
+    };
     assert_eq!(
-        diff_stats.staged,
+        report.staged.stats,
         Some(DiffLineStats {
             added: 1,
             deleted: 1
         })
     );
     assert_eq!(
-        diff_stats.unstaged,
+        report.unstaged.stats,
         Some(DiffLineStats {
             added: 1,
             deleted: 1
         })
     );
     assert_eq!(
-        diff_stats.untracked,
+        report.untracked.stats,
         Some(DiffLineStats {
             added: 2,
             deleted: 0
         })
     );
     assert!(files.iter().any(|file| file.path == "image.png"));
+}
+
+#[test]
+fn large_untracked_snapshot_is_published_before_statistics_and_checkout_stays_responsive() {
+    require_git!();
+    let mut sandbox = Sandbox::new().expect("sandbox");
+    let remote_path = sandbox.path.with_extension("remote.git");
+    sandbox.extra_paths.push(remote_path.clone());
+    let remote = remote_path.to_string_lossy().into_owned();
+    sandbox.git_ok(&["init", "--bare", &remote]);
+    sandbox.git_ok(&["remote", "add", "origin", &remote]);
+    for index in 0..5 {
+        sandbox
+            .write(&format!("upstream-{index}.txt"), &format!("{index}\n"))
+            .unwrap();
+        sandbox.git_ok(&["add", &format!("upstream-{index}.txt")]);
+        sandbox.git_ok(&["commit", "-m", &format!("Upstream commit {index}")]);
+    }
+    sandbox.git_ok(&["push", "--set-upstream", "origin", "main"]);
+    sandbox.git_ok(&["reset", "--hard", "HEAD~5"]);
+    for index in 0..15_000 {
+        sandbox
+            .write(&format!("legacy-app/file-{index:05}.txt"), "untracked\n")
+            .unwrap();
+    }
+
+    let status_started = Instant::now();
+    sandbox.open();
+    let status = sandbox
+        .wait_for(|event| matches!(event, GitEvent::Status { .. }))
+        .expect("the complete status arrives before line statistics");
+    let status_elapsed = status_started.elapsed();
+    let GitEvent::Status {
+        snapshot_id,
+        branch,
+        files,
+        ahead,
+        behind,
+        ..
+    } = status
+    else {
+        unreachable!()
+    };
+    assert_eq!(branch, "main");
+    assert_eq!(ahead, 0);
+    assert_eq!(behind, 5);
+    assert_eq!(files.len(), 15_000);
+    assert!(files.iter().all(FileStatus::is_untracked));
+    assert!(status_elapsed < Duration::from_secs(2), "status took {status_elapsed:?}");
+
+    let checkout_started = Instant::now();
+    sandbox.handle().checkout(augur_core::git::CheckoutTarget::LocalBranch {
+        local_branch: "topic".to_string(),
+    });
+    let completion = sandbox
+        .wait_for(|event| matches!(event, GitEvent::CommandDone { label, .. } if label == "checkout"))
+        .expect("checkout completes while the statistics worker is independent");
+    let checkout_elapsed = checkout_started.elapsed();
+    let GitEvent::CommandDone { success, message, .. } = completion else {
+        unreachable!()
+    };
+    assert!(success, "checkout was rejected: {message}");
+    assert!(checkout_elapsed < Duration::from_secs(2), "checkout took {checkout_elapsed:?}");
+
+    let refreshed_status = sandbox
+        .wait_for(|event| matches!(event, GitEvent::Status { snapshot_id: id, .. } if *id > snapshot_id))
+        .expect("checkout publishes a new complete snapshot");
+    let GitEvent::Status { snapshot_id, files, .. } = refreshed_status else {
+        unreachable!()
+    };
+    assert_eq!(files.len(), 15_000);
+    let stats = sandbox
+        .wait_for(|event| matches!(event, GitEvent::DiffStats { snapshot_id: id, .. } if *id == snapshot_id))
+        .expect("the refreshed snapshot reports why untracked counts were skipped");
+    let GitEvent::DiffStats { report, .. } = stats else {
+        unreachable!()
+    };
+    assert_eq!(report.untracked.status, DiffStatsStatus::Skipped);
+    assert_eq!(report.untracked.reason.as_deref(), Some("too-many-files"));
 }
 
 #[test]

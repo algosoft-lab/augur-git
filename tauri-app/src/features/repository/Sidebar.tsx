@@ -100,7 +100,7 @@ export function Sidebar({
   };
 
   const isCollapsed = (key: string) => collapsed.includes(key);
-  const blocked = repo.hasConflicts || repo.busy;
+  const blocked = repo.hasConflicts || repo.busy || repo.status !== 'ready' || repo.statusStale;
   // Mirroring tags needs at least one remote to mirror, and a second network
   // command while one is running would interleave two ref updates.
   const canSyncTags = refs.remotes.length > 0 && !repo.busy;

@@ -1227,6 +1227,16 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       if (!repo || repo.busy) {
         return;
       }
+      if (repo.status === 'ready' && !repo.statusStale) {
+        set({ repos: { ...get().repos, [repoId]: { ...repo, statusStale: true } } });
+      } else if (repo.status === 'error') {
+        set({
+          repos: {
+            ...get().repos,
+            [repoId]: { ...repo, status: 'loading', errorMessage: null }
+          }
+        });
+      }
       try {
         await ipc.refreshRepository(repoId);
       } catch {
@@ -1461,6 +1471,12 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     },
 
     async runAction(repoId, action) {
+      const repo = get().repos[repoId];
+      if (!repo) return;
+      if (requiresFreshWorkingTree(action) && (repo.status !== 'ready' || repo.statusStale)) {
+        if (repo.status === 'error' || repo.statusStale) void get().refresh(repoId);
+        return;
+      }
       if (action.action === 'merge') {
         // Remembered only so a later conflict dialog can name the source.
         integrationSources.set(repoId, action.source);
@@ -1572,6 +1588,26 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     }
   };
 });
+
+/** Git commands that can change or interpret the current working-tree snapshot. */
+function requiresFreshWorkingTree(action: GitAction): boolean {
+  switch (action.action) {
+    case 'fetch':
+    case 'syncTags':
+    case 'push':
+    case 'pushForce':
+    case 'pushSetUpstream':
+    case 'pushRenameRemote':
+    case 'pushDeleteRemote':
+    case 'remoteAdd':
+    case 'remoteSetUrl':
+    case 'remoteRemove':
+    case 'copyCommitMessage':
+      return false;
+    default:
+      return true;
+  }
+}
 
 /** The repository backing the active tab, if any. */
 export function activeRepo(state: AppStore): RepoState | null {

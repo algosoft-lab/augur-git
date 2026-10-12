@@ -241,23 +241,30 @@ fn convert(repo_id: u64, event: GitEvent) -> Option<RepoEventEnvelope> {
     use GitEvent as E;
     let event = match event {
         E::Status {
+            snapshot_id,
             branch,
             head,
             upstream,
             ahead,
             behind,
             files,
-            diff_stats,
             branches,
         } => RepoEvent::Status {
+            snapshot_id,
             branch,
             head,
             upstream,
             ahead,
             behind,
             files,
-            diff_stats,
             branches,
+        },
+        E::DiffStats {
+            snapshot_id,
+            report,
+        } => RepoEvent::DiffStats {
+            snapshot_id,
+            report,
         },
         E::LogPage {
             rows,

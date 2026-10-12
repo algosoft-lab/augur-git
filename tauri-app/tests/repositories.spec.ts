@@ -646,20 +646,21 @@ test.describe('repositories', () => {
     await expect(page.getByTestId('branch-trunk')).toBeVisible();
   });
 
-  test('marks a tab that failed to open', async ({ page }) => {
+  test('keeps the last repository snapshot visible after a refresh failure', async ({ page }) => {
     const stub = await boot(page, { open: [fixtureRepo()] });
     await expect(page.getByTestId('repo-7')).toBeVisible();
 
-    // A status error after the fact is reported in the graph area and the
-    // status bar, and the tab's indicator turns to the error colour.
+    // A later status error keeps the last complete snapshot visible and offers
+    // a retry while warning that the working-tree view may be stale.
     await stub.emit('augur://repo-event', {
       repoId: 7,
       type: 'statusError',
       error: { key: 'err-git-status', detail: 'index.lock exists' }
     });
-    await expect(page.getByTestId('graph-error')).toContainText('index.lock exists');
-    await expect(page.getByTestId('status-bar')).toContainText('index.lock exists');
-    await expect(page.locator('.tab__dot--error')).toHaveCount(1);
+    await expect(page.getByTestId('graph')).toBeVisible();
+    await expect(page.getByTestId('status-bar')).toContainText('Status could not be refreshed');
+    await expect(page.getByTestId('status-retry')).toBeVisible();
+    await expect(page.locator('.status-bar__state')).toHaveAttribute('title', /index.lock exists/);
   });
 
   test('collects a path handed over before the window was listening', async ({ page }) => {

@@ -1,120 +1,21 @@
 //! Working-tree Git operations and path-safe pathspec helpers.
 
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Component, Path};
 use std::process::Stdio;
 use std::sync::mpsc::Sender;
+use std::time::Instant;
 
-use crate::diff::{is_binary_patch, parse_numstat_z};
+use crate::diff::is_binary_patch;
 
 use super::{
-    DiffLineStats, FileStatus, GitEvent, GitRepo, MAX_BLOB_SIZE, RepoLocation, WorkingTreeAction,
-    WorkingTreeDiffKind, WorkingTreeDiffStats, WorkingTreeScope, read_blob_spec,
+    FileStatus, GitEvent, GitRepo, MAX_BLOB_SIZE, RepoLocation, WorkingTreeAction,
+    WorkingTreeDiffKind, WorkingTreeScope, diagnostics, read_blob_spec_until,
 };
 
 pub(super) fn null_path() -> &'static str {
     if cfg!(windows) { "NUL" } else { "/dev/null" }
-}
-
-/// Read line totals for the index, tracked worktree, and untracked files.
-///
-/// Each category is independent: a failed query leaves that category unknown
-/// without hiding the file list or valid totals from the other categories.
-pub(super) fn read_diff_stats(repo: &GitRepo, files: &[FileStatus]) -> WorkingTreeDiffStats {
-    let staged = read_numstat(repo, true);
-    let unstaged = read_numstat(repo, false);
-    let untracked_files: Vec<_> = files.iter().filter(|file| file.is_untracked()).collect();
-    let untracked = if untracked_files.is_empty() {
-        Some(DiffLineStats::default())
-    } else {
-        let mut total = DiffLineStats::default();
-        let mut complete = true;
-        for file in untracked_files {
-            match read_untracked_numstat(repo, &file.path) {
-                Some(stats) => add_stats(&mut total, stats),
-                None => {
-                    complete = false;
-                    break;
-                }
-            }
-        }
-        complete.then_some(total)
-    };
-
-    WorkingTreeDiffStats {
-        staged,
-        unstaged,
-        untracked,
-    }
-}
-
-fn read_numstat(repo: &GitRepo, staged: bool) -> Option<DiffLineStats> {
-    let mut command = repo.command();
-    command.args(["--no-optional-locks", "-C", repo.path(), "diff"]);
-    if staged {
-        command.arg("--cached");
-    }
-    let output = command
-        .args(["--no-ext-diff", "--find-renames", "--numstat", "-z"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        log::warn!(
-            "[git_worktree] failed to read {} diff statistics: status={:?}",
-            if staged { "staged" } else { "unstaged" },
-            output.status.code()
-        );
-        return None;
-    }
-    Some(sum_numstat(&output.stdout))
-}
-
-fn read_untracked_numstat(repo: &GitRepo, path: &str) -> Option<DiffLineStats> {
-    let output = repo
-        .command()
-        .args([
-            "--no-optional-locks",
-            "-C",
-            repo.path(),
-            "diff",
-            "--no-index",
-            "--no-ext-diff",
-            "--numstat",
-            "-z",
-            "--",
-            null_path(),
-            path,
-        ])
-        .output()
-        .ok()?;
-    let is_diff_result = output.status.success() || output.status.code() == Some(1);
-    if !is_diff_result || output.stdout.is_empty() {
-        log::warn!(
-            "[git_worktree] failed to read untracked diff statistics: status={:?}, stderr={}",
-            output.status.code(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-        return None;
-    }
-    Some(sum_numstat(&output.stdout))
-}
-
-fn sum_numstat(data: &[u8]) -> DiffLineStats {
-    parse_numstat_z(data)
-        .into_iter()
-        .fold(DiffLineStats::default(), |mut total, file| {
-            if let (Some(added), Some(deleted)) = (file.added, file.deleted) {
-                total.added = total.added.saturating_add(added);
-                total.deleted = total.deleted.saturating_add(deleted);
-            }
-            total
-        })
-}
-
-fn add_stats(total: &mut DiffLineStats, next: DiffLineStats) {
-    total.added = total.added.saturating_add(next.added);
-    total.deleted = total.deleted.saturating_add(next.deleted);
 }
 
 /// Build the regular working-tree diff command for one status entry.
@@ -162,37 +63,40 @@ pub(super) fn untracked_diff_args(repo_path: &str, path: &str) -> Vec<String> {
 }
 
 /// Query a staged or unstaged working-tree file without blocking the UI.
-pub(super) fn run_file_diff(
+pub(super) fn run_file_diff_cancellable(
     repo: &GitRepo,
     request_id: u64,
     kind: WorkingTreeDiffKind,
     file: &FileStatus,
     event_tx: &Sender<GitEvent>,
+    cancel: &std::sync::atomic::AtomicBool,
 ) {
+    let deadline = Instant::now() + diagnostics::WORKING_DIFF_TIMEOUT;
+    let started = Instant::now();
     let untracked = matches!(kind, WorkingTreeDiffKind::Unstaged) && file.is_untracked();
     let args = if untracked {
         untracked_diff_args(repo.path(), &file.path)
     } else {
         working_tree_diff_args(repo.path(), kind, file)
     };
-    let output = repo.command().args(&args).output();
+    let output = diagnostics::run_working_diff(&mut repo.command().args(&args), cancel, deadline);
     match output {
         Ok(output) if output.status.success() || (untracked && output.status.code() == Some(1)) => {
             let patch = String::from_utf8_lossy(&output.stdout).into_owned();
-            let (old_source, new_source) = match kind {
+            let sources = match kind {
                 WorkingTreeDiffKind::Staged => {
                     let old_path = file.old_path.as_deref().unwrap_or(&file.path);
                     let old_source = if file.index == 'A' {
-                        None
+                        Ok(None)
                     } else {
-                        read_blob_spec(repo, &format!("HEAD:{old_path}"))
+                        read_blob_spec_until(repo, &format!("HEAD:{old_path}"), cancel, deadline)
                     };
                     let new_source = if file.index == 'D' {
-                        None
+                        Ok(None)
                     } else {
-                        read_blob_spec(repo, &format!(":{}", file.path))
+                        read_blob_spec_until(repo, &format!(":{}", file.path), cancel, deadline)
                     };
-                    (old_source, new_source)
+                    old_source.and_then(|old| new_source.map(|new| (old, new)))
                 }
                 WorkingTreeDiffKind::Unstaged => {
                     let old_path = if file.index == ' ' {
@@ -201,23 +105,35 @@ pub(super) fn run_file_diff(
                         &file.path
                     };
                     let old_source = if untracked || file.worktree == 'A' {
-                        None
+                        Ok(None)
                     } else {
-                        read_blob_spec(repo, &format!(":{old_path}"))
+                        read_blob_spec_until(repo, &format!(":{old_path}"), cancel, deadline)
                     };
                     let new_source = if file.worktree == 'D' {
-                        None
+                        Ok(None)
                     } else {
-                        read_worktree_source(repo, &file.path)
+                        read_worktree_source(repo, &file.path, cancel, deadline)
                     };
-                    (old_source, new_source)
+                    old_source.and_then(|old| new_source.map(|new| (old, new)))
                 }
             };
+            let (old_source, new_source) = match sources {
+                Ok(sources) => sources,
+                Err(diagnostics::ProcessFailure::Cancelled) => return,
+                Err(error) => {
+                    emit_preview_error(event_tx, request_id, kind, file, error);
+                    return;
+                }
+            };
+            if cancel.load(std::sync::atomic::Ordering::Acquire) {
+                return;
+            }
             log::debug!(
-                "[git_diff] loaded working-tree file diff: request_id={}, kind={kind:?}, binary={}, patch_bytes={}",
+                "[git_diff] loaded working-tree file diff: request_id={}, kind={kind:?}, binary={}, patch_bytes={}, elapsed_ms={}",
                 request_id,
                 is_binary_patch(&patch),
-                patch.len()
+                patch.len(),
+                started.elapsed().as_millis()
             );
             let _ = event_tx.send(GitEvent::WorkingTreeFileDiff {
                 request_id,
@@ -242,19 +158,39 @@ pub(super) fn run_file_diff(
                 detail,
             });
         }
+        Err(diagnostics::ProcessFailure::Cancelled) => {}
         Err(error) => {
             log::warn!(
-                "[git_diff] working-tree file diff failed to run: request_id={}, kind={kind:?}",
-                request_id
-            );
-            let _ = event_tx.send(GitEvent::WorkingTreeFileDiffError {
+                "[git_diff] working-tree file diff failed: request_id={}, kind={kind:?}, elapsed_ms={}",
                 request_id,
-                kind,
-                file: file.clone(),
-                detail: error.to_string(),
-            });
+                started.elapsed().as_millis()
+            );
+            emit_preview_error(event_tx, request_id, kind, file, error);
         }
     }
+}
+
+fn emit_preview_error(
+    event_tx: &Sender<GitEvent>,
+    request_id: u64,
+    kind: WorkingTreeDiffKind,
+    file: &FileStatus,
+    error: diagnostics::ProcessFailure,
+) {
+    let detail = match error {
+        diagnostics::ProcessFailure::Cancelled => return,
+        diagnostics::ProcessFailure::TimedOut => "Loading this file diff timed out.".to_string(),
+        diagnostics::ProcessFailure::OutputTooLarge => {
+            "This file diff or content exceeds the 10 MiB preview limit.".to_string()
+        }
+        other => other.to_string(),
+    };
+    let _ = event_tx.send(GitEvent::WorkingTreeFileDiffError {
+        request_id,
+        kind,
+        file: file.clone(),
+        detail,
+    });
 }
 
 fn diff_error_detail(output: &std::process::Output) -> String {
@@ -274,43 +210,116 @@ fn diff_error_detail(output: &std::process::Output) -> String {
 /// The path comes from a status snapshot and is validated as repo-relative
 /// before any access. Reading is best-effort: unreadable, oversized, or
 /// non-UTF-8 content degrades to `None`, exactly as before.
-fn read_worktree_source(repo: &GitRepo, path: &str) -> Option<String> {
+fn read_worktree_source(
+    repo: &GitRepo,
+    path: &str,
+    cancel: &std::sync::atomic::AtomicBool,
+    deadline: Instant,
+) -> Result<Option<String>, diagnostics::ProcessFailure> {
+    use std::sync::atomic::Ordering;
+
+    if cancel.load(Ordering::Acquire) {
+        return Err(diagnostics::ProcessFailure::Cancelled);
+    }
+    if Instant::now() >= deadline {
+        return Err(diagnostics::ProcessFailure::TimedOut);
+    }
     let relative_path = Path::new(path);
     if relative_path.is_absolute()
         || relative_path
             .components()
             .any(|component| matches!(component, Component::ParentDir))
     {
-        return None;
+        return Ok(None);
     }
     let bytes = match repo.location() {
-        RepoLocation::Local => fs::read(Path::new(repo.path()).join(relative_path)).ok()?,
-        RepoLocation::Wsl { .. } => read_remote_worktree_bytes(repo, path)?,
+        RepoLocation::Local => {
+            let source = Path::new(repo.path()).join(relative_path);
+            match fs::metadata(&source) {
+                Ok(metadata) if metadata.len() > MAX_BLOB_SIZE as u64 => {
+                    return Err(diagnostics::ProcessFailure::OutputTooLarge);
+                }
+                Err(_) => {
+                    return Err(diagnostics::ProcessFailure::Read(
+                        "This file content is no longer available.".into(),
+                    ));
+                }
+                _ => {}
+            }
+            let mut bytes = Vec::new();
+            fs::File::open(source)
+                .map_err(|_| {
+                    diagnostics::ProcessFailure::Read(
+                        "This file content is no longer available.".into(),
+                    )
+                })?
+                .take((MAX_BLOB_SIZE + 1) as u64)
+                .read_to_end(&mut bytes)
+                .map_err(|_| {
+                    diagnostics::ProcessFailure::Read("This file content could not be read.".into())
+                })?;
+            if cancel.load(Ordering::Acquire) {
+                return Err(diagnostics::ProcessFailure::Cancelled);
+            }
+            if Instant::now() >= deadline {
+                return Err(diagnostics::ProcessFailure::TimedOut);
+            }
+            bytes
+        }
+        RepoLocation::Wsl { .. } => read_remote_worktree_bytes(repo, path, cancel, deadline)?,
     };
     if bytes.len() > MAX_BLOB_SIZE {
-        return None;
+        return Err(diagnostics::ProcessFailure::OutputTooLarge);
     }
-    String::from_utf8(bytes).ok()
+    Ok(String::from_utf8(bytes).ok())
 }
 
 /// Read one untracked working-tree file from a non-local repository through
 /// the location itself (`cat -- <path>` inside the distro). Paths containing
 /// control characters are skipped: the preview is best-effort and such paths
 /// would be awkward to present anyway.
-fn read_remote_worktree_bytes(repo: &GitRepo, path: &str) -> Option<Vec<u8>> {
+fn read_remote_worktree_bytes(
+    repo: &GitRepo,
+    path: &str,
+    cancel: &std::sync::atomic::AtomicBool,
+    deadline: Instant,
+) -> Result<Vec<u8>, diagnostics::ProcessFailure> {
     if path.bytes().any(|byte| byte < 0x20 || byte == 0x7F) {
         log::debug!("[git_diff] skipping untracked preview: path contains control characters");
-        return None;
+        return Ok(Vec::new());
     }
-    let output = repo
-        .command_in_location("cat")
-        .args(["--", path])
-        .output()
-        .ok()?;
+    let size = diagnostics::run_cancellable(
+        &mut repo.command_in_location("stat").args(["-c", "%s", "--", path]),
+        cancel,
+        std::time::Duration::from_secs(2).min(deadline.saturating_duration_since(Instant::now())),
+        64,
+    )?;
+    if !size.status.success() {
+        return Err(diagnostics::ProcessFailure::Read(
+            "This file content is no longer available.".into(),
+        ));
+    }
+    let size = String::from_utf8_lossy(&size.stdout)
+        .trim()
+        .parse::<u64>()
+        .map_err(|_| {
+            diagnostics::ProcessFailure::Read("The file size could not be determined.".into())
+        })?;
+    if size > MAX_BLOB_SIZE as u64 {
+        return Err(diagnostics::ProcessFailure::OutputTooLarge);
+    }
+    let output = diagnostics::run_cancellable_until(
+        &mut repo.command_in_location("cat").args(["--", path]),
+        cancel,
+        deadline,
+        diagnostics::MAX_DIFF_OUTPUT_BYTES,
+    )?;
     if !output.status.success() {
-        return None;
+        return Err(diagnostics::ProcessFailure::Read(
+            "This file content is no longer available.".into(),
+        ));
     }
-    Some(output.stdout)
+    Ok(output.stdout)
 }
 
 /// Execute one staged/working-tree operation against the captured status
@@ -658,35 +667,13 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::{
-        GitRepo, apply_operation, clean_probe_is_directory, deduplicate, read_numstat,
-        read_untracked_numstat, sum_numstat, validate_status_path,
+        GitRepo, apply_operation, clean_probe_is_directory, deduplicate, validate_status_path,
     };
-    use crate::git::{DiffLineStats, FileStatus, WorkingTreeAction, WorkingTreeScope};
+    use crate::git::{FileStatus, WorkingTreeAction, WorkingTreeScope};
 
     /// Plain git for test fixtures; worker commands go through `GitRepo`.
     fn git_command() -> Command {
         Command::new("git")
-    }
-
-    #[test]
-    fn numstat_totals_sum_text_and_skip_binary_counts() {
-        assert_eq!(
-            sum_numstat(b"3\t1\ttracked.rs\0-\t-\tbinary.png\0"),
-            DiffLineStats {
-                added: 3,
-                deleted: 1
-            }
-        );
-    }
-
-    #[test]
-    fn failed_numstat_commands_are_unavailable() {
-        let missing =
-            std::env::temp_dir().join(format!("augur-git-missing-stats-{}", std::process::id()));
-        assert!(read_numstat(&GitRepo::local(missing.to_string_lossy()), false).is_none());
-
-        let repo = TempRepo::new();
-        assert!(read_untracked_numstat(&repo.handle(), "missing.txt").is_none());
     }
 
     #[test]

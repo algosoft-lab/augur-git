@@ -140,6 +140,8 @@ extensions-status-run-failed = Run { $run_id } failed: { $error }
 # ===== Tab bar / Status bar =====
 status-no-repo-selected = No repository selected
 status-scanning-at = Scanning @ { $repo }
+status-retry = Retry status check
+status-stale = Status could not be refreshed. Showing the last known working tree.
 
 # ===== Command results / messages =====
 command-success = { $label } succeeded
@@ -249,6 +251,14 @@ section-staged = Staged
 section-changes = Changes
 changes-title = Working Tree
 changes-empty = No changes
+changes-stats-tracked = Tracked
+changes-stats-untracked = Untracked
+diff-stats-pending = Calculating line counts…
+diff-stats-too-many-files = Line counts skipped: too many untracked files.
+diff-stats-file-too-large = Line counts skipped: an untracked file exceeds 1 MiB.
+diff-stats-total-too-large = Line counts skipped: untracked files exceed 16 MiB in total.
+diff-stats-timed-out = Line counts could not be calculated within 2 seconds.
+diff-stats-unavailable = Line counts are unavailable.
 changes-stage = Stage Changes
 changes-unstage = Unstage Changes
 changes-discard = Discard Changes
@@ -701,6 +711,8 @@ err-wsl-unsupported = WSL repositories require Windows: { $detail }
 err-wsl-distro-not-found = WSL distribution not found: { $detail }
 err-wsl-git-missing = Git is not available inside the WSL distribution: { $detail }
 err-git-status = Failed to read Git status: { $detail }
+err-git-status-timeout = Git status timed out: { $detail }
+err-git-status-output = Git status returned too much data: { $detail }
 err-git-status-path = Git reported a path that cannot be handled safely: { $detail }
 err-git-log = git log failed: { $detail }
 err-numstat = git show --numstat failed: { $detail }

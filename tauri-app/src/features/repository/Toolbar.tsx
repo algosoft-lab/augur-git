@@ -25,7 +25,8 @@ export function createBranchMenuItems(
   translate: (key: string) => string,
   onSelect: (action: string) => void
 ): MenuItemSpec[] {
-  const blocked = repo?.hasConflicts ?? true;
+  const unavailable = !repo || repo.busy || repo.status !== 'ready' || repo.statusStale;
+  const blocked = unavailable || (repo?.hasConflicts ?? true);
   const branch = repo?.branch ?? '';
   const hasBranches = repo ? hasLocalBranches(repo) : false;
   return [
@@ -33,21 +34,21 @@ export function createBranchMenuItems(
       id: 'branch-new',
       label: translate('menu-branch-new'),
       icon: <Icon name="git-branch-plus" />,
-      disabled: !repo || blocked,
+      disabled: blocked,
       onSelect: () => onSelect('branch-new')
     },
     {
       id: 'branch-rename',
       label: translate('menu-branch-rename'),
       icon: <Icon name="pencil" />,
-      disabled: !repo || branch.length === 0,
+      disabled: unavailable || branch.length === 0,
       onSelect: () => onSelect('branch-rename')
     },
     {
       id: 'stash',
       label: translate('menu-stash'),
       icon: <Icon name="archive" />,
-      disabled: !repo || repo.stashableCount === 0,
+      disabled: unavailable || repo?.stashableCount === 0,
       separatorBefore: true,
       onSelect: () => onSelect('stash')
     },
@@ -55,14 +56,14 @@ export function createBranchMenuItems(
       id: 'stash-pop',
       label: translate('menu-stash-pop'),
       icon: <Icon name="archive-restore" />,
-      disabled: !repo || repo.refs.stashes.length === 0 || blocked,
+      disabled: blocked || repo.refs.stashes.length === 0,
       onSelect: () => onSelect('stash-pop')
     },
     {
       id: 'merge',
       label: translate('menu-merge'),
       icon: <Icon name="git-merge" />,
-      disabled: !repo || !hasBranches || blocked,
+      disabled: blocked || !hasBranches,
       separatorBefore: true,
       onSelect: () => onSelect('merge')
     },
@@ -70,21 +71,21 @@ export function createBranchMenuItems(
       id: 'merge-no-ff',
       label: translate('menu-merge-no-ff'),
       icon: <Icon name="git-merge" />,
-      disabled: !repo || !hasBranches || blocked,
+      disabled: blocked || !hasBranches,
       onSelect: () => onSelect('merge-no-ff')
     },
     {
       id: 'rebase',
       label: translate('menu-rebase'),
       icon: <Icon name="git-commit-horizontal" />,
-      disabled: !repo || blocked,
+      disabled: blocked,
       onSelect: () => onSelect('rebase')
     },
     {
       id: 'apply-patch',
       label: translate('menu-apply-patch'),
       icon: <Icon name="upload" />,
-      disabled: !repo || blocked,
+      disabled: blocked,
       separatorBefore: true,
       onSelect: () => onSelect('apply-patch')
     },
@@ -92,7 +93,7 @@ export function createBranchMenuItems(
       id: 'apply-patch-ai',
       label: translate('agent-prompt-apply-patch'),
       icon: <Icon name="copy" />,
-      disabled: !repo || blocked || repo.busy,
+      disabled: blocked,
       onSelect: () => onSelect('apply-patch-ai')
     }
   ];
@@ -106,7 +107,8 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
   const hasRemote = repo.refs.remotes.length > 0;
   const blocked = repo.hasConflicts;
   const network = hasRemote && !repo.busy;
-  const pull = network && !blocked;
+  const workingTreeUnavailable = repo.status !== 'ready' || repo.statusStale;
+  const pull = network && !blocked && !workingTreeUnavailable;
   const [patchInFlight, setPatchInFlight] = useState<{ repoId: number; path: string } | null>(null);
   const [patchFailure, setPatchFailure] = useState<{
     repoId: number;
@@ -175,7 +177,7 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
     id: 'reset',
     label: t(translate, 'menu-reset'),
     icon: <Icon name="undo" />,
-    disabled: repo.busy || !repo.head || repo.hasConflicts,
+    disabled: repo.busy || workingTreeUnavailable || !repo.head || repo.hasConflicts,
     separatorBefore: true,
     danger: true,
     onSelect: () => openOverlay({ kind: 'reset' })
@@ -384,7 +386,13 @@ function defaultPushRemote(remotes: string[]): string {
 
 /** Run the toolbar's Pull behavior from a keyboard command. */
 export function triggerPull(repo: RepoState): void {
-  if (repo.refs.remotes.length === 0 || repo.busy || repo.hasConflicts) {
+  if (
+    repo.refs.remotes.length === 0 ||
+    repo.busy ||
+    repo.hasConflicts ||
+    repo.status !== 'ready' ||
+    repo.statusStale
+  ) {
     return;
   }
   const store = useStore.getState();

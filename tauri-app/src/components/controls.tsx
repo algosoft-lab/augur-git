@@ -976,6 +976,8 @@ export interface VirtualListProps<T> {
   role?: React.AriaRole;
   'aria-activedescendant'?: string;
   onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
+  keyboardList?: string;
+  focusIndex?: number | null;
 }
 
 /**
@@ -1000,7 +1002,9 @@ export function VirtualList<T>({
   focusable = false,
   role,
   'aria-activedescendant': activeDescendant,
-  onKeyDown
+  onKeyDown,
+  keyboardList,
+  focusIndex
 }: VirtualListProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const initialScrollApplied = useRef(false);
@@ -1039,13 +1043,44 @@ export function VirtualList<T>({
   const start = Math.max(0, firstVisible - overscan);
   const end = Math.min(items.length, lastVisible + overscan + 1);
 
+  useLayoutEffect(() => {
+    if (
+      focusIndex === null ||
+      focusIndex === undefined ||
+      focusIndex < 0 ||
+      focusIndex >= items.length
+    ) {
+      return;
+    }
+    const element = containerRef.current;
+    if (!element) return;
+    const top = offsets[focusIndex] ?? 0;
+    const bottom = offsets[focusIndex + 1] ?? top + rowHeight;
+    if (top < element.scrollTop || bottom > element.scrollTop + element.clientHeight) {
+      element.scrollTop = top;
+      setScrollTop(top);
+    }
+  }, [focusIndex, items.length, offsets, rowHeight]);
+
+  useLayoutEffect(() => {
+    if (focusIndex === null || focusIndex === undefined) return;
+    containerRef.current
+      ?.querySelector<HTMLElement>(`[data-virtual-index="${focusIndex}"] [data-keyboard-list-item]`)
+      ?.focus();
+  }, [focusIndex, start, end]);
+
   useEffect(() => {
     onViewportChange?.({ start, end });
   }, [start, end, onViewportChange]);
 
   if (items.length === 0 && empty) {
     return (
-      <div className={`virtual-list${className ? ` ${className}` : ''}`} ref={containerRef}>
+      <div
+        className={`virtual-list${className ? ` ${className}` : ''}`}
+        ref={containerRef}
+        data-testid={testId}
+        data-keyboard-list={keyboardList}
+      >
         {empty}
       </div>
     );
@@ -1056,6 +1091,7 @@ export function VirtualList<T>({
       className={`virtual-list${className ? ` ${className}` : ''}`}
       ref={containerRef}
       data-testid={testId}
+      data-keyboard-list={keyboardList}
       tabIndex={focusable ? 0 : undefined}
       role={role}
       aria-activedescendant={activeDescendant}
@@ -1074,6 +1110,7 @@ export function VirtualList<T>({
           {items.slice(start, end).map((item, offset) => (
             <div
               key={start + offset}
+              data-virtual-index={start + offset}
               style={{ height: itemHeight?.(item, start + offset) ?? rowHeight }}
             >
               {renderRow(item, start + offset)}

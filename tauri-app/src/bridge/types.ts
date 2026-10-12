@@ -164,6 +164,20 @@ export interface WorkingTreeDiffStats {
   untracked: DiffLineStats | null;
 }
 
+export type DiffStatsStatus = 'pending' | 'ready' | 'skipped' | 'error';
+
+export interface DiffStatCategory {
+  status: DiffStatsStatus;
+  stats: DiffLineStats | null;
+  reason: string | null;
+}
+
+export interface WorkingTreeDiffStatsReport {
+  staged: DiffStatCategory;
+  unstaged: DiffStatCategory;
+  untracked: DiffStatCategory;
+}
+
 export interface BranchInfo {
   name: string;
   is_head: boolean;
@@ -400,15 +414,18 @@ export interface CommitIdentityProbe {
 export type RepoEvent =
   | {
       type: 'status';
+      snapshotId: number;
       branch: string;
       head: string | null;
       upstream: string | null;
       ahead: number;
       behind: number;
       files: FileStatus[];
-      diff_stats: WorkingTreeDiffStats;
+      /** Present only in older fixtures; the desktop backend reports this asynchronously. */
+      diff_stats?: WorkingTreeDiffStats;
       branches: BranchInfo[];
     }
+  | { type: 'diffStats'; snapshotId: number; report: WorkingTreeDiffStatsReport }
   | { type: 'logPage'; rows: LogRow[]; replace: boolean; hasMore: boolean }
   | { type: 'refs'; refs: RefsInfo }
   | {

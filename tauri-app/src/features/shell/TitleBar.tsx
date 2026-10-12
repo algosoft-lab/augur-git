@@ -158,7 +158,7 @@ export function TitleBar({
       id: 'branch',
       label: t(translate, 'menu-branch'),
       icon: <Icon name="git-branch" />,
-      disabled: !repo || repo.busy,
+      disabled: !repo || repo.busy || repo.status !== 'ready' || repo.statusStale,
       separatorBefore: true,
       children: branchItems
     },

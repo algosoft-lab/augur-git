@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { codeFor, groupFiles, isConflicted, isStaged, isUntracked } from '../app/repoState';
+import {
+  applyRepoEvent,
+  codeFor,
+  emptyRepo,
+  groupFiles,
+  isConflicted,
+  isStaged,
+  isUntracked
+} from '../app/repoState';
 import type { FileStatus } from '../bridge/types';
 
 function file(index: string, worktree: string, path = 'src/main.rs'): FileStatus {
@@ -64,5 +72,67 @@ describe('porcelain status classification', () => {
     const worktreeOnly = file(' ', 'D');
     expect(codeFor(worktreeOnly, false)).toBe('D');
     expect(codeFor(worktreeOnly, true)).toBe('D');
+  });
+});
+
+describe('repository snapshot events', () => {
+  const apply = (
+    state: ReturnType<typeof emptyRepo>,
+    event: Parameters<typeof applyRepoEvent>[1]
+  ) =>
+    applyRepoEvent(
+      state,
+      event,
+      (key) => key,
+      (_key, detail) => detail
+    );
+
+  it('drops statistics that arrive for an older status snapshot', () => {
+    let state = emptyRepo(1, '/repo', { kind: 'local' });
+    state = apply(state, {
+      type: 'status',
+      snapshotId: 2,
+      branch: 'main',
+      head: 'abc',
+      upstream: null,
+      ahead: 0,
+      behind: 0,
+      files: [file('?', '?', 'new.txt')],
+      branches: []
+    });
+
+    const afterLateStats = apply(state, {
+      type: 'diffStats',
+      snapshotId: 1,
+      report: {
+        staged: { status: 'ready', stats: { added: 10, deleted: 0 }, reason: null },
+        unstaged: { status: 'ready', stats: { added: 20, deleted: 0 }, reason: null },
+        untracked: { status: 'ready', stats: { added: 30, deleted: 0 }, reason: null }
+      }
+    });
+    expect(afterLateStats).toBe(state);
+    expect(afterLateStats.diffStatsReport.untracked.status).toBe('pending');
+  });
+
+  it('keeps the last complete working-tree snapshot when refresh fails', () => {
+    const files = [file('?', '?', 'new.txt')];
+    let state = emptyRepo(1, '/repo', { kind: 'local' });
+    state = apply(state, {
+      type: 'status',
+      snapshotId: 4,
+      branch: 'main',
+      head: 'abc',
+      upstream: null,
+      ahead: 0,
+      behind: 0,
+      files,
+      branches: []
+    });
+    state = apply(state, { type: 'statusError', error: { key: 'err', detail: 'failed' } });
+
+    expect(state.status).toBe('ready');
+    expect(state.statusStale).toBe(true);
+    expect(state.files).toBe(files);
+    expect(state.errorMessage).toBe('failed');
   });
 });
