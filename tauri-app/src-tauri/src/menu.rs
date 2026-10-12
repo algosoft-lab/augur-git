@@ -236,6 +236,13 @@ fn build<R: Runtime>(
         MenuItemBuilder::with_id(ids::PUSH, i18n::text(locale, "toolbar-push")).build(app)?;
     let refresh =
         MenuItemBuilder::with_id(ids::REFRESH, i18n::text(locale, "toolbar-refresh")).build(app)?;
+    let undo = PredefinedMenuItem::undo(app, Some(&i18n::text(locale, "menu-undo")))?;
+    let redo = PredefinedMenuItem::redo(app, Some(&i18n::text(locale, "menu-redo")))?;
+    let cut = PredefinedMenuItem::cut(app, Some(&i18n::text(locale, "menu-cut")))?;
+    let copy = PredefinedMenuItem::copy(app, Some(&i18n::text(locale, "menu-copy")))?;
+    let paste = PredefinedMenuItem::paste(app, Some(&i18n::text(locale, "menu-paste")))?;
+    let select_all =
+        PredefinedMenuItem::select_all(app, Some(&i18n::text(locale, "menu-select-all")))?;
     let branch_new =
         MenuItemBuilder::with_id(ids::BRANCH_NEW, i18n::text(locale, "menu-branch-new"))
             .build(app)?;
@@ -337,6 +344,14 @@ fn build<R: Runtime>(
         .item(&branch_apply_patch_ai)
         .build()?;
     let edit_menu = SubmenuBuilder::new(app, i18n::text(locale, "menu-edit"))
+        .item(&undo)
+        .item(&redo)
+        .separator()
+        .item(&cut)
+        .item(&copy)
+        .item(&paste)
+        .item(&select_all)
+        .separator()
         .item(&fetch)
         .item(&pull)
         .item(&push)
