@@ -2189,7 +2189,7 @@ body .diff ::selection {
 .about__update-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .about__row {

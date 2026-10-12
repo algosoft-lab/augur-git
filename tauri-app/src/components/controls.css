@@ -64,6 +64,91 @@
   padding: 0 6px;
 }
 
+/* Filled action button. The theme color carries the whole control, so the
+ * fill and the rounded shape make it unmistakably a button. */
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--primary-background);
+  border-radius: 6px;
+  background: var(--primary-background);
+  color: var(--primary-foreground);
+  font: inherit;
+  font-size: calc(var(--ui-font-size) * 0.75);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 100ms ease,
+    transform 80ms ease;
+}
+
+.primary-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary-background) 88%, var(--primary-foreground));
+}
+
+.primary-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.primary-button:focus-visible {
+  outline: 2px solid var(--accent-background);
+  outline-offset: 2px;
+}
+
+.primary-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Secondary rounded button for supporting actions next to a primary one. */
+.toolbar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: calc(var(--ui-font-size) * 0.75);
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 100ms ease,
+    border-color 100ms ease,
+    transform 80ms ease;
+}
+
+.toolbar-button:hover:not(:disabled) {
+  border-color: var(--accent-background);
+  background: var(--list-hover-background);
+}
+
+.toolbar-button:active:not(:disabled) {
+  transform: translateY(1px);
+  background: var(--list-active-background);
+}
+
+.toolbar-button:focus-visible {
+  outline: 2px solid var(--accent-background);
+  outline-offset: 2px;
+}
+
+.toolbar-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .icon-button-slot {
   display: inline-flex;
   width: 22px;

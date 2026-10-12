@@ -122,7 +122,7 @@ export function AboutWindow() {
           <div className="about__update-actions">
             <button
               type="button"
-              className="toolbar-button"
+              className="primary-button"
               data-testid="check-for-updates"
               disabled={checking || downloading}
               onClick={() =>
@@ -161,7 +161,7 @@ export function AboutWindow() {
             ) : null}
             <button
               type="button"
-              className="toolbar-button"
+              className="primary-button"
               data-testid="open-release-page"
               onClick={() => void openUrl(releaseUrl).catch(() => undefined)}
             >
