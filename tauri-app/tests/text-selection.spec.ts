@@ -78,6 +78,10 @@ test.describe('text selection policy', () => {
   });
 
   test('keeps inline and side-by-side Diff text selectable', async ({ page }) => {
+    // Side-by-side is a wide-panel layout: below 900px of diff width the
+    // all-files view deliberately forces inline, so give the panel room for
+    // the second half of this check to be reachable at all.
+    await page.setViewportSize({ width: 1600, height: 900 });
     await boot(page, { open: [fixtureRepo()] });
     await expectDiffTextSelectable(page, 'inline');
 
