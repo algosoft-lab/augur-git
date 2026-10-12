@@ -2,7 +2,7 @@
 
 This repository contains two independent desktop applications: the primary
 Tauri application in `tauri-app/`, which is under active development, and the
-legacy application in `gpui-app/`, implemented with Rust and GPUI. They share no
+legacy application in `legacy-app/`, implemented with Rust and GPUI. They share no
 application source, assets, dependency manifests, lock files, build
 configuration, or runtime configuration. Do not add cross-directory
 dependencies or configuration import paths.

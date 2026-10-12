@@ -96,7 +96,7 @@ Coding agent or editor
   active development, built with Tauri 2, React, and Vite. Its frontend and
   Rust backend have independent dependencies, build commands, and application
   data.
-- **[Augur Git Legacy](gpui-app/README.md)** — the legacy Rust application
+- **[Augur Git Legacy](legacy-app/README.md)** — the legacy Rust application
   built with GPUI, retained for reference and existing users. It is no longer
   under active development.
 
@@ -135,9 +135,8 @@ brew upgrade --cask augur-git
 Each successful Tauri publish keeps the rolling nightly release and the newest
 versioned release; older Tauri nightly releases and tags are removed.
 
-The legacy GPUI package workflow is manual-dispatch only. See the
-[Tauri application README](tauri-app/README.md#nightly-updates) for release
-publishing, signing-key, and Homebrew tap setup.
+See the [Tauri application README](tauri-app/README.md#nightly-updates) for
+release publishing, signing-key, and Homebrew tap setup.
 
 ## Repository-wide guidance
 

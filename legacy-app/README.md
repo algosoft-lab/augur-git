@@ -5,9 +5,8 @@
 > built with GPUI, is retained for reference and existing users; changes to it
 > should be made only when a request explicitly asks for the legacy version.
 
-The GPUI packaging workflow is manual-dispatch only; pushes to the legacy
-build branches no longer start it. The primary Tauri application's nightly
-update and release process is documented in [`tauri-app/README.md`](../tauri-app/README.md#nightly-updates).
+The primary Tauri application's nightly update and release process is
+documented in [`tauri-app/README.md`](../tauri-app/README.md#nightly-updates).
 
 This README documents the legacy implementation's features, setup, and
 architecture. For the project's product concept and design principles, see the
@@ -152,7 +151,7 @@ Building requires a recent stable Rust toolchain (edition 2024).
 
 ## Getting started
 
-Run these commands from the `gpui-app/` directory.
+Run these commands from the `legacy-app/` directory.
 
 1. Install a stable Rust toolchain via [rustup](https://rustup.rs).
 2. Make sure `git` is available on `PATH`.

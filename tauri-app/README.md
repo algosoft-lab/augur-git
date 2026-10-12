@@ -5,7 +5,7 @@ an independently maintained application with its own frontend, Rust workspace,
 assets, dependency manifests and lock files, build configuration, bundle
 identity, and runtime settings.
 
-The legacy application in `gpui-app/` is a separate implementation built with
+The legacy application in `legacy-app/` is a separate implementation built with
 GPUI. The two applications share no source files, assets, dependency manifests
 or lock files, build configuration, or runtime settings. Each resolves
 dependencies from its own manifests. Their configuration formats are
@@ -276,10 +276,6 @@ before enabling publication. The first successful publish creates
 signing or tap credentials stop the workflow before it changes the rolling
 release. macOS DMGs use an ad-hoc signature and are not notarized, so Gatekeeper
 may require approval after installation.
-
-The separate GPUI workflow in `.github/workflows/build.yml` has no push
-trigger. It remains available only through GitHub Actions **Run workflow** for
-legacy builds.
 
 ## License
 
