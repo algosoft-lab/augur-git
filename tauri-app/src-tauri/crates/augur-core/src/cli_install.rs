@@ -9,6 +9,8 @@ mod unix;
 mod windows;
 
 #[cfg(unix)]
+pub use unix::launch_target;
+#[cfg(unix)]
 pub use unix::Context;
 #[cfg(windows)]
 pub use windows::Context;

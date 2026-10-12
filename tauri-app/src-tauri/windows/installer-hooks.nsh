@@ -6,7 +6,7 @@ Var AugurCliEnabled
 Var AugurCliPreviousInstall
 
 !macro AUGUR_CLI_PAGE
-  Page custom AugurCliPage AugurCliLeave "" "" AugurCliPagePre
+  Page custom AugurCliPage AugurCliLeave
 !macroend
 
 !macro AUGUR_CLI_FUNCTIONS
@@ -26,15 +26,12 @@ Function AugurCliInitialize
   ${EndIf}
 FunctionEnd
 
-Function AugurCliPagePre
+Function AugurCliPage
   ${If} $PassiveMode = 1
   ${OrIf} $UpdateMode = 1
   ${OrIf} ${Silent}
     Abort
   ${EndIf}
-FunctionEnd
-
-Function AugurCliPage
   !insertmacro MUI_HEADER_TEXT "Terminal command" "Add agit to your user PATH"
   nsDialogs::Create 1018
   Pop $0
