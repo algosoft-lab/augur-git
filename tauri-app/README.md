@@ -240,14 +240,13 @@ brew upgrade --cask augur-git
 
 Every `publish-tauri` run uses one version of the form
 `0.1.1-nightly.<run-number>` across the Windows installer, macOS DMG, Linux
-packages, About window, and `--version` output. CI first publishes immutable
-assets under a versioned `tauri-nightly-<version>` release. It then updates the
-checksum-pinned cask in `algosoft-lab/homebrew-augur-git` and advances the
-rolling `tauri-nightly` release. The signed `latest.json` feed is published
-after its installer target and the rolling download links have been validated.
-After the rolling release succeeds, CI removes older Tauri nightly releases and
-tags. It keeps the rolling release and the current versioned release, which the
-updater feed and Homebrew cask reference.
+packages, About window, and `--version` output. CI publishes immutable assets
+and the signed `latest.json` updater feed under one versioned
+`tauri-nightly-<version>` release, then updates the checksum-pinned cask in
+`algosoft-lab/homebrew-augur-git`. The app checks the newest versioned release
+and uses its updater feed. CI removes the previous rolling release and older
+nightly releases and tags, leaving the current numbered release as the single
+release entry.
 
 ### Release setup
 

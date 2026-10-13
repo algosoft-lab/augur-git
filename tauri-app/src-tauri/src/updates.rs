@@ -18,8 +18,11 @@ use augur_core::build_info::{APP_VERSION, GIT_COMMIT};
 use crate::state::AppState;
 
 const RELEASE_API: &str =
-    "https://api.github.com/repos/algosoft-lab/augur-git/releases/tags/tauri-nightly";
-const RELEASE_PAGE: &str = "https://github.com/algosoft-lab/augur-git/releases/tag/tauri-nightly";
+    "https://api.github.com/repos/algosoft-lab/augur-git/releases?per_page=100";
+const RELEASE_PAGE_PREFIX: &str =
+    "https://github.com/algosoft-lab/augur-git/releases/tag/tauri-nightly-";
+const RELEASE_DOWNLOAD_PREFIX: &str =
+    "https://github.com/algosoft-lab/augur-git/releases/download/tauri-nightly-";
 const UPDATE_EVENT: &str = "augur://update-event";
 const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 const STARTUP_DELAY: Duration = Duration::from_secs(5);
@@ -80,20 +83,25 @@ enum UpdateEvent {
 
 #[derive(Deserialize)]
 struct GithubRelease {
+    tag_name: String,
     body: String,
     html_url: String,
+    created_at: String,
+    prerelease: bool,
     assets: Vec<ReleaseAsset>,
 }
 
 #[derive(Deserialize)]
 struct ReleaseAsset {
     name: String,
+    browser_download_url: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 struct NightlyRelease {
     commit_sha: String,
     version: String,
+    manifest_url: String,
 }
 
 struct UpdateInner {
@@ -281,9 +289,26 @@ impl UpdateManager {
         if body.len() > 512_000 {
             return Err("GitHub release metadata exceeded the size limit".to_owned());
         }
-        let release: GithubRelease = serde_json::from_str(&body)
+        let releases: Vec<GithubRelease> = serde_json::from_str(&body)
             .map_err(|error| format!("Invalid release metadata: {error}"))?;
-        let release = parse_release(&release.body, &release.html_url, &release.assets)?;
+        let release = releases
+            .iter()
+            .filter(|release| {
+                release.prerelease
+                    && release
+                        .tag_name
+                        .strip_prefix("tauri-nightly-")
+                        .is_some_and(valid_nightly_version)
+            })
+            .max_by(|left, right| left.created_at.cmp(&right.created_at))
+            .ok_or_else(|| "GitHub returned no versioned Tauri nightly release".to_owned())?;
+        let release = parse_release(
+            &release.tag_name,
+            &release.body,
+            &release.html_url,
+            release.prerelease,
+            &release.assets,
+        )?;
 
         #[cfg(windows)]
         let pending_update = if release.commit_sha != self.current_sha
@@ -291,7 +316,13 @@ impl UpdateManager {
         {
             let update = self
                 .app
-                .updater()
+                .updater_builder()
+                .endpoints(vec![
+                    reqwest::Url::parse(&release.manifest_url)
+                        .map_err(|error| error.to_string())?,
+                ])
+                .map_err(|error| error.to_string())?
+                .build()
                 .map_err(|error| error.to_string())?
                 .check()
                 .await
@@ -562,11 +593,13 @@ fn failure_status(error: String) -> UpdateStatus {
 }
 
 fn parse_release(
+    tag_name: &str,
     body: &str,
     html_url: &str,
+    prerelease: bool,
     assets: &[ReleaseAsset],
 ) -> Result<NightlyRelease, String> {
-    if body.len() > 100_000 || html_url != RELEASE_PAGE {
+    if body.len() > 100_000 || !prerelease {
         return Err("GitHub returned unexpected nightly release metadata".to_owned());
     }
     let commit_sha = body
@@ -590,12 +623,22 @@ fn parse_release(
         .find_map(|line| line.strip_prefix("Version: "))
         .filter(|version| valid_nightly_version(version))
         .ok_or_else(|| "Nightly release does not contain a valid version".to_owned())?;
-    if !assets.iter().any(|asset| asset.name == "latest.json") {
-        return Err("Nightly release does not contain the signed update feed".to_owned());
+    let expected_tag = format!("tauri-nightly-{version}");
+    if tag_name != expected_tag || html_url != format!("{RELEASE_PAGE_PREFIX}{version}") {
+        return Err("GitHub returned a nightly release with an unexpected tag".to_owned());
     }
+    let expected_manifest_url = format!("{RELEASE_DOWNLOAD_PREFIX}{version}/latest.json");
+    let manifest_url = assets
+        .iter()
+        .find(|asset| {
+            asset.name == "latest.json" && asset.browser_download_url == expected_manifest_url
+        })
+        .map(|asset| asset.browser_download_url.clone())
+        .ok_or_else(|| "Nightly release does not contain the signed update feed".to_owned())?;
     Ok(NightlyRelease {
         commit_sha,
         version: version.to_owned(),
+        manifest_url,
     })
 }
 
@@ -652,10 +695,18 @@ mod tests {
 
     #[test]
     fn parses_only_valid_nightly_release_metadata() {
+        let version = "0.1.1-nightly.24";
+        let tag = format!("tauri-nightly-{version}");
+        let page = format!("{RELEASE_PAGE_PREFIX}{version}");
         let release = parse_release(
+            &tag,
             "Automated Tauri nightly build for commit 0123456789abcdef0123456789abcdef01234567.\nVersion: 0.1.1-nightly.24",
-            RELEASE_PAGE,
-            &[ReleaseAsset { name: "latest.json".to_owned() }],
+            &page,
+            true,
+            &[ReleaseAsset {
+                name: "latest.json".to_owned(),
+                browser_download_url: format!("{RELEASE_DOWNLOAD_PREFIX}{version}/latest.json"),
+            }],
         )
         .unwrap();
         assert_eq!(
@@ -663,37 +714,52 @@ mod tests {
             "0123456789abcdef0123456789abcdef01234567"
         );
         assert_eq!(release.version, "0.1.1-nightly.24");
+        assert_eq!(
+            release.manifest_url,
+            format!("{RELEASE_DOWNLOAD_PREFIX}{version}/latest.json")
+        );
     }
 
     #[test]
     fn release_metadata_rejects_missing_commit_version_or_untrusted_page() {
+        let version = "0.1.1-nightly.2";
+        let tag = format!("tauri-nightly-{version}");
+        let page = format!("{RELEASE_PAGE_PREFIX}{version}");
         let assets = [ReleaseAsset {
             name: "latest.json".to_owned(),
+            browser_download_url: format!("{RELEASE_DOWNLOAD_PREFIX}{version}/latest.json"),
         }];
-        assert!(parse_release("Version: 0.1.1-nightly.2", RELEASE_PAGE, &assets).is_err());
+        assert!(parse_release(&tag, "Version: 0.1.1-nightly.2", &page, true, &assets).is_err());
         assert!(
             parse_release(
+                &tag,
                 "commit 0123456789abcdef0123456789abcdef01234567",
-                RELEASE_PAGE,
+                &page,
+                true,
                 &assets
             )
             .is_err()
         );
-        assert!(parse_release("", "https://example.com", &assets).is_err());
+        assert!(parse_release(&tag, "", "https://example.com", true, &assets).is_err());
         assert!(
             parse_release(
+                &tag,
                 "commit 0123456789abcdef0123456789abcdef01234567\nVersion: 0.1.1-nightly.2",
-                RELEASE_PAGE,
+                &page,
+                true,
                 &[]
             )
             .is_err()
         );
         assert!(
             parse_release(
+                &tag,
                 "commit 0123456789abcdef0123456789abcdef01234567\nVersion: 0.1.1-nightly.2",
-                RELEASE_PAGE,
+                &page,
+                true,
                 &[ReleaseAsset {
-                    name: "augur-git.exe".to_owned()
+                    name: "augur-git.exe".to_owned(),
+                    browser_download_url: "https://example.com/augur-git.exe".to_owned(),
                 }]
             )
             .is_err()

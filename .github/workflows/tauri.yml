@@ -335,6 +335,7 @@ jobs:
           fi
 
       - name: Publish checksum-pinned Homebrew cask
+        id: cask
         if: steps.freshness.outputs.stale != 'true'
         shell: bash
         run: |
@@ -348,129 +349,9 @@ jobs:
             git -C homebrew-tap commit -m "chore(cask): bump augur-git to ${NIGHTLY_VERSION}"
             git -C homebrew-tap push origin HEAD
           fi
-
-      - name: Advance rolling nightly release
-        id: rolling
-        if: steps.freshness.outputs.stale != 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          branch_sha="$(gh api "repos/${REPOSITORY}/branches/publish-tauri" --jq '.commit.sha')"
-          if [[ "${branch_sha}" != "${COMMIT_SHA}" ]]; then
-            echo "The branch advanced before the rolling release update; keeping the previous feed."
-            exit 0
-          fi
-
-          tag="tauri-nightly"
-          release_body="Automated Tauri nightly build for commit ${COMMIT_SHA}."
-          release_body+=$'\nVersion: '
-          release_body+="${NIGHTLY_VERSION}"
-          release_body+=$'\n\nThe Linux raw archive requires system GTK 3 and WebKitGTK 4.1 libraries. The macOS app uses an ad-hoc signature and is not notarized.'
-          release_id="$(gh api --paginate "repos/${REPOSITORY}/releases?per_page=100" --jq '.[] | select(.tag_name == "tauri-nightly") | .id' | head -n 1)"
-          release_created=false
-
-          if [[ -z "${release_id}" ]]; then
-            release_id="$(gh api --method POST "repos/${REPOSITORY}/releases" \
-              -f tag_name="${tag}" \
-              -F "target_commitish=${COMMIT_SHA}" \
-              -f name="Augur Git Tauri Nightly" \
-              -f "body=${release_body}" \
-              -F draft=true \
-              -F prerelease=true \
-              -f make_latest=false \
-              --jq '.id')"
-            release_created=true
-          fi
-
-          cp staging/windows/augur-git-tauri-windows-x86_64-nsis.exe staging/rolling-windows.exe
-          cp staging/windows/augur-git-tauri-windows-x86_64-nsis.exe.sig staging/rolling-windows.exe.sig
-          cp staging/macos/augur-git-tauri-macos-arm64.dmg staging/rolling-macos.dmg
-          cp staging/linux/augur-git-tauri-linux-x86_64.AppImage staging/rolling-linux.AppImage
-          cp staging/linux/augur-git-tauri-linux-x86_64.deb staging/rolling-linux.deb
-          cp staging/linux/augur-git-tauri-linux-x86_64.tar.gz staging/rolling-linux.tar.gz
-          gh release upload "${tag}" \
-            staging/rolling-windows.exe#augur-git-tauri-windows-x86_64-nsis.exe \
-            staging/rolling-windows.exe.sig#augur-git-tauri-windows-x86_64-nsis.exe.sig \
-            staging/rolling-macos.dmg#augur-git-tauri-macos-arm64.dmg \
-            staging/rolling-linux.AppImage#augur-git-tauri-linux-x86_64.AppImage \
-            staging/rolling-linux.deb#augur-git-tauri-linux-x86_64.deb \
-            staging/rolling-linux.tar.gz#augur-git-tauri-linux-x86_64.tar.gz \
-            --repo "${REPOSITORY}" \
-            --clobber
-
-          expected_assets="$(printf '%s\n' \
-            'rolling-windows.exe|augur-git-tauri-windows-x86_64-nsis.exe' \
-            'rolling-windows.exe.sig|augur-git-tauri-windows-x86_64-nsis.exe.sig' \
-            'rolling-macos.dmg|augur-git-tauri-macos-arm64.dmg' \
-            'rolling-linux.AppImage|augur-git-tauri-linux-x86_64.AppImage' \
-            'rolling-linux.deb|augur-git-tauri-linux-x86_64.deb' \
-            'rolling-linux.tar.gz|augur-git-tauri-linux-x86_64.tar.gz' | sort)"
-          assets_ready=false
-          for attempt in {1..10}; do
-            listed_assets="$(gh api --paginate "repos/${REPOSITORY}/releases/${release_id}/assets?per_page=100" --jq '.[] | "\(.name)|\(.label // "")"' | sort)"
-            missing_assets=""
-            while IFS= read -r expected_asset; do
-              if ! grep -Fxq -- "${expected_asset}" <<< "${listed_assets}"; then
-                missing_assets+="${expected_asset}"$'\n'
-              fi
-            done <<< "${expected_assets}"
-
-            if [[ -z "${missing_assets}" ]]; then
-              assets_ready=true
-              break
-            fi
-
-            if [[ "${attempt}" -lt 10 ]]; then
-              echo "Waiting for rolling release assets to become visible (attempt ${attempt}/10):"
-              printf '%s' "${missing_assets}"
-              sleep 5
-            fi
-          done
-
-          if [[ "${assets_ready}" != true ]]; then
-            echo "Rolling release is missing assets:"
-            printf '%s' "${missing_assets}"
-            printf 'Available assets:\n%s\n' "${listed_assets}"
-            exit 1
-          fi
-
-          branch_sha="$(gh api "repos/${REPOSITORY}/branches/publish-tauri" --jq '.commit.sha')"
-          if [[ "${branch_sha}" != "${COMMIT_SHA}" ]]; then
-            echo "The branch advanced before the rolling feed update; keeping the previous feed."
-            exit 0
-          fi
-
-          if [[ "${release_created}" != true ]]; then
-            gh api --method PATCH "repos/${REPOSITORY}/releases/${release_id}" \
-              -f name="Augur Git Tauri Nightly" \
-              -f "body=${release_body}" \
-              -F prerelease=true \
-              -f make_latest=false >/dev/null
-          fi
-
-          tag_lookup_ref="repos/${REPOSITORY}/git/ref/tags/${tag}"
-          tag_update_ref="repos/${REPOSITORY}/git/refs/tags/${tag}"
-          if gh api "${tag_lookup_ref}" >/dev/null 2>&1; then
-            gh api --method PATCH "${tag_update_ref}" -f "sha=${COMMIT_SHA}" -F force=true >/dev/null
-          else
-            gh api --method POST "repos/${REPOSITORY}/git/refs" \
-              -f "ref=refs/tags/${tag}" \
-              -f "sha=${COMMIT_SHA}" >/dev/null
-          fi
-
-          # Replace the feed last, after every immutable target and rolling alias has been checked.
-          gh release upload "${tag}" staging/latest.json --repo "${REPOSITORY}" --clobber
-
-          if [[ "${release_created}" == true ]]; then
-            gh api --method PATCH "repos/${REPOSITORY}/releases/${release_id}" \
-              -F draft=false \
-              -F prerelease=true \
-              -f make_latest=false >/dev/null
-          fi
-
           echo "published=true" >> "${GITHUB_OUTPUT}"
 
       - name: Remove older Tauri nightly releases and tags
-        if: steps.rolling.outputs.published == 'true'
+        if: steps.cask.outputs.published == 'true'
         shell: bash
         run: bash .github/scripts/prune-tauri-nightly-releases.sh

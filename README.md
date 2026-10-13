@@ -115,7 +115,7 @@ automatic checks are enabled. Windows shows an update notice and waits for the
 user to download and install from About. Apple Silicon Homebrew installations
 show the upgrade command with a button that copies it. Linux users can
 download packages from the
-[nightly release](https://github.com/algosoft-lab/augur-git/releases/tag/tauri-nightly).
+[nightly release](https://github.com/algosoft-lab/augur-git/releases).
 
 On Apple Silicon, trust the project cask and install it with Homebrew. Homebrew
 requires explicit trust for casks from non-official taps:

@@ -5,7 +5,7 @@ import * as ipc from '../../bridge/ipc';
 import { t, ta } from '../../i18n/strings';
 import { HomebrewUpgradeHint } from '../updates/HomebrewUpgradeHint';
 
-const releaseUrl = 'https://github.com/algosoft-lab/augur-git/releases/tag/tauri-nightly';
+const releaseUrl = 'https://github.com/algosoft-lab/augur-git/releases';
 
 export function UpdateNoticeCard() {
   const translate = useStore((state) => state.t);

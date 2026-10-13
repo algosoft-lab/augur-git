@@ -14,7 +14,7 @@ import { IS_MACOS } from '../shell/WindowControls';
 import { handleTitleBarMouseDown } from '../shell/titleBarDrag';
 import { HomebrewUpgradeHint } from '../updates/HomebrewUpgradeHint';
 
-const releaseUrl = 'https://github.com/algosoft-lab/augur-git/releases/tag/tauri-nightly';
+const releaseUrl = 'https://github.com/algosoft-lab/augur-git/releases';
 
 function updateStatusText(
   status: ReturnType<typeof useStore.getState>['updateStatus'],
