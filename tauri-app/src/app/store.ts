@@ -125,6 +125,8 @@ export type Overlay =
   | { kind: 'reset' }
   | { kind: 'deleteRef'; name: string; isTag: boolean }
   | { kind: 'deleteRemoteBranch'; remote: string; branch: string }
+  | { kind: 'deleteRemoteTag'; name: string }
+  | { kind: 'renameRemoteTag'; old: string }
   | { kind: 'forcePush' }
   | { kind: 'pushSetUpstream'; branch: string; remote: string }
   | { kind: 'manageRemotes' }
@@ -1168,6 +1170,16 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       ) {
         get().patchSidecarUi(repoId, { commitDraft: '' });
       }
+      if (
+        event.type === 'commandDone' &&
+        event.success &&
+        (event.label === 'push --delete-tag' || event.label === 'push --rename-tag')
+      ) {
+        // A plain refresh neither fetches nor prunes tags, so the sidebar would
+        // keep showing the pre-push tag. Re-running the tag sync mirrors the
+        // remotes again and drops the local copy when no remote keeps it.
+        void get().runAction(repoId, { action: 'syncTags' });
+      }
       if (next !== repo && event.type === 'commitFiles') {
         if (next.commitDiffPending && Object.keys(next.commitDiffPending).length > 0) {
           updateCommitDiffTimeout(repoId, next);
@@ -1599,6 +1611,8 @@ function requiresFreshWorkingTree(action: GitAction): boolean {
     case 'pushSetUpstream':
     case 'pushRenameRemote':
     case 'pushDeleteRemote':
+    case 'pushRenameTag':
+    case 'pushDeleteTag':
     case 'remoteAdd':
     case 'remoteSetUrl':
     case 'remoteRemove':

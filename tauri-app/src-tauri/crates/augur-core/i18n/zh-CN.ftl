@@ -145,6 +145,7 @@ push-upstream-confirm = 推送分支
 push-upstream-cancel = 取消
 remotes-title = 管理远程仓库
 remotes-list-label = 已配置的远程仓库
+remote-label = 远程仓库
 remotes-form-label = 远程仓库设置
 remotes-empty = 尚未配置远程仓库。请在下方添加。
 remotes-add-title = 添加远程仓库
@@ -334,6 +335,8 @@ branch-new-hint = 将基于 { $branch } 创建并切换到新分支。
 branch-rename-hint = 将重命名分支 { $branch }。
 branch-name-invalid = 分支名称不合法：不能含空格或 ~ ^ : ? * [ \ 等字符，不能有 ".."、以 "-" 开头、以 ".lock"、"/" 或 "." 结尾。
 branch-name-exists = 分支“{ $name }”已存在。
+tag-name-label = 标签名称
+tag-name-invalid = 标签名称不合法：不能含空格或 ~ ^ : ? * [ \ 等字符，不能有 ".."、以 "-" 开头、以 ".lock"、"/" 或 "." 结尾。
 merge-title = 合并到 { $branch }
 merge-source-label = 要合并的分支
 merge-no-ff-label = 即使可以快进也生成合并提交（--no-ff）
@@ -350,6 +353,8 @@ dialog-confirm = 确认
 # ===== 侧栏引用操作 =====
 context-rename = 重命名…
 context-delete = 删除…
+context-rename-remote-tag = 在远程重命名…
+context-delete-remote-tag = 在远程删除…
 context-merge-into-current = 合并到当前分支
 context-merge-no-ff-into-current = 合并到当前分支（--no-ff）
 context-merge-by-agent = 使用 AI 合并
@@ -385,6 +390,10 @@ rename-remote-branch-title = 重命名远程分支
 rename-remote-branch-hint = 将重命名远程上的 { $remote }/{ $branch }：一次推送会创建新分支并删除旧分支。
 delete-remote-branch-title = 删除远程分支
 delete-remote-branch-warning = 将从远程永久删除分支 { $remote }/{ $branch }。受远程保护的分支无法删除。
+delete-remote-tag-title = 删除远程标签
+delete-remote-tag-warning = 标签 { $name } 将从 { $remote } 永久删除。受远程保护的标签无法删除。完成后会重新同步标签，本地副本随即移除。
+rename-remote-tag-title = 重命名远程标签
+rename-remote-tag-hint = 将在 { $remote } 上重命名标签 { $tag }：一次推送以本地标签的指向创建新标签并删除旧标签。完成后会自动重新同步本地标签列表。
 
 # ===== 危险工作区操作 =====
 discard-title = 丢弃变更？

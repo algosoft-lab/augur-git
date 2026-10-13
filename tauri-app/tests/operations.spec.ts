@@ -531,6 +531,99 @@ test.describe('tag section', () => {
 
     expect((await stub.commands()).some((entry) => entry.cmd === 'run_action')).toBe(true);
   });
+
+  test('deletes a tag on the chosen remote from the tag context menu', async ({ page }) => {
+    const stub = await boot(page, { open: [cleanRepo()] });
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+
+    await rightClick(page, '[data-testid="tag-row-v1.0.0"]');
+    await page.getByTestId('context-delete-remote').click();
+
+    const dialog = page.getByTestId('delete-remote-tag-dialog');
+    await expect(dialog).toBeVisible();
+    // The warning names both the tag and the remote it will act on.
+    await expect(dialog).toContainText('v1.0.0');
+    await expect(dialog).toContainText('origin');
+
+    await page.getByTestId('delete-remote-tag-confirm').click();
+    await expect(dialog).toHaveCount(0);
+
+    const actions = (await stub.commands()).filter((entry) => entry.cmd === 'run_action');
+    expect(
+      actions.some(
+        (entry) =>
+          (entry.args as any).action.action === 'pushDeleteTag' &&
+          (entry.args as any).action.remote === 'origin' &&
+          (entry.args as any).action.name === 'v1.0.0'
+      )
+    ).toBe(true);
+  });
+
+  test('renames a tag on the chosen remote and validates the new name', async ({ page }) => {
+    const stub = await boot(page, { open: [cleanRepo()] });
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+
+    await rightClick(page, '[data-testid="tag-row-v1.0.0"]');
+    await page.getByTestId('context-rename-remote').click();
+    await expect(page.getByTestId('rename-remote-tag-dialog')).toBeVisible();
+
+    // The current name is valid from the start, and invalid syntax disables
+    // the confirm before the backend could reject it.
+    await expect(page.getByTestId('rename-remote-tag-confirm')).toBeEnabled();
+    await page.getByTestId('rename-remote-tag-input').fill('bad..name');
+    await expect(page.getByTestId('rename-remote-tag-error')).toContainText('Invalid tag name');
+    await expect(page.getByTestId('rename-remote-tag-confirm')).toBeDisabled();
+
+    await page.getByTestId('rename-remote-tag-input').fill('v2.0.0');
+    await expect(page.getByTestId('rename-remote-tag-confirm')).toBeEnabled();
+    await page.getByTestId('rename-remote-tag-confirm').click();
+    await expect(page.getByTestId('rename-remote-tag-dialog')).toHaveCount(0);
+
+    const actions = (await stub.commands()).filter((entry) => entry.cmd === 'run_action');
+    expect(
+      actions.some(
+        (entry) =>
+          (entry.args as any).action.action === 'pushRenameTag' &&
+          (entry.args as any).action.remote === 'origin' &&
+          (entry.args as any).action.old === 'v1.0.0' &&
+          (entry.args as any).action.new === 'v2.0.0'
+      )
+    ).toBe(true);
+  });
+
+  test('re-syncs the local tag mirror after a remote tag push', async ({ page }) => {
+    // A refresh neither fetches nor prunes tags, so the tag list would keep
+    // the deleted tag without a follow-up sync.
+    const stub = await boot(page, { open: [cleanRepo()] });
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+
+    await rightClick(page, '[data-testid="tag-row-v1.0.0"]');
+    await page.getByTestId('context-delete-remote').click();
+    await page.getByTestId('delete-remote-tag-confirm').click();
+
+    // The push settles first; the queued tag sync is the last command.
+    await expect(page.getByTestId('status-message')).toContainText(LABELS.syncTags ?? '');
+    await expect
+      .poll(async () =>
+        (await stub.commands()).some(
+          (entry) => entry.cmd === 'run_action' && (entry.args as any).action?.action === 'syncTags'
+        )
+      )
+      .toBe(true);
+  });
+
+  test('disables the remote tag operations without a remote', async ({ page }) => {
+    const repo = cleanRepo();
+    repo.refs.remotes = [];
+    repo.refs.remote_urls = [];
+    repo.refs.remote_branches = [];
+    await boot(page, { open: [repo] });
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+
+    await rightClick(page, '[data-testid="tag-row-v1.0.0"]');
+    await expect(page.getByTestId('context-delete-remote')).toBeDisabled();
+    await expect(page.getByTestId('context-rename-remote')).toBeDisabled();
+  });
 });
 
 test.describe('branch dialogs', () => {

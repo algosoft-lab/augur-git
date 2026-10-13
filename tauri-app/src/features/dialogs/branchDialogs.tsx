@@ -12,7 +12,7 @@
 
 import { useMemo, useState } from 'react';
 import { Icon } from '../../components/Icon';
-import { Checkbox, DialogCard, TextInput } from '../../components/controls';
+import { Checkbox, DialogCard, Select, TextInput } from '../../components/controls';
 import { localBranches, useStore } from '../../app/store';
 import { validateBranchName } from './branchName';
 import { t, ta } from '../../i18n/strings';
@@ -199,6 +199,161 @@ export function DeleteRefDialog({ name, isTag }: { name: string; isTag: boolean 
                 isTag ? { action: 'deleteTag', name } : { action: 'deleteBranch', name, force }
               );
             }}
+          >
+            {t(translate, 'dialog-confirm')}
+          </button>
+        </>
+      }
+    />
+  );
+}
+
+/**
+ * Remote tag dialogs.
+ *
+ * The sidebar tag list is flat (the local mirror), so these dialogs choose the
+ * remote to operate on. `origin` is the default when it exists, otherwise the
+ * first configured remote.
+ */
+function defaultRemote(remotes: string[]): string {
+  return remotes.includes('origin') ? 'origin' : (remotes[0] ?? '');
+}
+
+export function DeleteRemoteTagDialog({ name }: { name: string }) {
+  const translate = useStore((state) => state.t);
+  const repoId = useActiveRepoId();
+  const repo = useStore((state) => (repoId ? state.repos[repoId] : undefined));
+  const closeOverlay = useStore((state) => state.closeOverlay);
+  const runAction = useStore((state) => state.runAction);
+  const remotes = repo?.refs.remotes ?? [];
+  const [remote, setRemote] = useState(() => defaultRemote(remotes));
+
+  return (
+    <DialogCard
+      testId="delete-remote-tag-dialog"
+      title={t(translate, 'delete-remote-tag-title')}
+      icon={<Icon name="trash-2" size={16} />}
+      onBackdrop={closeOverlay}
+      body={
+        <>
+          <div className="muted">
+            {ta(translate, 'delete-remote-tag-warning', { name, remote })}
+          </div>
+          <span className="settings__label">{t(translate, 'remote-label')}</span>
+          <Select
+            testId="delete-remote-tag-remote"
+            value={remote}
+            options={remotes.map((entry) => ({ value: entry, label: entry }))}
+            onChange={setRemote}
+          />
+        </>
+      }
+      footer={
+        <>
+          <button
+            type="button"
+            className="tool-button"
+            onClick={closeOverlay}
+            data-testid="delete-remote-tag-cancel"
+          >
+            {t(translate, 'dialog-cancel')}
+          </button>
+          <button
+            type="button"
+            className="tool-button tool-button--danger"
+            data-testid="delete-remote-tag-confirm"
+            disabled={!remote}
+            onClick={() => {
+              if (!repoId || !remote) {
+                return;
+              }
+              closeOverlay();
+              void runAction(repoId, { action: 'pushDeleteTag', remote, name });
+            }}
+          >
+            {t(translate, 'dialog-confirm')}
+          </button>
+        </>
+      }
+    />
+  );
+}
+
+export function RenameRemoteTagDialog({ old }: { old: string }) {
+  const translate = useStore((state) => state.t);
+  const repoId = useActiveRepoId();
+  const repo = useStore((state) => (repoId ? state.repos[repoId] : undefined));
+  const closeOverlay = useStore((state) => state.closeOverlay);
+  const runAction = useStore((state) => state.runAction);
+  const remotes = repo?.refs.remotes ?? [];
+  const [remote, setRemote] = useState(() => defaultRemote(remotes));
+  const [name, setName] = useState(old);
+  // Only the ref syntax is enforced; the remote rejects a name that already
+  // exists, so a duplicate is not checked here (same as a remote branch).
+  const error = validateBranchName(name, [], old);
+  const confirmEnabled = error === null && remote !== '';
+
+  const confirm = () => {
+    if (!repoId || !confirmEnabled) {
+      return;
+    }
+    closeOverlay();
+    void runAction(repoId, { action: 'pushRenameTag', remote, old, new: name });
+  };
+
+  return (
+    <DialogCard
+      testId="rename-remote-tag-dialog"
+      title={t(translate, 'rename-remote-tag-title')}
+      icon={<Icon name="pencil" size={16} />}
+      onBackdrop={closeOverlay}
+      body={
+        <>
+          <label className="settings__label" htmlFor="rename-remote-tag-input">
+            {t(translate, 'tag-name-label')}
+          </label>
+          <TextInput
+            value={name}
+            onChange={setName}
+            autoFocus
+            monospace
+            testId="rename-remote-tag-input"
+            onSubmit={confirm}
+            onEscape={closeOverlay}
+          />
+          <div className="settings__hint">
+            {ta(translate, 'rename-remote-tag-hint', { remote, tag: old })}
+          </div>
+          <span className="settings__label">{t(translate, 'remote-label')}</span>
+          <Select
+            testId="rename-remote-tag-remote"
+            value={remote}
+            options={remotes.map((entry) => ({ value: entry, label: entry }))}
+            onChange={setRemote}
+          />
+          {error && error !== 'empty' ? (
+            <div className="status-conflict" data-testid="rename-remote-tag-error">
+              {t(translate, 'tag-name-invalid')}
+            </div>
+          ) : null}
+        </>
+      }
+      footer={
+        <>
+          <button
+            type="button"
+            className="tool-button"
+            onClick={closeOverlay}
+            data-testid="rename-remote-tag-cancel"
+          >
+            {t(translate, 'dialog-cancel')}
+          </button>
+          <button
+            type="button"
+            className="tool-button tool-button--primary"
+            disabled={!confirmEnabled}
+            onClick={confirm}
+            data-testid="rename-remote-tag-confirm"
           >
             {t(translate, 'dialog-confirm')}
           </button>

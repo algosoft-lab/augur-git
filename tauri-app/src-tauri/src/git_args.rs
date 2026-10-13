@@ -47,6 +47,18 @@ pub enum GitAction {
         remote: String,
         branch: String,
     },
+    /// Delete a tag on its remote.
+    PushDeleteTag {
+        remote: String,
+        name: String,
+    },
+    /// Rename a tag on its remote: create the new tag and delete the old one
+    /// in one push.
+    PushRenameTag {
+        remote: String,
+        old: String,
+        new: String,
+    },
     RemoteAdd {
         name: String,
         url: String,
@@ -136,6 +148,8 @@ impl GitAction {
                 | GitAction::PushSetUpstream { .. }
                 | GitAction::PushRenameRemote { .. }
                 | GitAction::PushDeleteRemote { .. }
+                | GitAction::PushDeleteTag { .. }
+                | GitAction::PushRenameTag { .. }
                 | GitAction::RemoteAdd { .. }
                 | GitAction::RemoteSetUrl { .. }
                 | GitAction::RemoteRemove { .. }
@@ -169,6 +183,8 @@ impl GitAction {
             GitAction::PushSetUpstream { .. } => "push --set-upstream",
             GitAction::PushRenameRemote { .. } => "push --rename",
             GitAction::PushDeleteRemote { .. } => "push --delete",
+            GitAction::PushDeleteTag { .. } => "push --delete-tag",
+            GitAction::PushRenameTag { .. } => "push --rename-tag",
             GitAction::RemoteAdd { .. } => "remote add",
             GitAction::RemoteSetUrl { .. } => "remote set-url",
             GitAction::RemoteRemove { .. } => "remote remove",
@@ -245,6 +261,24 @@ impl GitAction {
             ]),
             GitAction::PushDeleteRemote { remote, branch } => {
                 strs(&["push", remote, "--delete", branch])
+            }
+            // The ref is qualified so a tag and a branch sharing a name cannot
+            // make `--delete` ambiguous ("dst refspec matches more than one").
+            GitAction::PushDeleteTag { remote, name } => {
+                strs(&["push", remote, "--delete", &format!("refs/tags/{name}")])
+            }
+            GitAction::PushRenameTag { remote, old, new } => {
+                // The source is the local tag, which the tag sync keeps as a
+                // mirror of the remote. As with [`GitAction::PushRenameRemote`],
+                // one push creates the new ref and deletes the old one. A tag
+                // ref points at the tag object, so an annotated tag keeps its
+                // annotation.
+                strs(&[
+                    "push",
+                    remote,
+                    &format!("refs/tags/{old}:refs/tags/{new}"),
+                    &format!(":refs/tags/{old}"),
+                ])
             }
             GitAction::RemoteAdd { name, url } => strs(&["remote", "add", name, url]),
             GitAction::RemoteSetUrl { name, url } => strs(&["remote", "set-url", name, url]),
@@ -469,6 +503,39 @@ mod tests {
             }),
             ["push", "origin", "--delete", "old"]
         );
+        assert_eq!(
+            args(GitAction::PushDeleteTag {
+                remote: "origin".into(),
+                name: "v1".into()
+            }),
+            ["push", "origin", "--delete", "refs/tags/v1"]
+        );
+        let delete_tag = GitAction::PushDeleteTag {
+            remote: "origin".into(),
+            name: "v1".into(),
+        };
+        assert_eq!(delete_tag.label(), "push --delete-tag");
+        assert!(delete_tag.refreshes_after_success());
+    }
+
+    #[test]
+    fn remote_tag_rename_creates_the_new_ref_and_deletes_the_old_one() {
+        let rename = GitAction::PushRenameTag {
+            remote: "origin".into(),
+            old: "v1".into(),
+            new: "v2".into(),
+        };
+        assert_eq!(
+            args(rename.clone()),
+            [
+                "push",
+                "origin",
+                "refs/tags/v1:refs/tags/v2",
+                ":refs/tags/v1"
+            ]
+        );
+        assert_eq!(rename.label(), "push --rename-tag");
+        assert!(rename.refreshes_after_success());
     }
 
     #[test]
@@ -853,5 +920,25 @@ mod tests {
         }))
         .expect("remote remove wire shape");
         assert_eq!(args(remove), ["remote", "remove", "upstream"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "pushDeleteTag", "remote": "origin", "name": "v1"
+        }))
+        .expect("push delete tag wire shape");
+        assert_eq!(args(wire), ["push", "origin", "--delete", "refs/tags/v1"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "pushRenameTag", "remote": "origin", "old": "v1", "new": "v2"
+        }))
+        .expect("push rename tag wire shape");
+        assert_eq!(
+            args(wire),
+            [
+                "push",
+                "origin",
+                "refs/tags/v1:refs/tags/v2",
+                ":refs/tags/v1"
+            ]
+        );
     }
 }

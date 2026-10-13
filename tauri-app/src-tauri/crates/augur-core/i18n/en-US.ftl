@@ -168,6 +168,7 @@ push-upstream-confirm = Push Branch
 push-upstream-cancel = Cancel
 remotes-title = Manage Remotes
 remotes-list-label = Configured remotes
+remote-label = Remote
 remotes-form-label = Remote settings
 remotes-empty = No remotes are configured yet. Add one below.
 remotes-add-title = Add remote
@@ -397,6 +398,8 @@ branch-new-hint = Creates and checks out a new branch based on { $branch }.
 branch-rename-hint = Renames branch { $branch }.
 branch-name-invalid = Invalid branch name: no spaces or ~ ^ : ? * [ \ characters, no "..", no leading "-", and no ".lock", "/" or "." suffix.
 branch-name-exists = Branch "{ $name }" already exists.
+tag-name-label = Tag name
+tag-name-invalid = Invalid tag name: no spaces or ~ ^ : ? * [ \ characters, no "..", no leading "-", and no ".lock", "/" or "." suffix.
 merge-title = Merge into { $branch }
 merge-source-label = Branch to merge
 merge-no-ff-label = Create a merge commit even if a fast-forward is possible (--no-ff)
@@ -413,6 +416,8 @@ dialog-confirm = Confirm
 # ===== Sidebar ref actions =====
 context-rename = Rename…
 context-delete = Delete…
+context-rename-remote-tag = Rename on Remote…
+context-delete-remote-tag = Delete on Remote…
 context-merge-into-current = Merge into Current Branch
 context-merge-no-ff-into-current = Merge into Current Branch (--no-ff)
 context-merge-by-agent = Merge by AI
@@ -467,6 +472,10 @@ rename-remote-branch-title = Rename Remote Branch
 rename-remote-branch-hint = Renames { $remote }/{ $branch } on the remote: one push creates the new branch and deletes the old one.
 delete-remote-branch-title = Delete Remote Branch
 delete-remote-branch-warning = Branch { $remote }/{ $branch } will be permanently deleted from the remote. Branches protected by the remote cannot be deleted.
+delete-remote-tag-title = Delete Remote Tag
+delete-remote-tag-warning = Tag { $name } on { $remote } will be permanently deleted from the remote. Tags protected by the remote cannot be deleted. The local copy is removed when the tags are re-synced.
+rename-remote-tag-title = Rename Remote Tag
+rename-remote-tag-hint = Renames { $tag } on { $remote }: one push creates the new tag with the local tag's target and deletes the old one. The local tag list is re-synced afterwards.
 
 # ===== Destructive working-tree actions =====
 discard-title = Discard changes?

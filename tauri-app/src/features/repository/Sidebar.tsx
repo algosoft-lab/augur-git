@@ -104,6 +104,8 @@ export function Sidebar({
   // Mirroring tags needs at least one remote to mirror, and a second network
   // command while one is running would interleave two ref updates.
   const canSyncTags = refs.remotes.length > 0 && !repo.busy;
+  // Remote tag operations need a remote to target, chosen in the dialog.
+  const hasRemotes = refs.remotes.length > 0;
   const groups = groupRemoteBranches(refs.remotes, refs.remote_branches);
 
   const copy = (value: string) => {
@@ -193,6 +195,20 @@ export function Sidebar({
       disabled: blocked,
       separatorBefore: true,
       onSelect: () => openOverlay({ kind: 'deleteRef', name, isTag: true })
+    },
+    {
+      id: 'delete-remote',
+      label: t(translate, 'context-delete-remote-tag'),
+      icon: <Icon name="trash-2" size={12} />,
+      disabled: blocked || !hasRemotes,
+      onSelect: () => openOverlay({ kind: 'deleteRemoteTag', name })
+    },
+    {
+      id: 'rename-remote',
+      label: t(translate, 'context-rename-remote-tag'),
+      icon: <Icon name="pencil" size={12} />,
+      disabled: blocked || !hasRemotes,
+      onSelect: () => openOverlay({ kind: 'renameRemoteTag', old: name })
     }
   ];
 

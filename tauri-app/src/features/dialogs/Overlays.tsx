@@ -10,7 +10,13 @@
 
 import { useStore, type Overlay } from '../../app/store';
 import { WslOpenDialog } from './WslOpenDialog';
-import { DeleteRefDialog, DeleteRemoteBranchDialog, NamedBranchDialog } from './branchDialogs';
+import {
+  DeleteRefDialog,
+  DeleteRemoteBranchDialog,
+  DeleteRemoteTagDialog,
+  NamedBranchDialog,
+  RenameRemoteTagDialog
+} from './branchDialogs';
 import {
   MergeConflictDialog,
   MergeDialog,
@@ -77,6 +83,10 @@ function OverlayBody({ overlay }: { overlay: Overlay }) {
       return <DeleteRefDialog name={overlay.name} isTag={overlay.isTag} />;
     case 'deleteRemoteBranch':
       return <DeleteRemoteBranchDialog remote={overlay.remote} branch={overlay.branch} />;
+    case 'deleteRemoteTag':
+      return <DeleteRemoteTagDialog name={overlay.name} />;
+    case 'renameRemoteTag':
+      return <RenameRemoteTagDialog old={overlay.old} />;
     case 'forcePush':
       return <ForcePushDialog />;
     case 'pushSetUpstream':

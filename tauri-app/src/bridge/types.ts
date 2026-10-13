@@ -361,6 +361,8 @@ export type GitAction =
   | { action: 'pushSetUpstream'; remote: string; branch: string }
   | { action: 'pushRenameRemote'; remote: string; old: string; new: string }
   | { action: 'pushDeleteRemote'; remote: string; branch: string }
+  | { action: 'pushDeleteTag'; remote: string; name: string }
+  | { action: 'pushRenameTag'; remote: string; old: string; new: string }
   | { action: 'remoteAdd'; name: string; url: string }
   | { action: 'remoteSetUrl'; name: string; url: string }
   | { action: 'remoteRemove'; name: string }

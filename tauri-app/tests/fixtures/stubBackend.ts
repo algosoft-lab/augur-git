@@ -1121,6 +1121,8 @@ function install(
           pushSetUpstream: 'push --set-upstream',
           pushRenameRemote: 'push --rename',
           pushDeleteRemote: 'push --delete',
+          pushRenameTag: 'push --rename-tag',
+          pushDeleteTag: 'push --delete-tag',
           remoteAdd: 'remote add',
           remoteSetUrl: 'remote set-url',
           remoteRemove: 'remote remove',
