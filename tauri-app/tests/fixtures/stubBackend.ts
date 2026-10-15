@@ -142,6 +142,8 @@ export interface StubOptions {
   gitConfig?: Record<string, string | null>;
   /** The identity `probe_commit_identity` resolves for every repository. */
   identity?: { name: string | null; email: string | null };
+  /** Error returned after the Git clone succeeds, to exercise partial recovery. */
+  cloneLfsError?: string | null;
 }
 
 export const DEFAULT_OPTIONS: StubOptions = {
@@ -223,6 +225,7 @@ function install(
     diffLayout?: 'inline' | 'side-by-side';
     gitConfig?: Record<string, string | null>;
     identity?: { name: string | null; email: string | null };
+    cloneLfsError?: string | null;
   },
   catalog: Record<string, string>
 ): void {
@@ -258,10 +261,20 @@ function install(
   let compareRequest = 0;
   let maximized = false;
   const snapshotIds = new Map<number, number>();
+  const lfsFiles = [
+    {
+      path: 'assets/model.psd',
+      oid: 'a'.repeat(64),
+      size: 4096,
+      present: false
+    }
+  ];
 
   const config = {
-    schema_version: 2,
+    schema_version: 3,
     auto_check_updates: true,
+    lfs_auto_download: true,
+    lfs_download_on_open: false,
     dismissed_update_commit: null,
     theme: 'claude-dark',
     language: 'system',
@@ -707,6 +720,58 @@ function install(
     } as CliStatus);
   const handlers: Record<string, (args: any) => unknown> = {
     get_cli_status: () => cliStatus,
+    lfs_environment: () => ({
+      installed: true,
+      version: '3.6.1',
+      path: '/usr/local/bin/git-lfs',
+      detail: null
+    }),
+    lfs_snapshot: () => ({
+      environment: {
+        installed: true,
+        version: '3.6.1',
+        path: '/usr/local/bin/git-lfs',
+        detail: null
+      },
+      repository: {
+        usesLfs: true,
+        available: true,
+        initialized: true,
+        hookReady: true,
+        hookConflict: false,
+        head: 'b'.repeat(40),
+        endpoint: 'https://example.com/info/lfs',
+        endpointSource: 'repo',
+        storage: null,
+        fetchInclude: null,
+        fetchExclude: null,
+        concurrentTransfers: 8,
+        transferRetries: 8,
+        locksVerify: 'true',
+        automaticDownload: true,
+        detail: null
+      },
+      files: lfsFiles.map((file) => ({ ...file }))
+    }),
+    lfs_download_file: (args: any) => {
+      const file = lfsFiles.find((entry) => entry.path === args.path);
+      if (file) file.present = true;
+      return null;
+    },
+    lfs_fetch: () => 'LFS objects are up to date.',
+    lfs_fsck: () => 'Git LFS fsck OK',
+    set_lfs_download_preferences: (args: any) => {
+      config.lfs_auto_download = args.automatic;
+      config.lfs_download_on_open = args.onOpen;
+      return null;
+    },
+    lfs_clone: (args: any) => ({
+      repoId: 8,
+      path: `${args.parent}/${args.directoryName}`,
+      usesLfs: true,
+      lfsAvailable: true,
+      lfsError: options.cloneLfsError ?? null
+    }),
     install_cli: () => {
       cliStatus = {
         ...cliStatus,

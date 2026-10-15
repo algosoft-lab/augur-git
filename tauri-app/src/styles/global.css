@@ -2496,6 +2496,72 @@ body .diff ::selection {
   font-family: var(--mono-font-family);
 }
 
+.lfs-manager {
+  max-height: min(72vh, 680px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.lfs-manager__files {
+  display: flex;
+  max-height: 180px;
+  flex-direction: column;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.file-row__lfs {
+  flex: 0 0 auto;
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.62);
+  line-height: 1.4;
+}
+
+.lfs-manager__file {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+}
+
+.lfs-manager__file + .lfs-manager__file {
+  border-top: 1px solid var(--border);
+}
+
+.lfs-manager__file-detail {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lfs-manager__file-detail > :first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lfs-manager__output {
+  max-height: 160px;
+  margin: 0;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  font-family: var(--mono-font-family);
+  font-size: calc(var(--ui-font-size) * 0.72);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .remote-manager {
   max-height: min(70vh, 620px);
   overflow-y: auto;

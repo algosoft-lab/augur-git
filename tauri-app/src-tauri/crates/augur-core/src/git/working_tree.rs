@@ -289,7 +289,9 @@ fn read_remote_worktree_bytes(
         return Ok(Vec::new());
     }
     let size = diagnostics::run_cancellable(
-        &mut repo.command_in_location("stat").args(["-c", "%s", "--", path]),
+        &mut repo
+            .command_in_location("stat")
+            .args(["-c", "%s", "--", path]),
         cancel,
         std::time::Duration::from_secs(2).min(deadline.saturating_duration_since(Instant::now())),
         64,
@@ -345,6 +347,15 @@ pub(super) fn apply_operation(
         return Ok(());
     }
 
+    let lock = crate::lfs::operation_lock(repo);
+    let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if files.iter().any(|file| file.is_lfs) {
+        let state = crate::lfs::repository_state(repo);
+        if !state.available || !state.initialized {
+            return Err("Git LFS is unavailable or not initialized for this repository. Install Git LFS and initialize its filters before changing managed files.".into());
+        }
+    }
+
     log::info!(
         "[git_worktree] applying action={}, scope={:?}, files={}, repo={}",
         action.description(),
@@ -362,6 +373,11 @@ pub(super) fn apply_operation(
 
 fn stage(repo: &GitRepo, files: &[&FileStatus]) -> Result<(), String> {
     let paths = operation_paths(files, true);
+    let lfs_paths = files
+        .iter()
+        .filter(|file| file.is_lfs)
+        .map(|file| file.path.clone())
+        .collect::<Vec<_>>();
     run_pathspec_command(
         repo,
         &[
@@ -371,7 +387,11 @@ fn stage(repo: &GitRepo, files: &[&FileStatus]) -> Result<(), String> {
             "--pathspec-file-nul",
         ],
         &paths,
-    )
+    )?;
+    if !lfs_paths.is_empty() {
+        crate::lfs::validate_staged_pointers(repo, &lfs_paths)?;
+    }
+    Ok(())
 }
 
 fn unstage(repo: &GitRepo, files: &[&FileStatus]) -> Result<(), String> {
@@ -811,6 +831,7 @@ mod tests {
             worktree,
             path: path.to_string(),
             old_path: None,
+            is_lfs: false,
         }
     }
 
@@ -971,6 +992,7 @@ mod tests {
                 worktree: 'R',
                 path: "renamed.txt".to_string(),
                 old_path: Some("tracked.txt".to_string()),
+                is_lfs: false,
             }),
         )
         .expect("unstaged rename should be discardable");

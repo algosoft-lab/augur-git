@@ -401,6 +401,15 @@ fn convert(repo_id: u64, event: GitEvent) -> Option<RepoEventEnvelope> {
             success,
             detail,
         },
+        E::LfsProgress {
+            label,
+            operation_id,
+            progress,
+        } => RepoEvent::LfsProgress {
+            label,
+            operation_id,
+            progress,
+        },
         E::CommandStarted { label, subcommand } => RepoEvent::CommandStarted {
             verb: augur_core::git::progress_verb(&subcommand).to_string(),
             label,

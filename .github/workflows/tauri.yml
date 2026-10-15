@@ -30,9 +30,57 @@ jobs:
           version="$(node tauri-app/packaging/nightly-version.mjs "${GITHUB_RUN_NUMBER}")"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
+  test:
+    name: Test Tauri application and Git LFS integration
+    runs-on: ubuntu-24.04
+    env:
+      AUGUR_REQUIRE_LFS: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+
+      - name: Install Tauri Linux dependencies
+        uses: ./.github/actions/install-tauri-linux-deps
+
+      - name: Install Git LFS
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes git-lfs
+          git lfs install
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2.2.0
+
+      - name: Install frontend dependencies
+        working-directory: tauri-app
+        run: bun ci
+
+      - name: Check TypeScript
+        working-directory: tauri-app
+        run: bun run typecheck
+
+      - name: Run frontend unit tests
+        working-directory: tauri-app
+        run: bun run test
+
+      - name: Install Chromium for browser tests
+        working-directory: tauri-app
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run browser tests
+        working-directory: tauri-app
+        run: bun run test:e2e
+
+      - name: Run Rust tests including the local Git LFS remote
+        working-directory: tauri-app
+        run: cargo test --workspace --manifest-path src-tauri/Cargo.toml -- --test-threads=1
+
   build-windows:
     name: Windows x86-64 NSIS installer
-    needs: nightly-version
+    needs: [nightly-version, test]
     runs-on: windows-2025
     env:
       AUGUR_RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
@@ -84,7 +132,7 @@ jobs:
 
   build-macos:
     name: macOS ARM64 DMG
-    needs: nightly-version
+    needs: [nightly-version, test]
     runs-on: macos-15
     env:
       AUGUR_RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
@@ -130,7 +178,7 @@ jobs:
 
   build-linux:
     name: Linux x86-64 packages
-    needs: nightly-version
+    needs: [nightly-version, test]
     runs-on: ubuntu-24.04
     env:
       APPIMAGE_EXTRACT_AND_RUN: "1"

@@ -17,6 +17,8 @@ import type {
   AgentPromptRequest,
   Bootstrap,
   CommitActionPreference,
+  CloneProgressEvent,
+  CloneResult,
   CommitIdentityProbe,
   CommitMessage,
   CompareRevisionArg,
@@ -30,6 +32,14 @@ import type {
   ImagePreview,
   ImagePreviewTarget,
   LayoutSettings,
+  LfsCachePreview,
+  LfsEnvironment,
+  LfsFile,
+  LfsLock,
+  LfsProgressEvent,
+  LfsCredentialRequest,
+  LfsRepositoryPreferences,
+  LfsRepositoryState,
   LanguagePreference,
   LocationConfig,
   LogRow,
@@ -59,6 +69,9 @@ import type {
 
 /** Event names, matching `src-tauri/src/events.rs`. */
 export const REPO_EVENT = 'augur://repo-event';
+export const LFS_PROGRESS_EVENT = 'augur://lfs-progress';
+export const LFS_CLONE_PROGRESS_EVENT = 'augur://lfs-clone-progress';
+export const LFS_CREDENTIAL_REQUEST_EVENT = 'augur://lfs-credential-request';
 export const APP_EVENT = 'augur://app-event';
 export const MENU_EVENT = 'augur://menu';
 export const SETTINGS_NAVIGATE_EVENT = 'augur://settings-navigate';
@@ -282,6 +295,113 @@ export async function setTheme(theme: ThemePreference): Promise<void> {
 
 export async function setView(view: ViewSettings): Promise<void> {
   return invoke<void>('set_view', { view });
+}
+
+export async function setLfsDownloadPreferences(automatic: boolean, onOpen: boolean): Promise<void> {
+  return invoke<void>('set_lfs_download_preferences', { automatic, onOpen });
+}
+
+export async function lfsSnapshot(repoId: number): Promise<{
+  environment: LfsEnvironment;
+  repository: LfsRepositoryState;
+  files: LfsFile[];
+}> {
+  return invoke('lfs_snapshot', { repoId });
+}
+
+export async function lfsEnvironment(): Promise<LfsEnvironment> {
+  return invoke('lfs_environment');
+}
+
+export async function lfsInitialize(repoId: number): Promise<LfsRepositoryState> {
+  return invoke('lfs_initialize', { repoId });
+}
+
+export async function lfsFetch(
+  repoId: number,
+  operationId: string,
+  allHistory = false,
+  remote: string | null = null,
+  reference: string | null = null
+): Promise<string> {
+  return invoke('lfs_fetch', { repoId, operationId, allHistory, remote, reference });
+}
+
+export async function lfsFsck(repoId: number): Promise<string> {
+  return invoke('lfs_fsck', { repoId });
+}
+
+export async function lfsCancel(operationId: string): Promise<boolean> {
+  return invoke('lfs_cancel', { operationId });
+}
+
+export async function lfsDownloadFile(repoId: number, path: string): Promise<void> {
+  return invoke('lfs_download_file', { repoId, path });
+}
+
+export async function lfsTrack(repoId: number, pattern: string, lockable: boolean): Promise<void> {
+  return invoke('lfs_track', { repoId, pattern, lockable });
+}
+
+export async function lfsUntrack(repoId: number, pattern: string): Promise<void> {
+  return invoke('lfs_untrack', { repoId, pattern });
+}
+
+export async function lfsLocks(repoId: number): Promise<LfsLock[]> {
+  return invoke('lfs_locks', { repoId });
+}
+
+export async function lfsLock(repoId: number, path: string): Promise<void> {
+  return invoke('lfs_lock', { repoId, path });
+}
+
+export async function lfsUnlock(repoId: number, id: string, force: boolean): Promise<void> {
+  return invoke('lfs_unlock', { repoId, id, force });
+}
+
+export async function lfsCachePreview(repoId: number): Promise<LfsCachePreview> {
+  return invoke('lfs_cache_preview', { repoId });
+}
+
+export async function lfsPrune(repoId: number): Promise<string> {
+  return invoke('lfs_prune', { repoId });
+}
+
+export async function lfsUpdatePreferences(
+  repoId: number,
+  preferences: LfsRepositoryPreferences
+): Promise<LfsRepositoryState> {
+  return invoke('lfs_update_preferences', { repoId, preferences });
+}
+
+export async function lfsClone(
+  remote: string,
+  parent: string,
+  directoryName: string,
+  downloadLfs: boolean,
+  operationId: string
+): Promise<CloneResult> {
+  return invoke('lfs_clone', { remote, parent, directoryName, downloadLfs, operationId });
+}
+
+export async function cancelLfsClone(operationId: string): Promise<boolean> {
+  return invoke('cancel_lfs_clone', { operationId });
+}
+
+export function onLfsCloneProgress(handler: (event: CloneProgressEvent) => void): Promise<UnlistenFn> {
+  return listen<CloneProgressEvent>(LFS_CLONE_PROGRESS_EVENT, (event) => handler(event.payload));
+}
+
+export async function respondToLfsCredential(requestId: string, response: string | null): Promise<boolean> {
+  return invoke('lfs_credential_response', { requestId, response });
+}
+
+export function onLfsCredentialRequest(handler: (request: LfsCredentialRequest) => void): Promise<UnlistenFn> {
+  return listen<LfsCredentialRequest>(LFS_CREDENTIAL_REQUEST_EVENT, (event) => handler(event.payload));
+}
+
+export function onLfsProgress(handler: (event: LfsProgressEvent) => void): Promise<UnlistenFn> {
+  return listen<LfsProgressEvent>(LFS_PROGRESS_EVENT, (event) => handler(event.payload));
 }
 
 export async function setTypography(typography: TypographySettings): Promise<void> {

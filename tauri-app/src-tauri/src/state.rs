@@ -43,7 +43,9 @@ pub struct AppState {
 impl AppState {
     pub fn new(app: AppHandle, report: LoadReport) -> Self {
         let (persistence, load_warnings) = Persistence::load(app);
-        let auto_refresh_enabled = persistence.config().view.auto_refresh;
+        let config = persistence.config();
+        let auto_refresh_enabled = config.view.auto_refresh;
+        configure_lfs_policy(&config);
         for warning in load_warnings.warnings.into_iter().chain(report.warnings) {
             log::warn!("[store] {warning}");
         }
@@ -86,6 +88,7 @@ impl AppState {
 
     pub fn update_settings(&self, mutate: impl FnOnce(&mut SettingsDocument)) {
         self.persistence().update_settings(mutate);
+        configure_lfs_policy(&self.persistence().config());
         self.auto_refresh
             .set_enabled(self.persistence().config().view.auto_refresh);
     }
@@ -148,6 +151,7 @@ impl AppState {
     ) -> Result<u64, GitError> {
         let repo: GitRepo = location.to_repo(path.clone())?;
         let persistence = self.persistence();
+        configure_lfs_policy(&persistence.config());
 
         let id = self.with(|inner| -> Result<u64, GitError> {
             if let Some((id, _)) = inner
@@ -276,6 +280,14 @@ impl AppState {
         }
         self.persistence().flush();
     }
+}
+
+fn configure_lfs_policy(config: &AppConfig) {
+    augur_core::lfs::configure_download_policy(
+        config.lfs_auto_download,
+        config.lfs_download_on_open,
+        config.lfs_repository_auto_download.clone(),
+    );
 }
 
 /// Build a Git handle for a location without opening a worker. Used by the

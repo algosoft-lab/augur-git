@@ -3,5 +3,7 @@
 pub mod agent_prompt;
 pub mod app;
 pub mod cli;
+pub mod clone;
 pub mod git_config;
+pub mod lfs;
 pub mod repo;

@@ -430,6 +430,8 @@ function ImagePreviewRow({
     new: false
   });
   const [loadFailed, setLoadFailed] = useState(false);
+  const [previewGeneration, setPreviewGeneration] = useState(0);
+  const [downloadingLfs, setDownloadingLfs] = useState(false);
   const descriptor = section.imagePreview;
 
   useEffect(() => {
@@ -438,6 +440,7 @@ function ImagePreviewRow({
     setPreview(null);
     setLoadFailed(false);
     setFailedSides({ old: false, new: false });
+    setDownloadingLfs(false);
     void loadPreview(descriptor)
       .then((result) => {
         if (current) setPreview(result);
@@ -448,7 +451,7 @@ function ImagePreviewRow({
     return () => {
       current = false;
     };
-  }, [descriptor, loadPreview]);
+  }, [descriptor, loadPreview, previewGeneration]);
 
   const renderSide = (version: 'old' | 'new') => {
     const label = t(translate, version === 'old' ? 'diff-image-before' : 'diff-image-after');
@@ -484,10 +487,32 @@ function ImagePreviewRow({
           ? 'diff-image-too-large'
           : reason === 'unsupported'
             ? 'diff-image-unsupported'
+            : reason === 'lfsObjectMissing'
+              ? 'diff-image-lfs-missing'
             : 'diff-image-unavailable';
       return (
         <div className="diff__image-placeholder" data-testid={`diff-image-${version}-unavailable`}>
           {t(translate, key)}
+          {reason === 'lfsObjectMissing' && descriptor ? (
+            <button
+              type="button"
+              className="tool-button"
+              disabled={downloadingLfs}
+              data-testid={`diff-image-${version}-download-lfs`}
+              onClick={() => {
+                const target = descriptor.target;
+                const file = target.file;
+                const path = version === 'old' ? file.old_path ?? file.path : file.path;
+                setDownloadingLfs(true);
+                void ipc.lfsDownloadFile(descriptor.repoId, path)
+                  .then(() => setPreviewGeneration((generation) => generation + 1))
+                  .catch(() => undefined)
+                  .finally(() => setDownloadingLfs(false));
+              }}
+            >
+              {t(translate, 'lfs-download-file')}
+            </button>
+          ) : null}
         </div>
       );
     }

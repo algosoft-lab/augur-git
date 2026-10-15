@@ -55,6 +55,7 @@ pub enum ImagePreviewUnavailable {
     Unsupported,
     TooLarge,
     Unreadable,
+    LfsObjectMissing,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -142,7 +143,8 @@ fn load_side(repo: &GitRepo, source: Option<&Source>) -> ImagePreviewSide {
         SourceKind::Head => read_git_spec(repo, &source.path, true),
         SourceKind::Index => read_git_spec(repo, &source.path, false),
         SourceKind::Worktree => read_worktree(repo, &source.path),
-    };
+    }
+    .and_then(|bytes| resolve_lfs_pointer(repo, bytes));
     match result {
         Ok(bytes) => ImagePreviewSide::Available {
             mime_type: mime_type.to_string(),
@@ -248,6 +250,20 @@ fn read_git_blob(repo: &GitRepo, object: &str) -> Result<Vec<u8>, ImagePreviewUn
         return Err(ImagePreviewUnavailable::Unreadable);
     }
     Ok(bytes)
+}
+
+fn resolve_lfs_pointer(repo: &GitRepo, bytes: Vec<u8>) -> Result<Vec<u8>, ImagePreviewUnavailable> {
+    let Some((oid, size)) = crate::lfs::parse_pointer(&bytes) else {
+        return Ok(bytes);
+    };
+    if size > MAX_IMAGE_PREVIEW_SIZE as u64 {
+        return Err(ImagePreviewUnavailable::TooLarge);
+    }
+    match crate::lfs::read_cached_object(repo, &oid, size, MAX_IMAGE_PREVIEW_SIZE) {
+        Ok(Some(content)) => Ok(content),
+        Ok(None) => Err(ImagePreviewUnavailable::LfsObjectMissing),
+        Err(_) => Err(ImagePreviewUnavailable::Unreadable),
+    }
 }
 
 fn read_worktree(repo: &GitRepo, path: &str) -> Result<Vec<u8>, ImagePreviewUnavailable> {
@@ -413,6 +429,7 @@ mod tests {
                 worktree: ' ',
                 path: "new.png".into(),
                 old_path: None,
+                is_lfs: false,
             },
         };
         let unstaged_added = ImagePreviewTarget::WorkingTree {
@@ -422,6 +439,7 @@ mod tests {
                 worktree: '?',
                 path: "new.png".into(),
                 old_path: None,
+                is_lfs: false,
             },
         };
         let staged_rename = ImagePreviewTarget::WorkingTree {
@@ -431,6 +449,7 @@ mod tests {
                 worktree: ' ',
                 path: "new.png".into(),
                 old_path: Some("old.png".into()),
+                is_lfs: false,
             },
         };
 
@@ -648,6 +667,7 @@ mod tests {
                 worktree: '?',
                 path: "../outside.png".into(),
                 old_path: None,
+                is_lfs: false,
             },
         };
         let result = load(&GitRepo::local(repo.path.to_string_lossy()), &unsafe_path);

@@ -19,6 +19,12 @@ use augur_core::graph::LogRow;
 
 /// Event name used for every repository event.
 pub const REPO_EVENT: &str = "augur://repo-event";
+/// Event for native Git LFS transfers started by a repository panel.
+pub const LFS_PROGRESS_EVENT: &str = "augur://lfs-progress";
+/// Application-level progress for clones before a repository id exists.
+pub const LFS_CLONE_PROGRESS_EVENT: &str = "augur://lfs-clone-progress";
+/// Native HTTPS credential prompts delivered over a one-time request channel.
+pub const LFS_CREDENTIAL_REQUEST_EVENT: &str = "augur://lfs-credential-request";
 /// Event name used for application-level state changes.
 pub const APP_EVENT: &str = "augur://app-event";
 /// Event name used to hand CLI paths to a running instance.
@@ -191,6 +197,11 @@ pub enum RepoEvent {
         #[serde(rename = "requestId")]
         request_id: u64,
         detail: String,
+    },
+    LfsProgress {
+        label: String,
+        operation_id: String,
+        progress: augur_core::lfs::LfsTransferProgress,
     },
     CommandStarted {
         label: String,

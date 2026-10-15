@@ -10,12 +10,13 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 import { CliSettings } from './CliSettings';
 import { GitConfigSettings } from './GitConfigSettings';
 
 import { Icon } from '../../components/Icon';
-import { Select, Slider, TextInput } from '../../components/controls';
+import { Checkbox, Select, Slider, TextInput } from '../../components/controls';
 import * as ipc from '../../bridge/ipc';
 import type {
   DiffLayoutPreference,
@@ -41,6 +42,7 @@ type Section = SettingsSection;
 const SECTIONS: { id: Section; key: string }[] = [
   { id: 'general', key: 'settings-general' },
   { id: 'git', key: 'settings-git' },
+  { id: 'lfs', key: 'settings-lfs' },
   { id: 'appearance', key: 'settings-appearance' },
   { id: 'layout', key: 'settings-layout' },
   { id: 'shortcuts', key: 'settings-shortcuts' }
@@ -188,12 +190,81 @@ export function SettingsWindow({ initialSection = 'general' }: { initialSection?
           />
           {section === 'general' ? <GeneralSection /> : null}
           {section === 'git' ? <GitConfigSettings /> : null}
+          {section === 'lfs' ? <LfsSettingsSection /> : null}
           {section === 'appearance' ? <AppearanceSection fonts={fonts} /> : null}
           {section === 'layout' ? <LayoutSection /> : null}
           {section === 'shortcuts' ? <ShortcutsSection /> : null}
         </div>
       </div>
     </div>
+  );
+}
+
+function LfsSettingsSection() {
+  const translate = useStore((state) => state.t);
+  const automatic = useStore((state) => state.config.lfs_auto_download);
+  const onOpen = useStore((state) => state.config.lfs_download_on_open);
+  const setPreferences = useStore((state) => state.setLfsDownloadPreferences);
+  const [environment, setEnvironment] = useState<Awaited<ReturnType<typeof ipc.lfsEnvironment>> | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const checkEnvironment = () => {
+    setChecking(true);
+    void ipc.lfsEnvironment().then(setEnvironment).catch((error: unknown) => {
+      setEnvironment({ installed: false, version: null, path: null, detail: String(error) });
+    }).finally(() => setChecking(false));
+  };
+
+  useEffect(checkEnvironment, []);
+
+  return (
+    <>
+      <div className="settings__heading">{t(translate, 'settings-lfs')}</div>
+      <p className="settings__description">{t(translate, 'lfs-settings-description')}</p>
+      <div className="settings__field settings__search-target" data-testid="settings-field-lfs-environment">
+        <span className="settings__label">{t(translate, 'lfs-environment-title')}</span>
+        <div className="settings__hint">
+          {environment === null
+            ? t(translate, 'lfs-environment-checking')
+            : environment.installed
+              ? `${environment.version ?? ''}${environment.path ? ` · ${environment.path}` : ''}`
+              : t(translate, 'lfs-environment-missing')}
+        </div>
+        {environment?.detail ? <div className="settings__hint">{environment.detail}</div> : null}
+        <div className="settings__row">
+          <button type="button" className="tool-button" disabled={checking} onClick={checkEnvironment}>
+            {t(translate, 'lfs-environment-recheck')}
+          </button>
+          {!environment?.installed ? (
+            <button
+              type="button"
+              className="tool-button"
+              onClick={() => void openUrl('https://git-lfs.com').catch(() => undefined)}
+            >
+              {t(translate, 'lfs-install-guide')}
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <div className="settings__field settings__search-target" data-testid="settings-field-lfs-auto">
+        <span className="settings__label">{t(translate, 'lfs-auto-download-title')}</span>
+        <Checkbox
+          checked={automatic}
+          label={t(translate, 'lfs-auto-download-description')}
+          testId="settings-lfs-auto-download"
+          onChange={(value) => void setPreferences(value, onOpen)}
+        />
+      </div>
+      <div className="settings__field settings__search-target" data-testid="settings-field-lfs-open">
+        <span className="settings__label">{t(translate, 'lfs-download-open-title')}</span>
+        <Checkbox
+          checked={onOpen}
+          label={t(translate, 'lfs-download-open-description')}
+          testId="settings-lfs-download-on-open"
+          onChange={(value) => void setPreferences(automatic, value)}
+        />
+      </div>
+    </>
   );
 }
 

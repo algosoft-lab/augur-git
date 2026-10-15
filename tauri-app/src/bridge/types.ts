@@ -99,6 +99,9 @@ export interface AppConfig {
   view: ViewSettings;
   typography: TypographySettings;
   recent_repos: RecentRepo[];
+  lfs_auto_download: boolean;
+  lfs_download_on_open: boolean;
+  lfs_repository_auto_download: Record<string, boolean>;
 }
 
 export interface LayoutSettings {
@@ -124,7 +127,100 @@ export interface WorkspaceState {
 }
 
 export type WindowMode = 'desktop' | 'sidecar';
-export type SettingsSection = 'general' | 'git' | 'appearance' | 'layout' | 'shortcuts';
+export type SettingsSection = 'general' | 'git' | 'lfs' | 'appearance' | 'layout' | 'shortcuts';
+
+export interface LfsEnvironment {
+  installed: boolean;
+  version: string | null;
+  path: string | null;
+  detail: string | null;
+}
+
+export interface LfsRepositoryState {
+  usesLfs: boolean;
+  available: boolean;
+  initialized: boolean;
+  hookReady: boolean;
+  hookConflict: boolean;
+  head: string | null;
+  endpoint: string | null;
+  endpointSource: string | null;
+  storage: string | null;
+  fetchInclude: string | null;
+  fetchExclude: string | null;
+  concurrentTransfers: number | null;
+  transferRetries: number | null;
+  locksVerify: string | null;
+  automaticDownload: boolean;
+  detail: string | null;
+}
+
+export interface LfsFile {
+  path: string;
+  oid: string;
+  size: number | null;
+  present: boolean;
+}
+
+export interface LfsLock {
+  id: string;
+  path: string;
+  owner: string;
+  lockedAt: string | null;
+}
+
+export interface LfsRepositoryPreferences {
+  automaticDownload?: boolean | null;
+  fetchInclude?: string | null;
+  fetchExclude?: string | null;
+  concurrentTransfers?: number | null;
+  transferRetries?: number | null;
+  locksVerify?: string | null;
+  endpoint?: string | null;
+}
+
+export interface LfsCachePreview {
+  objects: number;
+  bytes: number;
+  candidates: number;
+  candidateBytes: number;
+  output: string;
+}
+
+export interface LfsTransferProgress {
+  direction: string;
+  currentFile: number;
+  totalFiles: number;
+  transferredBytes: number;
+  totalBytes: number;
+  path: string;
+}
+
+export interface LfsProgressEvent {
+  repoId: number;
+  operationId: string;
+  progress: LfsTransferProgress;
+}
+
+export interface CloneProgressEvent {
+  operationId: string;
+  stage: string;
+  message: string;
+  progress: LfsTransferProgress | null;
+}
+
+export interface CloneResult {
+  repoId: number;
+  path: string;
+  usesLfs: boolean;
+  lfsAvailable: boolean;
+  lfsError: string | null;
+}
+
+export interface LfsCredentialRequest {
+  requestId: string;
+  prompt: string;
+}
 
 export interface WindowBounds {
   x: number;
@@ -151,6 +247,7 @@ export interface FileStatus {
   worktree: string;
   path: string;
   old_path: string | null;
+  is_lfs?: boolean;
 }
 
 export interface DiffLineStats {
@@ -328,7 +425,7 @@ export type ImagePreviewTarget =
 export type ImagePreviewSide =
   | { status: 'absent' }
   | { status: 'available'; mimeType: string; data: string }
-  | { status: 'unavailable'; reason: 'unsupported' | 'tooLarge' | 'unreadable' };
+  | { status: 'unavailable'; reason: 'unsupported' | 'tooLarge' | 'unreadable' | 'lfsObjectMissing' };
 
 export interface ImagePreview {
   old: ImagePreviewSide;
@@ -496,6 +593,12 @@ export type RepoEvent =
       bytes: number;
     }
   | { type: 'branchComparePatchError'; requestId: number; detail: string }
+  | {
+      type: 'lfsProgress';
+      label: string;
+      operationId: string;
+      progress: LfsTransferProgress;
+    }
   | { type: 'commandStarted'; label: string; verb: string }
   | { type: 'commandDone'; label: string; success: boolean; message: string }
   | { type: 'openFailed'; error: GitError }

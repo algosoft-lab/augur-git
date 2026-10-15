@@ -19,6 +19,7 @@ import { createBranchMenuItems } from '../repository/Toolbar';
 export function TitleBar({
   onOpenRepository,
   onOpenWslRepository,
+  onCloneRepository,
   onNewTab,
   sidecar = false,
   windowMode,
@@ -26,6 +27,7 @@ export function TitleBar({
 }: {
   onOpenRepository: () => void;
   onOpenWslRepository: () => void;
+  onCloneRepository: () => void;
   onNewTab: () => void;
   sidecar?: boolean;
   windowMode: WindowMode;
@@ -93,6 +95,12 @@ export function TitleBar({
       label: t(translate, 'menu-open-repository'),
       icon: <Icon name="file" />,
       onSelect: onOpenRepository
+    },
+    {
+      id: 'clone-repository',
+      label: t(translate, 'welcome-clone'),
+      icon: <Icon name="download" />,
+      onSelect: onCloneRepository
     },
     ...(typeof navigator !== 'undefined' && /Win/i.test(navigator.platform)
       ? [

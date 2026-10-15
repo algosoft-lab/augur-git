@@ -6,10 +6,12 @@ import { t } from '../../i18n/strings';
 
 export function Welcome({
   onOpenRepository,
-  onOpenWslRepository
+  onOpenWslRepository,
+  onCloneRepository
 }: {
   onOpenRepository: () => void;
   onOpenWslRepository: () => void;
+  onCloneRepository: () => void;
 }) {
   const translate = useStore((state) => state.t);
   const recent = useStore((state) => state.config.recent_repos);
@@ -34,6 +36,14 @@ export function Welcome({
           onClick={onOpenRepository}
         >
           {t(translate, 'welcome-open')}
+        </button>
+        <button
+          type="button"
+          className="tool-button"
+          data-testid="welcome-clone"
+          onClick={onCloneRepository}
+        >
+          {t(translate, 'welcome-clone')}
         </button>
         {isWindows ? (
           <button

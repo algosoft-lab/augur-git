@@ -23,6 +23,7 @@ import { SidecarWindow } from './SidecarWindow';
 import { UpdateNoticeCard } from './UpdateNoticeCard';
 import { DropOverlay } from './DropOverlay';
 import { CommandPalette } from '../palette/CommandPalette';
+import { LfsCredentialPrompt } from '../dialogs/LfsCredentialPrompt';
 
 export function MainWindow() {
   const translate = useStore((state) => state.t);
@@ -36,6 +37,7 @@ export function MainWindow() {
   const setWindowMode = useStore((state) => state.setWindowMode);
   const addStartTab = useStore((state) => state.addStartTab);
   const notify = useStore((state) => state.notify);
+  const openOverlay = useStore((state) => state.openOverlay);
   const [wslOpen, setWslOpen] = useState(false);
   const targetGeneration = useRef(0);
   const toggleWindowModeRef = useRef<() => void>(() => undefined);
@@ -173,6 +175,7 @@ export function MainWindow() {
       <TitleBar
         onOpenRepository={() => void pickFolder()}
         onOpenWslRepository={() => setWslOpen(true)}
+        onCloneRepository={() => openOverlay({ kind: 'lfsClone' })}
         onNewTab={addStartTab}
         sidecar={windowMode === 'sidecar'}
         windowMode={windowMode}
@@ -191,11 +194,13 @@ export function MainWindow() {
           <Welcome
             onOpenRepository={() => void pickFolder()}
             onOpenWslRepository={() => setWslOpen(true)}
+            onCloneRepository={() => openOverlay({ kind: 'lfsClone' })}
           />
         </div>
       )}
       {windowMode === 'sidecar' ? null : <StatusBar repo={activeRepo} />}
       <Overlays wslOpen={wslOpen} onWslOpenChange={setWslOpen} onOpenPaths={openPaths} />
+      <LfsCredentialPrompt />
       <CommandPalette />
       <UpdateNoticeCard />
       {notice ? (

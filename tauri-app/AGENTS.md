@@ -6,7 +6,7 @@ and runtime configuration belong only to this application. Do not depend on
 files from `legacy-app/` or import that application's settings.
 
 Run frontend and Tauri commands from this directory. Run Rust workspace tests
-with `cargo test --manifest-path src-tauri/Cargo.toml`. See this directory's
+with `cargo test --workspace --manifest-path src-tauri/Cargo.toml`. See this directory's
 README for prerequisites, development commands, testing, architecture, and data
 locations.
 

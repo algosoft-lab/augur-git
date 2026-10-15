@@ -130,6 +130,8 @@ export type Overlay =
   | { kind: 'forcePush' }
   | { kind: 'pushSetUpstream'; branch: string; remote: string }
   | { kind: 'manageRemotes' }
+  | { kind: 'lfs'; repoId: number }
+  | { kind: 'lfsClone' }
   | {
       kind: 'discard';
       scope: { kind: 'workingTree'; staged: boolean; all: boolean };
@@ -262,6 +264,7 @@ interface AppStore {
   setTheme: (theme: AppConfig['theme']) => Promise<void>;
   setDiffLayout: (layout: DiffLayoutPreference) => Promise<void>;
   setView: (view: Partial<AppConfig['view']>) => Promise<void>;
+  setLfsDownloadPreferences: (automatic: boolean, onOpen: boolean) => Promise<void>;
   setTypography: (typography: Partial<AppConfig['typography']>) => Promise<void>;
   setShortcut: (command: string, keys: string[] | null) => Promise<void>;
 }
@@ -864,7 +867,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
 
     build: null,
     config: {
-      schema_version: 2,
+      schema_version: 3,
       auto_check_updates: true,
       dismissed_update_commit: null,
       theme: 'claude-dark',
@@ -886,7 +889,10 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
         ui_font_size: 16,
         diff_font_size: 16
       },
-      recent_repos: []
+      recent_repos: [],
+      lfs_auto_download: true,
+      lfs_download_on_open: false,
+      lfs_repository_auto_download: {}
     },
     workspace: {
       schema_version: 2,
@@ -1159,6 +1165,29 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
         return;
       }
       const t = state.t;
+      if (event.type === 'lfsProgress') {
+        const progress = event.progress;
+        set({
+          repos: {
+            ...state.repos,
+            [repoId]: {
+              ...repo,
+              message: {
+                text: t('lfs-transfer-progress', {
+                  direction: progress.direction,
+                  current: progress.currentFile,
+                  total: progress.totalFiles,
+                  bytes: progress.transferredBytes,
+                  totalBytes: progress.totalBytes,
+                  path: progress.path
+                }),
+                ok: null
+              }
+            }
+          }
+        });
+        return;
+      }
       const next = applyRepoEvent(repo, event, t, (key, detail) => renderGitError(t, key, detail));
       if (next !== repo) {
         set({ repos: { ...state.repos, [repoId]: next } });
@@ -1586,6 +1615,11 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       const view = { ...get().config.view, ...patch };
       set({ config: { ...get().config, view } });
       await ipc.setView(view);
+    },
+
+    async setLfsDownloadPreferences(automatic, onOpen) {
+      set({ config: { ...get().config, lfs_auto_download: automatic, lfs_download_on_open: onOpen } });
+      await ipc.setLfsDownloadPreferences(automatic, onOpen);
     },
 
     async setTypography(patch) {

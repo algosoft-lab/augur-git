@@ -197,6 +197,13 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
     separatorBefore: true,
     onSelect: () => openOverlay({ kind: 'manageRemotes' })
   };
+  const manageLfsItem: MenuItemSpec = {
+    id: 'manage-lfs',
+    label: t(translate, 'lfs-manage-title'),
+    icon: <Icon name="download" />,
+    separatorBefore: true,
+    onSelect: () => openOverlay({ kind: 'lfs', repoId: repo.id })
+  };
   const compactMoreItems: MenuItemSpec[] = [
     ...branchItems,
     {
@@ -207,10 +214,11 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
       onSelect: () => void ipc.openCompareWindow(repo.id)
     },
     manageRemotesItem,
+    manageLfsItem,
     resetItem,
     forcePushItem
   ];
-  const moreItems = [...branchItems, manageRemotesItem, resetItem, forcePushItem];
+  const moreItems = [...branchItems, manageRemotesItem, manageLfsItem, resetItem, forcePushItem];
 
   return (
     <div className={`toolbar${compact ? ' toolbar--sidecar' : ''}`} data-testid="toolbar">

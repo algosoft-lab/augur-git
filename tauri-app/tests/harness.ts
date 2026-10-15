@@ -150,13 +150,15 @@ export interface BootOptions {
   /** Window role, from the same query parameter the backend uses. */
   window?: 'main' | 'compare' | 'about' | 'settings';
   /** Initial settings section requested by a direct settings-window entry. */
-  settingsSection?: 'general' | 'git' | 'appearance' | 'layout' | 'shortcuts';
+  settingsSection?: 'general' | 'git' | 'lfs' | 'appearance' | 'layout' | 'shortcuts';
   /** Repository id passed to a compare window. */
   repoId?: number;
   /** The global Git configuration the stub starts with, keyed by Git key. */
   gitConfig?: StubOptions['gitConfig'];
   /** The identity `probe_commit_identity` resolves for every repository. */
   identity?: StubOptions['identity'];
+  /** Error returned after the Git clone succeeds, to exercise partial recovery. */
+  cloneLfsError?: string | null;
 }
 
 function optionsFor(options: BootOptions): StubOptions {
@@ -200,7 +202,8 @@ function optionsFor(options: BootOptions): StubOptions {
     diffCharDiff: options.diffCharDiff,
     showUntracked: options.showUntracked,
     gitConfig: options.gitConfig,
-    identity: options.identity
+    identity: options.identity,
+    cloneLfsError: options.cloneLfsError
   };
 }
 

@@ -1,7 +1,7 @@
 //! Cancellable repository diagnostics kept off the serial Git command queue.
 
 use std::io::Read;
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
@@ -117,10 +117,7 @@ impl<T: Send + 'static> Clone for LatestTaskWorker<T> {
 }
 
 impl<T: Send + 'static> LatestTaskWorker<T> {
-    pub fn new(
-        name: impl Into<String>,
-        execute: impl Fn(T, &AtomicBool) + Send + 'static,
-    ) -> Self {
+    pub fn new(name: impl Into<String>, execute: impl Fn(T, &AtomicBool) + Send + 'static) -> Self {
         let shared = Arc::new(Shared {
             state: Mutex::new(WorkerState {
                 pending: None,
@@ -132,31 +129,34 @@ impl<T: Send + 'static> LatestTaskWorker<T> {
         let worker_shared = shared.clone();
         thread::Builder::new()
             .name(name.into())
-            .spawn(move || loop {
-                let (job, cancel) = {
+            .spawn(move || {
+                loop {
+                    let (job, cancel) = {
+                        let mut state =
+                            worker_shared.state.lock().expect("diagnostics worker lock");
+                        loop {
+                            if let Some(job) = state.pending.take() {
+                                state.running = Some(job.1.clone());
+                                break job;
+                            }
+                            if state.closed {
+                                return;
+                            }
+                            state = worker_shared
+                                .changed
+                                .wait(state)
+                                .expect("diagnostics worker lock");
+                        }
+                    };
+                    execute(job, &cancel);
                     let mut state = worker_shared.state.lock().expect("diagnostics worker lock");
-                    loop {
-                        if let Some(job) = state.pending.take() {
-                            state.running = Some(job.1.clone());
-                            break job;
-                        }
-                        if state.closed {
-                            return;
-                        }
-                        state = worker_shared
-                            .changed
-                            .wait(state)
-                            .expect("diagnostics worker lock");
+                    if state
+                        .running
+                        .as_ref()
+                        .is_some_and(|running| Arc::ptr_eq(running, &cancel))
+                    {
+                        state.running = None;
                     }
-                };
-                execute(job, &cancel);
-                let mut state = worker_shared.state.lock().expect("diagnostics worker lock");
-                if state
-                    .running
-                    .as_ref()
-                    .is_some_and(|running| Arc::ptr_eq(running, &cancel))
-                {
-                    state.running = None;
                 }
             })
             .expect("diagnostics worker thread");
@@ -217,6 +217,32 @@ impl std::fmt::Display for ProcessFailure {
 
 impl std::error::Error for ProcessFailure {}
 
+/// Place a child in its own process group so Git helpers can be terminated with it.
+pub fn configure_process_tree(command: &mut Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+}
+
+/// Stop a Git process and helpers it spawned before joining their output pipes.
+pub fn terminate_process_tree(child: &mut Child) {
+    let process_id = child.id();
+    #[cfg(unix)]
+    unsafe {
+        let _ = libc::kill(-(process_id as i32), libc::SIGKILL);
+    }
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &process_id.to_string(), "/T", "/F"])
+            .output();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 /// Run a child while polling cancellation/deadline and draining both pipes.
 /// Output is retained only up to the requested caps; excess data is discarded
 /// and stdout overflow terminates the child.
@@ -242,6 +268,7 @@ pub fn run_cancellable_until(
         return Err(ProcessFailure::TimedOut);
     }
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    configure_process_tree(command);
     let mut child = command
         .spawn()
         .map_err(|error| ProcessFailure::Spawn(error.to_string()))?;
@@ -249,26 +276,24 @@ pub fn run_cancellable_until(
     let stderr = child.stderr.take().expect("piped stderr");
     let exceeded = Arc::new(AtomicBool::new(false));
     let stdout_exceeded = exceeded.clone();
-    let stdout_reader = thread::spawn(move || drain_capped(stdout, stdout_limit, Some(stdout_exceeded)));
+    let stdout_reader =
+        thread::spawn(move || drain_capped(stdout, stdout_limit, Some(stdout_exceeded)));
     let stderr_reader = thread::spawn(move || drain_capped(stderr, STDERR_CAPTURE_LIMIT, None));
     let status = loop {
         if cancel.load(Ordering::Acquire) {
-            let _ = child.kill();
-            let _ = child.wait();
+            terminate_process_tree(&mut child);
             join_pipe(stdout_reader)?;
             join_pipe(stderr_reader)?;
             return Err(ProcessFailure::Cancelled);
         }
         if exceeded.load(Ordering::Acquire) {
-            let _ = child.kill();
-            let _ = child.wait();
+            terminate_process_tree(&mut child);
             join_pipe(stdout_reader)?;
             join_pipe(stderr_reader)?;
             return Err(ProcessFailure::OutputTooLarge);
         }
         if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
+            terminate_process_tree(&mut child);
             join_pipe(stdout_reader)?;
             join_pipe(stderr_reader)?;
             return Err(ProcessFailure::TimedOut);
@@ -277,8 +302,7 @@ pub fn run_cancellable_until(
             Ok(Some(status)) => break status,
             Ok(None) => thread::sleep(Duration::from_millis(20)),
             Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                terminate_process_tree(&mut child);
                 join_pipe(stdout_reader)?;
                 join_pipe(stderr_reader)?;
                 return Err(ProcessFailure::Read(error.to_string()));
@@ -370,7 +394,9 @@ fn read_tracked_numstat(repo: &GitRepo, staged: bool, cancel: &AtomicBool) -> Di
         STATUS_OUTPUT_LIMIT,
     );
     match result {
-        Ok(output) if output.status.success() => DiffStatCategory::ready(sum_numstat(&output.stdout)),
+        Ok(output) if output.status.success() => {
+            DiffStatCategory::ready(sum_numstat(&output.stdout))
+        }
         Err(ProcessFailure::Cancelled) => DiffStatCategory::pending(),
         Err(ProcessFailure::TimedOut) => DiffStatCategory::error("timed-out"),
         _ => DiffStatCategory::error("unavailable"),
@@ -452,6 +478,7 @@ mod untracked_stats_tests {
             worktree: '?',
             path: path.into(),
             old_path: None,
+            is_lfs: false,
         }
     }
 
@@ -475,13 +502,14 @@ mod untracked_stats_tests {
         }
     }
 
-    static TEMP_COUNTER: std::sync::atomic::AtomicUsize =
-        std::sync::atomic::AtomicUsize::new(0);
+    static TEMP_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
     #[test]
     fn untracked_statistics_skip_before_probing_more_than_two_hundred_files() {
         let repo = GitRepo::local(std::env::temp_dir().to_string_lossy());
-        let files = (0..201).map(|index| untracked(format!("missing-{index}"))).collect::<Vec<_>>();
+        let files = (0..201)
+            .map(|index| untracked(format!("missing-{index}")))
+            .collect::<Vec<_>>();
         let result = read_untracked_stats(&repo, &files, &AtomicBool::new(false));
         assert_eq!(result.status, DiffStatsStatus::Skipped);
         assert_eq!(result.reason.as_deref(), Some("too-many-files"));
@@ -496,11 +524,8 @@ mod untracked_stats_tests {
             .set_len(MAX_STATS_FILE_BYTES + 1)
             .expect("size sparse oversized fixture");
         let repo = GitRepo::local(directory.0.to_string_lossy());
-        let result = read_untracked_stats(
-            &repo,
-            &[untracked("oversized")],
-            &AtomicBool::new(false),
-        );
+        let result =
+            read_untracked_stats(&repo, &[untracked("oversized")], &AtomicBool::new(false));
         assert_eq!(result.status, DiffStatsStatus::Skipped);
         assert_eq!(result.reason.as_deref(), Some("file-too-large"));
     }
@@ -518,7 +543,10 @@ mod untracked_stats_tests {
                 untracked(name)
             })
             .collect::<Vec<_>>();
-        assert_eq!(17 * MAX_STATS_FILE_BYTES, MAX_STATS_TOTAL_BYTES + MAX_STATS_FILE_BYTES);
+        assert_eq!(
+            17 * MAX_STATS_FILE_BYTES,
+            MAX_STATS_TOTAL_BYTES + MAX_STATS_FILE_BYTES
+        );
         let repo = GitRepo::local(directory.0.to_string_lossy());
         let result = read_untracked_stats(&repo, &files, &AtomicBool::new(false));
         assert_eq!(result.status, DiffStatsStatus::Skipped);
@@ -529,11 +557,7 @@ mod untracked_stats_tests {
     fn a_missing_untracked_file_is_reported_as_unavailable() {
         let directory = TempDir::new();
         let repo = GitRepo::local(directory.0.to_string_lossy());
-        let result = read_untracked_stats(
-            &repo,
-            &[untracked("vanished")],
-            &AtomicBool::new(false),
-        );
+        let result = read_untracked_stats(&repo, &[untracked("vanished")], &AtomicBool::new(false));
         assert_eq!(result.status, DiffStatsStatus::Error);
         assert_eq!(result.reason.as_deref(), Some("unavailable"));
     }
@@ -551,7 +575,8 @@ fn untracked_file_size(
             .map_err(|error| ProcessFailure::Read(error.to_string())),
         RepoLocation::Wsl { .. } => {
             let output = run_cancellable(
-                repo.command_in_location("stat").args(["-c", "%s", "--", path]),
+                repo.command_in_location("stat")
+                    .args(["-c", "%s", "--", path]),
                 cancel,
                 timeout,
                 64,
@@ -574,21 +599,20 @@ fn read_untracked_numstat(
     timeout: Duration,
 ) -> Result<DiffLineStats, ProcessFailure> {
     let output = run_cancellable(
-        repo.command()
-            .args([
-                "--no-optional-locks",
-                "-C",
-                repo.path(),
-                "--no-pager",
-                "diff",
-                "--no-index",
-                "--no-ext-diff",
-                "--numstat",
-                "-z",
-                "--",
-                if cfg!(windows) { "NUL" } else { "/dev/null" },
-                path,
-            ]),
+        repo.command().args([
+            "--no-optional-locks",
+            "-C",
+            repo.path(),
+            "--no-pager",
+            "diff",
+            "--no-index",
+            "--no-ext-diff",
+            "--numstat",
+            "-z",
+            "--",
+            if cfg!(windows) { "NUL" } else { "/dev/null" },
+            path,
+        ]),
         cancel,
         timeout,
         4096,
@@ -617,9 +641,7 @@ fn add_stats(total: &mut DiffLineStats, next: DiffLineStats) {
     total.deleted = total.deleted.saturating_add(next.deleted);
 }
 
-pub fn run_status_bounded(
-    command: &mut Command,
-) -> Result<Output, ProcessFailure> {
+pub fn run_status_bounded(command: &mut Command) -> Result<Output, ProcessFailure> {
     run_cancellable(
         command,
         &AtomicBool::new(false),
@@ -651,7 +673,12 @@ mod tests {
         let mut command = Command::new("git");
         command.arg("--version");
         assert!(matches!(
-            run_cancellable(&mut command, &AtomicBool::new(false), std::time::Duration::from_secs(2), 1),
+            run_cancellable(
+                &mut command,
+                &AtomicBool::new(false),
+                std::time::Duration::from_secs(2),
+                1
+            ),
             Err(ProcessFailure::OutputTooLarge)
         ));
     }

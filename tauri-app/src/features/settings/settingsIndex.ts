@@ -61,6 +61,23 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     hintKey: 'git-editor-hint',
     targetTestId: 'settings-field-git-editor'
   },
+  {
+    section: 'lfs',
+    labelKey: 'lfs-environment-title',
+    targetTestId: 'settings-field-lfs-environment'
+  },
+  {
+    section: 'lfs',
+    labelKey: 'lfs-auto-download-title',
+    hintKey: 'lfs-auto-download-description',
+    targetTestId: 'settings-field-lfs-auto'
+  },
+  {
+    section: 'lfs',
+    labelKey: 'lfs-download-open-title',
+    hintKey: 'lfs-download-open-description',
+    targetTestId: 'settings-field-lfs-open'
+  },
   { section: 'appearance', labelKey: 'theme-title', targetTestId: 'settings-field-theme' },
   { section: 'appearance', labelKey: 'ui-font-title', targetTestId: 'settings-field-ui-font' },
   {
@@ -104,6 +121,7 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
 const SECTION_LABEL_KEYS: Record<SettingsSection, string> = {
   general: 'settings-general',
   git: 'settings-git',
+  lfs: 'settings-lfs',
   appearance: 'settings-appearance',
   layout: 'settings-layout',
   shortcuts: 'settings-shortcuts'

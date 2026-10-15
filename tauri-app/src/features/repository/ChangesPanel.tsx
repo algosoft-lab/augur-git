@@ -484,6 +484,7 @@ function FileRow({
           {t(translate, porcelainKey(code, untracked))}
         </span>
         <span className="file-row__name">{file.path}</span>
+        {file.is_lfs ? <span className="file-row__lfs" title={t(translate, 'lfs-file-tag')}>LFS</span> : null}
         <IconButton
           icon={staged ? <Icon name="minus" size={12} /> : <Icon name="plus" size={12} />}
           tooltip={

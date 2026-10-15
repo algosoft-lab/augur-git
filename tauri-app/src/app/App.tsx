@@ -46,6 +46,7 @@ function readTarget(): WindowTarget {
     const settingsSection: SettingsSection | null =
       section === 'general' ||
       section === 'git' ||
+      section === 'lfs' ||
       section === 'appearance' ||
       section === 'layout' ||
       section === 'shortcuts'

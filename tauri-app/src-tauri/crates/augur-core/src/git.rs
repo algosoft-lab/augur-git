@@ -52,6 +52,7 @@ pub use commit_log::LogScope;
 pub use diagnostics::{
     DiffStatCategory, DiffStatsStatus, LatestTaskWorker, WorkingTreeDiffStatsReport,
 };
+pub use diagnostics::{configure_process_tree, terminate_process_tree};
 pub use location::{GitRepo, RepoLocation, parse_unc_path, validate_linux_path};
 pub use progress::progress_verb;
 
@@ -307,6 +308,12 @@ pub enum GitEvent {
         success: bool,
         detail: String,
     },
+    /// Progress reported while hydrating LFS content after a Git operation.
+    LfsProgress {
+        label: String,
+        operation_id: String,
+        progress: crate::lfs::LfsTransferProgress,
+    },
     /// Status parsing or execution failed, but the worker can continue.
     StatusError(GitError),
     /// The worker could not open the repository (WSL probe failed); it exits
@@ -332,6 +339,16 @@ pub enum GitEvent {
     Error(GitError),
 }
 
+static NEXT_GIT_LFS_OPERATION: AtomicU64 = AtomicU64::new(1);
+
+fn next_git_lfs_operation_id() -> String {
+    format!(
+        "git-{}-{}",
+        std::process::id(),
+        NEXT_GIT_LFS_OPERATION.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
 /// 单个文件变更（git status --porcelain 解析）
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileStatus {
@@ -343,6 +360,9 @@ pub struct FileStatus {
     pub path: String,
     /// Original path for a rename, when Git reports one.
     pub old_path: Option<String>,
+    /// Whether the effective attributes route this path through Git LFS.
+    #[serde(default)]
+    pub is_lfs: bool,
 }
 
 impl FileStatus {
@@ -833,36 +853,45 @@ pub fn spawn_open(repo: GitRepo, event_tx: Sender<GitEvent>) -> Result<GitHandle
     let refresh_state = Arc::new(AtomicU8::new(0));
     let stats_repo = repo.clone();
     let stats_events = event_tx.clone();
-    let stats_worker: LatestTaskWorker<(u64, Vec<FileStatus>)> = LatestTaskWorker::new(format!("augur-git-stats-{}", repo.path()), move |(snapshot_id, files): (u64, Vec<FileStatus>), cancel| {
-        let started = std::time::Instant::now();
-        let file_count = files.len();
-        let report = diagnostics::read_diff_stats(&stats_repo, &files, cancel);
-        if !cancel.load(Ordering::Acquire) {
-            log::debug!(
-                "[git_worktree] statistics completed: snapshot_id={snapshot_id}, files={file_count}, elapsed_ms={}, staged_status={:?}, staged_reason={:?}, unstaged_status={:?}, unstaged_reason={:?}, untracked_status={:?}, untracked_reason={:?}",
-                started.elapsed().as_millis(),
-                report.staged.status,
-                report.staged.reason,
-                report.unstaged.status,
-                report.unstaged.reason,
-                report.untracked.status,
-                report.untracked.reason
-            );
-            let _ = stats_events.send(GitEvent::DiffStats { snapshot_id, report });
-        }
-    });
+    let stats_worker: LatestTaskWorker<(u64, Vec<FileStatus>)> = LatestTaskWorker::new(
+        format!("augur-git-stats-{}", repo.path()),
+        move |(snapshot_id, files): (u64, Vec<FileStatus>), cancel| {
+            let started = std::time::Instant::now();
+            let file_count = files.len();
+            let report = diagnostics::read_diff_stats(&stats_repo, &files, cancel);
+            if !cancel.load(Ordering::Acquire) {
+                log::debug!(
+                    "[git_worktree] statistics completed: snapshot_id={snapshot_id}, files={file_count}, elapsed_ms={}, staged_status={:?}, staged_reason={:?}, unstaged_status={:?}, unstaged_reason={:?}, untracked_status={:?}, untracked_reason={:?}",
+                    started.elapsed().as_millis(),
+                    report.staged.status,
+                    report.staged.reason,
+                    report.unstaged.status,
+                    report.unstaged.reason,
+                    report.untracked.status,
+                    report.untracked.reason
+                );
+                let _ = stats_events.send(GitEvent::DiffStats {
+                    snapshot_id,
+                    report,
+                });
+            }
+        },
+    );
     let diff_repo = repo.clone();
     let diff_events = event_tx.clone();
-    let working_diff_worker = LatestTaskWorker::new(format!("augur-git-preview-{}", repo.path()), move |(request_id, kind, file), cancel| {
-        working_tree::run_file_diff_cancellable(
-            &diff_repo,
-            request_id,
-            kind,
-            &file,
-            &diff_events,
-            cancel,
-        );
-    });
+    let working_diff_worker = LatestTaskWorker::new(
+        format!("augur-git-preview-{}", repo.path()),
+        move |(request_id, kind, file), cancel| {
+            working_tree::run_file_diff_cancellable(
+                &diff_repo,
+                request_id,
+                kind,
+                &file,
+                &diff_events,
+                cancel,
+            );
+        },
+    );
     thread::spawn({
         let compare_generation = compare_generation.clone();
         let commit_generation = commit_generation.clone();
@@ -977,10 +1006,66 @@ fn worker_loop(
         }
     }
 
+    if crate::lfs::should_download_on_open(&repo) {
+        let state = crate::lfs::repository_state(&repo);
+        if state.uses_lfs {
+            let label = "lfs-open".to_string();
+            let _ = event_tx.send(GitEvent::CommandStarted {
+                label: label.clone(),
+                subcommand: "lfs fetch".to_string(),
+            });
+            let result = if !state.available {
+                Err("This repository uses Git LFS, but Git LFS is not installed.".to_string())
+            } else if !state.initialized {
+                Err(
+                    "This repository uses Git LFS, but its repository filters are not initialized."
+                        .to_string(),
+                )
+            } else if crate::lfs::should_auto_download(&repo) {
+                let expected_head = state.head;
+                let operation_id = next_git_lfs_operation_id();
+                crate::lfs::fetch_with_progress(&repo, None, |progress| {
+                    let _ = event_tx.send(GitEvent::LfsProgress {
+                        label: label.clone(),
+                        operation_id: operation_id.clone(),
+                        progress,
+                    });
+                }).and_then(|()| {
+                    if crate::lfs::repository_state(&repo).head != expected_head {
+                        Err("The checked out commit changed during the download. No files were populated.".to_string())
+                    } else {
+                        crate::lfs::checkout(&repo)
+                    }
+                })
+            } else {
+                Ok(())
+            };
+            let (success, message) = match result {
+                Ok(()) => (true, "LFS files are up to date.".to_string()),
+                Err(error) => (
+                    false,
+                    format!("Repository opened, but LFS files are incomplete: {error}"),
+                ),
+            };
+            let _ = event_tx.send(GitEvent::CommandDone {
+                label,
+                success,
+                message,
+            });
+        }
+    }
+
     // Refresh once immediately after opening.
     let mut log_state = commit_log::LogState::default();
     let mut snapshot_id = 0;
-    refresh_all(&repo, &event_tx, &mut log_state, false, &mut snapshot_id, &stats_worker);
+    refresh_all(
+        &repo,
+        &event_tx,
+        &mut log_state,
+        false,
+        &mut snapshot_id,
+        &stats_worker,
+    );
 
     loop {
         match cmd_rx.recv_timeout(Duration::from_millis(20)) {
@@ -998,7 +1083,14 @@ fn worker_loop(
                 // Changes arriving during Git work queue a fresh command at the tail.
                 let requested = auto_refresh_state.swap(0, Ordering::AcqRel);
                 if requested & AUTO_REFRESH_FULL != 0 {
-                    refresh_all(&repo, &event_tx, &mut log_state, true, &mut snapshot_id, &stats_worker);
+                    refresh_all(
+                        &repo,
+                        &event_tx,
+                        &mut log_state,
+                        true,
+                        &mut snapshot_id,
+                        &stats_worker,
+                    );
                 } else if requested & AUTO_REFRESH_STATUS != 0 {
                     refresh_status(&repo, &event_tx, true, &mut snapshot_id, &stats_worker);
                 }
@@ -1016,7 +1108,14 @@ fn worker_loop(
             }) => {
                 run_git(&repo, &label, &args, &event_tx);
                 if refresh_after_success {
-                    refresh_all(&repo, &event_tx, &mut log_state, false, &mut snapshot_id, &stats_worker);
+                    refresh_all(
+                        &repo,
+                        &event_tx,
+                        &mut log_state,
+                        false,
+                        &mut snapshot_id,
+                        &stats_worker,
+                    );
                 }
             }
             Ok(GitCommand::Reset {
@@ -1036,12 +1135,26 @@ fn worker_loop(
                 match operation_probe::validate_reset(&repo, &expected_head, &target_oid) {
                     Ok(()) => {
                         if run_git(&repo, label, &args, &event_tx) {
-                            refresh_all(&repo, &event_tx, &mut log_state, false, &mut snapshot_id, &stats_worker);
+                            refresh_all(
+                                &repo,
+                                &event_tx,
+                                &mut log_state,
+                                false,
+                                &mut snapshot_id,
+                                &stats_worker,
+                            );
                         }
                     }
                     Err(detail) => {
                         reject_git(&event_tx, label, &detail);
-                        refresh_all(&repo, &event_tx, &mut log_state, false, &mut snapshot_id, &stats_worker);
+                        refresh_all(
+                            &repo,
+                            &event_tx,
+                            &mut log_state,
+                            false,
+                            &mut snapshot_id,
+                            &stats_worker,
+                        );
                     }
                 }
             }
@@ -1160,7 +1273,32 @@ fn refresh_status(
     stats_worker: &LatestTaskWorker<(u64, Vec<FileStatus>)>,
 ) {
     let started = std::time::Instant::now();
-    let status = run_status(repo, background);
+    let status =
+        run_status(repo, background).and_then(|(branch, upstream, mut files, ahead, behind)| {
+            let lfs_state = crate::lfs::repository_state(repo);
+            if lfs_state.uses_lfs && (!lfs_state.available || !lfs_state.initialized) {
+                return Err(GitError::new(
+                    "err-lfs-worktree-unavailable",
+                    lfs_state
+                        .detail
+                        .unwrap_or_else(|| "Git LFS worktree state is unavailable".into()),
+                ));
+            }
+            let mut paths = files
+                .iter()
+                .map(|file| file.path.clone())
+                .collect::<Vec<_>>();
+            paths.extend(files.iter().filter_map(|file| file.old_path.clone()));
+            let lfs_paths = crate::lfs::paths_with_lfs_attributes(repo, &paths);
+            for file in &mut files {
+                file.is_lfs = lfs_paths.contains(&file.path)
+                    || file
+                        .old_path
+                        .as_ref()
+                        .is_some_and(|path| lfs_paths.contains(path));
+            }
+            Ok((branch, upstream, files, ahead, behind))
+        });
     let branches = run_branches(repo);
     match status {
         Ok((branch, upstream, files, ahead, behind)) => {
@@ -1185,7 +1323,11 @@ fn refresh_status(
             stats_worker.submit((current_snapshot, stats_files));
         }
         Err(error) => {
-            log::warn!("[git_worktree] status refresh failed: key={}, elapsed_ms={}", error.key, started.elapsed().as_millis());
+            log::warn!(
+                "[git_worktree] status refresh failed: key={}, elapsed_ms={}",
+                error.key,
+                started.elapsed().as_millis()
+            );
             let _ = event_tx.send(GitEvent::StatusError(error));
         }
     }
@@ -1263,22 +1405,115 @@ fn run_git(repo: &GitRepo, label: &str, args: &[String], event_tx: &Sender<GitEv
         label: label.to_string(),
         subcommand: args.first().cloned().unwrap_or_default(),
     });
-    let output = repo
-        .command()
-        .arg("-C")
-        .arg(repo.path())
-        .args(args)
-        .output();
+    let operation = args.first().map(String::as_str).unwrap_or_default();
+    let updates_worktree = matches!(
+        operation,
+        "checkout" | "switch" | "pull" | "merge" | "rebase" | "restore"
+    ) || (operation == "reset"
+        && args.iter().any(|argument| argument == "--hard"))
+        || (operation == "stash"
+            && args
+                .iter()
+                .any(|argument| matches!(argument.as_str(), "pop" | "apply" | "branch")));
+    let pushes = operation == "push";
+    let shared_lock = (updates_worktree
+        || pushes
+        || matches!(
+            operation,
+            "fetch"
+                | "pull"
+                | "merge"
+                | "rebase"
+                | "reset"
+                | "stash"
+                | "checkout"
+                | "switch"
+                | "restore"
+        ))
+    .then(|| crate::lfs::operation_lock(repo));
+    let _shared_guard = shared_lock
+        .as_ref()
+        .map(|lock| lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+    let lfs_state = (updates_worktree || pushes).then(|| crate::lfs::repository_state(repo));
+    if let Some(state) = lfs_state.as_ref().filter(|state| state.uses_lfs) {
+        let blocked = if !state.available {
+            Some("This repository uses Git LFS, but Git LFS is not installed. Install it and retry this operation.".to_string())
+        } else if updates_worktree && !state.initialized {
+            Some("This repository uses Git LFS, but its repository filters are not initialized. Open LFS management and initialize the repository before changing the worktree.".to_string())
+        } else if pushes
+            && (!state.initialized
+                || !state.hook_ready
+                || state.hook_conflict
+                || args.iter().any(|argument| argument == "--no-verify"))
+        {
+            Some("This push is blocked because the Git LFS pre-push hook is missing or conflicted. Initialize Git LFS or integrate its pre-push hook with the existing custom hook.".to_string())
+        } else {
+            None
+        };
+        if let Some(message) = blocked {
+            log::warn!("[git_command] blocked LFS operation: label={label}, reason={message}");
+            let _ = event_tx.send(GitEvent::CommandDone {
+                label: label.to_string(),
+                success: false,
+                message,
+            });
+            return false;
+        }
+    }
+    let mut command = repo.command();
+    command.arg("-C").arg(repo.path());
+    if pushes {
+        command.args(["-c", "lfs.allowincompletepush=false"]);
+    }
+    command.args(args);
+    if updates_worktree && lfs_state.as_ref().is_some_and(|state| state.uses_lfs) {
+        command.env("GIT_LFS_SKIP_SMUDGE", "1");
+    }
+    if pushes {
+        command.env_remove("GIT_LFS_SKIP_PUSH");
+    }
+    let output = command.output();
     match output {
         Ok(output) if output.status.success() => {
             log::debug!(
                 "[git_command] command ok: label={label}, args={args:?}, {}",
                 truncated(&String::from_utf8_lossy(&output.stdout))
             );
+            let mut message = String::from_utf8_lossy(&output.stdout).into_owned();
+            let mut complete = true;
+            if updates_worktree
+                && lfs_state.as_ref().is_some_and(|state| state.uses_lfs)
+                && crate::lfs::should_auto_download(repo)
+            {
+                let expected_head = crate::lfs::repository_state(repo).head;
+                let operation_id = next_git_lfs_operation_id();
+                let fill_result = crate::lfs::fetch_with_progress(repo, None, |progress| {
+                    let _ = event_tx.send(GitEvent::LfsProgress {
+                        label: label.to_string(),
+                        operation_id: operation_id.clone(),
+                        progress,
+                    });
+                }).and_then(|()| {
+                    let current_head = crate::lfs::repository_state(repo).head;
+                    if current_head != expected_head {
+                        return Err("The checked out commit changed while Git LFS objects were downloading. No files were populated; retry for the current branch.".to_string());
+                    }
+                    crate::lfs::checkout(repo)
+                });
+                if let Err(error) = fill_result {
+                    complete = false;
+                    let head = expected_head.as_deref().unwrap_or("unknown");
+                    message = format!(
+                        "Git operation completed at {head}, but Git LFS files are incomplete: {error}. Retry the LFS download from repository management."
+                    );
+                }
+            } else if updates_worktree && lfs_state.as_ref().is_some_and(|state| state.uses_lfs) {
+                message = "Git operation completed. LFS downloads are set to manual; managed files remain as pointers until downloaded.".into();
+            }
             let _ = event_tx.send(GitEvent::CommandDone {
                 label: label.to_string(),
-                success: true,
-                message: String::from_utf8_lossy(&output.stdout).into_owned(),
+                success: complete,
+                message,
             });
             true
         }
@@ -1693,7 +1928,9 @@ pub(crate) fn read_blob_spec_cancellable(
     if !output.status.success() {
         return None;
     }
-    String::from_utf8(output.stdout).ok()
+    String::from_utf8(output.stdout)
+        .ok()
+        .map(|text| resolve_lfs_text(repo, text))
 }
 
 pub(crate) fn read_blob_spec_until(
@@ -1713,7 +1950,23 @@ pub(crate) fn read_blob_spec_until(
     if !output.status.success() {
         return Ok(None);
     }
-    Ok(String::from_utf8(output.stdout).ok())
+    Ok(String::from_utf8(output.stdout)
+        .ok()
+        .map(|text| resolve_lfs_text(repo, text)))
+}
+
+fn resolve_lfs_text(repo: &GitRepo, pointer_or_text: String) -> String {
+    let Some((oid, size)) = crate::lfs::parse_pointer(pointer_or_text.as_bytes()) else {
+        return pointer_or_text;
+    };
+    if size > MAX_BLOB_SIZE as u64 {
+        return pointer_or_text;
+    }
+    crate::lfs::read_cached_object(repo, &oid, size, MAX_BLOB_SIZE)
+        .ok()
+        .flatten()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .unwrap_or(pointer_or_text)
 }
 
 /// Execute git status and return (branch, upstream, files, ahead, behind).
@@ -1726,29 +1979,28 @@ fn run_status(
         command.arg("--no-optional-locks");
     }
     let output = diagnostics::run_status_bounded(command.args([
-            "-C",
-            repo.path(),
-            "status",
-            "--porcelain=v1",
-            "-z",
-            "-b",
-            "--untracked-files=all",
-        ]))
-        .map_err(|error| match error {
-            diagnostics::ProcessFailure::TimedOut => {
-                GitError::new("err-git-status-timeout", "Git status exceeded 10 seconds")
-            }
-            diagnostics::ProcessFailure::OutputTooLarge => {
-                GitError::new("err-git-status-output", "Git status output exceeded 64 MiB")
-            }
-            diagnostics::ProcessFailure::Cancelled => {
-                GitError::new("err-git-status", "Git status was cancelled")
-            }
-            diagnostics::ProcessFailure::Spawn(detail)
-            | diagnostics::ProcessFailure::Read(detail) => {
-                GitError::new("err-git-status", detail)
-            }
-        })?;
+        "-C",
+        repo.path(),
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "-b",
+        "--untracked-files=all",
+    ]))
+    .map_err(|error| match error {
+        diagnostics::ProcessFailure::TimedOut => {
+            GitError::new("err-git-status-timeout", "Git status exceeded 10 seconds")
+        }
+        diagnostics::ProcessFailure::OutputTooLarge => {
+            GitError::new("err-git-status-output", "Git status output exceeded 64 MiB")
+        }
+        diagnostics::ProcessFailure::Cancelled => {
+            GitError::new("err-git-status", "Git status was cancelled")
+        }
+        diagnostics::ProcessFailure::Spawn(detail) | diagnostics::ProcessFailure::Read(detail) => {
+            GitError::new("err-git-status", detail)
+        }
+    })?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(GitError::new(
@@ -1835,6 +2087,7 @@ fn parse_status(
             worktree,
             path,
             old_path,
+            is_lfs: false,
         });
     }
     Ok((branch, upstream, files, ahead, behind))
@@ -2378,6 +2631,7 @@ mod tests {
             worktree: 'M',
             path: "new.rs".into(),
             old_path: Some("old.rs".into()),
+            is_lfs: false,
         };
         let staged =
             working_tree::working_tree_diff_args("repo", WorkingTreeDiffKind::Staged, &file);
@@ -2543,6 +2797,7 @@ mod tests {
                 worktree,
                 path: "conflict.rs".to_string(),
                 old_path: None,
+                is_lfs: false,
             };
             assert!(file.is_conflicted(), "{index}{worktree}");
             assert!(!file.has_staged_changes(), "{index}{worktree}");

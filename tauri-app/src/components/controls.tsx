@@ -159,6 +159,7 @@ export interface TextInputProps {
   cleanable?: boolean;
   size?: 'small' | 'normal';
   disabled?: boolean;
+  type?: 'text' | 'password';
 }
 
 /** A text field that reports Enter and Escape so dialogs can bind them. */
@@ -177,7 +178,8 @@ export function TextInput({
   prefix,
   cleanable,
   size = 'normal',
-  disabled
+  disabled,
+  type = 'text'
 }: TextInputProps) {
   return (
     <span
@@ -189,7 +191,7 @@ export function TextInput({
       <input
         id={id}
         data-testid={testId}
-        type="text"
+        type={type}
         value={value}
         placeholder={placeholder}
         aria-label={ariaLabel}

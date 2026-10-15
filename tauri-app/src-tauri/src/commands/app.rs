@@ -210,6 +210,8 @@ pub struct SettingsPatch {
     pub theme: Option<ThemePreference>,
     pub view: Option<ViewSettings>,
     pub typography: Option<TypographySettings>,
+    pub lfs_auto_download: Option<bool>,
+    pub lfs_download_on_open: Option<bool>,
 }
 
 #[tauri::command]
@@ -227,8 +229,22 @@ pub fn update_settings(state: State<'_, AppState>, patch: SettingsPatch) -> Resu
         if let Some(typography) = patch.typography {
             settings.config.typography = typography;
         }
+        if let Some(enabled) = patch.lfs_auto_download {
+            settings.config.lfs_auto_download = enabled;
+        }
+        if let Some(enabled) = patch.lfs_download_on_open {
+            settings.config.lfs_download_on_open = enabled;
+        }
     });
     Ok(())
+}
+
+#[tauri::command]
+pub fn set_lfs_download_preferences(state: State<'_, AppState>, automatic: bool, on_open: bool) {
+    state.update_settings(|settings| {
+        settings.config.lfs_auto_download = automatic;
+        settings.config.lfs_download_on_open = on_open;
+    });
 }
 
 /// Convenience setters for the single-value preferences, so the settings page
@@ -479,6 +495,7 @@ pub async fn open_about_window(app: AppHandle, state: State<'_, AppState>) -> Re
 pub enum SettingsSection {
     General,
     Git,
+    Lfs,
     Appearance,
     Layout,
     Shortcuts,
@@ -489,6 +506,7 @@ impl SettingsSection {
         match self {
             Self::General => "general",
             Self::Git => "git",
+            Self::Lfs => "lfs",
             Self::Appearance => "appearance",
             Self::Layout => "layout",
             Self::Shortcuts => "shortcuts",

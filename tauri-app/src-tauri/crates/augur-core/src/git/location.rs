@@ -16,6 +16,7 @@
 //! type-checked for the Windows target without a full cross toolchain.
 
 use std::process::Command;
+use std::sync::{OnceLock, RwLock};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -57,6 +58,25 @@ pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 pub struct GitRepo {
     location: RepoLocation,
     path: String,
+}
+
+/// Per-process askpass endpoint configured by the desktop application.
+#[derive(Clone, Debug)]
+pub struct GitAskpassEnvironment {
+    pub executable: String,
+    pub address: String,
+    pub token: String,
+}
+
+static GIT_ASKPASS: OnceLock<RwLock<Option<GitAskpassEnvironment>>> = OnceLock::new();
+
+/// Configure the local desktop askpass helper. WSL commands intentionally do
+/// not receive this bridge and keep using the distribution's own credentials.
+pub fn configure_git_askpass(environment: Option<GitAskpassEnvironment>) {
+    let current = GIT_ASKPASS.get_or_init(|| RwLock::new(None));
+    *current
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = environment;
 }
 
 impl GitRepo {
@@ -116,6 +136,20 @@ impl GitRepo {
 
         #[cfg(windows)]
         command.creation_flags(CREATE_NO_WINDOW);
+
+        if !self.is_wsl() {
+            if let Some(environment) = GIT_ASKPASS
+                .get()
+                .and_then(|current| current.read().ok().and_then(|value| value.clone()))
+            {
+                command
+                    .env("GIT_ASKPASS", environment.executable)
+                    .env("GIT_ASKPASS_REQUIRE", "force")
+                    .env("GIT_TERMINAL_PROMPT", "0")
+                    .env("AUGUR_GIT_ASKPASS_ADDR", environment.address)
+                    .env("AUGUR_GIT_ASKPASS_TOKEN", environment.token);
+            }
+        }
 
         command
     }
@@ -190,7 +224,35 @@ fn wsl_command_args(distro: &str, path: &str, program: &str) -> Vec<String> {
 fn wsl_base_command(distro: &str, path: &str, program: &str) -> Command {
     let mut command = Command::new("wsl.exe");
     command.args(wsl_command_args(distro, path, program));
+    let inherited = std::env::var("WSLENV").unwrap_or_default();
+    let names = [
+        ("GIT_LFS_SKIP_SMUDGE", "u"),
+        ("GIT_LFS_PROGRESS", "p"),
+        ("GIT_LFS_SKIP_PUSH", "u"),
+        ("GIT_TERMINAL_PROMPT", "u"),
+    ];
+    command.env("WSLENV", extend_wslenv(&inherited, &names));
     command
+}
+
+#[cfg(any(windows, test))]
+fn extend_wslenv(current: &str, additions: &[(&str, &str)]) -> String {
+    let mut entries = current
+        .split(':')
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    for (name, mode) in additions {
+        if let Some(entry) = entries
+            .iter_mut()
+            .find(|entry| entry.split('/').next() == Some(name))
+        {
+            *entry = format!("{name}/{mode}");
+        } else {
+            entries.push(format!("{name}/{mode}"));
+        }
+    }
+    entries.join(":")
 }
 
 /// Build a `wsl.exe` management command for host-level queries that do not
@@ -333,6 +395,15 @@ mod tests {
         assert_eq!(repo.command().get_program(), "git");
         assert_eq!(repo.path(), "/tmp/repo");
         assert!(!repo.is_wsl());
+    }
+
+    #[test]
+    fn wslenv_additions_preserve_existing_entries_and_update_modes() {
+        let entries = extend_wslenv(
+            "FOO/u:GIT_LFS_PROGRESS/u",
+            &[("GIT_LFS_PROGRESS", "p"), ("GIT_LFS_SKIP_SMUDGE", "u")],
+        );
+        assert_eq!(entries, "FOO/u:GIT_LFS_PROGRESS/p:GIT_LFS_SKIP_SMUDGE/u");
     }
 
     #[test]

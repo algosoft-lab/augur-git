@@ -73,6 +73,31 @@ also opens when a failed commit's output is recognizable as Git's "who are
 you" refusal, which covers a configuration that changed between the probe and
 the command.
 
+## Git LFS
+
+The Tauri application uses the system-installed Git LFS client. The Git LFS
+settings page reports its version and executable path, checks repository
+filters and hooks, and can initialize repository-local configuration. If a
+repository has a custom pre-push hook, initialization preserves it and
+configures the clean and smudge filters; add `git lfs pre-push "$@"` to that
+hook before pushing LFS objects.
+
+Repositories that use LFS can be opened when the client is missing. History
+and pointer metadata remain available, while worktree operations that depend
+on LFS filters and LFS pushes stay disabled until Git LFS is installed and the
+repository is initialized. Workspace updates automatically download objects
+for the checked-out version by default. Each repository can switch to manual
+downloads or set include and exclude path patterns. Opening a repository does
+not download objects unless the separate open-time preference is enabled.
+
+The repository LFS panel manages tracked files, pointer metadata, downloads,
+locks, repository transfer preferences, and cache previews. Cache cleanup is
+manual, previews candidates, and verifies remote copies before pruning. HTTPS
+prompts use an in-memory askpass channel; system Git credential helpers and
+SSH agents remain preferred. WSL repositories use the Git LFS client and
+credentials configured inside their Linux distribution. LFS cloning is
+available for native Windows, macOS, and Linux paths.
+
 ## Requirements
 
 - Rust 1.90 or newer (the workspace uses edition 2024)
@@ -95,7 +120,7 @@ bun run test:all     # all three, in order
 bun run package:windows # Windows x86-64 NSIS installer
 bun run package:macos   # macOS ARM64 app and DMG
 bun run package:linux   # Linux x86-64 AppImage, Debian package, and raw archive
-cargo test --manifest-path src-tauri/Cargo.toml   # Rust unit tests
+cargo test --workspace --manifest-path src-tauri/Cargo.toml   # Rust workspace tests
 ```
 
 Run these commands from the `tauri-app/` directory.
@@ -136,6 +161,12 @@ binary through the real worker, and assert on the events that reach the
 interface. They reach no private parser, so a wrong argument vector fails them
 too, which a test of a parser alone cannot do. Each one returns early when `git`
 is not on the path.
+
+The Git LFS integration test creates a local bare remote and exercises pointer
+staging, push, clone, fetch, checkout, cached-object verification, and
+preservation of modified worktree content. CI installs Git LFS and sets
+`AUGUR_REQUIRE_LFS=1`, so the integration test fails instead of silently
+skipping when the client is missing.
 
 **Frontend unit tests** cover the parts of the interface with no window: commit
 search, branch-name validation, the WSL path check, porcelain status

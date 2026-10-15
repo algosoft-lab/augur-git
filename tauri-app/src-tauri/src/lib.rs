@@ -8,6 +8,7 @@
 use tauri::{Listener, Manager, RunEvent, WindowEvent};
 use tauri_plugin_window_state::StateFlags;
 
+pub mod askpass;
 pub mod auto_refresh;
 #[cfg(unix)]
 mod cli_shell;
@@ -63,6 +64,24 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             commands::git_config::read_git_config,
             commands::git_config::write_git_config,
             commands::git_config::probe_commit_identity,
+            commands::lfs::lfs_snapshot,
+            commands::lfs::lfs_environment,
+            commands::lfs::lfs_initialize,
+            commands::lfs::lfs_fetch,
+            commands::lfs::lfs_fsck,
+            commands::lfs::lfs_cancel,
+            commands::lfs::lfs_download_file,
+            commands::lfs::lfs_track,
+            commands::lfs::lfs_untrack,
+            commands::lfs::lfs_locks,
+            commands::lfs::lfs_lock,
+            commands::lfs::lfs_unlock,
+            commands::lfs::lfs_cache_preview,
+            commands::lfs::lfs_prune,
+            commands::lfs::lfs_update_preferences,
+            commands::clone::lfs_clone,
+            commands::clone::cancel_lfs_clone,
+            commands::lfs::lfs_credential_response,
             commands::repo::bootstrap,
             commands::repo::open_repository,
             commands::repo::close_repository,
@@ -92,6 +111,7 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             commands::app::list_wsl_distros,
             commands::app::probe_wsl_repository,
             commands::app::update_settings,
+            commands::app::set_lfs_download_preferences,
             commands::app::set_language,
             commands::app::set_theme,
             commands::app::set_view,
@@ -130,6 +150,14 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
 
             let report = persistence::LoadReport::default();
             app.manage(AppState::new(handle.clone(), report));
+            match askpass::AskpassServer::start(handle.clone()) {
+                Ok(server) => {
+                    app.manage(server);
+                }
+                Err(error) => {
+                    log::warn!("[git_askpass] HTTPS credential prompts are unavailable: {error}")
+                }
+            }
             let update_manager =
                 updates::UpdateManager::new(handle.clone(), app.state::<AppState>().config());
             app.manage(update_manager.clone());

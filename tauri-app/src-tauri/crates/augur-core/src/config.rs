@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::git::{GitError, GitRepo, RepoLocation};
 
 /// Bumped whenever the on-disk shape of either document changes.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 // ===== Preferences =====
 
@@ -454,6 +454,15 @@ pub struct AppConfig {
     pub view: ViewSettings,
     pub typography: TypographySettings,
     pub recent_repos: Vec<RecentRepo>,
+    /// Application-wide default for hydrating LFS files after Git updates.
+    #[serde(default = "default_lfs_auto_download")]
+    pub lfs_auto_download: bool,
+    /// Whether opening a repository may immediately fetch missing LFS files.
+    #[serde(default)]
+    pub lfs_download_on_open: bool,
+    /// Per-repository automatic-download overrides keyed by location and normalized path.
+    #[serde(default)]
+    pub lfs_repository_auto_download: std::collections::BTreeMap<String, bool>,
 }
 
 impl Default for AppConfig {
@@ -467,8 +476,15 @@ impl Default for AppConfig {
             view: ViewSettings::default(),
             typography: TypographySettings::default(),
             recent_repos: Vec::new(),
+            lfs_auto_download: true,
+            lfs_download_on_open: false,
+            lfs_repository_auto_download: std::collections::BTreeMap::new(),
         }
     }
+}
+
+fn default_lfs_auto_download() -> bool {
+    true
 }
 
 impl AppConfig {

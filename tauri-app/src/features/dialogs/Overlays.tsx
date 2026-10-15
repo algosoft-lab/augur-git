@@ -30,6 +30,8 @@ import { ForcePushDialog, PushUpstreamDialog } from './pushDialogs';
 import { ResetDialog } from './resetDialog';
 import { OperationErrorDialog } from './reportDialogs';
 import { ManageRemotesDialog } from './remoteDialogs';
+import { LfsDialog } from './LfsDialog';
+import { LfsCloneDialog } from './LfsCloneDialog';
 
 export function Overlays({
   wslOpen,
@@ -93,6 +95,10 @@ function OverlayBody({ overlay }: { overlay: Overlay }) {
       return <PushUpstreamDialog branch={overlay.branch} remote={overlay.remote} />;
     case 'manageRemotes':
       return <ManageRemotesDialog />;
+    case 'lfs':
+      return <LfsDialog repoId={overlay.repoId} />;
+    case 'lfsClone':
+      return <LfsCloneDialog />;
     case 'discard':
       return <DiscardDialog overlay={overlay} />;
     case 'mergeConflict':

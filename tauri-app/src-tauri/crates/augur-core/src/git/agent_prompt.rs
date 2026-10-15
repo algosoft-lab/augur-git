@@ -349,6 +349,7 @@ mod tests {
                 worktree: 'M',
                 path: "src/file with `ticks`.rs".into(),
                 old_path: None,
+                is_lfs: false,
             }],
             conflicted_paths: Vec::new(),
             operation: None,
@@ -455,6 +456,7 @@ mod tests {
                     worktree: 'U',
                     path: "conflict.rs".into(),
                     old_path: None,
+                    is_lfs: false,
                 }],
                 conflicted_paths: vec!["conflict.rs".into()],
                 operation: Some(ActiveOperation::Merge {
@@ -479,6 +481,7 @@ mod tests {
                     worktree: 'U',
                     path: "conflict.rs".into(),
                     old_path: None,
+                    is_lfs: false,
                 }],
                 conflicted_paths: vec!["conflict.rs".into()],
                 operation: Some(ActiveOperation::Rebase {
@@ -506,6 +509,7 @@ mod tests {
                     worktree: 'U',
                     path: "conflict.rs".into(),
                     old_path: None,
+                    is_lfs: false,
                 }],
                 conflicted_paths: vec!["conflict.rs".into()],
                 ..context()
@@ -528,6 +532,7 @@ mod tests {
                     worktree: 'U',
                     path: "conflict.rs".into(),
                     old_path: None,
+                    is_lfs: false,
                 }],
                 conflicted_paths: vec!["conflict.rs".into()],
                 operation: Some(ActiveOperation::StashPop),
@@ -562,6 +567,7 @@ mod tests {
                         worktree: 'U',
                         path: "conflict.rs".into(),
                         old_path: None,
+                        is_lfs: false,
                     }],
                     conflicted_paths: vec!["conflict.rs".into()],
                     operation: Some(operation),
@@ -583,6 +589,7 @@ mod tests {
                     worktree: 'U',
                     path: "conflict.rs".into(),
                     old_path: None,
+                    is_lfs: false,
                 }],
                 conflicted_paths: vec!["conflict.rs".into()],
                 operation: Some(ActiveOperation::Unknown),
@@ -608,6 +615,7 @@ mod tests {
                     worktree: 'M',
                     path: "src/file\nwith-newline.rs".into(),
                     old_path: None,
+                    is_lfs: false,
                 }],
                 ..context()
             },
@@ -642,6 +650,7 @@ mod tests {
                         worktree: 'U',
                         path: "x".into(),
                         old_path: None,
+                        is_lfs: false,
                     }],
                     conflicted_paths: vec!["x".into()],
                     ..context()

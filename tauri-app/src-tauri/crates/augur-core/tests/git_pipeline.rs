@@ -270,9 +270,7 @@ fn status_diff_stats_separate_staged_unstaged_untracked_and_binary_changes() {
         .wait_for(|event| matches!(event, GitEvent::Status { .. }))
         .expect("a status snapshot before diff totals");
     let GitEvent::Status {
-        snapshot_id,
-        files,
-        ..
+        snapshot_id, files, ..
     } = status
     else {
         unreachable!()
@@ -354,26 +352,44 @@ fn large_untracked_snapshot_is_published_before_statistics_and_checkout_stays_re
     assert_eq!(behind, 5);
     assert_eq!(files.len(), 15_000);
     assert!(files.iter().all(FileStatus::is_untracked));
-    assert!(status_elapsed < Duration::from_secs(2), "status took {status_elapsed:?}");
+    assert!(
+        status_elapsed < Duration::from_secs(2),
+        "status took {status_elapsed:?}"
+    );
 
     let checkout_started = Instant::now();
-    sandbox.handle().checkout(augur_core::git::CheckoutTarget::LocalBranch {
-        local_branch: "topic".to_string(),
-    });
+    sandbox
+        .handle()
+        .checkout(augur_core::git::CheckoutTarget::LocalBranch {
+            local_branch: "topic".to_string(),
+        });
     let completion = sandbox
-        .wait_for(|event| matches!(event, GitEvent::CommandDone { label, .. } if label == "checkout"))
+        .wait_for(
+            |event| matches!(event, GitEvent::CommandDone { label, .. } if label == "checkout"),
+        )
         .expect("checkout completes while the statistics worker is independent");
     let checkout_elapsed = checkout_started.elapsed();
-    let GitEvent::CommandDone { success, message, .. } = completion else {
+    let GitEvent::CommandDone {
+        success, message, ..
+    } = completion
+    else {
         unreachable!()
     };
     assert!(success, "checkout was rejected: {message}");
-    assert!(checkout_elapsed < Duration::from_secs(2), "checkout took {checkout_elapsed:?}");
+    assert!(
+        checkout_elapsed < Duration::from_secs(2),
+        "checkout took {checkout_elapsed:?}"
+    );
 
     let refreshed_status = sandbox
-        .wait_for(|event| matches!(event, GitEvent::Status { snapshot_id: id, .. } if *id > snapshot_id))
+        .wait_for(
+            |event| matches!(event, GitEvent::Status { snapshot_id: id, .. } if *id > snapshot_id),
+        )
         .expect("checkout publishes a new complete snapshot");
-    let GitEvent::Status { snapshot_id, files, .. } = refreshed_status else {
+    let GitEvent::Status {
+        snapshot_id, files, ..
+    } = refreshed_status
+    else {
         unreachable!()
     };
     assert_eq!(files.len(), 15_000);
@@ -640,6 +656,7 @@ fn a_working_tree_file_diff_names_the_side_it_read() {
         worktree: 'M',
         path: "src/main.rs".to_string(),
         old_path: None,
+        is_lfs: false,
     };
     sandbox.open();
 
@@ -708,6 +725,7 @@ fn sustained_automatic_refresh_does_not_starve_a_working_tree_diff() {
             worktree: 'M',
             path: "src/main.rs".to_string(),
             old_path: None,
+            is_lfs: false,
         },
     );
 
