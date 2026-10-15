@@ -37,7 +37,10 @@ export function StatusBar({ repo }: { repo: RepoState | null }) {
     };
   } else if (repo?.statusStale) {
     state = {
-      text: t(translate, 'status-stale'),
+      text:
+        repo.snapshotId === null
+          ? (repo.errorMessage ?? t(translate, 'err-unknown'))
+          : t(translate, 'status-stale'),
       className: 'status-bar__state status-bar__state--error'
     };
   }

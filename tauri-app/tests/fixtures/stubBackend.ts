@@ -70,6 +70,8 @@ export interface StubOptions {
   available: StubRepo[];
   /** Fail `open_repository` with this key instead of succeeding. */
   openFailure?: { key: string; detail: string };
+  /** Fail the first working-tree snapshot while still loading refs and history. */
+  initialStatusFailure?: { key: string; detail: string };
   /** Reject `run_action` for these action names. */
   failingActions?: string[];
   /**
@@ -190,6 +192,8 @@ function install(
     savedTabs?: string[];
     savedActiveTab?: string;
     openFailure?: { key: string; detail: string };
+    /** Fail the first working-tree snapshot while still loading refs and history. */
+    initialStatusFailure?: { key: string; detail: string };
     failingActions?: string[];
     probeMerge?: Record<string, unknown>;
     probeRebase?: Record<string, unknown>;
@@ -466,13 +470,22 @@ function install(
     const { diff_stats: diffStats, ...status } = repo.status;
     const snapshotId = (snapshotIds.get(repo.id) ?? 0) + 1;
     snapshotIds.set(repo.id, snapshotId);
-    emit('augur://repo-event', {
-      repoId: repo.id,
-      type: 'status',
-      ...status,
-      snapshotId
-    });
+    if (options.initialStatusFailure && snapshotId === 1) {
+      emit('augur://repo-event', {
+        repoId: repo.id,
+        type: 'statusError',
+        error: options.initialStatusFailure
+      });
+    } else {
+      emit('augur://repo-event', {
+        repoId: repo.id,
+        type: 'status',
+        ...status,
+        snapshotId
+      });
+    }
     setTimeout(() => {
+      if (options.initialStatusFailure && snapshotId === 1) return;
       const category = (stats: { added: number; deleted: number } | null) =>
         stats
           ? { status: 'ready', stats, reason: null }

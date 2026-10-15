@@ -497,6 +497,8 @@ fn has_pointer_in_head(repo: &GitRepo) -> bool {
             "grep",
             "-I",
             "-l",
+            "-z",
+            "--full-name",
             "-F",
             "version https://git-lfs.github.com/spec/v1",
             "HEAD",
@@ -507,15 +509,30 @@ fn has_pointer_in_head(repo: &GitRepo) -> bool {
         // Git grep exits 1 when there are no matches.
         Err(_) => return false,
     };
-    output.status.success()
-}
-
-fn local_config(repo: &GitRepo, key: &str) -> Option<String> {
-    let output = command(repo, &["config", "--local", "--get", key]).ok()?;
-    output
-        .status
-        .success()
-        .then(|| output_text(&output, true).trim().to_string())
+    if !output.status.success() {
+        return false;
+    }
+    // Source code and documentation may mention the pointer header. Verify
+    // complete blobs, checking size first to avoid reading large candidates.
+    output_text(&output, true)
+        .split('\0')
+        .filter(|object| !object.is_empty())
+        .any(|object| {
+            let Ok(size) = command(repo, &["cat-file", "-s", object]) else {
+                return false;
+            };
+            if !size.status.success()
+                || !output_text(&size, true)
+                    .trim()
+                    .parse::<usize>()
+                    .is_ok_and(|size| size <= 1024)
+            {
+                return false;
+            }
+            command(repo, &["cat-file", "blob", object])
+                .ok()
+                .is_some_and(|blob| blob.status.success() && parse_pointer(&blob.stdout).is_some())
+        })
 }
 
 fn effective_config(repo: &GitRepo, key: &str) -> Option<String> {
@@ -714,9 +731,9 @@ pub fn repository_state(repo: &GitRepo) -> LfsRepositoryState {
         };
     }
     let (hook_ready, hook_conflict) = hook_status(repo);
-    let filter_process = local_config(repo, "filter.lfs.process");
-    let filter_smudge = local_config(repo, "filter.lfs.smudge");
-    let filter_clean = local_config(repo, "filter.lfs.clean");
+    let filter_process = effective_config(repo, "filter.lfs.process");
+    let filter_smudge = effective_config(repo, "filter.lfs.smudge");
+    let filter_clean = effective_config(repo, "filter.lfs.clean");
     let initialized = filter_process
         .as_deref()
         .is_some_and(|v| v.contains("git-lfs"))
@@ -1331,21 +1348,46 @@ pub fn parse_pointer(bytes: &[u8]) -> Option<(String, u64)> {
         return None;
     }
     let text = std::str::from_utf8(bytes).ok()?;
-    let mut version = false;
+    let mut lines = text.lines();
+    if lines.next()? != "version https://git-lfs.github.com/spec/v1" {
+        return None;
+    }
     let mut oid = None;
     let mut size = None;
-    for line in text.lines() {
-        if line == "version https://git-lfs.github.com/spec/v1" {
-            version = true;
-        } else if let Some(value) = line.strip_prefix("oid sha256:") {
-            if value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    for line in lines {
+        let (key, value) = line.split_once(' ')?;
+        if key.is_empty()
+            || !key.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'-')
+            })
+            || value.is_empty()
+            || value.starts_with(' ')
+        {
+            return None;
+        }
+        match key {
+            "version" => return None,
+            "oid" => {
+                let value = value.strip_prefix("sha256:")?;
+                if oid.is_some()
+                    || value.len() != 64
+                    || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                {
+                    return None;
+                }
                 oid = Some(value.to_string());
             }
-        } else if let Some(value) = line.strip_prefix("size ") {
-            size = value.parse::<u64>().ok();
+            "size" => {
+                if size.is_some() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+                    return None;
+                }
+                size = Some(value.parse::<u64>().ok()?);
+            }
+            // Extension keys are valid metadata and do not change the main OID.
+            _ => {}
         }
     }
-    Some((oid?, size?)).filter(|_| version)
+    Some((oid?, size?))
 }
 
 /// Read an already cached LFS object without contacting its endpoint.
@@ -1471,6 +1513,108 @@ mod tests {
         );
     }
 
+    fn init_repository(directory: &TempDir) -> GitRepo {
+        successful_git(directory.path(), &["init"]);
+        successful_git(directory.path(), &["config", "user.name", "LFS Test"]);
+        successful_git(
+            directory.path(),
+            &["config", "user.email", "lfs@example.com"],
+        );
+        GitRepo::local(directory.path().to_string_lossy())
+    }
+
+    fn assert_initial_status_available(repo: &GitRepo) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let handle = crate::git::spawn_open(repo.clone(), tx).unwrap();
+        let result = loop {
+            match rx.recv_timeout(Duration::from_secs(10)) {
+                Ok(crate::git::GitEvent::Status { .. }) => break Ok(()),
+                Ok(crate::git::GitEvent::StatusError(error)) => break Err(format!("{error:?}")),
+                Ok(_) => {}
+                Err(error) => break Err(error.to_string()),
+            }
+        };
+        handle.close();
+        result.unwrap();
+    }
+
+    #[test]
+    fn pointer_mentions_do_not_make_an_ordinary_repository_use_lfs() {
+        let directory = TempDir::new("pointer-mentions");
+        let repo = init_repository(&directory);
+        std::fs::write(
+            directory.path().join("README.md"),
+            "Pointer format:\nversion https://git-lfs.github.com/spec/v1\noid sha256:invalid\nsize 42\n",
+        ).unwrap();
+        std::fs::write(
+            directory.path().join("source.rs"),
+            "const VERSION: &str = \"version https://git-lfs.github.com/spec/v1\";\n",
+        )
+        .unwrap();
+        std::fs::write(directory.path().join("example.md"), format!(
+            "Pointer example:\nversion https://git-lfs.github.com/spec/v1\noid sha256:{}\nsize 42\n", "a".repeat(64)
+        )).unwrap();
+        successful_git(directory.path(), &["add", "."]);
+        successful_git(directory.path(), &["commit", "-m", "Add ordinary files"]);
+        assert!(!repository_state(&repo).uses_lfs);
+        assert_initial_status_available(&repo);
+    }
+
+    #[test]
+    fn real_pointer_in_head_is_detected_without_attributes() {
+        let directory = TempDir::new("head-pointer");
+        let repo = init_repository(&directory);
+        std::fs::write(
+            directory.path().join("asset with spaces.bin"),
+            format!(
+                "version https://git-lfs.github.com/spec/v1\noid sha256:{}\nsize 42\n",
+                "a".repeat(64)
+            ),
+        )
+        .unwrap();
+        successful_git(directory.path(), &["add", "."]);
+        successful_git(directory.path(), &["commit", "-m", "Add pointer"]);
+        assert!(repository_state(&repo).uses_lfs);
+    }
+
+    #[test]
+    fn inherited_filter_configuration_is_accepted_and_local_overrides_win() {
+        if !probe(&GitRepo::local(".")).installed {
+            assert_ne!(std::env::var("AUGUR_REQUIRE_LFS").as_deref(), Ok("1"));
+            return;
+        }
+        let directory = TempDir::new("inherited-filters");
+        let repo = init_repository(&directory);
+        let config = directory.path().join("filters.config");
+        std::fs::write(&config,
+            "[filter \"lfs\"]\nprocess = git-lfs filter-process\nsmudge = git-lfs smudge -- %f\nclean = git-lfs clean -- %f\nrequired = true\n").unwrap();
+        // Included configuration exercises Git's effective lookup without
+        // changing the user's global configuration or the process environment.
+        successful_git(
+            directory.path(),
+            &["config", "include.path", config.to_str().unwrap()],
+        );
+        std::fs::write(
+            directory.path().join(".gitattributes"),
+            "*.bin filter=lfs\n",
+        )
+        .unwrap();
+        std::fs::write(directory.path().join("sample.bin"), b"sample").unwrap();
+        successful_git(directory.path(), &["add", ".gitattributes", "sample.bin"]);
+        assert!(
+            !git(
+                directory.path(),
+                &["config", "--local", "--get", "filter.lfs.process"]
+            )
+            .status
+            .success()
+        );
+        assert!(repository_state(&repo).initialized);
+        assert_initial_status_available(&repo);
+        successful_git(directory.path(), &["config", "filter.lfs.process", ""]);
+        assert!(!repository_state(&repo).initialized);
+    }
+
     #[test]
     fn parses_only_valid_v1_pointers() {
         let oid = "a".repeat(64);
@@ -1480,6 +1624,12 @@ mod tests {
         assert!(
             parse_pointer(b"version https://git-lfs.github.com/spec/v1\noid sha256:bad\nsize 1\n")
                 .is_none()
+        );
+        assert!(parse_pointer(format!("Pointer example:\n{pointer}").as_bytes()).is_none());
+        assert!(parse_pointer(format!("{pointer}Not a pointer\n").as_bytes()).is_none());
+        assert_eq!(
+            parse_pointer(pointer.replace('\n', "\r\n").as_bytes()),
+            parse_pointer(pointer.as_bytes())
         );
         assert!(parse_pointer(b"ordinary file").is_none());
         assert!(parse_pointer(&vec![b'x'; 1025]).is_none());

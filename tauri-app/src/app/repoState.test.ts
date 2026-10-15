@@ -114,6 +114,32 @@ describe('repository snapshot events', () => {
     expect(afterLateStats.diffStatsReport.untracked.status).toBe('pending');
   });
 
+  it('keeps history available when the initial working-tree status fails', () => {
+    const initial = emptyRepo(1, '/repo', { kind: 'local' });
+    const state = apply(initial, {
+      type: 'statusError',
+      error: { key: 'err-lfs-worktree-unavailable', detail: 'Git LFS is missing' }
+    });
+    expect(state.status).toBe('ready');
+    expect(state.statusStale).toBe(true);
+    expect(state.snapshotId).toBeNull();
+    expect(state.errorMessage).toBe('Git LFS is missing');
+
+    const recovered = apply(state, {
+      type: 'status',
+      snapshotId: 1,
+      branch: 'main',
+      head: 'abc',
+      upstream: null,
+      ahead: 0,
+      behind: 0,
+      files: [],
+      branches: []
+    });
+    expect(recovered.statusStale).toBe(false);
+    expect(recovered.errorMessage).toBeNull();
+  });
+
   it('keeps the last complete working-tree snapshot when refresh fails', () => {
     const files = [file('?', '?', 'new.txt')];
     let state = emptyRepo(1, '/repo', { kind: 'local' });

@@ -197,7 +197,7 @@ export function ChangesPanel({
                 ? ta(translate, 'status-scanning-at', {
                     repo: repo.path.split(/[/\\]/).filter(Boolean).pop() ?? repo.path
                   })
-                : repo.status === 'error'
+                : repo.status === 'error' || repo.statusStale
                   ? (repo.errorMessage ?? t(translate, 'err-unknown'))
                   : t(translate, 'changes-empty')}
             </span>
@@ -484,7 +484,11 @@ function FileRow({
           {t(translate, porcelainKey(code, untracked))}
         </span>
         <span className="file-row__name">{file.path}</span>
-        {file.is_lfs ? <span className="file-row__lfs" title={t(translate, 'lfs-file-tag')}>LFS</span> : null}
+        {file.is_lfs ? (
+          <span className="file-row__lfs" title={t(translate, 'lfs-file-tag')}>
+            LFS
+          </span>
+        ) : null}
         <IconButton
           icon={staged ? <Icon name="minus" size={12} /> : <Icon name="plus" size={12} />}
           tooltip={

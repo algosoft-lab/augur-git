@@ -8,7 +8,9 @@ test('Git LFS settings show the system client and persist download choices', asy
 
   await expect(page.getByTestId('settings-field-lfs-environment')).toBeVisible();
   await expect(page.getByTestId('settings-field-lfs-environment')).toContainText('3.6.1');
-  await expect(page.getByTestId('settings-field-lfs-environment')).toContainText('/usr/local/bin/git-lfs');
+  await expect(page.getByTestId('settings-field-lfs-environment')).toContainText(
+    '/usr/local/bin/git-lfs'
+  );
   await expect(page.getByTestId('settings-lfs-auto-download')).toBeChecked();
   await expect(page.getByTestId('settings-lfs-download-on-open')).not.toBeChecked();
 
@@ -24,7 +26,9 @@ test('Git LFS settings show the system client and persist download choices', asy
   ]);
 });
 
-test('clone keeps the default LFS download choice and exposes partial recovery', async ({ page }) => {
+test('clone keeps the default LFS download choice and exposes partial recovery', async ({
+  page
+}) => {
   const stub = await boot(page, { cloneLfsError: 'The LFS server rejected the transfer.' });
 
   await page.getByTestId('welcome-clone').click();
@@ -48,7 +52,9 @@ test('clone keeps the default LFS download choice and exposes partial recovery',
   });
 });
 
-test('repository LFS management lists pointer metadata and downloads one file', async ({ page }) => {
+test('repository LFS management lists pointer metadata and downloads one file', async ({
+  page
+}) => {
   const stub = await boot(page, { open: [fixtureRepo()] });
 
   await page.getByTestId('toolbar-more').click();
@@ -79,4 +85,30 @@ test('repository LFS management lists pointer metadata and downloads one file', 
 
   await page.getByRole('button', { name: 'Check local LFS objects' }).click();
   await expect(dialog).toContainText('Git LFS fsck OK');
+});
+
+test('initial LFS status failure keeps history and management available until retry succeeds', async ({
+  page
+}) => {
+  const stub = await boot(page, {
+    open: [fixtureRepo()],
+    initialStatusFailure: {
+      key: 'err-lfs-worktree-unavailable',
+      detail: 'Git LFS filters are unavailable'
+    }
+  });
+  await expect(page.getByTestId('graph')).toBeVisible();
+  await expect(page.getByTestId('graph-error')).toHaveCount(0);
+  await expect(page.locator('.graph-row')).toHaveCount(8);
+  await expect(page.getByTestId('changes-empty')).toContainText('Git LFS filters are unavailable');
+  await expect(page.getByTestId('status-bar')).toContainText('Git LFS filters are unavailable');
+  await expect(page.getByTestId('commit-submit')).toBeDisabled();
+  await page.getByTestId('toolbar-more').click();
+  await page.getByTestId('more-menu-manage-lfs').click();
+  await expect(page.getByTestId('lfs-dialog')).toBeVisible();
+  await page.getByTestId('lfs-dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByTestId('status-retry').click();
+  await expect(page.getByTestId('status-retry')).toHaveCount(0);
+  await expect(page.getByTestId('changes-panel')).toBeVisible();
+  expect((await stub.commands()).some((entry) => entry.cmd === 'refresh_repository')).toBe(true);
 });

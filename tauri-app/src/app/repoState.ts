@@ -562,8 +562,9 @@ export function applyRepoEvent(
     case 'statusError':
       return {
         ...state,
-        status: state.status === 'ready' ? 'ready' : 'error',
-        statusStale: state.status === 'ready',
+        // Opening succeeded; an unavailable working tree must not hide history.
+        status: 'ready',
+        statusStale: true,
         errorMessage: renderError(event.error.key, event.error.detail)
       };
     case 'error':

@@ -135,6 +135,8 @@ export interface BootOptions {
   available?: StubRepo[];
   /** Reject `open_repository` with this error. */
   openFailure?: { key: string; detail: string };
+  /** Fail the first status snapshot while allowing history to load. */
+  initialStatusFailure?: StubOptions['initialStatusFailure'];
   /** Reject these `run_action` operations, so the failure path is exercised. */
   failingActions?: string[];
   /** Overrides for the merge preflight probe. */
@@ -187,6 +189,7 @@ function optionsFor(options: BootOptions): StubOptions {
     savedActiveTab: options.savedActiveTab,
     available: options.available ?? [fixtureRepo(), secondFixtureRepo()],
     openFailure: options.openFailure,
+    initialStatusFailure: options.initialStatusFailure,
     failingActions: options.failingActions,
     probeMerge: options.probeMerge,
     probeRebase: options.probeRebase,
