@@ -1006,53 +1006,55 @@ fn worker_loop(
         }
     }
 
-    if crate::lfs::should_download_on_open(&repo) {
-        let state = crate::lfs::repository_state(&repo);
-        if state.uses_lfs {
-            let label = "lfs-open".to_string();
-            let _ = event_tx.send(GitEvent::CommandStarted {
-                label: label.clone(),
-                subcommand: "lfs fetch".to_string(),
-            });
-            let result = if !state.available {
-                Err("This repository uses Git LFS, but Git LFS is not installed.".to_string())
-            } else if !state.initialized {
-                Err(
-                    "This repository uses Git LFS, but its repository filters are not initialized."
-                        .to_string(),
-                )
-            } else if crate::lfs::should_auto_download(&repo) {
-                let expected_head = state.head;
-                let operation_id = next_git_lfs_operation_id();
-                crate::lfs::fetch_with_progress(&repo, None, |progress| {
-                    let _ = event_tx.send(GitEvent::LfsProgress {
-                        label: label.clone(),
-                        operation_id: operation_id.clone(),
-                        progress,
-                    });
-                }).and_then(|()| {
-                    if crate::lfs::repository_state(&repo).head != expected_head {
-                        Err("The checked out commit changed during the download. No files were populated.".to_string())
-                    } else {
-                        crate::lfs::checkout(&repo)
-                    }
-                })
-            } else {
-                Ok(())
-            };
-            let (success, message) = match result {
-                Ok(()) => (true, "LFS files are up to date.".to_string()),
-                Err(error) => (
-                    false,
-                    format!("Repository opened, but LFS files are incomplete: {error}"),
-                ),
-            };
-            let _ = event_tx.send(GitEvent::CommandDone {
-                label,
-                success,
-                message,
-            });
-        }
+    // Resolve LFS readiness before the download gate: repositories prepared
+    // outside the application need their local filters initialized once, and
+    // status, worktree operations, and pushes all depend on that state even
+    // when opening-time downloads are disabled.
+    let state = crate::lfs::prepare_repository(&repo);
+    if crate::lfs::should_download_on_open(&repo) && state.uses_lfs {
+        let label = "lfs-open".to_string();
+        let _ = event_tx.send(GitEvent::CommandStarted {
+            label: label.clone(),
+            subcommand: "lfs fetch".to_string(),
+        });
+        let result = if !state.available {
+            Err("This repository uses Git LFS, but Git LFS is not installed.".to_string())
+        } else if !state.initialized {
+            Err(
+                "This repository uses Git LFS, but its repository filters are not initialized."
+                    .to_string(),
+            )
+        } else if crate::lfs::should_auto_download(&repo) {
+            let expected_head = state.head;
+            let operation_id = next_git_lfs_operation_id();
+            crate::lfs::fetch_with_progress(&repo, None, |progress| {
+                let _ = event_tx.send(GitEvent::LfsProgress {
+                    label: label.clone(),
+                    operation_id: operation_id.clone(),
+                    progress,
+                });
+            }).and_then(|()| {
+                if crate::lfs::repository_state(&repo).head != expected_head {
+                    Err("The checked out commit changed during the download. No files were populated.".to_string())
+                } else {
+                    crate::lfs::checkout(&repo)
+                }
+            })
+        } else {
+            Ok(())
+        };
+        let (success, message) = match result {
+            Ok(()) => (true, "LFS files are up to date.".to_string()),
+            Err(error) => (
+                false,
+                format!("Repository opened, but LFS files are incomplete: {error}"),
+            ),
+        };
+        let _ = event_tx.send(GitEvent::CommandDone {
+            label,
+            success,
+            message,
+        });
     }
 
     // Refresh once immediately after opening.

@@ -784,6 +784,22 @@ pub fn repository_state(repo: &GitRepo) -> LfsRepositoryState {
     }
 }
 
+/// Resolve the repository LFS state for an open flow, initializing the
+/// repository-local setup once when Git LFS is available but the repository
+/// was prepared outside the application. Plain Git clones without a global
+/// `git lfs install` lack the filter configuration that status, worktree
+/// operations, and downloads require. Initialization is the same local,
+/// conflict-aware setup the clone flow applies, and a failed setup keeps the
+/// unfiltered state so callers surface the original reason instead of a
+/// secondary setup failure.
+pub fn prepare_repository(repo: &GitRepo) -> LfsRepositoryState {
+    let state = repository_state(repo);
+    if !state.uses_lfs || !state.available || state.initialized {
+        return state;
+    }
+    initialize(repo).unwrap_or(state)
+}
+
 pub fn initialize(repo: &GitRepo) -> Result<LfsRepositoryState, String> {
     let (_, conflict) = hook_status(repo);
     let args: &[&str] = if conflict {
@@ -1900,5 +1916,86 @@ mod tests {
         assert!(state.initialized, "{state:?}");
         assert!(state.hook_conflict, "{state:?}");
         assert_eq!(std::fs::read_to_string(hook).unwrap(), contents);
+    }
+
+    #[test]
+    fn prepare_repository_initializes_plain_clones_that_lack_filters() {
+        let environment = GitRepo::local(".");
+        if !probe(&environment).installed {
+            assert_ne!(
+                std::env::var("AUGUR_REQUIRE_LFS").as_deref(),
+                Ok("1"),
+                "Git LFS integration tests require the system Git LFS client"
+            );
+            return;
+        }
+        let directory = TempDir::new("prepare-repository");
+        let output = Command::new("git")
+            .arg("init")
+            .arg(directory.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        std::fs::write(
+            directory.path().join(".gitattributes"),
+            "*.bin filter=lfs diff=lfs merge=lfs -text\n",
+        )
+        .unwrap();
+        std::fs::write(directory.path().join("sample.bin"), b"sample").unwrap();
+        let commit = |args: &[&str]| {
+            let output = Command::new("git")
+                .arg("-C")
+                .arg(directory.path())
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        commit(&["add", ".gitattributes", "sample.bin"]);
+        commit(&[
+            "-c",
+            "user.name=LFS Test",
+            "-c",
+            "user.email=lfs-test@example.invalid",
+            "commit",
+            "-m",
+            "Add LFS sample",
+        ]);
+
+        let repo = GitRepo::local(directory.path().to_string_lossy());
+        let before = repository_state(&repo);
+        assert!(before.uses_lfs, "{before:?}");
+        assert!(before.available, "{before:?}");
+        assert!(!before.initialized, "{before:?}");
+
+        let prepared = prepare_repository(&repo);
+        assert!(prepared.initialized, "{prepared:?}");
+        let process =
+            command(&repo, &["config", "--local", "--get", "filter.lfs.process"]).unwrap();
+        assert!(process.status.success());
+        assert_eq!(output_text(&process, true).trim(), "git-lfs filter-process");
+
+        // A second preparation keeps the initialized state without rewriting it.
+        assert!(prepare_repository(&repo).initialized);
+    }
+
+    #[test]
+    fn prepare_repository_leaves_repositories_without_lfs_untouched() {
+        let directory = TempDir::new("prepare-non-lfs");
+        let output = Command::new("git")
+            .arg("init")
+            .arg(directory.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let repo = GitRepo::local(directory.path().to_string_lossy());
+        let state = prepare_repository(&repo);
+        assert!(!state.uses_lfs, "{state:?}");
+        let config = std::fs::read_to_string(directory.path().join(".git/config")).unwrap();
+        assert!(!config.contains("filter.lfs"), "{config}");
     }
 }

@@ -75,12 +75,21 @@ the command.
 
 ## Git LFS
 
-The Tauri application uses the system-installed Git LFS client. The Git LFS
+The Tauri application uses the system-installed Git LFS client. On macOS,
+launches from Finder or the Dock inherit launchd's minimal `PATH`, which hides
+package-manager tooling, so the application extends its process `PATH` at
+startup with `/etc/paths`, `/etc/paths.d`, and the standard Homebrew and
+MacPorts directories. Git LFS installed in a nonstandard location must still be
+reachable through one of those sources. The Git LFS
 settings page reports its version and executable path, checks repository
 filters and hooks, and can initialize repository-local configuration. If a
 repository has a custom pre-push hook, initialization preserves it and
 configures the clean and smudge filters; add `git lfs pre-push "$@"` to that
 hook before pushing LFS objects.
+
+Opening a repository runs the same local initialization once when the client is
+available but the repository was prepared by plain Git without a global
+`git lfs install`, so clone filters and hooks work without a manual setup step.
 
 Repositories that use LFS can be opened when the client is missing. History
 and pointer metadata remain available, while worktree operations that depend
