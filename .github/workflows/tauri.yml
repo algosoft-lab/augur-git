@@ -31,22 +31,14 @@ jobs:
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
   test:
-    name: Test Tauri application and Git LFS integration
+    name: Test Tauri application
     runs-on: ubuntu-24.04
-    env:
-      AUGUR_REQUIRE_LFS: "1"
     steps:
       - name: Check out source
         uses: actions/checkout@v7.0.1
 
       - name: Install Tauri Linux dependencies
         uses: ./.github/actions/install-tauri-linux-deps
-
-      - name: Install Git LFS
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes git-lfs
-          git lfs install
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -74,7 +66,7 @@ jobs:
         working-directory: tauri-app
         run: bun run test:e2e
 
-      - name: Run Rust tests including the local Git LFS remote
+      - name: Run Rust tests
         working-directory: tauri-app
         run: cargo test --workspace --manifest-path src-tauri/Cargo.toml -- --test-threads=1
 

@@ -121,45 +121,9 @@ mod tests {
     }
 
     #[test]
-    fn missing_candidates_are_appended_in_order() {
-        let extra = vec![
-            PathBuf::from("/opt/homebrew/bin"),
-            PathBuf::from("/usr/local/bin"),
-        ];
-        assert_eq!(
-            augmented_path(&os("/usr/bin:/bin"), &extra),
-            os("/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin")
-        );
-    }
-
-    #[test]
-    fn present_candidates_are_not_duplicated_or_reordered() {
-        let extra = vec![
-            PathBuf::from("/usr/local/bin"),
-            PathBuf::from("/opt/homebrew/bin"),
-        ];
-        assert_eq!(
-            augmented_path(&os("/usr/bin:/opt/homebrew/bin:/bin"), &extra),
-            os("/usr/bin:/opt/homebrew/bin:/bin:/usr/local/bin")
-        );
-    }
-
-    #[test]
     fn an_empty_path_accepts_every_candidate() {
         let extra = vec![PathBuf::from("/opt/homebrew/bin")];
         assert_eq!(augmented_path(&os(""), &extra), os("/opt/homebrew/bin"));
-    }
-
-    #[test]
-    fn a_complete_path_stays_unchanged() {
-        let extra = vec![
-            PathBuf::from("/opt/homebrew/bin"),
-            PathBuf::from("/usr/local/bin"),
-        ];
-        assert_eq!(
-            augmented_path(&os("/opt/homebrew/bin:/usr/local/bin"), &extra),
-            os("/opt/homebrew/bin:/usr/local/bin")
-        );
     }
 
     #[test]

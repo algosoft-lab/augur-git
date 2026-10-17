@@ -171,11 +171,9 @@ interface. They reach no private parser, so a wrong argument vector fails them
 too, which a test of a parser alone cannot do. Each one returns early when `git`
 is not on the path.
 
-The Git LFS integration test creates a local bare remote and exercises pointer
-staging, push, clone, fetch, checkout, cached-object verification, and
-preservation of modified worktree content. CI installs Git LFS and sets
-`AUGUR_REQUIRE_LFS=1`, so the integration test fails instead of silently
-skipping when the client is missing.
+Git LFS unit tests cover pointer parsing, progress records, prune summaries,
+mutation locking, and repositories without LFS. CI does not install Git LFS
+or run the local-remote transfer integration test.
 
 **Frontend unit tests** cover the parts of the interface with no window: commit
 search, branch-name validation, the WSL path check, porcelain status
