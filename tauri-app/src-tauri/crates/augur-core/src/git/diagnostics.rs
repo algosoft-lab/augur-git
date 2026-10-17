@@ -235,7 +235,11 @@ pub fn terminate_process_tree(child: &mut Child) {
     }
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
+
+        // Redirecting output alone does not prevent a Windows console from opening.
         let _ = Command::new("taskkill")
+            .creation_flags(super::location::CREATE_NO_WINDOW)
             .args(["/PID", &process_id.to_string(), "/T", "/F"])
             .output();
     }
@@ -736,6 +740,68 @@ mod tests {
         canceller.join().unwrap();
         assert!(matches!(result, Err(ProcessFailure::Cancelled)));
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[cfg(windows)]
+    fn windows_process_tree() -> Command {
+        use std::os::windows::process::CommandExt;
+
+        let mut command = Command::new("cmd.exe");
+        // The ping descendant inherits both pipes; killing only cmd leaves them open.
+        command
+            .creation_flags(super::super::location::CREATE_NO_WINDOW)
+            .args(["/D", "/C", "ping.exe -n 30 127.0.0.1"]);
+        command
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_timeout_terminates_descendants_and_closes_pipes() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let (sender, receiver) = mpsc::channel();
+        let runner = std::thread::spawn(move || {
+            let result = run_cancellable(
+                &mut windows_process_tree(),
+                &AtomicBool::new(false),
+                Duration::from_secs(1),
+                1024,
+            );
+            sender.send(result).unwrap();
+        });
+        let result = receiver
+            .recv_timeout(Duration::from_secs(5))
+            .expect("timed-out process tree must release its output pipes");
+        runner.join().unwrap();
+        assert!(matches!(result, Err(ProcessFailure::TimedOut)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_cancellation_terminates_descendants_and_closes_pipes() {
+        use std::sync::{Arc, mpsc};
+        use std::time::Duration;
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        let signal = cancel.clone();
+        let (sender, receiver) = mpsc::channel();
+        let runner = std::thread::spawn(move || {
+            let result = run_cancellable(
+                &mut windows_process_tree(),
+                &cancel,
+                Duration::from_secs(10),
+                1024,
+            );
+            sender.send(result).unwrap();
+        });
+        std::thread::sleep(Duration::from_secs(1));
+        signal.store(true, std::sync::atomic::Ordering::Release);
+        let result = receiver
+            .recv_timeout(Duration::from_secs(5))
+            .expect("cancelled process tree must release its output pipes");
+        runner.join().unwrap();
+        assert!(matches!(result, Err(ProcessFailure::Cancelled)));
     }
 
     #[test]
