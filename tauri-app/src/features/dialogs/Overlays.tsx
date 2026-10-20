@@ -94,7 +94,14 @@ function OverlayBody({ overlay }: { overlay: Overlay }) {
     case 'pushSetUpstream':
       return <PushUpstreamDialog branch={overlay.branch} remote={overlay.remote} />;
     case 'manageRemotes':
-      return <ManageRemotesDialog />;
+      return (
+        <ManageRemotesDialog
+          // The dialog is mounted once per focus, so opening it on another
+          // remote starts from that remote rather than from the last one.
+          key={overlay.focus ? `${overlay.focus.remote}:${overlay.focus.panel}` : 'manage'}
+          focus={overlay.focus}
+        />
+      );
     case 'lfs':
       return <LfsDialog repoId={overlay.repoId} />;
     case 'lfsClone':

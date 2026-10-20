@@ -451,10 +451,16 @@ export type GitAction =
   | { action: 'fetch' }
   /** Mirror the tags on every remote locally, dropping the ones they dropped. */
   | { action: 'syncTags' }
+  /** Fetch one remote and prune the branches it no longer has. */
+  | { action: 'fetchRemote'; remote: string }
   | { action: 'pullMerge' }
   | { action: 'pullRebase' }
+  /** Pull one branch of one remote into the current branch. */
+  | { action: 'pullFrom'; remote: string; branch: string; rebase: boolean }
   | { action: 'push' }
   | { action: 'pushForce' }
+  /** Push the current HEAD to one branch of one remote. */
+  | { action: 'pushTo'; remote: string; branch: string; force: boolean }
   | { action: 'pushSetUpstream'; remote: string; branch: string }
   | { action: 'pushRenameRemote'; remote: string; old: string; new: string }
   | { action: 'pushDeleteRemote'; remote: string; branch: string }

@@ -36,7 +36,12 @@ interface Notice {
   text: string;
 }
 
-export function ManageRemotesDialog() {
+export function ManageRemotesDialog({
+  focus
+}: {
+  /** The remote the dialog opens on, when it was reached from one. */
+  focus?: { remote: string; panel: 'edit' | 'remove' };
+}) {
   const translate = useStore((state) => state.t);
   const repoId = useActiveRepoId();
   const repo = useStore((state) => (repoId ? state.repos[repoId] : undefined));
@@ -44,11 +49,17 @@ export function ManageRemotesDialog() {
   const runAction = useStore((state) => state.runAction);
   const setMessage = useStore((state) => state.setMessage);
 
-  const [panel, setPanel] = useState<'add' | 'edit'>('add');
-  const [selected, setSelected] = useState<string | null>(null);
+  const [panel, setPanel] = useState<'add' | 'edit'>(focus?.panel === 'edit' ? 'edit' : 'add');
+  const [selected, setSelected] = useState<string | null>(focus?.remote ?? null);
   const [name, setName] = useState('');
-  const [url, setUrl] = useState('');
-  const [confirming, setConfirming] = useState(false);
+  const [url, setUrl] = useState(() => {
+    if (!focus || !repoId) {
+      return '';
+    }
+    const current = useStore.getState().repos[repoId];
+    return current?.refs.remote_urls.find((remote) => remote.name === focus.remote)?.url ?? '';
+  });
+  const [confirming, setConfirming] = useState(focus?.panel === 'remove');
   const [notice, setNotice] = useState<Notice | null>(null);
   const [pending, setPending] = useState<PendingOperation | null>(null);
 

@@ -268,6 +268,57 @@ function install(
   let compareRequest = 0;
   let maximized = false;
   const snapshotIds = new Map<number, number>();
+
+  /**
+   * The label the real backend reports for a command.
+   *
+   * The remote-scoped operations name their target, because the interface
+   * routes a result by label and the status bar says what ran.
+   */
+  function commandLabel(action: any): string {
+    switch (action.action) {
+      case 'fetchRemote':
+        return `fetch ${action.remote}`;
+      case 'pullFrom':
+        return `pull ${action.rebase ? '--rebase ' : ''}${action.remote} ${action.branch}`;
+      case 'pushTo':
+        return `push ${action.force ? '--force ' : ''}${action.remote} ${action.branch}`;
+      default:
+        return (
+          {
+            fetch: 'fetch --all --prune',
+            syncTags: 'fetch --all --prune-tags',
+            pullMerge: 'pull',
+            pullRebase: 'pull --rebase',
+            push: 'push',
+            pushForce: 'push --force',
+            pushSetUpstream: 'push --set-upstream',
+            pushRenameRemote: 'push --rename',
+            pushDeleteRemote: 'push --delete',
+            pushRenameTag: 'push --rename-tag',
+            pushDeleteTag: 'push --delete-tag',
+            remoteAdd: 'remote add',
+            remoteSetUrl: 'remote set-url',
+            remoteRemove: 'remote remove',
+            merge: 'merge',
+            abortMerge: 'merge --abort',
+            rebase: 'rebase',
+            abortRebase: 'rebase --abort',
+            checkout: 'checkout',
+            createBranch: 'branch',
+            copyCommitMessage: 'copy-commit-message',
+            renameBranch: 'branch -m',
+            deleteBranch: 'branch -d',
+            deleteTag: 'tag -d',
+            stash: 'stash push',
+            stashPop: 'stash pop',
+            stashDrop: 'stash drop',
+            commit: 'commit',
+            applyPatch: 'apply'
+          }[action.action] ?? action.action
+        );
+    }
+  }
   const lfsFiles = [
     {
       path: 'assets/model.psd',
@@ -1232,38 +1283,7 @@ function install(
         return null;
       }
       const name = args.action.action;
-      const label =
-        {
-          fetch: 'fetch --all --prune',
-          syncTags: 'fetch --all --prune-tags',
-          pullMerge: 'pull',
-          pullRebase: 'pull --rebase',
-          push: 'push',
-          pushForce: 'push --force',
-          pushSetUpstream: 'push --set-upstream',
-          pushRenameRemote: 'push --rename',
-          pushDeleteRemote: 'push --delete',
-          pushRenameTag: 'push --rename-tag',
-          pushDeleteTag: 'push --delete-tag',
-          remoteAdd: 'remote add',
-          remoteSetUrl: 'remote set-url',
-          remoteRemove: 'remote remove',
-          merge: 'merge',
-          abortMerge: 'merge --abort',
-          rebase: 'rebase',
-          abortRebase: 'rebase --abort',
-          checkout: 'checkout',
-          createBranch: 'branch',
-          copyCommitMessage: 'copy-commit-message',
-          renameBranch: 'branch -m',
-          deleteBranch: 'branch -d',
-          deleteTag: 'tag -d',
-          stash: 'stash push',
-          stashPop: 'stash pop',
-          stashDrop: 'stash drop',
-          commit: 'commit',
-          applyPatch: 'apply'
-        }[name] ?? name;
+      const label = commandLabel(args.action);
       const bad = failing.has(name);
       // The clipboard copy is exercised through the clipboard plugin, which the
       // stub records; the message body is what a success would copy.

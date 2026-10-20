@@ -16,7 +16,7 @@ export function t(translate: Translator, key: string): string {
 export function ta(
   translate: Translator,
   key: string,
-  args: Record<string, string | number>
+  args?: Record<string, string | number>
 ): string {
   return translate(key, args);
 }

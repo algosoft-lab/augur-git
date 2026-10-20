@@ -21,6 +21,14 @@ export interface RemoteBranchGroup {
 
 const OTHER_GROUP = '(other)';
 
+/**
+ * The group that holds branches belonging to no known remote.
+ *
+ * It is not a remote, so the operations that talk to one are not offered for
+ * it.
+ */
+export const OTHER_REMOTE_GROUP = OTHER_GROUP;
+
 export function groupRemoteBranches(remotes: string[], branches: string[]): RemoteBranchGroup[] {
   const groups = new Map<string, RemoteBranchEntry[]>();
   for (const remote of remotes) {

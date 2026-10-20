@@ -55,6 +55,25 @@ appropriate. The last selected mode and both sets of window bounds are saved
 in the workspace document. Switching modes never changes the standalone
 Compare, Settings, or About windows.
 
+## Remotes
+
+The sidebar groups remote-tracking branches under the remote they belong to.
+Each remote offers the operations that name it: the group header's context
+menu fetches that one remote, pulls the branch the current branch tracks on it,
+and pushes the current branch to it, and a button beside the header fetches it
+without opening the menu. The header also opens the remote's settings, where
+its URL is edited or the remote is removed.
+
+A remote branch's context menu names the branch: it fetches the remote, pulls
+that branch into the current branch, and pushes the current branch to it. The
+toolbar's own Fetch, Pull, and Push are unchanged; they follow the branch's
+upstream and reach every remote, so a repository with several remotes can be
+worked on one remote at a time without losing the wide operations.
+
+A pull that rebases is checked before it starts, exactly like the toolbar's
+pull, and a push that would publish a branch to a remote it does not track yet
+is confirmed first.
+
 ## Global Git configuration
 
 The settings window's Git section edits the global Git configuration that
@@ -177,9 +196,9 @@ or run the local-remote transfer integration test.
 
 **Frontend unit tests** cover the parts of the interface with no window: commit
 search, branch-name validation, the WSL path check, porcelain status
-classification, the stat bar, remote-branch grouping, catalog lookup, the theme
-writer, the graph geometry, the node-colour contrast rule, and the syntax
-tokenizer.
+classification, the stat bar, remote-branch grouping, the remote operations,
+catalog lookup, the theme writer, the graph geometry, the node-colour contrast
+rule, and the syntax tokenizer.
 
 **Browser tests** drive the real interface. The webview is ordinary web code,
 so `tests/fixtures/stubBackend.ts` installs a stub Tauri runtime before the

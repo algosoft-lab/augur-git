@@ -467,6 +467,53 @@ async function pickAndCopyPatchPrompt(repoId: number): Promise<void> {
  * with a specific message instead.
  */
 export async function preflightRebase(repo: RepoState, target: RebaseTarget | null): Promise<void> {
+  const probe = await probeForRebase(repo, target);
+  if (!probe.allowed) {
+    return;
+  }
+  const store = useStore.getState();
+  if (probe.target) {
+    void store.runAction(repo.id, { action: 'rebase', target: probe.target });
+  } else {
+    void store.runAction(repo.id, { action: 'pullRebase' });
+  }
+}
+
+/**
+ * Check the repository before a pull that rebases.
+ *
+ * The probe is the one the toolbar's pull uses: a rebase may not start while
+ * another Git operation is in progress.
+ */
+export async function preflightPullRebase(
+  repo: RepoState,
+  pull: { remote: string; branch: string }
+): Promise<void> {
+  const probe = await probeForRebase(repo, null);
+  if (!probe.allowed) {
+    return;
+  }
+  void useStore.getState().runAction(repo.id, {
+    action: 'pullFrom',
+    remote: pull.remote,
+    branch: pull.branch,
+    rebase: true
+  });
+}
+
+interface RebaseProbe {
+  allowed: boolean;
+  /** The target to rebase onto, resolved to a commit id when one is known. */
+  target: RebaseTarget | null;
+}
+
+/**
+ * Probe the repository and report whether a rebase may start.
+ *
+ * The probe's answer is reported to the reader when it refuses, so the reason
+ * a rebase did not start is on screen rather than in a log.
+ */
+async function probeForRebase(repo: RepoState, target: RebaseTarget | null): Promise<RebaseProbe> {
   const store = useStore.getState();
   let probe;
   try {
@@ -476,7 +523,7 @@ export async function preflightRebase(repo: RepoState, target: RebaseTarget | nu
     // preflight failure, which the reference names with Git's own first line
     // and a sentence that says the rebase never started.
     if (!useStore.getState().repos[repo.id]) {
-      return;
+      return { allowed: false, target: null };
     }
     const failure = ipc.describeError(error);
     store.setMessage(
@@ -486,27 +533,23 @@ export async function preflightRebase(repo: RepoState, target: RebaseTarget | nu
       }),
       false
     );
-    return;
+    return { allowed: false, target: null };
   }
   if (probe.other_operation_in_progress || probe.rebase_in_progress) {
     store.setMessage(repo.id, t(store.t, 'rebase-preflight-operation-in-progress'), false);
-    return;
+    return { allowed: false, target: null };
   }
   if (target && !probe.target_known) {
     store.setMessage(repo.id, t(store.t, 'rebase-target-invalid'), false);
-    return;
+    return { allowed: false, target: null };
   }
   if (target && probe.has_changes) {
     store.setMessage(repo.id, t(store.t, 'rebase-preflight-dirty'), false);
-    return;
+    return { allowed: false, target: null };
   }
-  if (target) {
-    const resolvedTarget =
-      target.kind === 'commit' && probe.target_oid
-        ? { kind: 'commit' as const, sha: probe.target_oid }
-        : target;
-    void store.runAction(repo.id, { action: 'rebase', target: resolvedTarget });
-  } else {
-    void store.runAction(repo.id, { action: 'pullRebase' });
-  }
+  const resolvedTarget =
+    target && target.kind === 'commit' && probe.target_oid
+      ? { kind: 'commit' as const, sha: probe.target_oid }
+      : target;
+  return { allowed: true, target: resolvedTarget };
 }

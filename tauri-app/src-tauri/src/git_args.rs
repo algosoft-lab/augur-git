@@ -26,11 +26,36 @@ pub enum GitAction {
     /// Distinct from [`GitAction::Fetch`], which only follows tags reachable
     /// from the branches it fetched and never removes one.
     SyncTags,
+    /// Fetch one remote and prune the remote-tracking branches it no longer
+    /// has.
+    ///
+    /// Distinct from [`GitAction::Fetch`], which reaches every remote at once.
+    FetchRemote {
+        remote: String,
+    },
     PullMerge,
     PullRebase,
+    /// Pull one branch of one remote into the current branch.
+    ///
+    /// The branch is named on the remote, so this never follows the upstream
+    /// the current branch happens to track.
+    PullFrom {
+        remote: String,
+        branch: String,
+        rebase: bool,
+    },
     Push,
     /// Force push. The interface confirms first; the backend cannot know that.
     PushForce,
+    /// Push the current HEAD to one branch of one remote.
+    ///
+    /// The source is `HEAD` rather than a branch name, so a detached HEAD can
+    /// be published to a named branch.
+    PushTo {
+        remote: String,
+        branch: String,
+        force: bool,
+    },
     /// Publish a branch that has no upstream yet.
     PushSetUpstream {
         remote: String,
@@ -141,10 +166,13 @@ impl GitAction {
                 | GitAction::ApplyPatch { .. }
                 | GitAction::Fetch
                 | GitAction::SyncTags
+                | GitAction::FetchRemote { .. }
                 | GitAction::PullMerge
                 | GitAction::PullRebase
+                | GitAction::PullFrom { .. }
                 | GitAction::Push
                 | GitAction::PushForce
+                | GitAction::PushTo { .. }
                 | GitAction::PushSetUpstream { .. }
                 | GitAction::PushRenameRemote { .. }
                 | GitAction::PushDeleteRemote { .. }
@@ -172,46 +200,73 @@ impl GitAction {
     /// The label shown in the status bar while the operation runs and in the
     /// completion message. The frontend routes merge and rebase results by
     /// label, so these strings are part of the protocol.
-    pub fn label(&self) -> &'static str {
+    ///
+    /// The label names the target of an operation when it has one, so a
+    /// message says which remote was fetched rather than only which kind of
+    /// command ran.
+    pub fn label(&self) -> String {
         match self {
-            GitAction::Fetch => "fetch --all --prune",
-            GitAction::SyncTags => "fetch --all --prune-tags",
-            GitAction::PullMerge => "pull",
-            GitAction::PullRebase => "pull --rebase",
-            GitAction::Push => "push",
-            GitAction::PushForce => "push --force",
-            GitAction::PushSetUpstream { .. } => "push --set-upstream",
-            GitAction::PushRenameRemote { .. } => "push --rename",
-            GitAction::PushDeleteRemote { .. } => "push --delete",
-            GitAction::PushDeleteTag { .. } => "push --delete-tag",
-            GitAction::PushRenameTag { .. } => "push --rename-tag",
-            GitAction::RemoteAdd { .. } => "remote add",
-            GitAction::RemoteSetUrl { .. } => "remote set-url",
-            GitAction::RemoteRemove { .. } => "remote remove",
-            GitAction::Stash { .. } => "stash",
-            GitAction::StashPop { .. } => "stash pop",
-            GitAction::StashDrop { .. } => "stash drop",
-            GitAction::ApplyPatch { .. } => "apply",
-            GitAction::Checkout { .. } => "checkout",
-            GitAction::CreateBranch { .. } => "branch",
-            GitAction::RenameBranch { .. } => "branch -m",
-            GitAction::DeleteBranch { force: true, .. } => "branch -D",
-            GitAction::DeleteBranch { .. } => "branch -d",
-            GitAction::DeleteTag { .. } => "tag -d",
-            GitAction::Merge { no_ff: true, .. } => "merge --no-ff",
-            GitAction::Merge { .. } => "merge",
-            GitAction::Rebase { .. } => "rebase",
+            GitAction::Fetch => "fetch --all --prune".into(),
+            GitAction::SyncTags => "fetch --all --prune-tags".into(),
+            GitAction::FetchRemote { remote } => format!("fetch {remote}"),
+            GitAction::PullMerge => "pull".into(),
+            GitAction::PullRebase => "pull --rebase".into(),
+            GitAction::PullFrom {
+                remote,
+                branch,
+                rebase,
+            } => {
+                if *rebase {
+                    format!("pull --rebase {remote} {branch}")
+                } else {
+                    format!("pull {remote} {branch}")
+                }
+            }
+            GitAction::Push => "push".into(),
+            GitAction::PushForce => "push --force".into(),
+            GitAction::PushTo {
+                remote,
+                branch,
+                force,
+            } => {
+                if *force {
+                    format!("push --force {remote} {branch}")
+                } else {
+                    format!("push {remote} {branch}")
+                }
+            }
+            GitAction::PushSetUpstream { .. } => "push --set-upstream".into(),
+            GitAction::PushRenameRemote { .. } => "push --rename".into(),
+            GitAction::PushDeleteRemote { .. } => "push --delete".into(),
+            GitAction::PushDeleteTag { .. } => "push --delete-tag".into(),
+            GitAction::PushRenameTag { .. } => "push --rename-tag".into(),
+            GitAction::RemoteAdd { .. } => "remote add".into(),
+            GitAction::RemoteSetUrl { .. } => "remote set-url".into(),
+            GitAction::RemoteRemove { .. } => "remote remove".into(),
+            GitAction::Stash { .. } => "stash".into(),
+            GitAction::StashPop { .. } => "stash pop".into(),
+            GitAction::StashDrop { .. } => "stash drop".into(),
+            GitAction::ApplyPatch { .. } => "apply".into(),
+            GitAction::Checkout { .. } => "checkout".into(),
+            GitAction::CreateBranch { .. } => "branch".into(),
+            GitAction::RenameBranch { .. } => "branch -m".into(),
+            GitAction::DeleteBranch { force: true, .. } => "branch -D".into(),
+            GitAction::DeleteBranch { .. } => "branch -d".into(),
+            GitAction::DeleteTag { .. } => "tag -d".into(),
+            GitAction::Merge { no_ff: true, .. } => "merge --no-ff".into(),
+            GitAction::Merge { .. } => "merge".into(),
+            GitAction::Rebase { .. } => "rebase".into(),
             GitAction::Reset {
                 mode: ResetMode::Hard,
                 ..
-            } => "reset --hard",
-            GitAction::Reset { .. } => "reset --soft",
-            GitAction::AbortMerge => "merge --abort",
-            GitAction::AbortRebase => "rebase --abort",
-            GitAction::AbortStashApply => "stash pop abort",
-            GitAction::Commit { amend: true, .. } => "commit --amend",
-            GitAction::Commit { .. } => "commit",
-            GitAction::CopyCommitMessage { .. } => "copy-commit-message",
+            } => "reset --hard".into(),
+            GitAction::Reset { .. } => "reset --soft".into(),
+            GitAction::AbortMerge => "merge --abort".into(),
+            GitAction::AbortRebase => "rebase --abort".into(),
+            GitAction::AbortStashApply => "stash pop abort".into(),
+            GitAction::Commit { amend: true, .. } => "commit --amend".into(),
+            GitAction::Commit { .. } => "commit".into(),
+            GitAction::CopyCommitMessage { .. } => "copy-commit-message".into(),
         }
     }
 
@@ -227,7 +282,10 @@ impl GitAction {
     pub fn needs_rebase_preflight(&self) -> bool {
         matches!(
             self,
-            GitAction::Rebase { .. } | GitAction::PullRebase | GitAction::AbortRebase
+            GitAction::Rebase { .. }
+                | GitAction::PullRebase
+                | GitAction::PullFrom { rebase: true, .. }
+                | GitAction::AbortRebase
         )
     }
 
@@ -242,10 +300,39 @@ impl GitAction {
             // A tag that was never pushed is also removed, which is the point
             // of mirroring but is worth knowing before asking for this.
             GitAction::SyncTags => strs(&["fetch", "--all", "--prune", "--prune-tags", "--force"]),
+            // One remote, and only the branches it no longer has are dropped.
+            GitAction::FetchRemote { remote } => strs(&["fetch", remote, "--prune"]),
             GitAction::PullMerge => strs(&["pull"]),
             GitAction::PullRebase => strs(&["pull", "--rebase"]),
+            // The remote and the branch are named, so the pull never follows
+            // the upstream the current branch happens to track.
+            GitAction::PullFrom {
+                remote,
+                branch,
+                rebase,
+            } => {
+                if *rebase {
+                    strs(&["pull", "--rebase", remote, branch])
+                } else {
+                    strs(&["pull", remote, branch])
+                }
+            }
             GitAction::Push => strs(&["push"]),
             GitAction::PushForce => strs(&["push", "--force"]),
+            // `HEAD` is the source, so the branch that is checked out is the
+            // one published, and a detached HEAD can be published too.
+            GitAction::PushTo {
+                remote,
+                branch,
+                force,
+            } => {
+                let refspec = format!("HEAD:{branch}");
+                if *force {
+                    strs(&["push", "--force", remote, &refspec])
+                } else {
+                    strs(&["push", remote, &refspec])
+                }
+            }
             GitAction::PushSetUpstream { remote, branch } => {
                 strs(&["push", "--set-upstream", remote, branch])
             }
@@ -516,6 +603,118 @@ mod tests {
         };
         assert_eq!(delete_tag.label(), "push --delete-tag");
         assert!(delete_tag.refreshes_after_success());
+    }
+
+    #[test]
+    fn remote_scoped_operations_name_their_target() {
+        // One remote is fetched, not every remote, and only its own stale
+        // branches are pruned.
+        assert_eq!(
+            args(GitAction::FetchRemote {
+                remote: "origin".into()
+            }),
+            ["fetch", "origin", "--prune"]
+        );
+        // The remote and the branch are named, so the pull never follows the
+        // upstream the current branch happens to track.
+        assert_eq!(
+            args(GitAction::PullFrom {
+                remote: "origin".into(),
+                branch: "main".into(),
+                rebase: false
+            }),
+            ["pull", "origin", "main"]
+        );
+        assert_eq!(
+            args(GitAction::PullFrom {
+                remote: "origin".into(),
+                branch: "main".into(),
+                rebase: true
+            }),
+            ["pull", "--rebase", "origin", "main"]
+        );
+        // `HEAD` is the source, so the branch that is checked out is the one
+        // published, and a detached HEAD can be published too.
+        assert_eq!(
+            args(GitAction::PushTo {
+                remote: "origin".into(),
+                branch: "main".into(),
+                force: false
+            }),
+            ["push", "origin", "HEAD:main"]
+        );
+        assert_eq!(
+            args(GitAction::PushTo {
+                remote: "origin".into(),
+                branch: "main".into(),
+                force: true
+            }),
+            ["push", "--force", "origin", "HEAD:main"]
+        );
+    }
+
+    #[test]
+    fn remote_scoped_labels_name_the_target_and_route_their_results() {
+        let fetch = GitAction::FetchRemote {
+            remote: "origin".into(),
+        };
+        assert_eq!(fetch.label(), "fetch origin");
+        assert!(fetch.refreshes_after_success());
+
+        let pull = GitAction::PullFrom {
+            remote: "origin".into(),
+            branch: "main".into(),
+            rebase: false,
+        };
+        assert_eq!(pull.label(), "pull origin main");
+        assert!(pull.refreshes_after_success());
+        // A merge pull needs no merge preflight, exactly like the plain pull.
+        assert!(!pull.needs_merge_preflight());
+        assert!(!pull.needs_rebase_preflight());
+
+        let rebase = GitAction::PullFrom {
+            remote: "origin".into(),
+            branch: "main".into(),
+            rebase: true,
+        };
+        assert_eq!(rebase.label(), "pull --rebase origin main");
+        assert!(rebase.needs_rebase_preflight());
+
+        let push = GitAction::PushTo {
+            remote: "origin".into(),
+            branch: "main".into(),
+            force: false,
+        };
+        assert_eq!(push.label(), "push origin main");
+        assert!(push.refreshes_after_success());
+
+        let force = GitAction::PushTo {
+            remote: "origin".into(),
+            branch: "main".into(),
+            force: true,
+        };
+        assert_eq!(force.label(), "push --force origin main");
+    }
+
+    #[test]
+    fn remote_scoped_wire_shapes_deserialize() {
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "fetchRemote", "remote": "origin"
+        }))
+        .expect("fetch remote wire shape");
+        assert_eq!(args(wire), ["fetch", "origin", "--prune"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "pullFrom", "remote": "origin", "branch": "main", "rebase": true
+        }))
+        .expect("pull from wire shape");
+        assert_eq!(args(wire), ["pull", "--rebase", "origin", "main"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "pushTo", "remote": "origin", "branch": "main", "force": false
+        }))
+        .expect("push to wire shape");
+        assert_eq!(args(wire), ["push", "origin", "HEAD:main"]);
     }
 
     #[test]

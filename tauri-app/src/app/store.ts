@@ -34,6 +34,7 @@ import type {
 } from '../bridge/types';
 import { isGitIdentityError } from '../features/dialogs/identityError';
 import { createTranslator, resolveLocale, type Translator } from '../i18n';
+import { conflictKind } from './conflicts';
 import {
   applyRepoEvent,
   codeFor,
@@ -130,7 +131,11 @@ export type Overlay =
   | { kind: 'renameRemoteTag'; old: string }
   | { kind: 'forcePush' }
   | { kind: 'pushSetUpstream'; branch: string; remote: string }
-  | { kind: 'manageRemotes' }
+  | {
+      kind: 'manageRemotes';
+      /** The remote the dialog opens on, when it was reached from one. */
+      focus?: { remote: string; panel: 'edit' | 'remove' };
+    }
   | { kind: 'lfs'; repoId: number }
   | { kind: 'lfsClone' }
   | {
@@ -484,11 +489,6 @@ function requestWorkingDiff(
   });
 }
 
-/** Merge-shaped commands whose failure can stop on conflicts. */
-const MERGE_CONFLICT_LABELS = new Set(['merge', 'merge --no-ff', 'pull']);
-/** Rebase-shaped commands whose failure can stop on conflicts. */
-const REBASE_CONFLICT_LABELS = new Set(['rebase', 'pull --rebase']);
-
 /**
  * Probe a repository after one of these commands failed, and turn a real
  * conflict into the matching recovery dialog.
@@ -498,19 +498,17 @@ const REBASE_CONFLICT_LABELS = new Set(['rebase', 'pull --rebase']);
  * silent: the status text is then all there is to say.
  */
 function watchForConflicts(repoId: number, label: string, detail: string): void {
-  const merge = MERGE_CONFLICT_LABELS.has(label);
-  const rebase = REBASE_CONFLICT_LABELS.has(label);
-  const stash = label === 'stash pop';
-  if (!merge && !rebase && !stash) {
+  const kind = conflictKind(label);
+  if (!kind) {
     return;
   }
   // Git leaves the unmerged index behind on a failed command, but the worker
   // only refreshes the snapshot after success, so one is requested here; the
   // disabled integration actions and the conflicted rows follow from it.
   void useStore.getState().refresh(repoId);
-  if (merge) {
+  if (kind === 'merge') {
     void openMergeConflict(repoId, label, detail);
-  } else if (rebase) {
+  } else if (kind === 'rebase') {
     void openRebaseConflict(repoId, label, detail);
   } else {
     void openStashPopConflict(repoId, detail);
@@ -518,8 +516,9 @@ function watchForConflicts(repoId: number, label: string, detail: string): void 
 }
 
 async function openMergeConflict(repoId: number, label: string, detail: string): Promise<void> {
-  // A pull merges its upstream, which the status snapshot already carries; a
-  // plain merge names the branch that was picked when it started. The probe's
+  // A pull merges the branch it named, which the status snapshot carries for
+  // the upstream and the command carries for a remote-scoped pull; a plain
+  // merge names the branch that was picked when it started. The probe's
   // source only feeds target resolution, so a stale or unknown name still
   // yields the repository state the decision needs.
   const repo = useStore.getState().repos[repoId];
@@ -1550,6 +1549,9 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
         const target =
           action.target.kind === 'branch' ? action.target.name : action.target.sha.slice(0, 12);
         integrationSources.set(repoId, target);
+      } else if (action.action === 'pullFrom') {
+        // The pull names its own source, which the conflict dialog shows.
+        integrationSources.set(repoId, `${action.remote}/${action.branch}`);
       }
       if (action.action === 'commit') {
         const blocked = await guardCommitIdentity(repoId, action.message, action.amend);
@@ -1668,8 +1670,10 @@ function requiresFreshWorkingTree(action: GitAction): boolean {
   switch (action.action) {
     case 'fetch':
     case 'syncTags':
+    case 'fetchRemote':
     case 'push':
     case 'pushForce':
+    case 'pushTo':
     case 'pushSetUpstream':
     case 'pushRenameRemote':
     case 'pushDeleteRemote':

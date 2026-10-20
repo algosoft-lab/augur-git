@@ -17,7 +17,16 @@ import { ContextMenu, IconButton } from '../../components/controls';
 import type { RefsInfo } from '../../bridge/types';
 import { useStore, type RepoState } from '../../app/store';
 import { hasOpenPopup, keysForCommand, matchesShortcut, moveListFocus } from '../../app/keyboard';
-import { groupRemoteBranches } from './remoteGroups';
+import { groupRemoteBranches, OTHER_REMOTE_GROUP } from './remoteGroups';
+import {
+  planPushCurrent,
+  remoteBranchItems,
+  remoteGroupItems,
+  type RemoteMenuCommand,
+  type RemoteMenuItem,
+  type RemoteMenuOptions
+} from './remoteMenu';
+import { preflightPullRebase } from './Toolbar';
 import { t, ta } from '../../i18n/strings';
 
 interface SectionProps {
@@ -83,6 +92,7 @@ export function Sidebar({
   const openOverlay = useStore((state) => state.openOverlay);
   const setMessage = useStore((state) => state.setMessage);
   const shortcuts = useStore((state) => state.shortcuts);
+  const pullAction = useStore((state) => state.config.view.pull_action);
   const ui = useStore((state) => state.sidecarUi[repo.id]);
   const patchSidecarUi = useStore((state) => state.patchSidecarUi);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -107,12 +117,93 @@ export function Sidebar({
   // Remote tag operations need a remote to target, chosen in the dialog.
   const hasRemotes = refs.remotes.length > 0;
   const groups = groupRemoteBranches(refs.remotes, refs.remote_branches);
+  // A network command may run while the tree is in conflict, the way the
+  // toolbar's fetch and push do; only a busy repository or a stale snapshot
+  // stops one.
+  const networkAvailable = !repo.busy && repo.status === 'ready' && !repo.statusStale;
+  // A detached HEAD has no branch to name, so the operations that publish the
+  // current branch are refused rather than sent to Git.
+  const currentBranch = repo.branch.startsWith('HEAD') ? '' : repo.branch;
+  const menuOptions: RemoteMenuOptions = {
+    networkAvailable,
+    pullAvailable: !blocked,
+    branch: currentBranch,
+    upstream: repo.upstream,
+    remotes: refs.remotes,
+    hasHead: repo.head !== null,
+    rebase: pullAction === 'rebase'
+  };
 
   const copy = (value: string) => {
     void writeText(value).then(() => {
       setMessage(repo.id, ta(translate, 'context-copied', { name: value }), true);
     });
   };
+
+  /**
+   * Run one of the remote operations.
+   *
+   * The command names the target, and the target decides what runs: a push
+   * that would publish a branch asks first, and a pull that rebases is
+   * checked before it starts.
+   */
+  const runRemoteCommand = (command: RemoteMenuCommand) => {
+    switch (command.kind) {
+      case 'action':
+        void runAction(repo.id, command.action);
+        break;
+      case 'pull':
+        if (command.rebase) {
+          void preflightPullRebase(repo, { remote: command.remote, branch: command.branch });
+        } else {
+          void runAction(repo.id, {
+            action: 'pullFrom',
+            remote: command.remote,
+            branch: command.branch,
+            rebase: false
+          });
+        }
+        break;
+      case 'pushCurrent': {
+        const plan = planPushCurrent(command.remote, menuOptions);
+        if (!plan) {
+          return;
+        }
+        if (plan.kind === 'push') {
+          void runAction(repo.id, {
+            action: 'pushTo',
+            remote: plan.remote,
+            branch: plan.branch,
+            force: false
+          });
+        } else {
+          // The branch does not exist on that remote yet, so publishing it is
+          // confirmed first.
+          openOverlay({ kind: 'pushSetUpstream', branch: plan.branch, remote: plan.remote });
+        }
+        break;
+      }
+      case 'editRemote':
+        openOverlay({ kind: 'manageRemotes', focus: { remote: command.remote, panel: 'edit' } });
+        break;
+      case 'removeRemote':
+        openOverlay({ kind: 'manageRemotes', focus: { remote: command.remote, panel: 'remove' } });
+        break;
+      case 'manageRemotes':
+        openOverlay({ kind: 'manageRemotes' });
+        break;
+    }
+  };
+
+  const remoteMenuEntries = (items: RemoteMenuItem[]): ContextMenuEntry[] =>
+    items.map((item) => ({
+      id: item.id,
+      label: ta(translate, item.labelKey, item.labelArgs),
+      icon: <Icon name={item.icon} size={12} />,
+      disabled: item.disabled,
+      separatorBefore: item.separatorBefore,
+      onSelect: () => runRemoteCommand(item.command)
+    }));
 
   const branchEntries = (name: string, isHead: boolean): ContextMenuEntry[] => [
     {
@@ -213,11 +304,15 @@ export function Sidebar({
   ];
 
   const remoteEntries = (remote: string, branch: string): ContextMenuEntry[] => [
+    // The network operations come first: they are what the row is for, and
+    // the ref operations follow behind a separator.
+    ...remoteMenuEntries(remoteBranchItems(remote, branch, menuOptions)),
     {
       id: 'checkout',
       label: t(translate, 'context-checkout'),
       icon: <Icon name="git-branch" size={12} />,
       disabled: blocked,
+      separatorBefore: true,
       onSelect: () => {
         void runAction(repo.id, {
           action: 'checkout',
@@ -345,71 +440,99 @@ export function Sidebar({
           collapsed={isCollapsed('remote-branches')}
           onToggle={toggle}
         >
-          {groups.map((group) => (
-            <div key={group.remote} className="sidebar__section">
-              <button
-                type="button"
-                className="sidebar__section-header sidebar__group-header"
-                onClick={() => toggle(`remote-${group.remote}`)}
-                data-testid={`sidebar-toggle-remote-${group.remote}`}
-              >
-                <Icon
-                  name={isCollapsed(`remote-${group.remote}`) ? 'chevron-right' : 'chevron-down'}
-                  size={12}
-                />
-                <Icon name="git-branch" size={12} />
-                <span className="sidebar__section-title">{group.remote}</span>
-                <span className="sidebar__section-count">{group.branches.length}</span>
-              </button>
-              {isCollapsed(`remote-${group.remote}`)
-                ? null
-                : group.branches.map((entry) => (
-                    <ContextMenu
-                      key={entry.fullName}
-                      testId={`ref-${entry.fullName}`}
-                      entries={remoteEntries(group.remote, entry.label)}
-                    >
-                      <button
-                        type="button"
-                        className="ref-row"
-                        data-keyboard-list-item
-                        style={{ paddingLeft: 20 }}
-                        data-testid={`remote-branch-${entry.fullName}`}
-                        title={entry.fullName}
-                        onKeyDown={(event) =>
-                          checkoutOnSpace(
-                            event,
-                            keysForCommand(shortcuts.resolved, 'refs.checkout'),
-                            !blocked,
-                            () =>
-                              runAction(repo.id, {
+          {groups.map((group) => {
+            const isRealRemote = group.remote !== OTHER_REMOTE_GROUP;
+            const header = (
+              <div className="sidebar__section-header-row">
+                <button
+                  type="button"
+                  className="sidebar__section-header sidebar__group-header"
+                  onClick={() => toggle(`remote-${group.remote}`)}
+                  data-testid={`sidebar-toggle-remote-${group.remote}`}
+                >
+                  <Icon
+                    name={isCollapsed(`remote-${group.remote}`) ? 'chevron-right' : 'chevron-down'}
+                    size={12}
+                  />
+                  <Icon name="git-branch" size={12} />
+                  <span className="sidebar__section-title">{group.remote}</span>
+                  <span className="sidebar__section-count">{group.branches.length}</span>
+                </button>
+                {isRealRemote ? (
+                  <IconButton
+                    icon={<Icon name="refresh-cw" size={12} />}
+                    tooltip={ta(translate, 'context-fetch-remote', { remote: group.remote })}
+                    disabled={!networkAvailable}
+                    onClick={() =>
+                      void runAction(repo.id, { action: 'fetchRemote', remote: group.remote })
+                    }
+                    testId={`remote-fetch-${group.remote}`}
+                  />
+                ) : null}
+              </div>
+            );
+            return (
+              <div key={group.remote} className="sidebar__section">
+                {isRealRemote ? (
+                  <ContextMenu
+                    testId={`remote-group-${group.remote}`}
+                    entries={remoteMenuEntries(remoteGroupItems(group.remote, menuOptions))}
+                  >
+                    {header}
+                  </ContextMenu>
+                ) : (
+                  header
+                )}
+                {isCollapsed(`remote-${group.remote}`)
+                  ? null
+                  : group.branches.map((entry) => (
+                      <ContextMenu
+                        key={entry.fullName}
+                        testId={`ref-${entry.fullName}`}
+                        entries={remoteEntries(group.remote, entry.label)}
+                      >
+                        <button
+                          type="button"
+                          className="ref-row"
+                          data-keyboard-list-item
+                          style={{ paddingLeft: 20 }}
+                          data-testid={`remote-branch-${entry.fullName}`}
+                          title={entry.fullName}
+                          onKeyDown={(event) =>
+                            checkoutOnSpace(
+                              event,
+                              keysForCommand(shortcuts.resolved, 'refs.checkout'),
+                              !blocked,
+                              () =>
+                                runAction(repo.id, {
+                                  action: 'checkout',
+                                  target: {
+                                    kind: 'remoteBranch',
+                                    remoteBranch: entry.fullName
+                                  }
+                                })
+                            )
+                          }
+                          onDoubleClick={() => {
+                            if (!blocked) {
+                              void runAction(repo.id, {
                                 action: 'checkout',
                                 target: {
                                   kind: 'remoteBranch',
                                   remoteBranch: entry.fullName
                                 }
-                              })
-                          )
-                        }
-                        onDoubleClick={() => {
-                          if (!blocked) {
-                            void runAction(repo.id, {
-                              action: 'checkout',
-                              target: {
-                                kind: 'remoteBranch',
-                                remoteBranch: entry.fullName
-                              }
-                            });
-                          }
-                        }}
-                      >
-                        <span className="ref-marker" />
-                        <span className="ref-row__label">{entry.label}</span>
-                      </button>
-                    </ContextMenu>
-                  ))}
-            </div>
-          ))}
+                              });
+                            }
+                          }}
+                        >
+                          <span className="ref-marker" />
+                          <span className="ref-row__label">{entry.label}</span>
+                        </button>
+                      </ContextMenu>
+                    ))}
+              </div>
+            );
+          })}
         </Section>
 
         <Section
