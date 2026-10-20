@@ -1680,6 +1680,7 @@ function requiresFreshWorkingTree(action: GitAction): boolean {
     case 'pushRenameTag':
     case 'pushDeleteTag':
     case 'remoteAdd':
+    case 'remoteRename':
     case 'remoteSetUrl':
     case 'remoteRemove':
     case 'copyCommitMessage':

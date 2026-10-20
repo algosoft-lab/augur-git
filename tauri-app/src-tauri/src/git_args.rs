@@ -88,9 +88,15 @@ pub enum GitAction {
         name: String,
         url: String,
     },
+    RemoteRename {
+        old_name: String,
+        new_name: String,
+    },
     RemoteSetUrl {
         name: String,
         url: String,
+        #[serde(default)]
+        old_url: Option<String>,
     },
     RemoteRemove {
         name: String,
@@ -179,6 +185,7 @@ impl GitAction {
                 | GitAction::PushDeleteTag { .. }
                 | GitAction::PushRenameTag { .. }
                 | GitAction::RemoteAdd { .. }
+                | GitAction::RemoteRename { .. }
                 | GitAction::RemoteSetUrl { .. }
                 | GitAction::RemoteRemove { .. }
                 | GitAction::CreateBranch { .. }
@@ -241,6 +248,7 @@ impl GitAction {
             GitAction::PushDeleteTag { .. } => "push --delete-tag".into(),
             GitAction::PushRenameTag { .. } => "push --rename-tag".into(),
             GitAction::RemoteAdd { .. } => "remote add".into(),
+            GitAction::RemoteRename { .. } => "remote rename".into(),
             GitAction::RemoteSetUrl { .. } => "remote set-url".into(),
             GitAction::RemoteRemove { .. } => "remote remove".into(),
             GitAction::Stash { .. } => "stash".into(),
@@ -368,7 +376,28 @@ impl GitAction {
                 ])
             }
             GitAction::RemoteAdd { name, url } => strs(&["remote", "add", name, url]),
-            GitAction::RemoteSetUrl { name, url } => strs(&["remote", "set-url", name, url]),
+            GitAction::RemoteRename { old_name, new_name } => {
+                if validate_branch_name(old_name, &[], None).is_some()
+                    || validate_branch_name(new_name, &[], None).is_some()
+                {
+                    return Err("Enter valid remote names.".into());
+                }
+                strs(&["remote", "rename", old_name, new_name])
+            }
+            GitAction::RemoteSetUrl { name, url, old_url } => {
+                if let Some(old_url) = old_url {
+                    // `remote set-url` matches rewritten URLs and fails for multiple
+                    // values. Config matches the raw value and preserves other URLs.
+                    strs(&[
+                        "config",
+                        &format!("remote.{name}.url"),
+                        url,
+                        &exact_config_pattern(old_url),
+                    ])
+                } else {
+                    strs(&["remote", "set-url", name, url])
+                }
+            }
             GitAction::RemoteRemove { name } => strs(&["remote", "remove", name]),
             GitAction::Stash { message } => strs(&["stash", "push", "-m", message]),
             GitAction::StashPop { stash_ref: None } => strs(&["stash", "pop"]),
@@ -487,6 +516,19 @@ pub enum NameError {
     Empty,
     Invalid,
     Exists,
+}
+
+/// Match one literal config value using Git's extended regular expressions.
+fn exact_config_pattern(value: &str) -> String {
+    let mut pattern = String::from("^");
+    for character in value.chars() {
+        if r"\.^$|?*+()[]{}".contains(character) {
+            pattern.push('\\');
+        }
+        pattern.push(character);
+    }
+    pattern.push('$');
+    pattern
 }
 
 /// Validate a branch name against Git ref rules and the existing local
@@ -755,6 +797,58 @@ mod tests {
     }
 
     #[test]
+    fn remote_rename_is_typed_validated_and_refreshes() {
+        let action: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "remoteRename", "oldName": "origin", "newName": "primary"
+        }))
+        .unwrap();
+        assert_eq!(
+            action.args().unwrap(),
+            ["remote", "rename", "origin", "primary"]
+        );
+        assert_eq!(action.label(), "remote rename");
+        assert!(action.refreshes_after_success());
+        for invalid in ["", "-bad", "a b", "a..b", "x\n"] {
+            assert!(
+                GitAction::RemoteRename {
+                    old_name: "origin".into(),
+                    new_name: invalid.into()
+                }
+                .args()
+                .is_err()
+            );
+            assert!(
+                GitAction::RemoteRename {
+                    old_name: invalid.into(),
+                    new_name: "primary".into()
+                }
+                .args()
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn editing_a_remote_url_matches_its_raw_config_value_literally() {
+        let action = GitAction::RemoteSetUrl {
+            name: "origin".into(),
+            url: "git@example.com:repo.git".into(),
+            old_url: Some("short:Org/repo.git?x=[a]+(b)".into()),
+        };
+        assert_eq!(
+            action.args().unwrap(),
+            [
+                "config",
+                "remote.origin.url",
+                "git@example.com:repo.git",
+                r"^short:Org/repo\.git\?x=\[a\]\+\(b\)$"
+            ]
+        );
+        assert_eq!(action.label(), "remote set-url");
+        assert!(action.refreshes_after_success());
+    }
+
+    #[test]
     fn remote_configuration_operations_preserve_each_argument() {
         let cases = [
             (
@@ -774,6 +868,7 @@ mod tests {
                 GitAction::RemoteSetUrl {
                     name: "origin".into(),
                     url: "git@example.com:project.git".into(),
+                    old_url: None,
                 },
                 vec!["remote", "set-url", "origin", "git@example.com:project.git"],
                 "remote set-url",

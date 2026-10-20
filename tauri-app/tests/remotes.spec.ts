@@ -57,7 +57,12 @@ test.describe('remote management', () => {
       .map((entry) => (entry.args as any).action);
     expect(actions).toEqual([
       { action: 'remoteAdd', name: 'upstream', url: 'https://example.com/upstream.git' },
-      { action: 'remoteSetUrl', name: 'origin', url: 'git@example.com:augur-git.git' },
+      {
+        action: 'remoteSetUrl',
+        name: 'origin',
+        url: 'git@example.com:augur-git.git',
+        oldUrl: 'https://example.com/augur-git.git'
+      },
       { action: 'remoteRemove', name: 'origin' }
     ]);
   });
@@ -260,7 +265,12 @@ test.describe('multi-remote operations', () => {
       .filter((entry) => entry.cmd === 'run_action')
       .map((entry) => (entry.args as any).action);
     expect(actions).toEqual([
-      { action: 'remoteSetUrl', name: 'upstream', url: 'https://example.com/other.git' }
+      {
+        action: 'remoteSetUrl',
+        name: 'upstream',
+        url: 'https://example.com/other.git',
+        oldUrl: 'https://example.com/upstream.git'
+      }
     ]);
   });
 
@@ -279,5 +289,192 @@ test.describe('multi-remote operations', () => {
       .filter((entry) => entry.cmd === 'run_action')
       .map((entry) => (entry.args as any).action);
     expect(actions).toEqual([{ action: 'remoteRemove', name: 'upstream' }]);
+  });
+});
+
+test.describe('remote editing', () => {
+  async function openManager(page: import('@playwright/test').Page) {
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+    await page.getByTestId('toolbar-more').click();
+    await page.getByTestId('more-menu-manage-remotes').click();
+    await page.getByTestId('remote-edit-origin').click();
+  }
+
+  test('renames independently and saves a retained URL draft under the new name', async ({
+    page
+  }) => {
+    const stub = await boot(page, { open: [multiRemoteRepo()] });
+    await openManager(page);
+    await expect(page.getByTestId('remote-rename')).toBeDisabled();
+    await expect(page.getByTestId('remote-submit')).toBeDisabled();
+    await page.getByTestId('remote-name-input').fill('upstream');
+    await expect(page.getByTestId('remote-name-error')).toContainText('already exists');
+    await expect(page.getByTestId('remote-rename')).toBeDisabled();
+    await page.getByTestId('remote-name-input').fill('-invalid');
+    await expect(page.getByTestId('remote-rename')).toBeDisabled();
+    await page.getByTestId('remote-name-input').fill('primary');
+    await page.getByTestId('remote-url-input').fill('git@example.com:Org/New.git');
+    await page.getByTestId('remote-rename').click();
+    await expect(page.getByTestId('remotes-notice')).toContainText('renamed to primary');
+    await expect(page.getByTestId('remote-edit-primary')).toHaveAttribute('aria-current', 'true');
+    await expect(page.getByTestId('remote-name-input')).toHaveValue('primary');
+    await expect(page.getByTestId('remote-url-input')).toHaveValue('git@example.com:Org/New.git');
+    await expect(page.getByTestId('remote-rename')).toBeDisabled();
+    await page.getByTestId('remote-submit').click();
+    await expect(page.getByTestId('remote-submit')).toBeDisabled();
+    const actions = (await stub.commands())
+      .filter((entry) => entry.cmd === 'run_action')
+      .map((entry) => (entry.args as any).action);
+    expect(actions).toEqual([
+      { action: 'remoteRename', oldName: 'origin', newName: 'primary' },
+      {
+        action: 'remoteSetUrl',
+        name: 'primary',
+        url: 'git@example.com:Org/New.git',
+        oldUrl: 'https://example.com/augur-git.git'
+      }
+    ]);
+    await page.getByTestId('manage-remotes-close').click();
+    await expect(page.getByTestId('manage-remotes-dialog')).toHaveCount(0);
+    await expect(page.getByTestId('sidebar-toggle-remote-primary')).toBeVisible();
+  });
+
+  test('converts a draft, guards closing, and writes only after saving', async ({ page }) => {
+    const stub = await boot(page, { open: [multiRemoteRepo()] });
+    await openManager(page);
+    await page.getByTestId('remote-convert').click();
+    await expect(page.getByTestId('remote-url-input')).toHaveValue('git@example.com:augur-git.git');
+    expect((await stub.commands()).filter((entry) => entry.cmd === 'run_action')).toHaveLength(0);
+    await page.getByTestId('manage-remotes-close').click();
+    await expect(page.getByTestId('remote-discard-panel')).toBeVisible();
+    await page.getByTestId('remote-keep-editing').click();
+    await expect(page.getByTestId('remote-url-input')).toHaveValue('git@example.com:augur-git.git');
+    await page.getByTestId('remote-submit').click();
+    await expect(page.getByTestId('remotes-notice')).toContainText('updated');
+    await page.getByTestId('remote-convert').click();
+    await expect(page.getByTestId('remote-url-input')).toHaveValue(
+      'https://example.com/augur-git.git'
+    );
+    await page.keyboard.press('Escape');
+    await page.getByTestId('remote-discard').click();
+    await expect(page.getByTestId('manage-remotes-dialog')).toHaveCount(0);
+    expect((await stub.commands()).filter((entry) => entry.cmd === 'run_action')).toHaveLength(1);
+  });
+
+  test('guards switching remotes and preserves independent name edits when saving a URL', async ({
+    page
+  }) => {
+    await boot(page, { open: [multiRemoteRepo()] });
+    await openManager(page);
+    await page.getByTestId('remote-name-input').fill('primary');
+    await page.getByTestId('remote-url-input').fill('https://example.com/new.git');
+    await page.getByTestId('remote-submit').click();
+    await expect(page.getByTestId('remotes-notice')).toContainText('updated');
+    await expect(page.getByTestId('remote-name-input')).toHaveValue('primary');
+    await expect(page.getByTestId('remote-rename')).toBeEnabled();
+    await page.getByTestId('remote-edit-upstream').click();
+    await expect(page.getByTestId('remote-discard-panel')).toBeVisible();
+    await page.getByTestId('remote-keep-editing').click();
+    await expect(page.getByTestId('remote-name-input')).toHaveValue('primary');
+    await page.getByTestId('remote-edit-upstream').click();
+    await page.getByTestId('remote-discard').click();
+    await expect(page.getByTestId('remote-name-input')).toHaveValue('upstream');
+    await expect(page.getByTestId('remote-url-input')).toHaveValue(
+      'https://example.com/upstream.git'
+    );
+  });
+
+  for (const operation of ['remoteRename', 'remoteSetUrl']) {
+    test(`preserves drafts when ${operation} fails`, async ({ page }) => {
+      await boot(page, { open: [multiRemoteRepo()], failingActions: [operation] });
+      await openManager(page);
+      await page.getByTestId('remote-name-input').fill('primary');
+      await page.getByTestId('remote-url-input').fill('git@example.com:New.git');
+      await page
+        .getByTestId(operation === 'remoteRename' ? 'remote-rename' : 'remote-submit')
+        .click();
+      await expect(page.getByTestId('remotes-notice')).toContainText('could not read from remote');
+      await expect(page.getByTestId('remote-name-input')).toHaveValue('primary');
+      await expect(page.getByTestId('remote-url-input')).toHaveValue('git@example.com:New.git');
+      await expect(page.getByTestId('remote-edit-origin')).toHaveAttribute('aria-current', 'true');
+      await expect(page.getByTestId('remote-rename')).toBeEnabled();
+      await expect(page.getByTestId('remote-submit')).toBeEnabled();
+    });
+  }
+
+  test('locks selection, closing, conversion, and duplicate submissions while saving', async ({
+    page
+  }) => {
+    const stub = await boot(page, { open: [multiRemoteRepo()], actionDelay: 1200 });
+    await openManager(page);
+    await page.getByTestId('remote-url-input').fill('https://example.com/New.git');
+    await page.getByTestId('remote-submit').click();
+    await expect(page.getByTestId('remote-url-input')).toBeDisabled();
+    await expect(page.getByTestId('remote-name-input')).toBeDisabled();
+    await expect(page.getByTestId('remote-edit-upstream')).toBeDisabled();
+    await expect(page.getByTestId('remote-add-another')).toBeDisabled();
+    await expect(page.getByTestId('remote-convert')).toBeDisabled();
+    await expect(page.getByTestId('manage-remotes-close')).toBeDisabled();
+    await expect(page.getByTestId('remote-submit')).toBeDisabled();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('manage-remotes-dialog')).toBeVisible();
+    await expect(page.getByTestId('remotes-notice')).toContainText('updated');
+    expect((await stub.commands()).filter((entry) => entry.cmd === 'run_action')).toHaveLength(1);
+  });
+
+  test('retains the draft and clears pending state when IPC rejects the action', async ({
+    page
+  }) => {
+    await boot(page, {
+      open: [multiRemoteRepo()],
+      refusals: { run_action: { key: 'err-invalid-action', detail: 'Remote changed externally.' } }
+    });
+    await openManager(page);
+    await page.getByTestId('remote-url-input').fill('https://example.com/new.git');
+    await page.getByTestId('remote-submit').click();
+    await expect(page.getByTestId('remotes-notice')).toContainText(
+      'This operation cannot be run with the values provided.'
+    );
+    await expect(page.getByTestId('remote-url-input')).toHaveValue('https://example.com/new.git');
+    await expect(page.getByTestId('remote-submit')).toBeEnabled();
+  });
+
+  test('guards backdrop closing and discards a draft before removal confirmation', async ({
+    page
+  }) => {
+    const stub = await boot(page, { open: [multiRemoteRepo()] });
+    await openManager(page);
+    await page.getByTestId('remote-url-input').fill('https://example.com/new.git');
+    await page.getByTestId('manage-remotes-dialog-overlay').click({ position: { x: 1, y: 1 } });
+    await expect(page.getByTestId('remote-discard-panel')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('remote-url-input')).toHaveValue('https://example.com/new.git');
+    await page.getByTestId('remote-remove-action').click();
+    await page.getByTestId('remote-discard').click();
+    await expect(page.getByTestId('remote-remove-confirm-panel')).toBeVisible();
+    await page.getByTestId('remote-remove-cancel').click();
+    await expect(page.getByTestId('remote-url-input')).toHaveValue(
+      'https://example.com/augur-git.git'
+    );
+    expect((await stub.commands()).filter((entry) => entry.cmd === 'run_action')).toHaveLength(0);
+  });
+
+  test('explains unsupported conversion and independent push URLs without blocking manual edits', async ({
+    page
+  }) => {
+    const repo = multiRemoteRepo();
+    repo.refs.remote_urls[0]!.has_push_url = true;
+    await boot(page, { open: [repo] });
+    await openManager(page);
+    await expect(page.getByTestId('remote-push-url-hint')).toContainText('separate push URL');
+    await page.getByTestId('remote-url-input').fill('https://example.com:8443/Org/Repo.git');
+    await expect(page.getByTestId('remote-convert')).toBeDisabled();
+    await expect(page.getByTestId('remote-conversion-hint')).toContainText('ports');
+    await expect(page.getByTestId('remote-submit')).toBeEnabled();
+    await page.getByTestId('remote-url-input').fill('/local/repo.git');
+    await expect(page.getByTestId('remote-convert')).toHaveCount(0);
+    await page.getByTestId('remote-submit').click();
+    await expect(page.getByTestId('remotes-notice')).toContainText('updated');
+    await expect(page.getByTestId('remote-push-url-hint')).toBeVisible();
   });
 });

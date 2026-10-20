@@ -62,7 +62,19 @@ Each remote offers the operations that name it: the group header's context
 menu fetches that one remote, pulls the branch the current branch tracks on it,
 and pushes the current branch to it, and a button beside the header fetches it
 without opening the menu. The header also opens the remote's settings, where
-its URL is edited or the remote is removed.
+its name and fetch URL can be saved separately, or the remote can be removed.
+Renaming uses Git's native remote rename operation, including remote-tracking
+refs and branch upstream configuration. Unsaved edits are checked before
+switching remotes or closing the dialog.
+
+The URL editor reads the raw Git configuration, preserving `insteadOf` aliases,
+additional URLs, and separately configured push URLs. A notice identifies
+remotes with a separate push URL; editing the fetch URL does not change it.
+Common HTTP/HTTPS and SSH addresses can be converted in the draft before
+saving. Automatic conversion uses the SSH user `git` and defaults to HTTPS
+when converting back. Addresses with credentials, explicit ports, SSH aliases,
+or special server paths require manual editing. Conversion and saving do not
+connect to the remote or test authentication.
 
 A remote branch's context menu names the branch: it fetches the remote, pulls
 that branch into the current branch, and pushes the current branch to it. The

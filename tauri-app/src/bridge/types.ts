@@ -294,6 +294,7 @@ export interface StashInfo {
 export interface RemoteEntry {
   name: string;
   url: string;
+  has_push_url?: boolean;
 }
 
 export interface RefsInfo {
@@ -467,7 +468,8 @@ export type GitAction =
   | { action: 'pushDeleteTag'; remote: string; name: string }
   | { action: 'pushRenameTag'; remote: string; old: string; new: string }
   | { action: 'remoteAdd'; name: string; url: string }
-  | { action: 'remoteSetUrl'; name: string; url: string }
+  | { action: 'remoteRename'; oldName: string; newName: string }
+  | { action: 'remoteSetUrl'; name: string; url: string; oldUrl?: string }
   | { action: 'remoteRemove'; name: string }
   | { action: 'stash'; message: string }
   | { action: 'stashPop'; stashRef: string | null }

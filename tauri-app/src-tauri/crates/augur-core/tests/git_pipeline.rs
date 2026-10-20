@@ -789,7 +789,8 @@ fn refs_report_branches_tags_and_an_empty_stash_list() {
         refs.remote_urls,
         vec![RemoteEntry {
             name: "upstream".into(),
-            url: "https://example.com/project.git".into()
+            url: "https://example.com/project.git".into(),
+            has_push_url: true
         }],
         "the snapshot exposes the fetch URL and not a separately configured push URL"
     );
@@ -799,6 +800,124 @@ fn refs_report_branches_tags_and_an_empty_stash_list() {
             .any(|revision| revision.name == "main" && revision.kind == CompareRevisionKind::Local),
         "the branch is offered for comparison: {:?}",
         refs.comparison_revisions
+    );
+}
+
+#[test]
+fn remote_rename_refreshes_tracking_and_preserves_url_configuration() {
+    require_git!();
+    let mut sandbox = Sandbox::new().expect("sandbox");
+    sandbox.git_ok(&["remote", "add", "origin", "short:Org/repo.git"]);
+    sandbox.git_ok(&[
+        "config",
+        "--add",
+        "remote.origin.url",
+        "https://mirror.example.com/repo.git",
+    ]);
+    sandbox.git_ok(&[
+        "config",
+        "remote.origin.pushurl",
+        "git@push.example.com:repo.git",
+    ]);
+    sandbox.git_ok(&["config", "url.https://example.com/.insteadOf", "short:"]);
+    sandbox.git_ok(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    sandbox.git_ok(&["branch", "--set-upstream-to=origin/main", "main"]);
+    sandbox.open();
+    let GitEvent::Refs(initial) = sandbox
+        .wait_for(|event| matches!(event, GitEvent::Refs(_)))
+        .expect("initial refs")
+    else {
+        unreachable!()
+    };
+    assert_eq!(
+        initial.remote_urls[0].url, "short:Org/repo.git",
+        "the raw URL is editable, not its insteadOf expansion"
+    );
+    assert!(initial.remote_urls[0].has_push_url);
+
+    sandbox.handle().run_with_refresh(
+        "remote rename",
+        vec![
+            "remote".into(),
+            "rename".into(),
+            "origin".into(),
+            "primary".into(),
+        ],
+        true,
+    );
+    let outcome = sandbox.wait_for(|event| matches!(event, GitEvent::CommandDone { label, .. } if label == "remote rename")).expect("rename outcome");
+    assert!(matches!(
+        outcome,
+        GitEvent::CommandDone { success: true, .. }
+    ));
+    let GitEvent::Refs(refs) = sandbox.wait_for(|event| matches!(event, GitEvent::Refs(refs) if refs.remotes.contains(&"primary".to_string()))).expect("renamed refs") else { unreachable!() };
+    assert!(!refs.remotes.contains(&"origin".to_string()));
+    assert!(refs.remote_branches.contains(&"primary/main".to_string()));
+    assert!(!refs.remote_branches.contains(&"origin/main".to_string()));
+    assert_eq!(
+        sandbox
+            .git_ok(&["rev-parse", "--abbrev-ref", "@{upstream}"])
+            .trim(),
+        "primary/main"
+    );
+    assert_eq!(
+        sandbox.git_ok(&["config", "branch.main.remote"]).trim(),
+        "primary"
+    );
+
+    sandbox.handle().run_with_refresh(
+        "remote set-url",
+        vec![
+            "config".into(),
+            "remote.primary.url".into(),
+            "https://new.example.com/Org/repo.git".into(),
+            r"^short:Org/repo\.git$".into(),
+        ],
+        true,
+    );
+    let outcome = sandbox.wait_for(|event| matches!(event, GitEvent::CommandDone { label, .. } if label == "remote set-url")).expect("URL outcome");
+    assert!(matches!(
+        outcome,
+        GitEvent::CommandDone { success: true, .. }
+    ));
+    let GitEvent::Refs(refs) = sandbox.wait_for(|event| matches!(event, GitEvent::Refs(refs) if refs.remote_urls.iter().any(|remote| remote.url == "https://new.example.com/Org/repo.git"))).expect("updated refs") else { unreachable!() };
+    assert!(refs.remote_urls[0].has_push_url);
+    assert_eq!(
+        sandbox.git_ok(&["config", "--get-all", "remote.primary.url"]),
+        "https://new.example.com/Org/repo.git\nhttps://mirror.example.com/repo.git\n"
+    );
+    assert_eq!(
+        sandbox.git_ok(&["config", "remote.primary.pushurl"]).trim(),
+        "git@push.example.com:repo.git"
+    );
+}
+
+#[test]
+fn remote_rename_collision_or_missing_remote_reports_failure() {
+    require_git!();
+    let mut sandbox = Sandbox::new().expect("sandbox");
+    sandbox.git_ok(&["remote", "add", "origin", "/original"]);
+    sandbox.git_ok(&["remote", "add", "upstream", "/upstream"]);
+    sandbox.open();
+    sandbox
+        .wait_for(|event| matches!(event, GitEvent::Refs(_)))
+        .expect("initial refs");
+    for (old, new) in [("origin", "upstream"), ("missing", "primary")] {
+        sandbox.handle().run_with_refresh(
+            "remote rename",
+            vec!["remote".into(), "rename".into(), old.into(), new.into()],
+            true,
+        );
+        let outcome = sandbox.wait_for(|event| matches!(event, GitEvent::CommandDone { label, .. } if label == "remote rename")).expect("failed rename outcome");
+        assert!(matches!(
+            outcome,
+            GitEvent::CommandDone { success: false, .. }
+        ));
+    }
+    assert_eq!(sandbox.git_ok(&["remote"]), "origin\nupstream\n");
+    assert_eq!(
+        sandbox.git_ok(&["config", "remote.origin.url"]).trim(),
+        "/original"
     );
 }
 

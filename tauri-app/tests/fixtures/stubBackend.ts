@@ -298,6 +298,7 @@ function install(
             pushRenameTag: 'push --rename-tag',
             pushDeleteTag: 'push --delete-tag',
             remoteAdd: 'remote add',
+            remoteRename: 'remote rename',
             remoteSetUrl: 'remote set-url',
             remoteRemove: 'remote remove',
             merge: 'merge',
@@ -576,7 +577,7 @@ function install(
   function applyRemoteChange(
     repo: StubRepo,
     operation: string,
-    action: { name?: string; url?: string }
+    action: { name?: string; url?: string; oldName?: string; newName?: string }
   ): boolean {
     if (operation === 'remoteAdd' && action.name) {
       // The arrays are replaced rather than pushed into, because the real
@@ -591,10 +592,27 @@ function install(
       ];
       return true;
     }
+    if (operation === 'remoteRename' && action.oldName && action.newName) {
+      const oldName = action.oldName;
+      const newName = action.newName;
+      repo.refs.remotes = repo.refs.remotes.map((name) => (name === oldName ? newName : name));
+      repo.refs.remote_urls = repo.refs.remote_urls.map((entry) =>
+        entry.name === oldName ? { ...entry, name: newName } : entry
+      );
+      const renameRef = (ref: string) =>
+        ref.startsWith(`${oldName}/`) ? `${newName}/${ref.slice(oldName.length + 1)}` : ref;
+      repo.refs.remote_branches = repo.refs.remote_branches.map(renameRef);
+      if (repo.upstream) repo.upstream = renameRef(repo.upstream);
+      return true;
+    }
     if (operation === 'remoteSetUrl' && action.name) {
       repo.refs.remote_urls = [
         ...repo.refs.remote_urls.filter((entry) => entry.name !== action.name),
-        { name: action.name, url: action.url ?? '' }
+        {
+          ...repo.refs.remote_urls.find((entry) => entry.name === action.name),
+          name: action.name,
+          url: action.url ?? ''
+        }
       ];
       return true;
     }

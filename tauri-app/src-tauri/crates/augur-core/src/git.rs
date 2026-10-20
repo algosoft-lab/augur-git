@@ -45,6 +45,7 @@ pub mod image_preview;
 pub mod location;
 pub mod operation_probe;
 pub mod progress;
+mod remote_config;
 pub mod working_tree;
 
 pub use branch_compare::suggested_patch_filename;
@@ -175,6 +176,8 @@ pub struct RefsInfo {
 pub struct RemoteEntry {
     pub name: String,
     pub url: String,
+    #[serde(default)]
+    pub has_push_url: bool,
 }
 
 /// Line totals reported for one side of the working tree.
@@ -2203,7 +2206,12 @@ fn run_refs(repo: &GitRepo, event_tx: &Sender<GitEvent>) {
         .unwrap_or_default();
     let refs = RefsInfo {
         remotes: non_empty_lines(&out(&["remote"])),
-        remote_urls: parse_remote_urls(&out(&["remote", "-v"])),
+        remote_urls: remote_config::parse(&out(&[
+            "config",
+            "--null",
+            "--get-regexp",
+            r"^remote\..*\.(url|pushurl)$",
+        ])),
         remote_branches: parse_remote_branches(&out(&[
             "for-each-ref",
             "refs/remotes",
@@ -2214,31 +2222,6 @@ fn run_refs(repo: &GitRepo, event_tx: &Sender<GitEvent>) {
         comparison_revisions,
     };
     let _ = event_tx.send(GitEvent::Refs(refs));
-}
-
-fn parse_remote_urls(text: &str) -> Vec<RemoteEntry> {
-    let mut remotes = Vec::new();
-    for line in text.lines() {
-        let Some((name, endpoint)) = line.split_once('\t') else {
-            continue;
-        };
-        let Some(url) = endpoint.strip_suffix(" (fetch)") else {
-            continue;
-        };
-        if name.is_empty()
-            || url.is_empty()
-            || remotes
-                .iter()
-                .any(|remote: &RemoteEntry| remote.name == name)
-        {
-            continue;
-        }
-        remotes.push(RemoteEntry {
-            name: name.to_string(),
-            url: url.to_string(),
-        });
-    }
-    remotes
 }
 
 /// 非空行列表（trim + 去空行）
@@ -2323,27 +2306,6 @@ mod tests {
         assert_eq!(
             parse_remote_branches(text),
             vec!["origin/build".to_string(), "origin/master".to_string()]
-        );
-    }
-
-    #[test]
-    fn parse_remote_urls_keeps_one_fetch_url_per_remote() {
-        let text = "origin\thttps://example.com/project.git (fetch)\n\
-                     origin\tgit@example.com:project.git (push)\n\
-                     upstream\t/path/to/repo with spaces (fetch)\n\
-                     malformed\t (fetch)\n";
-        assert_eq!(
-            parse_remote_urls(text),
-            vec![
-                RemoteEntry {
-                    name: "origin".into(),
-                    url: "https://example.com/project.git".into()
-                },
-                RemoteEntry {
-                    name: "upstream".into(),
-                    url: "/path/to/repo with spaces".into()
-                }
-            ]
         );
     }
 

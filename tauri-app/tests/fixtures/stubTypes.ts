@@ -38,7 +38,7 @@ export interface StubFile {
 
 export interface StubRefs {
   remotes: string[];
-  remote_urls: { name: string; url: string }[];
+  remote_urls: { name: string; url: string; has_push_url?: boolean }[];
   remote_branches: string[];
   tags: string[];
   stashes: { reference: string; description: string }[];
