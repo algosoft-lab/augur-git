@@ -49,6 +49,24 @@ export interface StatusMessage {
   ok: boolean | null;
 }
 
+/**
+ * The result of the last command that finished in a repository.
+ *
+ * A dialog that starts an operation needs to know how it ended, and the
+ * status message alone cannot say that: it is also written by unrelated
+ * failures and by operations the dialog never started. The id makes the
+ * result identifiable, so a caller can tell a fresh outcome from the one it
+ * has already seen.
+ */
+export interface CommandOutcome {
+  id: number;
+  /** The operation label, as the backend reports it. */
+  label: string;
+  success: boolean;
+  /** The command output, which carries the Git error text on a failure. */
+  message: string;
+}
+
 export interface RepoState {
   id: number;
   path: string;
@@ -116,6 +134,8 @@ export interface RepoState {
   busy: boolean;
   busyVerb: string | null;
   message: StatusMessage | null;
+  /** The result of the last command that finished here. */
+  commandOutcome: CommandOutcome | null;
 }
 
 export function emptyRepo(id: number, path: string, location: LocationConfig): RepoState {
@@ -167,7 +187,8 @@ export function emptyRepo(id: number, path: string, location: LocationConfig): R
 
     busy: false,
     busyVerb: null,
-    message: null
+    message: null,
+    commandOutcome: null
   };
 }
 
@@ -508,6 +529,12 @@ export function applyRepoEvent(
     case 'commandStarted':
       return { ...state, busy: true, busyVerb: event.verb, message: null };
     case 'commandDone': {
+      const outcome: CommandOutcome = {
+        id: (state.commandOutcome?.id ?? 0) + 1,
+        label: event.label,
+        success: event.success,
+        message: event.message
+      };
       // Applying a patch says what it did to the tree, which "apply finished"
       // does not: the result is an unstaged change either way, and the reader
       // needs to know which files to look at.
@@ -516,6 +543,7 @@ export function applyRepoEvent(
           ...state,
           busy: false,
           busyVerb: null,
+          commandOutcome: outcome,
           message: {
             text: event.success
               ? label('patch-apply-success')
@@ -531,6 +559,7 @@ export function applyRepoEvent(
           ...state,
           busy: false,
           busyVerb: null,
+          commandOutcome: outcome,
           message: {
             text: event.success
               ? label('stash-pop-abort-success')
@@ -543,6 +572,7 @@ export function applyRepoEvent(
         ...state,
         busy: false,
         busyVerb: null,
+        commandOutcome: outcome,
         message: {
           text: event.success
             ? label('command-success').replace('{ $label }', event.label)

@@ -140,6 +140,8 @@ export interface StubOptions {
   /** Whether changed characters inside a changed line start out highlighted. */
   diffCharDiff?: boolean;
   showUntracked?: boolean;
+  /** The theme the interface starts in. */
+  theme?: string;
   /** The global Git configuration the stub starts with, keyed by Git key. */
   gitConfig?: Record<string, string | null>;
   /** The identity `probe_commit_identity` resolves for every repository. */
@@ -210,6 +212,7 @@ function install(
     commitDiffDelay?: number;
     commitDiffNeverResponds?: boolean;
     showUntracked?: boolean;
+    theme?: string;
     diffSoftWrap?: boolean;
     diffCharDiff?: boolean;
     refusals?: Record<string, { key: string; detail: string }>;
@@ -280,7 +283,7 @@ function install(
     lfs_auto_download: true,
     lfs_download_on_open: false,
     dismissed_update_commit: null,
-    theme: 'claude-dark',
+    theme: options.theme ?? 'claude-dark',
     language: 'system',
     view: {
       show_untracked: options.showUntracked ?? true,
@@ -509,6 +512,47 @@ function install(
       replace: true,
       hasMore: false
     });
+  }
+
+  /**
+   * Apply a remote change to the fixture.
+   *
+   * The real backend writes the change into the repository and refreshes the
+   * refs, so the list in the dialog grows, changes, or shrinks. A stub that
+   * only reported the command would leave the list stale, and a test could not
+   * tell a working dialog from one that ignores the repository.
+   */
+  function applyRemoteChange(
+    repo: StubRepo,
+    operation: string,
+    action: { name?: string; url?: string }
+  ): boolean {
+    if (operation === 'remoteAdd' && action.name) {
+      // The arrays are replaced rather than pushed into, because the real
+      // backend sends a fresh snapshot and the interface compares them by
+      // identity.
+      repo.refs.remotes = repo.refs.remotes.includes(action.name)
+        ? repo.refs.remotes
+        : [...repo.refs.remotes, action.name];
+      repo.refs.remote_urls = [
+        ...repo.refs.remote_urls.filter((entry) => entry.name !== action.name),
+        { name: action.name, url: action.url ?? '' }
+      ];
+      return true;
+    }
+    if (operation === 'remoteSetUrl' && action.name) {
+      repo.refs.remote_urls = [
+        ...repo.refs.remote_urls.filter((entry) => entry.name !== action.name),
+        { name: action.name, url: action.url ?? '' }
+      ];
+      return true;
+    }
+    if (operation === 'remoteRemove' && action.name) {
+      repo.refs.remotes = repo.refs.remotes.filter((entry) => entry !== action.name);
+      repo.refs.remote_urls = repo.refs.remote_urls.filter((entry) => entry.name !== action.name);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -1244,6 +1288,11 @@ function install(
                 ? 'fatal: could not read from remote'
                 : 'fatal: clipboard unavailable'
           });
+          if (succeeded && applyRemoteChange(repo, name, args.action)) {
+            // The real backend refreshes the refs after a remote changes, and
+            // the list in the dialog is built from them.
+            emit('augur://repo-event', { repoId: repo.id, type: 'refs', refs: repo.refs });
+          }
         }, duration);
       }, 10);
       return null;

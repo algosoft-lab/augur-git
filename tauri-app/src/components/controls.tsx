@@ -14,7 +14,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode
+  type ReactNode,
+  type RefObject
 } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -144,6 +145,8 @@ export interface TextInputProps {
   onChange: (value: string) => void;
   placeholder?: string;
   ariaLabel?: string;
+  /** The id of the message that describes this field, for a screen reader. */
+  ariaDescribedBy?: string;
   autoFocus?: boolean;
   monospace?: boolean;
   onSubmit?: () => void;
@@ -160,6 +163,10 @@ export interface TextInputProps {
   size?: 'small' | 'normal';
   disabled?: boolean;
   type?: 'text' | 'password';
+  /** The input element, for a dialog that moves the caret to it. */
+  inputRef?: RefObject<HTMLInputElement | null>;
+  /** Shows the value without letting it be edited. */
+  readOnly?: boolean;
 }
 
 /** A text field that reports Enter and Escape so dialogs can bind them. */
@@ -169,6 +176,7 @@ export function TextInput({
   onChange,
   placeholder,
   ariaLabel,
+  ariaDescribedBy,
   autoFocus,
   monospace,
   onSubmit,
@@ -179,7 +187,9 @@ export function TextInput({
   cleanable,
   size = 'normal',
   disabled,
-  type = 'text'
+  type = 'text',
+  inputRef,
+  readOnly
 }: TextInputProps) {
   return (
     <span
@@ -190,12 +200,15 @@ export function TextInput({
       {prefix ? <span className="text-input__prefix">{prefix}</span> : null}
       <input
         id={id}
+        ref={inputRef}
         data-testid={testId}
         type={type}
         value={value}
         placeholder={placeholder}
         aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
         disabled={disabled}
+        readOnly={readOnly}
         autoFocus={autoFocus}
         spellCheck={false}
         onChange={(event) => onChange(event.target.value)}
@@ -757,6 +770,8 @@ export function Menu({
 
 export interface DialogCardProps {
   title: ReactNode;
+  /** A quiet second line under the title, naming what the dialog acts on. */
+  subtitle?: ReactNode;
   icon?: ReactNode;
   body: ReactNode;
   footer: ReactNode;
@@ -768,6 +783,7 @@ export interface DialogCardProps {
 /** A centered card used by every overlay dialog. */
 export function DialogCard({
   title,
+  subtitle,
   icon,
   body,
   footer,
@@ -794,7 +810,10 @@ export function DialogCard({
       >
         <div className="dialog__title">
           {icon ? <span className="dialog__icon">{icon}</span> : null}
-          <span>{title}</span>
+          <span className="dialog__heading">
+            <span>{title}</span>
+            {subtitle ? <span className="dialog__subtitle">{subtitle}</span> : null}
+          </span>
         </div>
         <div className="dialog__body">{body}</div>
         <div className="dialog__footer">{footer}</div>

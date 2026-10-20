@@ -761,6 +761,24 @@
   color: var(--muted-foreground);
 }
 
+/* The title and its second line share one column, so the subtitle sits
+   directly under the title instead of beside the icon. */
+.dialog__heading {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dialog__subtitle {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.7);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dialog__body {
   display: flex;
   flex-direction: column;

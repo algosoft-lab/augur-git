@@ -114,6 +114,8 @@ export interface BootOptions {
   diffSoftWrap?: StubOptions['diffSoftWrap'];
   diffCharDiff?: StubOptions['diffCharDiff'];
   showUntracked?: boolean;
+  /** The theme the interface starts in. */
+  theme?: string;
   /**
    * Paths the backend is holding because the window was not listening when they
    * arrived, which is the state a launch with a path argument produces.
@@ -204,6 +206,7 @@ function optionsFor(options: BootOptions): StubOptions {
     diffSoftWrap: options.diffSoftWrap,
     diffCharDiff: options.diffCharDiff,
     showUntracked: options.showUntracked,
+    theme: options.theme,
     gitConfig: options.gitConfig,
     identity: options.identity,
     cloneLfsError: options.cloneLfsError

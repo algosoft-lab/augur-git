@@ -47,6 +47,7 @@ import {
   isUntracked,
   localBranches,
   stashCount,
+  type CommandOutcome,
   type RepoState
 } from './repoState';
 
@@ -235,6 +236,14 @@ interface AppStore {
    * showing the detail alone means showing "repository 7 is no longer open".
    */
   reportError: (repoId: number, error: unknown) => string;
+  /**
+   * Record the outcome of an operation that never reached the backend.
+   *
+   * A command that fails before Git runs reports no result of its own, so the
+   * dialog that started it would wait forever. An empty label marks the
+   * outcome as one the caller cannot match against a command label.
+   */
+  setCommandOutcome: (repoId: number, outcome: Omit<CommandOutcome, 'id'>) => void;
   selectCommit: (repoId: number, oid: string, short: string, subject: string) => Promise<void>;
   clearCommit: (repoId: number) => void;
   selectWorkingFile: (repoId: number, staged: boolean, file: FileStatus) => Promise<void>;
@@ -1378,6 +1387,22 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
       return text;
     },
 
+    setCommandOutcome(repoId, outcome) {
+      const repo = get().repos[repoId];
+      if (!repo) {
+        return;
+      }
+      set({
+        repos: {
+          ...get().repos,
+          [repoId]: {
+            ...repo,
+            commandOutcome: { ...outcome, id: (repo.commandOutcome?.id ?? 0) + 1 }
+          }
+        }
+      });
+    },
+
     async selectCommit(repoId, oid, short, subject) {
       const repo = get().repos[repoId];
       if (!repo) {
@@ -1537,7 +1562,10 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
         await ipc.runAction(repoId, action);
       } catch (error) {
         get().setBusy(repoId, false);
-        get().reportError(repoId, error);
+        const text = get().reportError(repoId, error);
+        // The command never reached Git, so no result event will arrive for
+        // the caller that started it.
+        get().setCommandOutcome(repoId, { label: '', success: false, message: text });
       }
     },
 
