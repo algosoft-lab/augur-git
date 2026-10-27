@@ -1,0 +1,25 @@
+[package]
+name = "augur-server"
+version = "0.1.0"
+description = "Augur Git web server: the desktop application served over HTTP"
+authors = ["Lionel Fung", "Li Haozhe"]
+edition = "2024"
+rust-version = "1.90"
+license = "Apache-2.0"
+
+[[bin]]
+name = "augur-git-server"
+path = "src/main.rs"
+
+[dependencies]
+augur-core = { path = "../augur-core" }
+augur-service = { path = "../augur-service" }
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+env_logger = "0.11"
+uuid = { version = "1", features = ["v4"] }

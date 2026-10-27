@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/augur-core", "crates/augur-service"]
+members = ["crates/augur-core", "crates/augur-service", "crates/augur-server"]
 
 [package]
 name = "augur-git-tauri"
