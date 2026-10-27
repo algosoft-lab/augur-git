@@ -1,21 +1,13 @@
-//! Global Git configuration commands.
-//!
-//! The keys the interface may touch are fixed by
-//! [`augur_core::git::config_access`]; this module is only the Tauri boundary:
-//! it validates, runs the allow-listed commands, and returns the refreshed
-//! snapshot so the settings page never renders a state Git does not have.
-
-use tauri::State;
+//! Global Git configuration commands: thin Tauri wrappers over the shared
+//! service layer.
 
 use augur_core::config::LocationConfig;
 use augur_core::git::config_access::{
     self, CommitIdentityProbe, GitConfigEntry, GitConfigSnapshot,
 };
-
-use crate::commands::repo::CommandError;
-use crate::state::AppState;
-
-type Result<T> = std::result::Result<T, CommandError>;
+use augur_service::error::Result;
+use augur_service::state::AppState;
+use tauri::State;
 
 /// The global configuration entries the settings page edits.
 #[tauri::command]
@@ -33,8 +25,7 @@ pub fn write_git_config(
     entries: Vec<GitConfigEntry>,
     location: Option<LocationConfig>,
 ) -> Result<GitConfigSnapshot> {
-    config_access::apply_global(location.as_ref(), &entries)?;
-    Ok(config_access::read_global_all(location.as_ref()))
+    augur_service::commands::git_config::write_git_config(entries, location)
 }
 
 /// The identity Git would use for a commit in this repository.
@@ -46,10 +37,5 @@ pub async fn probe_commit_identity(
     state: State<'_, AppState>,
     repo_id: u64,
 ) -> Result<CommitIdentityProbe> {
-    let repo = state
-        .with_repo(repo_id, |session| session.repo().clone())
-        .ok_or_else(|| CommandError::missing_repo(repo_id))?;
-    tauri::async_runtime::spawn_blocking(move || config_access::probe_commit_identity(&repo))
-        .await
-        .map_err(|error| CommandError::new("err-worker", error.to_string()))
+    augur_service::commands::git_config::probe_commit_identity(&state, repo_id).await
 }

@@ -20,6 +20,7 @@ pub mod git_args;
 pub mod menu;
 pub mod persistence;
 pub mod repo;
+pub mod sink;
 pub mod state;
 pub mod updates;
 
@@ -148,9 +149,18 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             let pending = invocation.paths.clone();
             log::info!("[startup] setup entered with {} path(s)", pending.len());
 
-            let report = persistence::LoadReport::default();
-            app.manage(AppState::new(handle.clone(), report));
-            match askpass::AskpassServer::start(handle.clone()) {
+            let stores = persistence::open_stores(&handle);
+            let sink: std::sync::Arc<dyn augur_service::sink::EventSink> =
+                std::sync::Arc::new(sink::TauriSink::new(handle.clone()));
+            app.manage(AppState::new(
+                sink.clone(),
+                augur_service::state::ServiceStartup {
+                    settings_store: stores.settings,
+                    workspace_store: stores.workspace,
+                    warnings: stores.warnings,
+                },
+            ));
+            match askpass::AskpassServer::start(sink) {
                 Ok(server) => {
                     app.manage(server);
                 }
@@ -257,7 +267,16 @@ fn handle_second_launch(app: &tauri::AppHandle, args: &[String], cwd: &str) {
     let cwd = std::path::PathBuf::from(cwd);
     // Repository discovery invokes Git; it must not block the native event loop.
     tauri::async_runtime::spawn_blocking(move || match cli::parse_at(&args, &cwd) {
-        cli::Parsed::Run(invocation) => AppState::deliver_open_paths(&app, invocation.paths),
+        cli::Parsed::Run(invocation) => {
+            if let Some(state) = app.try_state::<AppState>() {
+                let sink = state.sink().clone();
+                augur_service::commands::app::deliver_open_paths(
+                    app.state::<AppState>().inner(),
+                    sink.as_ref(),
+                    invocation.paths,
+                );
+            }
+        }
         cli::Parsed::UsageError(error) => log::warn!("[cli] forwarded launch rejected: {error}"),
         _ => {}
     });

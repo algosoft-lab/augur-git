@@ -1,0 +1,1238 @@
+//! Git argument builders for every user-visible operation.
+//!
+//! The frontend never supplies raw Git arguments. It names an operation, and
+//! this module turns that operation into a fixed argument vector. Keeping the
+//! mapping here means the frontend cannot be talked into running an arbitrary
+//! command, and every path-like value travels as one structured argument
+//! instead of shell text.
+//!
+//! All builders are pure so the exact argv of each operation is unit tested.
+
+use serde::{Deserialize, Serialize};
+
+use augur_core::git::{CheckoutTarget, CompareRevision, RebaseTarget, ResetMode};
+
+/// A repository operation the interface can request.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "action",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum GitAction {
+    Fetch,
+    /// Make the local tag list an exact mirror of the tags on every remote.
+    ///
+    /// Distinct from [`GitAction::Fetch`], which only follows tags reachable
+    /// from the branches it fetched and never removes one.
+    SyncTags,
+    /// Fetch one remote and prune the remote-tracking branches it no longer
+    /// has.
+    ///
+    /// Distinct from [`GitAction::Fetch`], which reaches every remote at once.
+    FetchRemote {
+        remote: String,
+    },
+    PullMerge,
+    PullRebase,
+    /// Pull one branch of one remote into the current branch.
+    ///
+    /// The branch is named on the remote, so this never follows the upstream
+    /// the current branch happens to track.
+    PullFrom {
+        remote: String,
+        branch: String,
+        rebase: bool,
+    },
+    Push,
+    /// Force push. The interface confirms first; the backend cannot know that.
+    PushForce,
+    /// Push the current HEAD to one branch of one remote.
+    ///
+    /// The source is `HEAD` rather than a branch name, so a detached HEAD can
+    /// be published to a named branch.
+    PushTo {
+        remote: String,
+        branch: String,
+        force: bool,
+    },
+    /// Publish a branch that has no upstream yet.
+    PushSetUpstream {
+        remote: String,
+        branch: String,
+    },
+    /// Create the new remote branch and delete the old one in one push.
+    PushRenameRemote {
+        remote: String,
+        old: String,
+        new: String,
+    },
+    /// Delete a branch on its remote.
+    PushDeleteRemote {
+        remote: String,
+        branch: String,
+    },
+    /// Delete a tag on its remote.
+    PushDeleteTag {
+        remote: String,
+        name: String,
+    },
+    /// Rename a tag on its remote: create the new tag and delete the old one
+    /// in one push.
+    PushRenameTag {
+        remote: String,
+        old: String,
+        new: String,
+    },
+    RemoteAdd {
+        name: String,
+        url: String,
+    },
+    RemoteRename {
+        old_name: String,
+        new_name: String,
+    },
+    RemoteSetUrl {
+        name: String,
+        url: String,
+        #[serde(default)]
+        old_url: Option<String>,
+    },
+    RemoteRemove {
+        name: String,
+    },
+    Stash {
+        message: String,
+    },
+    /// Pop the newest stash, or one explicit entry.
+    StashPop {
+        stash_ref: Option<String>,
+    },
+    StashDrop {
+        stash_ref: String,
+    },
+    /// Apply a patch file. Plain `git apply` is atomic and leaves the result
+    /// unstaged.
+    ApplyPatch {
+        path: String,
+    },
+    Checkout {
+        target: CheckoutTarget,
+    },
+    CreateBranch {
+        name: String,
+    },
+    RenameBranch {
+        old: String,
+        new: String,
+    },
+    DeleteBranch {
+        name: String,
+        force: bool,
+    },
+    DeleteTag {
+        name: String,
+    },
+    Merge {
+        source: String,
+        no_ff: bool,
+    },
+    Rebase {
+        target: RebaseTarget,
+    },
+    /// Reset HEAD to a target reviewed in the interface.
+    Reset {
+        mode: ResetMode,
+        expected_head: String,
+        target_oid: String,
+    },
+    AbortMerge,
+    AbortRebase,
+    /// Reset the worktree after a conflicted stash pop. Git keeps the stash
+    /// entry when the pop fails, so the reset only discards the applied
+    /// state and the change can be retried later.
+    AbortStashApply,
+    Commit {
+        message: String,
+        amend: bool,
+    },
+    /// Read a commit message for the clipboard. Never mutates the repository.
+    CopyCommitMessage {
+        oid: String,
+    },
+}
+
+impl GitAction {
+    /// Operations whose success requires a fresh repository snapshot.
+    pub fn refreshes_after_success(&self) -> bool {
+        matches!(
+            self,
+            GitAction::Commit { .. }
+                | GitAction::Checkout { .. }
+                | GitAction::ApplyPatch { .. }
+                | GitAction::Fetch
+                | GitAction::SyncTags
+                | GitAction::FetchRemote { .. }
+                | GitAction::PullMerge
+                | GitAction::PullRebase
+                | GitAction::PullFrom { .. }
+                | GitAction::Push
+                | GitAction::PushForce
+                | GitAction::PushTo { .. }
+                | GitAction::PushSetUpstream { .. }
+                | GitAction::PushRenameRemote { .. }
+                | GitAction::PushDeleteRemote { .. }
+                | GitAction::PushDeleteTag { .. }
+                | GitAction::PushRenameTag { .. }
+                | GitAction::RemoteAdd { .. }
+                | GitAction::RemoteRename { .. }
+                | GitAction::RemoteSetUrl { .. }
+                | GitAction::RemoteRemove { .. }
+                | GitAction::CreateBranch { .. }
+                | GitAction::RenameBranch { .. }
+                | GitAction::DeleteBranch { .. }
+                | GitAction::DeleteTag { .. }
+                | GitAction::Stash { .. }
+                | GitAction::StashPop { .. }
+                | GitAction::StashDrop { .. }
+                | GitAction::Merge { .. }
+                | GitAction::Rebase { .. }
+                | GitAction::Reset { .. }
+                | GitAction::AbortMerge
+                | GitAction::AbortRebase
+                | GitAction::AbortStashApply
+        )
+    }
+
+    /// The label shown in the status bar while the operation runs and in the
+    /// completion message. The frontend routes merge and rebase results by
+    /// label, so these strings are part of the protocol.
+    ///
+    /// The label names the target of an operation when it has one, so a
+    /// message says which remote was fetched rather than only which kind of
+    /// command ran.
+    pub fn label(&self) -> String {
+        match self {
+            GitAction::Fetch => "fetch --all --prune".into(),
+            GitAction::SyncTags => "fetch --all --prune-tags".into(),
+            GitAction::FetchRemote { remote } => format!("fetch {remote}"),
+            GitAction::PullMerge => "pull".into(),
+            GitAction::PullRebase => "pull --rebase".into(),
+            GitAction::PullFrom {
+                remote,
+                branch,
+                rebase,
+            } => {
+                if *rebase {
+                    format!("pull --rebase {remote} {branch}")
+                } else {
+                    format!("pull {remote} {branch}")
+                }
+            }
+            GitAction::Push => "push".into(),
+            GitAction::PushForce => "push --force".into(),
+            GitAction::PushTo {
+                remote,
+                branch,
+                force,
+            } => {
+                if *force {
+                    format!("push --force {remote} {branch}")
+                } else {
+                    format!("push {remote} {branch}")
+                }
+            }
+            GitAction::PushSetUpstream { .. } => "push --set-upstream".into(),
+            GitAction::PushRenameRemote { .. } => "push --rename".into(),
+            GitAction::PushDeleteRemote { .. } => "push --delete".into(),
+            GitAction::PushDeleteTag { .. } => "push --delete-tag".into(),
+            GitAction::PushRenameTag { .. } => "push --rename-tag".into(),
+            GitAction::RemoteAdd { .. } => "remote add".into(),
+            GitAction::RemoteRename { .. } => "remote rename".into(),
+            GitAction::RemoteSetUrl { .. } => "remote set-url".into(),
+            GitAction::RemoteRemove { .. } => "remote remove".into(),
+            GitAction::Stash { .. } => "stash".into(),
+            GitAction::StashPop { .. } => "stash pop".into(),
+            GitAction::StashDrop { .. } => "stash drop".into(),
+            GitAction::ApplyPatch { .. } => "apply".into(),
+            GitAction::Checkout { .. } => "checkout".into(),
+            GitAction::CreateBranch { .. } => "branch".into(),
+            GitAction::RenameBranch { .. } => "branch -m".into(),
+            GitAction::DeleteBranch { force: true, .. } => "branch -D".into(),
+            GitAction::DeleteBranch { .. } => "branch -d".into(),
+            GitAction::DeleteTag { .. } => "tag -d".into(),
+            GitAction::Merge { no_ff: true, .. } => "merge --no-ff".into(),
+            GitAction::Merge { .. } => "merge".into(),
+            GitAction::Rebase { .. } => "rebase".into(),
+            GitAction::Reset {
+                mode: ResetMode::Hard,
+                ..
+            } => "reset --hard".into(),
+            GitAction::Reset { .. } => "reset --soft".into(),
+            GitAction::AbortMerge => "merge --abort".into(),
+            GitAction::AbortRebase => "rebase --abort".into(),
+            GitAction::AbortStashApply => "stash pop abort".into(),
+            GitAction::Commit { amend: true, .. } => "commit --amend".into(),
+            GitAction::Commit { .. } => "commit".into(),
+            GitAction::CopyCommitMessage { .. } => "copy-commit-message".into(),
+        }
+    }
+
+    /// Whether the frontend must run a preflight probe before this action.
+    pub fn needs_merge_preflight(&self) -> bool {
+        matches!(
+            self,
+            GitAction::Merge { .. } | GitAction::AbortMerge | GitAction::PushSetUpstream { .. }
+        )
+    }
+
+    /// Whether the frontend must run a rebase preflight before this action.
+    pub fn needs_rebase_preflight(&self) -> bool {
+        matches!(
+            self,
+            GitAction::Rebase { .. }
+                | GitAction::PullRebase
+                | GitAction::PullFrom { rebase: true, .. }
+                | GitAction::AbortRebase
+        )
+    }
+
+    /// Build the argument vector, or a user-facing reason the action is
+    /// malformed.
+    pub fn args(&self) -> Result<Vec<String>, String> {
+        Ok(match self {
+            GitAction::Fetch => strs(&["fetch", "--all", "--prune"]),
+            // `--prune-tags` is what removes local tags the remotes no longer
+            // have, and `--force` is what lets a moved tag overwrite its stale
+            // local copy; either flag alone leaves the list out of sync.
+            // A tag that was never pushed is also removed, which is the point
+            // of mirroring but is worth knowing before asking for this.
+            GitAction::SyncTags => strs(&["fetch", "--all", "--prune", "--prune-tags", "--force"]),
+            // One remote, and only the branches it no longer has are dropped.
+            GitAction::FetchRemote { remote } => strs(&["fetch", remote, "--prune"]),
+            GitAction::PullMerge => strs(&["pull"]),
+            GitAction::PullRebase => strs(&["pull", "--rebase"]),
+            // The remote and the branch are named, so the pull never follows
+            // the upstream the current branch happens to track.
+            GitAction::PullFrom {
+                remote,
+                branch,
+                rebase,
+            } => {
+                if *rebase {
+                    strs(&["pull", "--rebase", remote, branch])
+                } else {
+                    strs(&["pull", remote, branch])
+                }
+            }
+            GitAction::Push => strs(&["push"]),
+            GitAction::PushForce => strs(&["push", "--force"]),
+            // `HEAD` is the source, so the branch that is checked out is the
+            // one published, and a detached HEAD can be published too.
+            GitAction::PushTo {
+                remote,
+                branch,
+                force,
+            } => {
+                let refspec = format!("HEAD:{branch}");
+                if *force {
+                    strs(&["push", "--force", remote, &refspec])
+                } else {
+                    strs(&["push", remote, &refspec])
+                }
+            }
+            GitAction::PushSetUpstream { remote, branch } => {
+                strs(&["push", "--set-upstream", remote, branch])
+            }
+            GitAction::PushRenameRemote { remote, old, new } => strs(&[
+                "push",
+                remote,
+                // The source is the local remote-tracking ref, which fetch
+                // maintains. A `refs/heads/<old>` source would fail with
+                // "src refspec does not match any" because the branch need not
+                // exist locally.
+                &format!("refs/remotes/{remote}/{old}:refs/heads/{new}"),
+                &format!(":refs/heads/{old}"),
+            ]),
+            GitAction::PushDeleteRemote { remote, branch } => {
+                strs(&["push", remote, "--delete", branch])
+            }
+            // The ref is qualified so a tag and a branch sharing a name cannot
+            // make `--delete` ambiguous ("dst refspec matches more than one").
+            GitAction::PushDeleteTag { remote, name } => {
+                strs(&["push", remote, "--delete", &format!("refs/tags/{name}")])
+            }
+            GitAction::PushRenameTag { remote, old, new } => {
+                // The source is the local tag, which the tag sync keeps as a
+                // mirror of the remote. As with [`GitAction::PushRenameRemote`],
+                // one push creates the new ref and deletes the old one. A tag
+                // ref points at the tag object, so an annotated tag keeps its
+                // annotation.
+                strs(&[
+                    "push",
+                    remote,
+                    &format!("refs/tags/{old}:refs/tags/{new}"),
+                    &format!(":refs/tags/{old}"),
+                ])
+            }
+            GitAction::RemoteAdd { name, url } => strs(&["remote", "add", name, url]),
+            GitAction::RemoteRename { old_name, new_name } => {
+                if validate_branch_name(old_name, &[], None).is_some()
+                    || validate_branch_name(new_name, &[], None).is_some()
+                {
+                    return Err("Enter valid remote names.".into());
+                }
+                strs(&["remote", "rename", old_name, new_name])
+            }
+            GitAction::RemoteSetUrl { name, url, old_url } => {
+                if let Some(old_url) = old_url {
+                    // `remote set-url` matches rewritten URLs and fails for multiple
+                    // values. Config matches the raw value and preserves other URLs.
+                    strs(&[
+                        "config",
+                        &format!("remote.{name}.url"),
+                        url,
+                        &exact_config_pattern(old_url),
+                    ])
+                } else {
+                    strs(&["remote", "set-url", name, url])
+                }
+            }
+            GitAction::RemoteRemove { name } => strs(&["remote", "remove", name]),
+            GitAction::Stash { message } => strs(&["stash", "push", "-m", message]),
+            GitAction::StashPop { stash_ref: None } => strs(&["stash", "pop"]),
+            GitAction::StashPop {
+                stash_ref: Some(reference),
+            } => strs(&["stash", "pop", reference]),
+            GitAction::StashDrop { stash_ref } => strs(&["stash", "drop", stash_ref]),
+            GitAction::ApplyPatch { path } => strs(&["apply", path]),
+            GitAction::Checkout { target } => checkout_args(target),
+            // `switch -c` creates and checks out, which is what the dialog
+            // promises. Plain `branch` would leave the reader on the old
+            // branch with a new one they are not on.
+            GitAction::CreateBranch { name } => strs(&["switch", "-c", name]),
+            GitAction::RenameBranch { old, new } => strs(&["branch", "-m", old, new]),
+            GitAction::DeleteBranch { name, force } => {
+                strs(&["branch", if *force { "-D" } else { "-d" }, name])
+            }
+            GitAction::DeleteTag { name } => strs(&["tag", "-d", name]),
+            GitAction::Merge { source, no_ff } => {
+                if *no_ff {
+                    strs(&["merge", source, "--no-ff"])
+                } else {
+                    strs(&["merge", source])
+                }
+            }
+            GitAction::Rebase { target } => {
+                let destination = match target {
+                    RebaseTarget::Branch { name } => format!("refs/heads/{name}"),
+                    RebaseTarget::Commit { sha } => {
+                        if !is_full_object_id(sha) {
+                            return Err("rebase target must be a full hexadecimal commit id".into());
+                        }
+                        sha.clone()
+                    }
+                };
+                strs(&["rebase", &destination])
+            }
+            GitAction::Reset {
+                mode,
+                expected_head,
+                target_oid,
+            } => {
+                if !is_full_object_id(expected_head) || !is_full_object_id(target_oid) {
+                    return Err("reset target must be a resolved commit id".into());
+                }
+                let mode_arg = match mode {
+                    ResetMode::Soft => "--soft",
+                    ResetMode::Hard => "--hard",
+                };
+                strs(&["reset", mode_arg, target_oid])
+            }
+            GitAction::AbortMerge => strs(&["merge", "--abort"]),
+            GitAction::AbortRebase => strs(&["rebase", "--abort"]),
+            GitAction::AbortStashApply => strs(&["reset", "--hard"]),
+            GitAction::Commit { message, amend } => commit_args(message, *amend),
+            // The message only, with no diff, notes, colour, or external
+            // diff driver, because it goes straight to the clipboard.
+            GitAction::CopyCommitMessage { oid } => strs(&[
+                "show",
+                "--no-patch",
+                "--format=%B",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-notes",
+                oid,
+            ]),
+        })
+    }
+}
+
+fn is_full_object_id(value: &str) -> bool {
+    matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn strs(values: &[&str]) -> Vec<String> {
+    values.iter().map(|value| (*value).to_string()).collect()
+}
+
+pub fn checkout_args(target: &CheckoutTarget) -> Vec<String> {
+    match target {
+        CheckoutTarget::LocalBranch { local_branch } => strs(&["switch", local_branch]),
+        CheckoutTarget::RemoteBranch { remote_branch } => {
+            strs(&["switch", "--track", remote_branch])
+        }
+        CheckoutTarget::Tag { tag } => strs(&["switch", "--detach", tag]),
+        CheckoutTarget::Commit { commit } => strs(&["switch", "--detach", commit]),
+    }
+}
+
+pub fn commit_args(message: &str, amend: bool) -> Vec<String> {
+    let mut args = vec!["commit".to_string(), "-m".to_string(), message.to_string()];
+    if amend {
+        args.push("--amend".to_string());
+    }
+    args
+}
+
+/// First line of a multi-line Git message, for one-line status text.
+pub fn first_line(text: &str) -> &str {
+    text.lines().next().unwrap_or("")
+}
+
+/// Whether a push failed because the branch has no upstream. Git's wording
+/// changed between versions, so both known messages are recognized.
+pub fn push_error_missing_upstream(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("no upstream")
+        || (message.contains("current branch")
+            && (message.contains("has no upstream branch") || message.contains("upstream branch")))
+        || message.contains("please set a upstream")
+}
+
+/// Why a branch name was rejected before Git saw it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NameError {
+    Empty,
+    Invalid,
+    Exists,
+}
+
+/// Match one literal config value using Git's extended regular expressions.
+fn exact_config_pattern(value: &str) -> String {
+    let mut pattern = String::from("^");
+    for character in value.chars() {
+        if r"\.^$|?*+()[]{}".contains(character) {
+            pattern.push('\\');
+        }
+        pattern.push(character);
+    }
+    pattern.push('$');
+    pattern
+}
+
+/// Validate a branch name against Git ref rules and the existing local
+/// branches. `allow` exempts one name from the duplicate check, which rename
+/// needs because the old name is still listed.
+pub fn validate_branch_name(
+    name: &str,
+    existing: &[String],
+    allow: Option<&str>,
+) -> Option<NameError> {
+    if name.is_empty() {
+        return Some(NameError::Empty);
+    }
+    if name.starts_with(['-', '.', '/'])
+        || name.ends_with(['/', '.'])
+        || name.ends_with(".lock")
+        || name.contains("..")
+        || name.contains("//")
+        || name.contains("@{")
+        || name
+            .chars()
+            .any(|c| matches!(c, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\') || c.is_control())
+    {
+        return Some(NameError::Invalid);
+    }
+    if allow != Some(name) && existing.iter().any(|branch| branch == name) {
+        return Some(NameError::Exists);
+    }
+    None
+}
+
+/// The patch filename suggested when exporting a comparison.
+pub fn suggested_patch_filename(base: &CompareRevision, target: &CompareRevision) -> String {
+    augur_core::git::suggested_patch_filename(base, target)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(action: GitAction) -> Vec<String> {
+        action.args().expect("valid action")
+    }
+
+    #[test]
+    fn remote_operations_pin_the_expected_arguments() {
+        assert_eq!(args(GitAction::Fetch), ["fetch", "--all", "--prune"]);
+        // Both flags are load-bearing: `--prune-tags` deletes the tags the
+        // remotes dropped, `--force` updates a tag that was moved upstream.
+        assert_eq!(
+            args(GitAction::SyncTags),
+            ["fetch", "--all", "--prune", "--prune-tags", "--force"]
+        );
+        assert_eq!(args(GitAction::PullMerge), ["pull"]);
+        assert_eq!(args(GitAction::PullRebase), ["pull", "--rebase"]);
+        assert_eq!(args(GitAction::Push), ["push"]);
+        assert_eq!(args(GitAction::PushForce), ["push", "--force"]);
+        assert_eq!(
+            args(GitAction::Rebase {
+                target: RebaseTarget::Branch {
+                    name: "feature/topic".into()
+                }
+            }),
+            ["rebase", "refs/heads/feature/topic"]
+        );
+        assert_eq!(
+            args(GitAction::Rebase {
+                target: RebaseTarget::Commit {
+                    sha: "a".repeat(40)
+                }
+            }),
+            ["rebase", "a".repeat(40).as_str()]
+        );
+        assert_eq!(
+            args(GitAction::Reset {
+                mode: ResetMode::Soft,
+                expected_head: "b".repeat(40),
+                target_oid: "a".repeat(40)
+            }),
+            ["reset", "--soft", "a".repeat(40).as_str()]
+        );
+        assert_eq!(
+            args(GitAction::Reset {
+                mode: ResetMode::Hard,
+                expected_head: "b".repeat(40),
+                target_oid: "a".repeat(40)
+            }),
+            ["reset", "--hard", "a".repeat(40).as_str()]
+        );
+        assert_eq!(
+            args(GitAction::PushSetUpstream {
+                remote: "origin".into(),
+                branch: "main".into()
+            }),
+            ["push", "--set-upstream", "origin", "main"]
+        );
+        assert_eq!(
+            args(GitAction::PushDeleteRemote {
+                remote: "origin".into(),
+                branch: "old".into()
+            }),
+            ["push", "origin", "--delete", "old"]
+        );
+        assert_eq!(
+            args(GitAction::PushDeleteTag {
+                remote: "origin".into(),
+                name: "v1".into()
+            }),
+            ["push", "origin", "--delete", "refs/tags/v1"]
+        );
+        let delete_tag = GitAction::PushDeleteTag {
+            remote: "origin".into(),
+            name: "v1".into(),
+        };
+        assert_eq!(delete_tag.label(), "push --delete-tag");
+        assert!(delete_tag.refreshes_after_success());
+    }
+
+    #[test]
+    fn remote_scoped_operations_name_their_target() {
+        // One remote is fetched, not every remote, and only its own stale
+        // branches are pruned.
+        assert_eq!(
+            args(GitAction::FetchRemote {
+                remote: "origin".into()
+            }),
+            ["fetch", "origin", "--prune"]
+        );
+        // The remote and the branch are named, so the pull never follows the
+        // upstream the current branch happens to track.
+        assert_eq!(
+            args(GitAction::PullFrom {
+                remote: "origin".into(),
+                branch: "main".into(),
+                rebase: false
+            }),
+            ["pull", "origin", "main"]
+        );
+        assert_eq!(
+            args(GitAction::PullFrom {
+                remote: "origin".into(),
+                branch: "main".into(),
+                rebase: true
+            }),
+            ["pull", "--rebase", "origin", "main"]
+        );
+        // `HEAD` is the source, so the branch that is checked out is the one
+        // published, and a detached HEAD can be published too.
+        assert_eq!(
+            args(GitAction::PushTo {
+                remote: "origin".into(),
+                branch: "main".into(),
+                force: false
+            }),
+            ["push", "origin", "HEAD:main"]
+        );
+        assert_eq!(
+            args(GitAction::PushTo {
+                remote: "origin".into(),
+                branch: "main".into(),
+                force: true
+            }),
+            ["push", "--force", "origin", "HEAD:main"]
+        );
+    }
+
+    #[test]
+    fn remote_scoped_labels_name_the_target_and_route_their_results() {
+        let fetch = GitAction::FetchRemote {
+            remote: "origin".into(),
+        };
+        assert_eq!(fetch.label(), "fetch origin");
+        assert!(fetch.refreshes_after_success());
+
+        let pull = GitAction::PullFrom {
+            remote: "origin".into(),
+            branch: "main".into(),
+            rebase: false,
+        };
+        assert_eq!(pull.label(), "pull origin main");
+        assert!(pull.refreshes_after_success());
+        // A merge pull needs no merge preflight, exactly like the plain pull.
+        assert!(!pull.needs_merge_preflight());
+        assert!(!pull.needs_rebase_preflight());
+
+        let rebase = GitAction::PullFrom {
+            remote: "origin".into(),
+            branch: "main".into(),
+            rebase: true,
+        };
+        assert_eq!(rebase.label(), "pull --rebase origin main");
+        assert!(rebase.needs_rebase_preflight());
+
+        let push = GitAction::PushTo {
+            remote: "origin".into(),
+            branch: "main".into(),
+            force: false,
+        };
+        assert_eq!(push.label(), "push origin main");
+        assert!(push.refreshes_after_success());
+
+        let force = GitAction::PushTo {
+            remote: "origin".into(),
+            branch: "main".into(),
+            force: true,
+        };
+        assert_eq!(force.label(), "push --force origin main");
+    }
+
+    #[test]
+    fn remote_scoped_wire_shapes_deserialize() {
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "fetchRemote", "remote": "origin"
+        }))
+        .expect("fetch remote wire shape");
+        assert_eq!(args(wire), ["fetch", "origin", "--prune"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "pullFrom", "remote": "origin", "branch": "main", "rebase": true
+        }))
+        .expect("pull from wire shape");
+        assert_eq!(args(wire), ["pull", "--rebase", "origin", "main"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "pushTo", "remote": "origin", "branch": "main", "force": false
+        }))
+        .expect("push to wire shape");
+        assert_eq!(args(wire), ["push", "origin", "HEAD:main"]);
+    }
+
+    #[test]
+    fn remote_tag_rename_creates_the_new_ref_and_deletes_the_old_one() {
+        let rename = GitAction::PushRenameTag {
+            remote: "origin".into(),
+            old: "v1".into(),
+            new: "v2".into(),
+        };
+        assert_eq!(
+            args(rename.clone()),
+            [
+                "push",
+                "origin",
+                "refs/tags/v1:refs/tags/v2",
+                ":refs/tags/v1"
+            ]
+        );
+        assert_eq!(rename.label(), "push --rename-tag");
+        assert!(rename.refreshes_after_success());
+    }
+
+    #[test]
+    fn remote_rename_creates_the_new_ref_and_deletes_the_old_one() {
+        assert_eq!(
+            args(GitAction::PushRenameRemote {
+                remote: "origin".into(),
+                old: "a".into(),
+                new: "b".into()
+            }),
+            [
+                "push",
+                "origin",
+                "refs/remotes/origin/a:refs/heads/b",
+                ":refs/heads/a"
+            ]
+        );
+    }
+
+    #[test]
+    fn remote_rename_is_typed_validated_and_refreshes() {
+        let action: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "remoteRename", "oldName": "origin", "newName": "primary"
+        }))
+        .unwrap();
+        assert_eq!(
+            action.args().unwrap(),
+            ["remote", "rename", "origin", "primary"]
+        );
+        assert_eq!(action.label(), "remote rename");
+        assert!(action.refreshes_after_success());
+        for invalid in ["", "-bad", "a b", "a..b", "x\n"] {
+            assert!(
+                GitAction::RemoteRename {
+                    old_name: "origin".into(),
+                    new_name: invalid.into()
+                }
+                .args()
+                .is_err()
+            );
+            assert!(
+                GitAction::RemoteRename {
+                    old_name: invalid.into(),
+                    new_name: "primary".into()
+                }
+                .args()
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn editing_a_remote_url_matches_its_raw_config_value_literally() {
+        let action = GitAction::RemoteSetUrl {
+            name: "origin".into(),
+            url: "git@example.com:repo.git".into(),
+            old_url: Some("short:Org/repo.git?x=[a]+(b)".into()),
+        };
+        assert_eq!(
+            action.args().unwrap(),
+            [
+                "config",
+                "remote.origin.url",
+                "git@example.com:repo.git",
+                r"^short:Org/repo\.git\?x=\[a\]\+\(b\)$"
+            ]
+        );
+        assert_eq!(action.label(), "remote set-url");
+        assert!(action.refreshes_after_success());
+    }
+
+    #[test]
+    fn remote_configuration_operations_preserve_each_argument() {
+        let cases = [
+            (
+                GitAction::RemoteAdd {
+                    name: "upstream".into(),
+                    url: "https://example.com/a repo.git".into(),
+                },
+                vec![
+                    "remote",
+                    "add",
+                    "upstream",
+                    "https://example.com/a repo.git",
+                ],
+                "remote add",
+            ),
+            (
+                GitAction::RemoteSetUrl {
+                    name: "origin".into(),
+                    url: "git@example.com:project.git".into(),
+                    old_url: None,
+                },
+                vec!["remote", "set-url", "origin", "git@example.com:project.git"],
+                "remote set-url",
+            ),
+            (
+                GitAction::RemoteRemove {
+                    name: "upstream".into(),
+                },
+                vec!["remote", "remove", "upstream"],
+                "remote remove",
+            ),
+        ];
+        for (action, expected, label) in cases {
+            assert_eq!(args(action.clone()), expected);
+            assert_eq!(action.label(), label);
+            assert!(action.refreshes_after_success());
+        }
+    }
+
+    #[test]
+    fn checkout_picks_the_matching_switch_form() {
+        assert_eq!(
+            args(GitAction::Checkout {
+                target: CheckoutTarget::LocalBranch {
+                    local_branch: "main".into()
+                }
+            }),
+            ["switch", "main"]
+        );
+        assert_eq!(
+            args(GitAction::Checkout {
+                target: CheckoutTarget::RemoteBranch {
+                    remote_branch: "origin/topic".into()
+                }
+            }),
+            ["switch", "--track", "origin/topic"]
+        );
+        assert_eq!(
+            args(GitAction::Checkout {
+                target: CheckoutTarget::Tag { tag: "v1".into() }
+            }),
+            ["switch", "--detach", "v1"]
+        );
+        assert_eq!(
+            args(GitAction::Checkout {
+                target: CheckoutTarget::Commit {
+                    commit: "abc1234".into()
+                }
+            }),
+            ["switch", "--detach", "abc1234"]
+        );
+    }
+
+    #[test]
+    fn checkout_targets_deserialize_the_frontend_wire_shape() {
+        let targets = [
+            (
+                serde_json::json!({ "kind": "localBranch", "localBranch": "topic/name" }),
+                CheckoutTarget::LocalBranch {
+                    local_branch: "topic/name".into(),
+                },
+            ),
+            (
+                serde_json::json!({ "kind": "remoteBranch", "remoteBranch": "origin/topic" }),
+                CheckoutTarget::RemoteBranch {
+                    remote_branch: "origin/topic".into(),
+                },
+            ),
+            (
+                serde_json::json!({ "kind": "tag", "tag": "v1.2" }),
+                CheckoutTarget::Tag { tag: "v1.2".into() },
+            ),
+            (
+                serde_json::json!({ "kind": "commit", "commit": "abc1234" }),
+                CheckoutTarget::Commit {
+                    commit: "abc1234".into(),
+                },
+            ),
+        ];
+
+        for (wire, expected) in targets {
+            assert_eq!(
+                serde_json::from_value::<CheckoutTarget>(wire).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn creating_a_branch_also_checks_it_out() {
+        // The dialog says "Creates and checks out a new branch", so `branch`
+        // alone would leave the reader on the old branch. `switch -c` does both.
+        assert_eq!(
+            args(GitAction::CreateBranch {
+                name: "feature/tauri".into()
+            }),
+            ["switch", "-c", "feature/tauri"]
+        );
+    }
+
+    #[test]
+    fn branch_deletion_covers_normal_force_and_tag_variants() {
+        assert_eq!(
+            args(GitAction::DeleteBranch {
+                name: "f".into(),
+                force: false
+            }),
+            ["branch", "-d", "f"]
+        );
+        assert_eq!(
+            args(GitAction::DeleteBranch {
+                name: "f".into(),
+                force: true
+            }),
+            ["branch", "-D", "f"]
+        );
+        assert_eq!(
+            args(GitAction::DeleteTag { name: "v1".into() }),
+            ["tag", "-d", "v1"]
+        );
+    }
+
+    #[test]
+    fn merge_toggles_the_no_ff_flag() {
+        assert_eq!(
+            args(GitAction::Merge {
+                source: "f".into(),
+                no_ff: false
+            }),
+            ["merge", "f"]
+        );
+        assert_eq!(
+            args(GitAction::Merge {
+                source: "f".into(),
+                no_ff: true
+            }),
+            ["merge", "f", "--no-ff"]
+        );
+    }
+
+    #[test]
+    fn commit_and_amend_keep_the_message_as_one_argument() {
+        assert_eq!(
+            args(GitAction::Commit {
+                message: "subject\n\nbody".into(),
+                amend: false
+            }),
+            ["commit", "-m", "subject\n\nbody"]
+        );
+        assert_eq!(
+            args(GitAction::Commit {
+                message: "fixed".into(),
+                amend: true
+            }),
+            ["commit", "-m", "fixed", "--amend"]
+        );
+    }
+
+    #[test]
+    fn stash_pop_targets_the_newest_or_one_explicit_entry() {
+        assert_eq!(
+            args(GitAction::StashPop { stash_ref: None }),
+            ["stash", "pop"]
+        );
+        assert_eq!(
+            args(GitAction::StashPop {
+                stash_ref: Some("stash@{2}".into())
+            }),
+            ["stash", "pop", "stash@{2}"]
+        );
+        assert_eq!(
+            args(GitAction::StashDrop {
+                stash_ref: "stash@{2}".into()
+            }),
+            ["stash", "drop", "stash@{2}"]
+        );
+    }
+
+    #[test]
+    fn stash_pop_abort_resets_the_worktree_and_keeps_its_label_routable() {
+        assert_eq!(args(GitAction::AbortStashApply), ["reset", "--hard"]);
+        assert_eq!(GitAction::AbortStashApply.label(), "stash pop abort");
+        assert!(GitAction::AbortStashApply.refreshes_after_success());
+    }
+
+    #[test]
+    fn labels_route_merge_and_rebase_results() {
+        assert_eq!(
+            GitAction::Merge {
+                source: "f".into(),
+                no_ff: true
+            }
+            .label(),
+            "merge --no-ff"
+        );
+        assert_eq!(GitAction::AbortRebase.label(), "rebase --abort");
+        assert_eq!(GitAction::PullRebase.label(), "pull --rebase");
+        assert!(GitAction::PullRebase.needs_rebase_preflight());
+        assert!(!GitAction::PullMerge.needs_rebase_preflight());
+        assert!(
+            GitAction::Merge {
+                source: "f".into(),
+                no_ff: false
+            }
+            .needs_merge_preflight()
+        );
+    }
+
+    #[test]
+    fn only_mutating_actions_trigger_a_refresh() {
+        assert!(GitAction::Fetch.refreshes_after_success());
+        // The tag list only updates when the snapshot is re-read afterwards.
+        assert!(GitAction::SyncTags.refreshes_after_success());
+        assert!(
+            GitAction::Checkout {
+                target: CheckoutTarget::LocalBranch {
+                    local_branch: "m".into()
+                }
+            }
+            .refreshes_after_success()
+        );
+        assert!(
+            GitAction::Reset {
+                mode: ResetMode::Soft,
+                expected_head: "a".repeat(40),
+                target_oid: "b".repeat(40)
+            }
+            .refreshes_after_success()
+        );
+        assert!(!GitAction::CopyCommitMessage { oid: "a".into() }.refreshes_after_success());
+    }
+
+    #[test]
+    fn branch_name_validation_matches_git_ref_rules() {
+        let refs = vec!["main".to_string(), "feature/one".to_string()];
+        assert_eq!(validate_branch_name("dev", &refs, None), None);
+        assert_eq!(validate_branch_name("topic+.patch", &refs, None), None);
+        assert_eq!(
+            validate_branch_name("", &refs, None),
+            Some(NameError::Empty)
+        );
+        for name in [
+            "-dev", ".hidden", "a..b", "a b", "a~b", "a^b", "a:b", "a?b", "a*b", "a[b", "a\\b",
+            "a@{b", "a.lock", "a/", "a.", "/a", "a//b",
+        ] {
+            assert_eq!(
+                validate_branch_name(name, &refs, None),
+                Some(NameError::Invalid),
+                "expected {name:?} to be rejected"
+            );
+        }
+        assert_eq!(
+            validate_branch_name("main", &refs, None),
+            Some(NameError::Exists)
+        );
+        assert_eq!(validate_branch_name("main", &refs, Some("main")), None);
+    }
+
+    #[test]
+    fn missing_upstream_push_errors_are_recognized() {
+        assert!(push_error_missing_upstream(
+            "fatal: The current branch main has no upstream branch."
+        ));
+        assert!(!push_error_missing_upstream(
+            "fatal: 'main' does not appear to be a git repository"
+        ));
+        assert!(!push_error_missing_upstream("permission denied"));
+    }
+
+    /// The webview sends camelCase field names, and the e2e suite stubs the
+    /// IPC layer, so only a serde round trip through the exact wire shapes
+    /// catches a field the enum would silently reject.
+    #[test]
+    fn wire_shapes_with_camel_case_fields_deserialize() {
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "merge", "source": "feature", "noFf": true
+        }))
+        .expect("merge wire shape");
+        assert_eq!(args(wire), ["merge", "feature", "--no-ff"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "rebase",
+            "target": { "kind": "commit", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+        }))
+        .expect("rebase commit target wire shape");
+        assert_eq!(args(wire), ["rebase", "a".repeat(40).as_str()]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "reset",
+            "mode": "hard",
+            "expectedHead": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "targetOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }))
+        .expect("reset action wire shape");
+        assert_eq!(args(wire), ["reset", "--hard", "a".repeat(40).as_str()]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "stashPop", "stashRef": null
+        }))
+        .expect("stash pop wire shape");
+        assert_eq!(args(wire), ["stash", "pop"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({ "action": "syncTags" }))
+            .expect("sync tags wire shape");
+        assert_eq!(wire, GitAction::SyncTags);
+        assert_eq!(
+            args(wire),
+            ["fetch", "--all", "--prune", "--prune-tags", "--force"]
+        );
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "stashDrop", "stashRef": "stash@{2}"
+        }))
+        .expect("stash drop wire shape");
+        assert_eq!(args(wire), ["stash", "drop", "stash@{2}"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "deleteBranch", "name": "old", "force": true
+        }))
+        .expect("delete branch wire shape");
+        assert_eq!(args(wire), ["branch", "-D", "old"]);
+
+        let add: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "remoteAdd", "name": "upstream", "url": "https://example.com/repo.git"
+        }))
+        .expect("remote add wire shape");
+        assert_eq!(
+            args(add),
+            ["remote", "add", "upstream", "https://example.com/repo.git"]
+        );
+
+        let set_url: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "remoteSetUrl", "name": "origin", "url": "git@example.com:repo.git"
+        }))
+        .expect("remote set-url wire shape");
+        assert_eq!(
+            args(set_url),
+            ["remote", "set-url", "origin", "git@example.com:repo.git"]
+        );
+
+        let remove: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "remoteRemove", "name": "upstream"
+        }))
+        .expect("remote remove wire shape");
+        assert_eq!(args(remove), ["remote", "remove", "upstream"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "pushDeleteTag", "remote": "origin", "name": "v1"
+        }))
+        .expect("push delete tag wire shape");
+        assert_eq!(args(wire), ["push", "origin", "--delete", "refs/tags/v1"]);
+
+        let wire: GitAction = serde_json::from_value(serde_json::json!({
+            "action": "pushRenameTag", "remote": "origin", "old": "v1", "new": "v2"
+        }))
+        .expect("push rename tag wire shape");
+        assert_eq!(
+            args(wire),
+            [
+                "push",
+                "origin",
+                "refs/tags/v1:refs/tags/v2",
+                ":refs/tags/v1"
+            ]
+        );
+    }
+}

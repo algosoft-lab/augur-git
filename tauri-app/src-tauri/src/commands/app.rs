@@ -1,24 +1,24 @@
 //! Application-level commands: settings, layout, shortcuts, windows, and
 //! platform helpers.
+//!
+//! Settings and session mutation live in the shared service layer; this module
+//! keeps the Tauri wrappers plus the desktop-only window management.
 
-use serde::Serialize;
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
 };
 
 use augur_core::config::{
-    AppConfig, CommitActionPreference, DiffLayoutPreference, LanguagePreference, LayoutSettings,
-    LocationConfig, ThemePreference, TypographySettings, ViewSettings, WindowBounds, WindowMode,
+    LanguagePreference, WindowBounds, WindowMode,
 };
 use augur_core::git::{GitError, GitRepo};
-use augur_core::keymap;
+use augur_service::error::{CommandError, Result};
+use augur_service::events::{AppEvent, OPEN_PATHS_EVENT, OpenPathsPayload, SETTINGS_NAVIGATE_EVENT};
+use augur_service::state::AppState;
 
-use crate::commands::repo::CommandError;
-use crate::events::{AppEvent, OPEN_PATHS_EVENT, OpenPathsPayload, SETTINGS_NAVIGATE_EVENT};
-use crate::state::AppState;
-
-type Result<T> = std::result::Result<T, CommandError>;
+pub use augur_service::commands::app::SettingsPatch;
+pub use augur_service::commands::repo::RepoSummary;
 
 /// The window title for a key, in the language the settings carry.
 ///
@@ -175,8 +175,8 @@ pub fn restore_main_window(app: &AppHandle, state: &AppState) {
 
 /// The bundled themes, in settings-list order.
 #[tauri::command]
-pub fn theme_options() -> Vec<ThemePreference> {
-    ThemePreference::ALL.to_vec()
+pub fn theme_options() -> Vec<augur_core::config::ThemePreference> {
+    augur_core::config::ThemePreference::ALL.to_vec()
 }
 
 /// Font families available on this machine, for the appearance settings.
@@ -195,73 +195,39 @@ pub fn list_wsl_distros() -> Vec<String> {
 /// worker runs.
 #[tauri::command]
 pub fn probe_wsl_repository(distro: String, path: String) -> std::result::Result<(), GitError> {
-    let repo: GitRepo = match LocationConfig::wsl(distro).to_repo(path) {
+    let repo: GitRepo = match augur_core::config::LocationConfig::wsl(distro).to_repo(path) {
         Ok(repo) => repo,
         Err(error) => return Err(error),
     };
     augur_core::git::probe_wsl_repository(&repo)
 }
 
-/// Every settings field the appearance and general pages can change, sent as one
-/// patch so a single round trip keeps the document consistent.
-#[derive(Clone, Debug, Default, serde::Deserialize)]
-pub struct SettingsPatch {
-    pub language: Option<LanguagePreference>,
-    pub theme: Option<ThemePreference>,
-    pub view: Option<ViewSettings>,
-    pub typography: Option<TypographySettings>,
-    pub lfs_auto_download: Option<bool>,
-    pub lfs_download_on_open: Option<bool>,
-}
-
 #[tauri::command]
 pub fn update_settings(state: State<'_, AppState>, patch: SettingsPatch) -> Result<()> {
-    state.update_settings(|settings| {
-        if let Some(language) = patch.language {
-            settings.config.language = language;
-        }
-        if let Some(theme) = patch.theme {
-            settings.config.theme = theme;
-        }
-        if let Some(view) = patch.view {
-            settings.config.view = view;
-        }
-        if let Some(typography) = patch.typography {
-            settings.config.typography = typography;
-        }
-        if let Some(enabled) = patch.lfs_auto_download {
-            settings.config.lfs_auto_download = enabled;
-        }
-        if let Some(enabled) = patch.lfs_download_on_open {
-            settings.config.lfs_download_on_open = enabled;
-        }
-    });
-    Ok(())
+    augur_service::commands::app::update_settings(&state, patch)
 }
 
 #[tauri::command]
 pub fn set_lfs_download_preferences(state: State<'_, AppState>, automatic: bool, on_open: bool) {
-    state.update_settings(|settings| {
-        settings.config.lfs_auto_download = automatic;
-        settings.config.lfs_download_on_open = on_open;
-    });
+    augur_service::commands::app::set_lfs_download_preferences(&state, automatic, on_open);
 }
 
-/// Convenience setters for the single-value preferences, so the settings page
-/// does not have to construct a full patch.
 #[tauri::command]
 pub fn set_language(state: State<'_, AppState>, language: LanguagePreference) {
-    state.update_settings(|settings| settings.config.language = language);
+    augur_service::commands::app::set_language(&state, language);
 }
 
 #[tauri::command]
-pub fn set_theme(state: State<'_, AppState>, theme: ThemePreference) {
-    state.update_settings(|settings| settings.config.theme = theme);
+pub fn set_theme(
+    state: State<'_, AppState>,
+    theme: augur_core::config::ThemePreference,
+) {
+    augur_service::commands::app::set_theme(&state, theme);
 }
 
 #[tauri::command]
-pub fn set_view(state: State<'_, AppState>, view: ViewSettings) {
-    state.update_settings(|settings| settings.config.view = view);
+pub fn set_view(state: State<'_, AppState>, view: augur_core::config::ViewSettings) {
+    augur_service::commands::app::set_view(&state, view);
 }
 
 /// Limit ongoing automatic refresh to the repository shown in the main tab.
@@ -278,31 +244,40 @@ pub fn set_auto_refresh_target(
             "only the main window can select an automatic refresh target",
         ));
     }
-    state
-        .set_auto_refresh_target(repo_id, generation)
-        .map_err(|detail| CommandError::new("err-repo-closed", detail))
+    augur_service::commands::app::set_auto_refresh_target(&state, repo_id, generation)
 }
 
 #[tauri::command]
-pub fn set_typography(state: State<'_, AppState>, typography: TypographySettings) {
-    state.update_settings(|settings| settings.config.typography = typography);
+pub fn set_typography(
+    state: State<'_, AppState>,
+    typography: augur_core::config::TypographySettings,
+) {
+    augur_service::commands::app::set_typography(&state, typography);
 }
 
 #[tauri::command]
-pub fn set_commit_action(state: State<'_, AppState>, action: CommitActionPreference) {
-    state.update_settings(|settings| settings.config.view.commit_action = action);
+pub fn set_commit_action(
+    state: State<'_, AppState>,
+    action: augur_core::config::CommitActionPreference,
+) {
+    augur_service::commands::app::set_commit_action(&state, action);
 }
 
 #[tauri::command]
-pub fn set_diff_layout(state: State<'_, AppState>, layout: DiffLayoutPreference) {
-    state.update_settings(|settings| settings.config.view.diff_layout = layout);
+pub fn set_diff_layout(
+    state: State<'_, AppState>,
+    layout: augur_core::config::DiffLayoutPreference,
+) {
+    augur_service::commands::app::set_diff_layout(&state, layout);
 }
 
 /// Replace the shared pane geometry.
 #[tauri::command]
-pub fn set_layout(state: State<'_, AppState>, layout: LayoutSettings) -> Result<()> {
-    state.update_workspace(|workspace| workspace.layout = layout);
-    Ok(())
+pub fn set_layout(
+    state: State<'_, AppState>,
+    layout: augur_core::config::LayoutSettings,
+) -> Result<()> {
+    augur_service::commands::app::set_layout(&state, layout)
 }
 
 #[tauri::command]
@@ -387,11 +362,7 @@ pub fn set_workspace_tabs(
     tabs: Vec<augur_core::config::OpenTabConfig>,
     active: Option<String>,
 ) -> Result<()> {
-    state.update_workspace_visible(|workspace| {
-        workspace.open_tabs = tabs;
-        workspace.active_tab = active;
-    });
-    Ok(())
+    augur_service::commands::app::set_workspace_tabs(&state, tabs, active)
 }
 
 /// Replace the shortcut overrides for one command. An empty key list unbinds
@@ -401,58 +372,20 @@ pub fn set_shortcut(
     state: State<'_, AppState>,
     command: String,
     keys: Option<Vec<String>>,
-) -> Result<keymap::ShortcutState> {
-    if !keymap::COMMANDS.contains(&command.as_str()) {
-        return Err(CommandError::new(
-            "err-unknown-command",
-            format!("{command} is not a remappable command"),
-        ));
-    }
-    let keys = keys
-        .map(|keys| {
-            keys.into_iter()
-                .map(|key| {
-                    keymap::normalize_combo(&key).ok_or_else(|| {
-                        CommandError::new(
-                            "err-invalid-shortcut",
-                            format!("{key} is not a valid key combination"),
-                        )
-                    })
-                })
-                .collect::<Result<Vec<_>>>()
-        })
-        .transpose()?;
-    let persistence = state.persistence();
-    let mut user = keymap::file_from_overrides(&persistence.shortcuts());
-    keymap::set_user_command(&mut user, &command, keys.clone());
-    let resolved = keymap::resolve(&keymap::system_defaults(), &user, &keymap::COMMANDS);
-    if let Some((left, right, key)) = keymap::find_conflict(&resolved) {
-        return Err(CommandError::new(
-            "err-shortcut-conflict",
-            format!("{key} is assigned to both {left} and {right}"),
-        ));
-    }
-    state.update_settings(|settings| match keys {
-        Some(keys) => {
-            settings.shortcuts.insert(command.clone(), keys);
-        }
-        None => {
-            settings.shortcuts.remove(&command);
-        }
-    });
-    Ok(state.persistence().shortcut_state())
+) -> Result<augur_core::keymap::ShortcutState> {
+    augur_service::commands::app::set_shortcut(&state, command, keys)
 }
 
 /// Validate a key combination without saving it.
 #[tauri::command]
 pub fn validate_shortcut(value: String) -> std::result::Result<Vec<String>, String> {
-    keymap::parse_combo_list(&value)
+    augur_service::commands::app::validate_shortcut(value)
 }
 
 /// Force both documents to disk.
 #[tauri::command]
 pub fn flush_state(state: State<'_, AppState>) {
-    state.persistence().flush();
+    augur_service::commands::app::flush_state(&state);
 }
 
 /// The About window, opened once and focused on repeat requests.
@@ -632,45 +565,28 @@ pub fn request_open_paths(app: AppHandle, paths: Vec<String>) {
 }
 
 /// Collect the repository paths handed over before this window was listening.
-///
-/// Draining rather than reading, so a path that arrives while the collection is
-/// in flight is not handed out twice.
 #[tauri::command]
 pub fn take_pending_paths(state: State<'_, AppState>) -> Vec<String> {
-    state.take_pending_paths()
+    augur_service::commands::app::take_pending_paths(&state)
 }
 
 /// Report a notice to every window, for operations that need no further work.
 #[tauri::command]
 pub fn notify(state: State<'_, AppState>, level: String, message: String) {
-    state
-        .persistence()
-        .notify(AppEvent::Notice { level, message });
+    augur_service::commands::app::notify(&state, level, message);
 }
 
 /// Ask the main window to re-read the active tab after the window regains
 /// focus. Returns the repository that should be refreshed.
 #[tauri::command]
-pub fn repository_summary(state: State<'_, AppState>, repo_id: u64) -> Option<RepoInfo> {
-    state.with_repo(repo_id, |session| RepoInfo {
-        id: session.id(),
-        path: session.path().to_string(),
-        location: session.location().clone(),
-    })
-}
-
-/// Minimal repository description used by window bootstraps.
-#[derive(Clone, Debug, Serialize)]
-pub struct RepoInfo {
-    pub id: u64,
-    pub path: String,
-    pub location: LocationConfig,
+pub fn repository_summary(state: State<'_, AppState>, repo_id: u64) -> Option<RepoSummary> {
+    augur_service::commands::app::repository_summary_full(&state, repo_id)
 }
 
 /// The current preferences, for windows that opened after a settings change.
 #[tauri::command]
-pub fn current_config(state: State<'_, AppState>) -> AppConfig {
-    state.config()
+pub fn current_config(state: State<'_, AppState>) -> augur_core::config::AppConfig {
+    augur_service::commands::app::current_config(&state)
 }
 
 #[cfg(test)]

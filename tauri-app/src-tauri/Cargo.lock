@@ -276,6 +276,7 @@ name = "augur-git-tauri"
 version = "0.1.0"
 dependencies = [
  "augur-core",
+ "augur-service",
  "fontdb",
  "libc",
  "log",
@@ -293,6 +294,19 @@ dependencies = [
  "tauri-plugin-store",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "augur-service"
+version = "0.1.0"
+dependencies = [
+ "augur-core",
+ "log",
+ "notify",
+ "serde",
+ "serde_json",
  "tokio",
  "uuid",
 ]
