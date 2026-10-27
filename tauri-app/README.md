@@ -17,10 +17,12 @@ its own bundle and command identities.
 
 ```text
 tauri-app/
-  index.html                 # one document served to every window
+  index.html                 # one document served to every surface
   vite.config.ts
-  src/                       # the webview
-    bridge/                  # the only module that talks to Tauri
+  src/                       # the shared interface (webview and browser)
+    bridge/                  # the only module that talks to a backend
+    bridge/transport.ts      # the Tauri and HTTP/WS transports, picked at runtime
+    platform/                # clipboard, dialogs, and window seams per runtime
     components/              # menus, dialogs, splitters, virtual list
     features/                # one folder per area of the interface
     i18n/                    # catalog lookup
@@ -29,20 +31,64 @@ tauri-app/
     tauri.conf.json
     capabilities/default.json
     crates/augur-core/       # pure Rust Git domain logic, no UI
-    src/
-      commands/              # the typed surface exposed to the webview
+    crates/augur-service/    # application service layer shared by both frontends
+    crates/augur-server/     # the axum web server frontend
+    src/                     # the Tauri shell: command wrappers, windows, menu
+      commands/              # thin Tauri wrappers over the service layer
+      sink.rs                # the desktop event sink (Tauri windows)
       drag_drop.rs           # native file-drop routing to application windows
-      events.rs              # the event protocol
-      git_args.rs            # named operations to Git argument vectors
       menu.rs                # the native menu
-      persistence.rs         # the two stored documents
-      repo.rs                # one open repository: worker plus event forwarder
-      state.rs               # application-wide state
+      persistence.rs         # the Tauri store adapter for the document trait
+      updates.rs             # the desktop updater
 ```
 
-`augur-core` is this application's platform-independent domain crate. It owns
-the Git argument construction, output parsers, commit-graph layout, diff
-parsing, and read-only state probes used by the Tauri backend.
+`augur-core` is the platform-independent domain crate: Git argument
+construction, output parsers, commit-graph layout, diff parsing, and read-only
+state probes.
+
+`augur-service` is the application layer both frontends share. It owns the
+application state, open-repository sessions, the durable documents, the askpass
+bridge, the clone pipeline, and the typed command bodies. It links no UI
+framework: a frontend injects an `EventSink` for event delivery and
+`DocumentStore` implementations for persistence.
+
+`augur-server` serves the same service layer to browsers: one axum process
+hosts the built frontend, a `/api/invoke/:command` endpoint that speaks the
+same command names and parameter spellings as the Tauri invoke protocol, a
+websocket that fans the service events out to every tab, and an authenticated
+`/api/browse` endpoint that backs the web folder picker.
+
+## Web server (LAN access)
+
+The web frontend serves the same interface to any browser on the network, so a
+repository on a headless host, an SSH box, or a WSL distribution can be driven
+without a desktop build there:
+
+```bash
+cd src-tauri
+cargo run -p augur-server -- --host 0.0.0.0 --port 8321
+```
+
+Build the frontend first (`bun run build`, which produces `dist/`), or point
+`--assets DIR` at another build. The server:
+
+- requires an access token by default. One is generated, printed to the
+  terminal, and kept in the configuration directory; open
+  `http://host:port/?token=...` once and the browser remembers it for the
+  session. `--token T` sets one explicitly and `--no-token` disables the check
+  for a fully trusted network.
+- keeps one set of open repositories shared by every connected tab, exactly as
+  the desktop process does across its windows.
+- shows HTTPS credential prompts in the browser through the same
+  credential-request event the desktop webview receives.
+- confines the web folder picker to the server's home directory, or to
+  `--repo-root DIR` when given. `--repo-root /` browses everything.
+- has no updater, CLI installation, or window management: those desktop-only
+  surfaces are hidden in the browser, and About, Settings, and Compare open as
+  page navigations instead of separate windows.
+
+Run the server where the repositories live; there is no WSL or SSH remoting
+layer to configure.
 
 ## Main window modes
 

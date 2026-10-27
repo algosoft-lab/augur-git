@@ -129,3 +129,19 @@ fn is_within(root: &std::path::Path, path: &std::path::Path) -> bool {
     }
     clean.starts_with(&root)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn containment_rejects_lexical_escapes() {
+        let root = std::path::Path::new("/srv/repos");
+        assert!(is_within(root, std::path::Path::new("/srv/repos/a")));
+        assert!(is_within(root, std::path::Path::new("/srv/repos")));
+        assert!(is_within(root, std::path::Path::new("/srv/repos/a/../b")));
+        assert!(!is_within(root, std::path::Path::new("/srv/repos/../etc")));
+        assert!(!is_within(root, std::path::Path::new("/etc")));
+        assert!(!is_within(root, std::path::Path::new("/srv/reposities")));
+    }
+}

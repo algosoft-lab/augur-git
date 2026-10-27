@@ -361,3 +361,60 @@ async fn forward_events(context: ServerContext, mut socket: WebSocket) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_comparison_ignores_timing_but_not_content() {
+        assert!(constant_time_eq("secret", "secret"));
+        assert!(!constant_time_eq("secret", "secrets"));
+        assert!(!constant_time_eq("secret", "secretx"));
+        assert!(!constant_time_eq("", "secret"));
+        assert!(constant_time_eq("", ""));
+    }
+
+    #[test]
+    fn an_explicit_token_short_circuits_the_token_file() {
+        let directory = std::env::temp_dir().join(format!(
+            "augur-token-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let options = Options {
+            host: String::new(),
+            port: 0,
+            token: Some("given".into()),
+            no_token: false,
+            assets: None,
+            config_dir: Some(directory.clone()),
+            repo_root: None,
+        };
+        assert_eq!(options.resolve_token(&directory).as_deref(), Some("given"));
+        assert!(!directory.join("token").exists());
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[test]
+    fn opting_out_disables_authentication() {
+        let directory = std::env::temp_dir().join(format!(
+            "augur-token-off-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let options = Options {
+            host: String::new(),
+            port: 0,
+            token: None,
+            no_token: true,
+            assets: None,
+            config_dir: Some(directory.clone()),
+            repo_root: None,
+        };
+        assert_eq!(options.resolve_token(&directory), None);
+        std::fs::remove_dir_all(directory).ok();
+    }
+}

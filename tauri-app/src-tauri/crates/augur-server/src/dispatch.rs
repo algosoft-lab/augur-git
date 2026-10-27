@@ -317,3 +317,95 @@ fn web_font_families() -> Vec<String> {
     .map(|name| name.to_string())
     .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use augur_service::state::ServiceStartup;
+    use augur_service::store::JsonFileStore;
+    use std::sync::Arc;
+
+    async fn test_state() -> Arc<AppState> {
+        let directory = std::env::temp_dir().join(format!(
+            "augur-dispatch-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        let settings = JsonFileStore::open_in(&directory, "settings.json").unwrap();
+        let workspace = JsonFileStore::open_in(&directory, "workspace.json").unwrap();
+        Arc::new(AppState::new(
+            Arc::new(crate::sink::BroadcastSink::new(16)),
+            ServiceStartup {
+                settings_store: Arc::new(settings),
+                workspace_store: Arc::new(workspace),
+                warnings: Vec::new(),
+            },
+        ))
+    }
+
+    #[tokio::test]
+    async fn bootstrap_answers_with_the_web_window_role() {
+        let state = test_state().await;
+        let value = dispatch(&state, "bootstrap", serde_json::json!({})).await.unwrap();
+        assert_eq!(value["window"], "web");
+        assert!(value["config"].is_object());
+        assert!(value["catalogs"].is_object());
+    }
+
+    #[tokio::test]
+    async fn pure_commands_answer_without_a_repository() {
+        let state = test_state().await;
+        let themes = dispatch(&state, "theme_options", serde_json::json!({}))
+            .await
+            .unwrap();
+        assert!(themes.as_array().expect("theme list").len() > 3);
+
+        let layout = dispatch(
+            &state,
+            "graph_layout",
+            serde_json::json!({ "rows": [], "remoteNames": [] }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(layout["graph"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn snake_case_arguments_are_accepted_like_the_desktop_sends_them() {
+        let state = test_state().await;
+        let value = dispatch(
+            &state,
+            "column_visibility",
+            serde_json::json!({ "total_width": 1200.0, "tree_width": 300.0 }),
+        )
+        .await
+        .unwrap();
+        assert!(value["author"].is_boolean());
+    }
+
+    #[tokio::test]
+    async fn an_unknown_command_is_refused_with_a_key() {
+        let state = test_state().await;
+        let error = dispatch(&state, "not_a_command", serde_json::json!({}))
+            .await
+            .unwrap_err();
+        assert_eq!(error.key, "err-unknown-command");
+    }
+
+    #[tokio::test]
+    async fn a_missing_required_argument_names_the_parameter() {
+        let state = test_state().await;
+        let error = dispatch(&state, "refresh_repository", serde_json::json!({}))
+            .await
+            .unwrap_err();
+        assert_eq!(error.key, "err-invalid-parameters");
+        assert!(error.detail.contains("repoId"), "{}", error.detail);
+    }
+
+    #[test]
+    fn camel_case_names_convert_for_the_fallback_lookup() {
+        assert_eq!(camel_to_snake("repoId"), "repo_id");
+        assert_eq!(camel_to_snake("operationId"), "operation_id");
+        assert_eq!(camel_to_snake("path"), "path");
+    }
+}
