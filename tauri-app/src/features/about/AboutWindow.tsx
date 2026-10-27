@@ -8,11 +8,11 @@
 
 import { useStore } from '../../app/store';
 import * as ipc from '../../bridge/ipc';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { t, ta } from '../../i18n/strings';
 import { IS_MACOS } from '../shell/WindowControls';
 import { handleTitleBarMouseDown } from '../shell/titleBarDrag';
 import { HomebrewUpgradeHint } from '../updates/HomebrewUpgradeHint';
+import { openExternal } from '../../platform';
 
 const releaseUrl = 'https://github.com/algosoft-lab/augur-git/releases';
 
@@ -163,7 +163,7 @@ export function AboutWindow() {
               type="button"
               className="primary-button"
               data-testid="open-release-page"
-              onClick={() => void openUrl(releaseUrl).catch(() => undefined)}
+              onClick={() => void openExternal(releaseUrl).catch(() => undefined)}
             >
               {t(translate, 'open-release-page')}
             </button>

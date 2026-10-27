@@ -8,9 +8,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { copyText } from '../../platform';
+import { pickSavePath } from '../../platform';
 
-import { save } from '@tauri-apps/plugin-dialog';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 import { Icon } from '../../components/Icon';
 import { EmptyState, Spinner } from '../../components/controls';
@@ -462,10 +462,10 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
             if (repoId === null || !left || !right) {
               return;
             }
-            const destination = await save({
-              defaultPath: suggestedPatchFilename(left, right),
-              filters: [{ name: 'Patch', extensions: ['patch', 'diff'] }]
-            });
+            const destination = await pickSavePath(
+              t(translate, 'branch-compare-export'),
+              suggestedPatchFilename(left, right)
+            );
             if (typeof destination !== 'string') {
               return;
             }
@@ -599,7 +599,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
               onClick={() => {
                 const document = selected ? documents[selected.new_path] : undefined;
                 if (document) {
-                  void writeText(document.copy_text).then(() => {
+                  void copyText(document.copy_text).then(() => {
                     setExportState(t(translate, 'branch-compare-copy-success'));
                   });
                 }
@@ -639,7 +639,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
             onCopy={
               sections.length
                 ? () => {
-                    void writeText(
+                    void copyText(
                       sections
                         .map(
                           (entry) => `diff -- ${entry.path}

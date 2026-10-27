@@ -7,8 +7,9 @@
  * others without a second source of truth.
  */
 
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { create } from 'zustand';
+import { copyText } from '../platform';
+import { isWeb } from '../bridge/transport';
 
 import * as ipc from '../bridge/ipc';
 import type {
@@ -1121,6 +1122,10 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
     },
 
     async setWindowMode(mode) {
+      if (isWeb) {
+        // The browser owns the window geometry; the modes are desktop-only.
+        return;
+      }
       const workspace = await ipc.setWindowMode(mode);
       set({ workspace });
     },
@@ -1154,7 +1159,7 @@ export const useStore = create<AppStore>((storeSet, storeGet) => {
           });
         }
         if (event.success) {
-          void writeText(event.message);
+          void copyText(event.message);
         }
         return;
       }

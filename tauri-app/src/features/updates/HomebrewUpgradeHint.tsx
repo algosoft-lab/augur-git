@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { copyText } from '../../platform';
 
 import { useStore } from '../../app/store';
 import { Icon } from '../../components/Icon';
@@ -33,7 +33,7 @@ export function HomebrewUpgradeHint() {
   );
 
   const copy = () => {
-    void writeText(HOMEBREW_UPGRADE_COMMAND).then(() => {
+    void copyText(HOMEBREW_UPGRADE_COMMAND).then(() => {
       setCopied(true);
       if (resetTimer.current) clearTimeout(resetTimer.current);
       resetTimer.current = setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);

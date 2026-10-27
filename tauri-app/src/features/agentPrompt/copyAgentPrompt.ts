@@ -1,8 +1,8 @@
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 import * as ipc from '../../bridge/ipc';
 import type { AgentPromptRequest } from '../../bridge/types';
 import { useStore } from '../../app/store';
+import { copyText } from '../../platform';
 
 export async function copyAgentPrompt(
   repoId: number,
@@ -22,7 +22,7 @@ export async function copyAgentPrompt(
   }
 
   try {
-    await writeText(prompt);
+    await copyText(prompt);
   } catch {
     useStore
       .getState()

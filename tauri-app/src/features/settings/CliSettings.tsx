@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import * as ipc from '../../bridge/ipc';
 import type { CliStatus } from '../../bridge/types';
 import { useStore } from '../../app/store';
 import { t } from '../../i18n/strings';
+import { copyText } from '../../platform';
 
 export function CliSettings() {
   const translate = useStore((state) => state.t);
@@ -141,7 +141,7 @@ export function CliSettings() {
                 data-testid="cli-copy-path"
                 onClick={() => {
                   setError('');
-                  void writeText(status.pathCommand!).then(
+                  void copyText(status.pathCommand!).then(
                     () => setCopied(true),
                     (error) => setError(String(error))
                   );

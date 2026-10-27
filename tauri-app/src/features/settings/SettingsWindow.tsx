@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { openExternal } from '../../platform';
 
 import { CliSettings } from './CliSettings';
 import { GitConfigSettings } from './GitConfigSettings';
@@ -239,7 +239,7 @@ function LfsSettingsSection() {
             <button
               type="button"
               className="tool-button"
-              onClick={() => void openUrl('https://git-lfs.com').catch(() => undefined)}
+              onClick={() => void openExternal('https://git-lfs.com').catch(() => undefined)}
             >
               {t(translate, 'lfs-install-guide')}
             </button>

@@ -8,8 +8,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { copyText } from '../../platform';
 
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 import { EmptyState, Splitter } from '../../components/controls';
 import { Icon } from '../../components/Icon';
@@ -213,7 +213,7 @@ export function BottomPanel({
     if (!sections.length) {
       return;
     }
-    void writeText(
+    void copyText(
       sections.map((entry) => `diff -- ${entry.path}\n${entry.document.copy_text}`).join('')
     );
   };

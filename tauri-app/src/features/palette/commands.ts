@@ -1,4 +1,5 @@
 import * as ipc from '../../bridge/ipc';
+import { updatesSupported } from '../../platform';
 import { t, ta } from '../../i18n/strings';
 import { THEME_GROUPS } from '../../styles/theme-catalog';
 import { activeRepo, hasLocalBranches, useStore } from '../../app/store';
@@ -307,7 +308,7 @@ export function buildPaletteCommands(): PaletteCommand[] {
     'app',
     t(state.t, 'check-for-updates'),
     ['updates', 'update', 'version', 'upgrade'],
-    true,
+    updatesSupported,
     async () => {
       try {
         const status = await ipc.checkForUpdates();

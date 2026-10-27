@@ -236,6 +236,10 @@ async fn dispatch_typed(
         )
         .await),
 
+        // The web frontend has no updater; a null snapshot reads as "no
+        // update information" instead of an error on every boot.
+        "get_update_snapshot" => res(Ok(Value::Null)),
+
         // The server has no windows to open; the shared frontend hides these
         // entry points in web mode, and a stray call is a no-op.
         "open_about_window" | "open_settings_window" | "open_compare_window"

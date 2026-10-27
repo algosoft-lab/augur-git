@@ -8,8 +8,8 @@
  */
 
 import { useLayoutEffect, useRef, useState } from 'react';
+import { copyText } from '../../platform';
 
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 import { Icon } from '../../components/Icon';
 import type { ContextMenuEntry } from '../../components/controls';
@@ -135,7 +135,7 @@ export function Sidebar({
   };
 
   const copy = (value: string) => {
-    void writeText(value).then(() => {
+    void copyText(value).then(() => {
       setMessage(repo.id, ta(translate, 'context-copied', { name: value }), true);
     });
   };

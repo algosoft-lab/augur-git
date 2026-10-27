@@ -7,9 +7,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { pickDirectory, hasNativeWindow } from '../../platform';
 
-import { open } from '@tauri-apps/plugin-dialog';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import { useStore } from '../../app/store';
 import * as ipc from '../../bridge/ipc';
@@ -43,11 +42,7 @@ export function MainWindow() {
   const toggleWindowModeRef = useRef<() => void>(() => undefined);
 
   const pickFolder = async () => {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: t(translate, 'repo-folder-prompt')
-    });
+    const selected = await pickDirectory(t(translate, 'repo-folder-prompt'));
     if (typeof selected === 'string') {
       await openPaths([selected]);
     }
@@ -105,6 +100,10 @@ export function MainWindow() {
       }, 450);
     };
     void (async () => {
+      if (!hasNativeWindow) {
+        return;
+      }
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
       const mainWindow = getCurrentWindow();
       const resized = await mainWindow.onResized(persistBounds);
       if (cancelled) resized();

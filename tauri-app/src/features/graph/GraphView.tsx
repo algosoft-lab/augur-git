@@ -8,8 +8,8 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { copyText } from '../../platform';
 
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 import { Icon } from '../../components/Icon';
 import { ContextMenu, EmptyState, Menu, TextInput, VirtualList } from '../../components/controls';
@@ -413,7 +413,7 @@ export function GraphView({
                   });
                 }}
                 onCopyOid={() => {
-                  void writeText(row.oid).then(() => {
+                  void copyText(row.oid).then(() => {
                     setMessage(repo.id, ta(translate, 'context-copied', { name: row.short }), true);
                   });
                 }}

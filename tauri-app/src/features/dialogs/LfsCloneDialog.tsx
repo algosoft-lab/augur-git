@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
+import { pickDirectory } from '../../platform';
 
 import { Icon } from '../../components/Icon';
 import { Checkbox, DialogCard, TextInput } from '../../components/controls';
@@ -39,7 +39,7 @@ export function LfsCloneDialog() {
   }, [operationId]);
 
   const chooseParent = async () => {
-    const selected = await open({ directory: true, multiple: false, title: t(translate, 'clone-parent-title') });
+    const selected = await pickDirectory(t(translate, 'clone-parent-title'));
     if (typeof selected === 'string') setParent(selected);
   };
 

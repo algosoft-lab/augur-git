@@ -1,9 +1,9 @@
-import { openUrl } from '@tauri-apps/plugin-opener';
 
 import { useStore } from '../../app/store';
 import * as ipc from '../../bridge/ipc';
 import { t, ta } from '../../i18n/strings';
 import { HomebrewUpgradeHint } from '../updates/HomebrewUpgradeHint';
+import { openExternal } from '../../platform';
 
 const releaseUrl = 'https://github.com/algosoft-lab/augur-git/releases';
 
@@ -53,7 +53,7 @@ export function UpdateNoticeCard() {
           className="primary-button"
           onClick={() => {
             if (isWindowsInstaller) void ipc.openAboutWindow();
-            else void openUrl(releaseUrl).catch(() => undefined);
+            else void openExternal(releaseUrl).catch(() => undefined);
           }}
         >
           {isWindowsInstaller ? t(translate, 'review-update') : t(translate, 'open-release-page')}

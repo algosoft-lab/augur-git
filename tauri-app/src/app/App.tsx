@@ -9,6 +9,9 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import * as ipc from '../bridge/ipc';
+import { isWeb, onTransportResumed } from '../bridge/transport';
+import { reportFocus } from '../platform';
+import { DirectoryPicker } from '../features/dialogs/DirectoryPicker';
 import { AboutWindow } from '../features/about/AboutWindow';
 import { CompareWindow } from '../features/compare/CompareWindow';
 import { MainWindow } from '../features/shell/MainWindow';
@@ -71,6 +74,33 @@ export function App() {
   // start-up is a readable message rather than an unstyled white page.
   useEffect(() => {
     applyTheme(document.documentElement, DEFAULT_THEME, DEFAULT_TYPOGRAPHY);
+  }, []);
+
+  // The web runtime reports the browser's focus so the auto-refresh monitor
+  // treats the visible tab like the desktop's focused main window, and a tab
+  // that lost events to a dropped socket resynchronizes with one reload.
+  useEffect(() => {
+    if (!isWeb) {
+      return;
+    }
+    const onFocus = () => reportFocus(true);
+    const onBlur = () => reportFocus(false);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur', onBlur);
+    reportFocus(true);
+    let lastReload = 0;
+    const disposeResume = onTransportResumed(() => {
+      const now = Date.now();
+      if (now - lastReload > 10_000) {
+        lastReload = now;
+        window.location.reload();
+      }
+    });
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur', onBlur);
+      disposeResume();
+    };
   }, []);
 
   useEffect(() => {
@@ -309,7 +339,12 @@ export function App() {
     surface = <MainWindow />;
   }
 
-  return <WindowErrorBoundary>{surface}</WindowErrorBoundary>;
+  return (
+    <WindowErrorBoundary>
+      {surface}
+      <DirectoryPicker />
+    </WindowErrorBoundary>
+  );
 }
 
 /**

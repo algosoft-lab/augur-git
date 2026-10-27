@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
+import { hasNativeWindow } from '../../platform';
 
 import { Icon } from '../../components/Icon';
 import { DialogCard, Menu, ToolButton, type MenuItemSpec } from '../../components/controls';
@@ -430,6 +430,11 @@ export function triggerPush(repo: RepoState): void {
 
 /** Ask for a patch file and apply it. Plain `git apply` is atomic. */
 async function choosePatchFile(): Promise<string | null> {
+  if (!hasNativeWindow) {
+    // The web frontend has no file dialog; patch application stays desktop-only.
+    return null;
+  }
+  const { open } = await import('@tauri-apps/plugin-dialog');
   const selected = await open({
     multiple: false,
     directory: false,

@@ -6,10 +6,30 @@
  * the event names exist in exactly one place.
  */
 
-import { invoke } from '@tauri-apps/api/core';
-import { emit, listen } from '@tauri-apps/api/event';
-import type { UnlistenFn } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { createTransport, type Transport, type UnlistenFn } from './transport';
+
+/**
+ * The single transport instance for this runtime. The module is imported for
+ * its side effects everywhere, so the promise resolves before any window code
+ * runs its first effect.
+ */
+let transportPromise: Promise<Transport> | null = null;
+
+function the(): Promise<Transport> {
+  transportPromise ??= createTransport();
+  return transportPromise;
+}
+
+async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  return (await the()).invoke<T>(command, args);
+}
+
+async function listen<T>(
+  event: string,
+  handler: (event: { payload: T }) => void
+): Promise<UnlistenFn> {
+  return (await the()).listen<T>(event, (payload) => handler({ payload }));
+}
 
 import type {
   AppConfig,
@@ -562,22 +582,34 @@ export function onOpenPaths(handler: (paths: string[]) => void): Promise<Unliste
 }
 
 export function onDropPaths(handler: (paths: string[]) => void): Promise<UnlistenFn> {
-  return getCurrentWindow().listen<{ paths: string[] }>(DROP_EVENT, (event) =>
-    handler(event.payload.paths)
-  );
+  return windowListen<{ paths: string[] }>(DROP_EVENT, (event) => handler(event.payload.paths));
+}
+
+async function windowListen<T>(
+  event: string,
+  handler: (event: { payload: T }) => void
+): Promise<UnlistenFn> {
+  return (await the()).windowListen<T>(event, (payload) => handler({ payload }));
 }
 
 export function onDragState(
   handler: (state: { label: string; active: boolean }) => void
 ): Promise<UnlistenFn> {
-  return getCurrentWindow().listen<{ label: string; active: boolean }>(DRAG_STATE_EVENT, (event) =>
+  return windowListen<{ label: string; active: boolean }>(DRAG_STATE_EVENT, (event) =>
     handler(event.payload)
   );
 }
 
 /** Tell the backend to open paths in the window that owns the tab list. */
 export async function emitOpenPaths(paths: string[]): Promise<void> {
-  await emit(OPEN_PATHS_EVENT, { paths });
+  await (await the()).emit(OPEN_PATHS_EVENT, { paths });
+}
+
+export { isDesktop, isWeb, onTransportResumed } from './transport';
+
+/** Report the primary client's focus for the auto-refresh monitor. */
+export function setMainWindowFocused(focused: boolean): Promise<void> {
+  return invoke<void>('set_main_window_focused', { focused });
 }
 
 export function getCliStatus(): Promise<import('./types').CliStatus> {

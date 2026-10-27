@@ -2,6 +2,8 @@ import { useState } from 'react';
 
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
+import { hasNativeWindow } from '../../platform';
+
 import { Icon } from '../../components/Icon';
 import { t } from '../../i18n/strings';
 import { useStore } from '../../app/store';
@@ -18,6 +20,10 @@ export function WindowControls({
 }) {
   const translate = useStore((state) => state.t);
   const [maximized, setMaximized] = useState(false);
+  if (!hasNativeWindow) {
+    // The browser supplies its own window chrome.
+    return null;
+  }
 
   if (IS_MACOS) {
     return null;
