@@ -8,7 +8,13 @@ a prompt is matched to an entry, and which limits are deliberate.
 
 Git reaches the application through its askpass bridge: every spawned Git
 command inherits `GIT_ASKPASS`, and Git's per-operation prompt is forwarded over
-a loopback socket. Three outcomes are possible, in this order:
+a loopback socket. Git executes that program itself and appends the prompt as
+its only argument, so the value holds a path and nothing else; the application
+recognises the helper call from the bridge variables every Git child inherits.
+The same dispatch runs in `augur-server`, otherwise a prompt would start a
+second server instead of an answer.
+
+Three outcomes are possible, in this order:
 
 1. **Answered from storage.** When `auto-fill` is on and an entry matches the
    prompt, the value is returned without a dialog. The username and password

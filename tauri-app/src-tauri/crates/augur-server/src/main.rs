@@ -40,10 +40,39 @@ struct ServerContext {
 
 #[tokio::main]
 async fn main() {
+    // Git spawns this binary as its askpass bridge and as its credential
+    // helper. Both have to return before any server work happens, or the
+    // prompt would start a second server instead of an answer.
+    if augur_service::askpass::is_helper_invocation() {
+        match augur_service::askpass::run_helper() {
+            Ok(()) => std::process::exit(0),
+            Err(error) => {
+                eprintln!("augur-git-server: the askpass helper could not answer: {error}");
+                std::process::exit(1);
+            }
+        }
+    }
+    if std::env::args_os().nth(1).as_deref()
+        == Some(std::ffi::OsStr::new("--git-credential-helper"))
+    {
+        let operation = std::env::args_os()
+            .nth(2)
+            .map(|value| value.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        match augur_service::credentials::run_helper(&operation) {
+            Ok(()) => std::process::exit(0),
+            Err(error) => {
+                eprintln!("augur-git-server: the credential helper could not answer: {error}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     // The keychain client logs its D-Bus handshake at INFO; keep the server log
     // about this application.
     env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info,zbus=warn,secret_service=warn,tracing=warn"),
+        env_logger::Env::default()
+            .default_filter_or("info,zbus=warn,secret_service=warn,tracing=warn"),
     )
     .init();
 

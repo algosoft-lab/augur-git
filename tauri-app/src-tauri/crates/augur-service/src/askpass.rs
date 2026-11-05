@@ -15,6 +15,7 @@
 //!   "show one field, remember nothing" behaviour.
 
 use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -589,6 +590,52 @@ pub fn respond_login(
     }
 }
 
+/// Whether this process was started by Git as its askpass helper.
+///
+/// Git executes `GIT_ASKPASS` directly — no shell — and appends the prompt as
+/// the only argument, so the value cannot carry a mode flag. The mode is
+/// instead recognised from the bridge variables every spawned Git process
+/// inherits. `--git-askpass` is still accepted, for a wrapper script that
+/// names this binary with the flag.
+pub fn is_helper_invocation() -> bool {
+    let address = std::env::var("AUGUR_GIT_ASKPASS_ADDR").ok();
+    let token = std::env::var("AUGUR_GIT_ASKPASS_TOKEN").ok();
+    let arguments = std::env::args_os().skip(1).collect::<Vec<_>>();
+    helper_invocation(address.as_deref(), token.as_deref(), &arguments)
+}
+
+fn helper_invocation(address: Option<&str>, token: Option<&str>, arguments: &[OsString]) -> bool {
+    let configured = address.is_some_and(|value| !value.trim().is_empty())
+        && token.is_some_and(|value| !value.trim().is_empty());
+    if !configured {
+        return false;
+    }
+    match arguments {
+        // Git passed the prompt. A flag here means this is a normal launch.
+        [prompt] => prompt
+            .to_str()
+            .is_some_and(|value| !value.is_empty() && !value.starts_with('-')),
+        [flag, prompt] => {
+            flag == OsStr::new("--git-askpass")
+                && prompt
+                    .to_str()
+                    .is_some_and(|value| !value.trim().is_empty())
+        }
+        _ => false,
+    }
+}
+
+/// The Git prompt, with any legacy mode flag removed.
+fn prompt_from_arguments(mut arguments: Vec<OsString>) -> String {
+    arguments
+        .iter()
+        .position(|value| value == OsStr::new("--git-askpass"))
+        .map(|index| arguments.remove(index + 1))
+        .unwrap_or_else(|| arguments.into_iter().next().unwrap_or_default())
+        .to_string_lossy()
+        .into_owned()
+}
+
 /// Entry point used when Git launches this application as its askpass helper.
 pub fn run_helper() -> Result<(), String> {
     let address = std::env::var("AUGUR_GIT_ASKPASS_ADDR")
@@ -597,10 +644,7 @@ pub fn run_helper() -> Result<(), String> {
         .map_err(|_| "Git askpass is not configured".to_string())?;
     let operation_id = std::env::var("AUGUR_GIT_OP_ID").unwrap_or_default();
     let repository = std::env::var("AUGUR_GIT_REPO_PATH").unwrap_or_default();
-    let prompt = std::env::args_os()
-        .nth(1)
-        .map(|value| value.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let prompt = prompt_from_arguments(std::env::args_os().skip(1).collect());
     let mut stream = TcpStream::connect(address).map_err(|error| error.to_string())?;
     write_frame(&mut stream, token.as_bytes())?;
     write_frame(&mut stream, operation_id.as_bytes())?;
@@ -658,6 +702,68 @@ mod tests {
         let mut client = TcpStream::connect(address).unwrap();
         assert_eq!(read_frame(&mut client).unwrap(), b"secret with spaces");
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn an_askpass_launch_is_recognised_by_the_prompt_git_appends() {
+        let arguments = vec![OsString::from("Username for 'https://example.com': ")];
+        assert!(helper_invocation(
+            Some("127.0.0.1:5000"),
+            Some("token"),
+            &arguments
+        ));
+    }
+
+    #[test]
+    fn a_wrapper_that_passes_the_flag_is_still_recognised() {
+        let arguments = vec![
+            OsString::from("--git-askpass"),
+            OsString::from("Password for 'https://example.com': "),
+        ];
+        assert!(helper_invocation(
+            Some("127.0.0.1:5000"),
+            Some("token"),
+            &arguments
+        ));
+    }
+
+    #[test]
+    fn a_normal_launch_is_not_mistaken_for_the_helper() {
+        // No bridge variables: Finder, a shell launch, and the second instance
+        // a user opens with a repository path all take the normal path.
+        assert!(!helper_invocation(None, None, &[OsString::from("repo")]));
+        // A flag or an extra argument is not what Git produces.
+        assert!(!helper_invocation(
+            Some("127.0.0.1:5000"),
+            Some("token"),
+            &[OsString::from("--logo"), OsString::from("x")]
+        ));
+        assert!(!helper_invocation(
+            Some("127.0.0.1:5000"),
+            Some("token"),
+            &[]
+        ));
+        // A half-configured bridge cannot answer a prompt either.
+        assert!(!helper_invocation(
+            Some(""),
+            Some("token"),
+            &[OsString::from("Username")]
+        ));
+    }
+
+    #[test]
+    fn the_prompt_survives_both_argument_layouts() {
+        assert_eq!(
+            prompt_from_arguments(vec![OsString::from("Password for 'x': ")]),
+            "Password for 'x': "
+        );
+        assert_eq!(
+            prompt_from_arguments(vec![
+                OsString::from("--git-askpass"),
+                OsString::from("Password for 'x': "),
+            ]),
+            "Password for 'x': "
+        );
     }
 
     #[test]

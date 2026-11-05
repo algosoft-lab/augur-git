@@ -241,3 +241,62 @@ fn an_ssh_passphrase_prompt_is_not_stored_or_guessed() {
     assert_eq!(read_frame(&mut stream), b"phrase");
     let _ = std::fs::remove_dir_all(directory);
 }
+
+/// Git executes `GIT_ASKPASS` itself and appends the prompt as its only
+/// argument: the value cannot carry a flag of its own. The helper recognises
+/// that shape, so the test pins the shape rather than assuming it.
+#[test]
+fn git_runs_the_askpass_program_with_the_prompt_as_its_only_argument() {
+    let directory = std::env::temp_dir().join(format!(
+        "augur-askpass-shape-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let script = directory.join("askpass");
+    let record = directory.join("arguments.txt");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$#\" \"$@\" > '{}'\nprintf 'answered\\n'\n",
+            record.display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let output = std::process::Command::new("git")
+        .env("GIT_ASKPASS", &script)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .args(["credential", "fill"])
+        .spawn()
+        .and_then(|mut child| {
+            child
+                .stdin
+                .as_mut()
+                .unwrap()
+                .write_all(b"url=https://example.invalid/repo.git\n")?;
+            child.wait_with_output()
+        })
+        .expect("git runs");
+    assert!(
+        output.status.success(),
+        "git failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let recorded = std::fs::read_to_string(&record).unwrap_or_default();
+    let mut lines = recorded.lines();
+    let count = lines.next().unwrap_or_default();
+    let argument = lines.next().unwrap_or_default();
+    assert_eq!(count, "1", "git passed {recorded:?}");
+    assert!(
+        argument.contains("example.invalid"),
+        "the prompt is the only argument: {argument:?}"
+    );
+}
