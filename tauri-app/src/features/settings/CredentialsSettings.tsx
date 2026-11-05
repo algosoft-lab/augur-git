@@ -258,7 +258,6 @@ export function CredentialsSettings() {
             <div className="credentials__row credentials__row--head" role="row">
               <span>{t(translate, 'credentials-column-host')}</span>
               <span>{t(translate, 'credentials-column-username')}</span>
-              <span>{t(translate, 'credentials-column-scope')}</span>
               <span>{t(translate, 'credentials-column-storage')}</span>
               <span>{t(translate, 'credentials-column-status')}</span>
               <span aria-hidden="true" />
@@ -272,13 +271,17 @@ export function CredentialsSettings() {
                   data-testid={`credentials-entry-${entry.id}`}
                 >
                   <span className="credentials__host" title={`${entry.protocol}://${entry.host}`}>
-                    {entry.host}
-                    {entry.pathPrefix ? (
-                      <span className="credentials__path">/{entry.pathPrefix}</span>
-                    ) : null}
+                    <span className="credentials__address">
+                      {entry.host}
+                      {entry.pathPrefix ? (
+                        <span className="credentials__path">/{entry.pathPrefix}</span>
+                      ) : null}
+                    </span>
+                    <span className="credentials__scope">
+                      {entry.scopeLabel ?? t(translate, 'credentials-scope-all')}
+                    </span>
                   </span>
                   <span className="credentials__username">{entry.username}</span>
-                  <span>{entry.scopeLabel ?? t(translate, 'credentials-scope-all')}</span>
                   <span>{storageLabel(entry.storage, translate)}</span>
                   <span className={entry.failing || !entry.secretPresent ? 'credentials__bad' : ''}>
                     {statusLabel(entry, translate)}
@@ -317,22 +320,24 @@ export function CredentialsSettings() {
             })}
           </div>
         )}
-        <div className="settings__row">
+        <div className="credentials__footer">
           <button
             type="button"
-            className="tool-button"
+            className="credentials__action credentials__action--primary"
             data-testid="credentials-add"
             onClick={() => setEditing(emptyDraft(settings.defaultStorage, null))}
           >
+            <Icon name="plus" size={14} />
             {t(translate, 'credentials-add')}
           </button>
           <button
             type="button"
-            className="tool-button"
+            className="credentials__action"
             data-testid="credentials-import"
             disabled={busy}
             onClick={importStore}
           >
+            <Icon name="download" size={14} />
             {t(translate, 'credentials-import')}
           </button>
         </div>

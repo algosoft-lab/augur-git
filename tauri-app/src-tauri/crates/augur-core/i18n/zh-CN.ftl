@@ -844,7 +844,6 @@ credentials-list-title = 已保存的账号
 credentials-list-empty = 还没有保存的账号。下一次 HTTPS 获取、推送或克隆时可以保存一个。
 credentials-column-host = 主机
 credentials-column-username = 用户名
-credentials-column-scope = 适用范围
 credentials-column-storage = 存储位置
 credentials-column-status = 状态
 credentials-scope-all = 所有仓库

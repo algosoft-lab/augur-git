@@ -951,7 +951,6 @@ credentials-list-title = Saved accounts
 credentials-list-empty = No saved accounts yet. The next HTTPS fetch, push, or clone can save one.
 credentials-column-host = Host
 credentials-column-username = Username
-credentials-column-scope = Applies to
 credentials-column-storage = Stored in
 credentials-column-status = Status
 credentials-scope-all = All repositories

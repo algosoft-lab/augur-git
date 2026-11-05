@@ -3372,7 +3372,9 @@ body .diff ::selection {
 
 .credentials__row {
   display: grid;
-  grid-template-columns: minmax(140px, 1.4fr) minmax(90px, 1fr) minmax(110px, 1.2fr) minmax(90px, 0.9fr) minmax(96px, 0.9fr) auto;
+  grid-template-columns:
+    minmax(120px, 1.6fr) minmax(78px, 0.9fr) minmax(92px, 1fr)
+    minmax(84px, 0.9fr) auto;
   align-items: center;
   gap: 10px;
   padding: 7px 10px;
@@ -3402,8 +3404,23 @@ body .diff ::selection {
   overflow-wrap: anywhere;
 }
 
+/* The host cell carries the scope as a second line, so a long address wraps
+ * inside one column instead of widening the table. */
 .credentials__host {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   font-weight: 600;
+}
+
+.credentials__address {
+  overflow-wrap: anywhere;
+}
+
+.credentials__scope {
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.68);
+  font-weight: 400;
 }
 
 .credentials__path {
@@ -3425,6 +3442,68 @@ body .diff ::selection {
   justify-content: flex-end;
 }
 
+/* The two actions that create an account use the theme's primary color, so
+ * they stand out from the row buttons next to a saved account without
+ * introducing a second accent: one filled call to action, one outlined
+ * companion that stays legible on every theme. */
+.credentials__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.credentials__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--primary-background) 60%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--primary-background) 10%, transparent);
+  color: var(--primary-background);
+  font: inherit;
+  font-size: calc(var(--ui-font-size) * 0.78);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 100ms ease,
+    border-color 100ms ease,
+    transform 80ms ease;
+}
+
+.credentials__action:hover:not(:disabled) {
+  border-color: var(--primary-background);
+  background: color-mix(in srgb, var(--primary-background) 18%, transparent);
+}
+
+.credentials__action:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.credentials__action:focus-visible {
+  outline: 2px solid var(--primary-background);
+  outline-offset: 2px;
+}
+
+.credentials__action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.credentials__action--primary {
+  border-color: var(--primary-background);
+  background: var(--primary-background);
+  color: var(--primary-foreground);
+}
+
+.credentials__action--primary:hover:not(:disabled) {
+  border-color: var(--primary-background);
+  background: color-mix(in srgb, var(--primary-background) 88%, var(--primary-foreground));
+}
+
 .credentials__test-result {
   grid-column: 1 / -1;
   color: var(--muted-foreground);
@@ -3434,12 +3513,11 @@ body .diff ::selection {
 
 @media (max-width: 720px) {
   .credentials__row {
-    grid-template-columns: minmax(120px, 1.4fr) minmax(80px, 1fr) auto;
+    grid-template-columns: minmax(110px, 1.6fr) minmax(70px, 0.9fr) auto;
   }
 
   .credentials__row > span:nth-child(3),
-  .credentials__row > span:nth-child(4),
-  .credentials__row > span:nth-child(5) {
+  .credentials__row > span:nth-child(4) {
     display: none;
   }
 }
