@@ -143,10 +143,17 @@ pub fn parse_prompt(prompt: &str) -> PromptContext {
 }
 
 /// The URL Git quotes inside its prompt.
+///
+/// Git writes `Username for 'https://example.com':`; `git-lfs` asks its own
+/// questions with Go's `%q`, so the same address arrives as
+/// `Username for "https://example.com"`. Both forms name the same remote, and
+/// an LFS operation must not fall back to the remember-nothing dialog because
+/// of a quote style.
 fn quoted_url(prompt: &str) -> Option<&str> {
-    let start = prompt.find('\'')? + 1;
-    let rest = &prompt[start..];
-    let end = rest.find('\'')?;
+    let start = prompt.find(['\'', '"'])?;
+    let quote = prompt[start..].chars().next()?;
+    let rest = &prompt[start + quote.len_utf8()..];
+    let end = rest.find(quote)?;
     Some(&rest[..end])
 }
 
@@ -315,6 +322,31 @@ mod tests {
         assert_eq!(context.protocol.as_deref(), Some("https"));
         assert_eq!(context.host.as_deref(), Some("github.com"));
         assert_eq!(context.username, None);
+    }
+
+    #[test]
+    fn an_lfs_prompt_in_double_quotes_names_the_same_remote() {
+        // git-lfs asks with Go's %q instead of Git's single quotes, and gives
+        // the address no trailing colon.
+        let context = parse_prompt("Username for \"http://gitlab01.zerolab:8000\"");
+        assert_eq!(context.kind(), PromptKind::Username);
+        assert_eq!(context.protocol.as_deref(), Some("http"));
+        assert_eq!(context.host.as_deref(), Some("gitlab01.zerolab:8000"));
+        assert_eq!(context.username, None);
+        assert!(context.is_remote());
+
+        let context = parse_prompt("Password for \"http://dev@gitlab01.zerolab:8000\": ");
+        assert_eq!(context.kind(), PromptKind::Password);
+        assert_eq!(context.host.as_deref(), Some("gitlab01.zerolab:8000"));
+        assert_eq!(context.username.as_deref(), Some("dev"));
+    }
+
+    #[test]
+    fn a_prompt_without_a_url_is_still_not_a_remote() {
+        // A passphrase question is quoted too, and must stay a raw prompt.
+        let context = parse_prompt("Enter passphrase for key '/home/dev/.ssh/id_ed25519': ");
+        assert_eq!(context.kind(), PromptKind::Other);
+        assert!(!context.is_remote());
     }
 
     #[test]

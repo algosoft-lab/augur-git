@@ -340,6 +340,19 @@ fn handle_request(
         return;
     };
     let kind = context.kind();
+    log::debug!(
+        "[git_askpass] prompt: kind={} target={}://{}{} repository={} op={}",
+        kind.as_str(),
+        target.protocol,
+        target.host,
+        target
+            .path
+            .as_deref()
+            .map(|path| format!("/{path}"))
+            .unwrap_or_default(),
+        repository.as_deref().unwrap_or("-"),
+        operation_id
+    );
 
     // A password prompt for an invocation whose stored password was already
     // used means the server refused it: mark the entry and stop offering it.
@@ -357,6 +370,10 @@ fn handle_request(
         && served.answered_password
         && kind != PromptKind::Username
     {
+        log::info!(
+            "[git_askpass] a password was asked again for op={operation_id}, so credential {} is marked failed",
+            served.entry_id
+        );
         vault.mark_failed(&served.entry_id, now_seconds());
     }
 
@@ -368,6 +385,11 @@ fn handle_request(
                 PromptKind::Other => None,
             };
             if let Some(answer) = answer {
+                log::debug!(
+                    "[git_askpass] answered {} from credential {}",
+                    kind.as_str(),
+                    resolved.entry.id
+                );
                 let _ = write_frame(&mut stream, answer.as_bytes());
                 SERVED
                     .get_or_init(|| Mutex::new(HashMap::new()))
@@ -386,6 +408,16 @@ fn handle_request(
         }
     }
 
+    log::info!(
+        "[git_askpass] asking the interface for {}://{}{}",
+        target.protocol,
+        target.host,
+        target
+            .path
+            .as_deref()
+            .map(|path| format!("/{path}"))
+            .unwrap_or_default()
+    );
     attach_login(
         sink,
         &vault,

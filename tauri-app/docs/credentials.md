@@ -28,6 +28,12 @@ Three outcomes are possible, in this order:
    SSH passphrase, anything without a quoted URL — keeps the original
    single-field, remember-nothing dialog.
 
+Git and `git-lfs` write the same question differently: Git quotes the address
+with single quotes (`Username for 'https://example.com':`), `git-lfs` uses Go's
+`%q` and no trailing colon (`Username for "https://example.com"`). Both name the
+remote, so both are matched; otherwise every LFS transfer would fall back to the
+raw prompt even though the host has an account.
+
 The remote and clone dialogs call `credential_lookup` on the address being
 edited, so an address that already has an account says so before the first
 fetch instead of surprising the user with a prompt.

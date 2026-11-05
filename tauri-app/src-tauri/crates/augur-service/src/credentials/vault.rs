@@ -402,6 +402,19 @@ impl CredentialVault {
             });
             candidates
         });
+        if candidates.is_empty() {
+            log::debug!(
+                "[credentials] no entry matches {}://{}{}",
+                target.protocol,
+                target.host,
+                target
+                    .path
+                    .as_deref()
+                    .map(|path| format!("/{path}"))
+                    .unwrap_or_default()
+            );
+            return None;
+        }
         for (_, entry) in candidates {
             match self.secrets.get(entry.storage, &entry.secret_handle()) {
                 Ok(Some(secret)) if !secret.is_empty() => {
@@ -414,12 +427,30 @@ impl CredentialVault {
                 Ok(_) if target.username.is_some() => {
                     // The username matched, so pre-filling it is still useful
                     // even when no password was kept.
+                    log::debug!(
+                        "[credentials] entry {} matches but holds no password",
+                        entry.id
+                    );
                     return Some(ResolvedCredential {
                         entry,
                         secret: None,
                     });
                 }
-                Ok(_) | Err(_) => continue,
+                Ok(_) => {
+                    log::debug!(
+                        "[credentials] entry {} matches but holds no password",
+                        entry.id
+                    );
+                    continue;
+                }
+                Err(reason) => {
+                    log::warn!(
+                        "[credentials] entry {} could not be read from {}: {reason}",
+                        entry.id,
+                        entry.storage.as_str()
+                    );
+                    continue;
+                }
             }
         }
         None
