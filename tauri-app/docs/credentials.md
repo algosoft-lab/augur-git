@@ -32,6 +32,15 @@ The remote and clone dialogs call `credential_lookup` on the address being
 edited, so an address that already has an account says so before the first
 fetch instead of surprising the user with a prompt.
 
+Cloning asks for the same thing in the same place. The clone wizard is reachable
+from **More** in the repository toolbar as well as from the welcome page, and it
+collects the remote URL first and the destination path second, so the only
+questions on screen are the two a person has an answer for. When Git needs an
+account the form appears in that card rather than over it: the wizard answers
+the prompt itself, and the standalone credential dialog stays out of the way
+while the wizard is open. Closing the wizard hands an unanswered prompt back to
+the standalone dialog.
+
 A refused password is detected, not guessed: if the same Git operation asks for
 a password a second time, the entry that answered the first time is marked
 `lastFailureAt` and is left out of automatic answers for two minutes. Without

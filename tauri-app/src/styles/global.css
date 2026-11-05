@@ -3517,6 +3517,81 @@ body .diff ::selection {
   overflow-wrap: anywhere;
 }
 
+/* The clone wizard asks one question per page. The type is larger than a form
+ * label so the question reads first, and the fields are taller so the two
+ * answers (a URL and a path) are easy to hit without precision. */
+.clone {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0 2px;
+}
+
+.clone__steps {
+  display: flex;
+  gap: 6px;
+}
+
+.clone__step {
+  height: 3px;
+  flex: 1 1 0;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.clone__step.is-active {
+  background: var(--primary-background);
+}
+
+.clone__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.clone__question {
+  font-size: calc(var(--ui-font-size) * 1.05);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.clone__remote {
+  color: var(--muted-foreground);
+  font-family: var(--mono-font-family);
+  font-size: calc(var(--ui-font-size) * 0.72);
+  overflow-wrap: anywhere;
+}
+
+.clone__field {
+  display: flex;
+  gap: 8px;
+}
+
+.clone__field .text-input {
+  min-height: 32px;
+  flex: 1 1 auto;
+  font-size: calc(var(--ui-font-size) * 0.9);
+}
+
+.clone__note {
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.72);
+  line-height: 1.45;
+}
+
+.clone__note--warn {
+  color: var(--base-red);
+}
+
+.clone__panel .text-input {
+  min-height: 32px;
+  font-size: calc(var(--ui-font-size) * 0.88);
+}
+
+.clone__panel .status-conflict {
+  font-size: calc(var(--ui-font-size) * 0.75);
+}
+
 @media (max-width: 720px) {
   .credentials__row {
     grid-template-columns: minmax(110px, 1.6fr) minmax(70px, 0.9fr) auto;

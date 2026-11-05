@@ -34,11 +34,11 @@ test('clone keeps the default LFS download choice and exposes partial recovery',
   await page.getByTestId('welcome-clone').click();
   const dialog = page.getByTestId('lfs-clone-dialog');
   await expect(dialog).toBeVisible();
-  await expect(page.getByTestId('lfs-clone-download-lfs')).toBeChecked();
 
   await page.getByTestId('lfs-clone-remote').fill('https://example.com/team/assets.git');
-  await page.getByTestId('lfs-clone-parent').fill('/tmp/checkouts');
-  await expect(page.getByTestId('lfs-clone-directory')).toHaveValue('assets');
+  await page.getByTestId('lfs-clone-continue').click();
+  await expect(page.getByTestId('lfs-clone-download-lfs')).toBeChecked();
+  await page.getByTestId('lfs-clone-destination').fill('/tmp/checkouts/assets');
   await page.getByTestId('lfs-clone-start').click();
 
   await expect(dialog).toContainText('The LFS server rejected the transfer.');

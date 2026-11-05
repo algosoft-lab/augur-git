@@ -149,6 +149,11 @@ as failed and not offered again for two minutes, so the real dialog appears
 instead of a retry loop. An unknown prompt — an SSH passphrase, anything without
 a quoted URL — keeps the previous behaviour and stores nothing.
 
+Cloning uses the same accounts. The clone wizard is available from **More** in
+the toolbar as well as from the welcome page, asks for the remote URL and then
+for the destination path, and shows the account form inside its own card when
+Git asks for one, so a private repository clones without a trip to a terminal.
+
 The optional helper (`credentials.useHelper`) registers one read-only
 `credential.helper` for the Git commands Augur Git spawns, by way of
 `GIT_CONFIG_*`; the user's own helpers still run first and nothing is written to

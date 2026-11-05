@@ -204,7 +204,16 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
     separatorBefore: true,
     onSelect: () => openOverlay({ kind: 'lfs', repoId: repo.id })
   };
+  // Cloning opens a tab of its own, so it stays reachable while a repository is
+  // open: the welcome page is the only other place that offers it.
+  const cloneItem: MenuItemSpec = {
+    id: 'clone',
+    label: t(translate, 'welcome-clone'),
+    icon: <Icon name="download" />,
+    onSelect: () => openOverlay({ kind: 'lfsClone' })
+  };
   const compactMoreItems: MenuItemSpec[] = [
+    cloneItem,
     ...branchItems,
     {
       id: 'compare',
@@ -218,7 +227,14 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
     resetItem,
     forcePushItem
   ];
-  const moreItems = [...branchItems, manageRemotesItem, manageLfsItem, resetItem, forcePushItem];
+  const moreItems = [
+    cloneItem,
+    ...branchItems,
+    manageRemotesItem,
+    manageLfsItem,
+    resetItem,
+    forcePushItem
+  ];
 
   return (
     <div className={`toolbar${compact ? ' toolbar--sidecar' : ''}`} data-testid="toolbar">
