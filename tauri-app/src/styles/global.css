@@ -3317,6 +3317,12 @@ body .diff ::selection {
  * header and the rows. A host can be long, so it wraps instead of pushing the
  * actions out of reach.
  */
+/* The saved-account table is the one field that gets easier to read with more
+ * room, so it uses the whole content column instead of the form width. */
+.credentials__list {
+  max-width: none;
+}
+
 .credentials__backends {
   gap: 8px;
 }

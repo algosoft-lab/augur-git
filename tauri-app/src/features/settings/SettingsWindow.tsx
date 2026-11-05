@@ -162,7 +162,7 @@ export function SettingsWindow({ initialSection = 'general' }: { initialSection?
           className="window-titlebar__drag"
           {...(IS_MACOS ? { 'data-tauri-drag-region': true } : {})}
         />
-        <WindowControls maximize={false} />
+        <WindowControls />
       </div>
       <div className="settings">
         <nav className="settings__nav">

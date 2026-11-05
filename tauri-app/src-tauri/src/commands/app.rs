@@ -480,11 +480,14 @@ pub async fn open_settings_window(
             )
         },
     );
+    // The window is resizable because the content is not one fixed shape: the
+    // credential table and the shortcut list need more room than the narrow
+    // default gives them.
     let builder = WebviewWindowBuilder::new(&app, label, WebviewUrl::App(url.into()))
         .title(title)
         .inner_size(780.0, 560.0)
-        .min_inner_size(780.0, 560.0)
-        .resizable(false)
+        .min_inner_size(640.0, 480.0)
+        .resizable(true)
         .decorations(cfg!(target_os = "macos"));
     #[cfg(target_os = "macos")]
     let builder = builder

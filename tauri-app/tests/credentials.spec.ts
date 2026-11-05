@@ -31,6 +31,15 @@ test('credential settings reports backends and adds an account', async ({ page }
   await expect(table).toContainText('github.com');
   await expect(table).toContainText('dev');
   await expect(table).toContainText('team');
+
+  // The row actions have to stay inside the table; they used to be pushed past
+  // its right edge, where the clipped column could not be clicked.
+  const bounds = (await table.boundingBox())!;
+  for (const action of ['credentials-edit-cred-1', 'credentials-delete-cred-1']) {
+    const box = (await page.getByTestId(action).boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
+    expect(box.x).toBeGreaterThanOrEqual(bounds.x);
+  }
   expect(await stub.commandNames()).toEqual(
     expect.arrayContaining(['credential_snapshot', 'save_credential'])
   );

@@ -243,7 +243,7 @@ export function CredentialsSettings() {
       </div>
 
       <div
-        className="settings__field settings__search-target"
+        className="settings__field settings__search-target credentials__list"
         data-testid="settings-field-credentials-list"
       >
         <span className="settings__label">{t(translate, 'credentials-list-title')}</span>
