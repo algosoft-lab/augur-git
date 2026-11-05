@@ -57,6 +57,14 @@ import type {
   LfsFile,
   LfsLock,
   LfsProgressEvent,
+  CredentialInput,
+  CredentialLoginAnswer,
+  CredentialLookup,
+  CredentialLoginResult,
+  CredentialSettingsPatch,
+  CredentialSnapshot,
+  CredentialTest,
+  ImportOutcome,
   LfsCredentialRequest,
   LfsRepositoryPreferences,
   LfsRepositoryState,
@@ -414,6 +422,43 @@ export function onLfsCloneProgress(handler: (event: CloneProgressEvent) => void)
 
 export async function respondToLfsCredential(requestId: string, response: string | null): Promise<boolean> {
   return invoke('lfs_credential_response', { requestId, response });
+}
+
+export async function credentialSnapshot(): Promise<CredentialSnapshot> {
+  return invoke('credential_snapshot');
+}
+
+export async function updateCredentialSettings(
+  patch: CredentialSettingsPatch
+): Promise<CredentialSnapshot> {
+  return invoke('update_credential_settings', { patch });
+}
+
+export async function saveCredential(input: CredentialInput): Promise<CredentialSnapshot> {
+  return invoke('save_credential', { input });
+}
+
+export async function deleteCredential(id: string): Promise<CredentialSnapshot> {
+  return invoke('delete_credential', { id });
+}
+
+export async function respondToCredentialLogin(
+  requestId: string,
+  answer: CredentialLoginAnswer
+): Promise<CredentialLoginResult> {
+  return invoke('credential_login_response', { requestId, answer });
+}
+
+export async function importGitCredentials(): Promise<ImportOutcome> {
+  return invoke('import_git_credentials');
+}
+
+export async function lookupCredential(url: string): Promise<CredentialLookup> {
+  return invoke('credential_lookup', { url });
+}
+
+export async function testCredential(id: string): Promise<CredentialTest> {
+  return invoke('test_credential', { id });
 }
 
 export function onLfsCredentialRequest(handler: (request: LfsCredentialRequest) => void): Promise<UnlistenFn> {

@@ -31,7 +31,8 @@ tauri-app/
     tauri.conf.json
     capabilities/default.json
     crates/augur-core/       # pure Rust Git domain logic, no UI
-    crates/augur-service/    # application service layer shared by both frontends
+    crates/augur-service/    # application service layer shared by both frontends,
+                             # including the credential vault and askpass bridge
     crates/augur-server/     # the axum web server frontend
     src/                     # the Tauri shell: command wrappers, windows, menu
       commands/              # thin Tauri wrappers over the service layer
@@ -47,8 +48,9 @@ construction, output parsers, commit-graph layout, diff parsing, and read-only
 state probes.
 
 `augur-service` is the application layer both frontends share. It owns the
-application state, open-repository sessions, the durable documents, the askpass
-bridge, the clone pipeline, and the typed command bodies. It links no UI
+application state, open-repository sessions, the durable documents, the
+credential vault with its askpass bridge, the clone pipeline, and the typed
+command bodies. It links no UI
 framework: a frontend injects an `EventSink` for event delivery and
 `DocumentStore` implementations for persistence.
 
@@ -131,6 +133,32 @@ worked on one remote at a time without losing the wide operations.
 A pull that rebases is checked before it starts, exactly like the toolbar's
 pull, and a push that would publish a branch to a remote it does not track yet
 is confirmed first.
+
+## HTTPS credentials
+
+Git's HTTPS prompts — fetch, push, clone, submodules, and Git LFS alike — arrive
+in the interface through the async askpass bridge that used to be memory-only.
+The settings window's Credentials section turns them into saved accounts: one
+entry per protocol, host, optional path prefix, username, and scope, with the
+secret in the system keychain, in memory for the session, or in a `0600` file
+that has to be enabled first. A password is never written into the settings
+document, and the interface never reads one back.
+
+Saved entries answer a prompt directly. A password the server refuses is marked
+as failed and not offered again for two minutes, so the real dialog appears
+instead of a retry loop. An unknown prompt — an SSH passphrase, anything without
+a quoted URL — keeps the previous behaviour and stores nothing.
+
+The optional helper (`credentials.useHelper`) registers one read-only
+`credential.helper` for the Git commands Augur Git spawns, by way of
+`GIT_CONFIG_*`; the user's own helpers still run first and nothing is written to
+their Git configuration. `import ~/.git-credentials` reads the plaintext file
+Git's own `store` helper maintains and moves it into the keychain when one is
+available.
+
+`docs/credentials.md` has the data model, the matching rules, the command list,
+and the deliberate limits (WSL repositories keep their own credentials, and SSH
+keys, proxy authentication, and OAuth are out of scope).
 
 ## Global Git configuration
 

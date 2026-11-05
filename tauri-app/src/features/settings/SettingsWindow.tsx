@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 import { openExternal } from '../../platform';
 
 import { CliSettings } from './CliSettings';
+import { CredentialsSettings } from './CredentialsSettings';
 import { GitConfigSettings } from './GitConfigSettings';
 
 import { Icon } from '../../components/Icon';
@@ -42,6 +43,7 @@ type Section = SettingsSection;
 const SECTIONS: { id: Section; key: string }[] = [
   { id: 'general', key: 'settings-general' },
   { id: 'git', key: 'settings-git' },
+  { id: 'credentials', key: 'settings-credentials' },
   { id: 'lfs', key: 'settings-lfs' },
   { id: 'appearance', key: 'settings-appearance' },
   { id: 'layout', key: 'settings-layout' },
@@ -190,6 +192,7 @@ export function SettingsWindow({ initialSection = 'general' }: { initialSection?
           />
           {section === 'general' ? <GeneralSection /> : null}
           {section === 'git' ? <GitConfigSettings /> : null}
+          {section === 'credentials' ? <CredentialsSettings /> : null}
           {section === 'lfs' ? <LfsSettingsSection /> : null}
           {section === 'appearance' ? <AppearanceSection fonts={fonts} /> : null}
           {section === 'layout' ? <LayoutSection /> : null}

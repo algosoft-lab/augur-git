@@ -5,8 +5,8 @@ import { Icon } from '../../components/Icon';
 import { Checkbox, DialogCard, TextInput } from '../../components/controls';
 import { useStore } from '../../app/store';
 import * as ipc from '../../bridge/ipc';
-import type { CloneProgressEvent, CloneResult } from '../../bridge/types';
-import { t } from '../../i18n/strings';
+import type { CloneProgressEvent, CloneResult, CredentialLookup } from '../../bridge/types';
+import { t, ta } from '../../i18n/strings';
 
 export function LfsCloneDialog() {
   const translate = useStore((state) => state.t);
@@ -18,6 +18,19 @@ export function LfsCloneDialog() {
   const [directoryName, setDirectoryName] = useState('');
   const [downloadLfs, setDownloadLfs] = useState(config.lfs_auto_download);
   const [busy, setBusy] = useState(false);
+  const [savedAccount, setSavedAccount] = useState<CredentialLookup | null>(null);
+
+  useEffect(() => {
+    setSavedAccount(null);
+    if (!remote.trim()) return;
+    const timer = window.setTimeout(() => {
+      void ipc
+        .lookupCredential(remote)
+        .then((result) => setSavedAccount(result.saved ? result : null))
+        .catch(() => setSavedAccount(null));
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [remote]);
   const [operationId, setOperationId] = useState<string | null>(null);
   const [progress, setProgress] = useState<CloneProgressEvent | null>(null);
   const [error, setError] = useState('');
@@ -105,6 +118,14 @@ export function LfsCloneDialog() {
                 autoFocus
                 testId="lfs-clone-remote"
               />
+              {savedAccount?.saved && savedAccount.username ? (
+                <div
+                  className="settings__hint"
+                  data-testid="clone-saved-account"
+                >
+                  {ta(translate, 'remotes-saved-account', { username: savedAccount.username })}
+                </div>
+              ) : null}
               <label className="settings__label" htmlFor="lfs-clone-parent">{t(translate, 'clone-parent-label')}</label>
               <div className="settings__row">
                 <TextInput id="lfs-clone-parent" value={parent} onChange={setParent} monospace disabled={busy} testId="lfs-clone-parent" />

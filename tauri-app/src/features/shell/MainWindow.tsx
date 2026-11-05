@@ -22,7 +22,7 @@ import { SidecarWindow } from './SidecarWindow';
 import { UpdateNoticeCard } from './UpdateNoticeCard';
 import { DropOverlay } from './DropOverlay';
 import { CommandPalette } from '../palette/CommandPalette';
-import { LfsCredentialPrompt } from '../dialogs/LfsCredentialPrompt';
+import { CredentialPrompt } from '../dialogs/CredentialPrompt';
 
 export function MainWindow() {
   const translate = useStore((state) => state.t);
@@ -199,7 +199,7 @@ export function MainWindow() {
       )}
       {windowMode === 'sidecar' ? null : <StatusBar repo={activeRepo} />}
       <Overlays wslOpen={wslOpen} onWslOpenChange={setWslOpen} onOpenPaths={openPaths} />
-      <LfsCredentialPrompt />
+      <CredentialPrompt />
       <CommandPalette />
       <UpdateNoticeCard />
       {notice ? (

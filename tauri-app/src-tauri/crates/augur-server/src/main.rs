@@ -40,7 +40,12 @@ struct ServerContext {
 
 #[tokio::main]
 async fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // The keychain client logs its D-Bus handshake at INFO; keep the server log
+    // about this application.
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info,zbus=warn,secret_service=warn,tracing=warn"),
+    )
+    .init();
 
     let options = Options::parse(std::env::args().skip(1));
     let host = options.host.clone();
@@ -52,15 +57,21 @@ async fn main() {
     let workspace_store = JsonFileStore::open_in(&config_dir, "workspace.json")
         .expect("the workspace document opens");
 
+    let secrets = augur_service::credentials::SecretStores::with_plaintext(
+        Arc::new(augur_service::credentials::KeychainSecretStore::new()),
+        Some(config_dir.join("credential-secrets.json")),
+    );
     let sink = Arc::new(BroadcastSink::new(1024));
     let state = Arc::new(AppState::new(
         sink.clone(),
         ServiceStartup {
             settings_store: Arc::new(settings_store),
             workspace_store: Arc::new(workspace_store),
+            secrets,
             warnings: Vec::new(),
         },
     ));
+    let credentials = state.credentials();
 
     let token = options.resolve_token(&config_dir);
     if let Some(token) = &token {
@@ -72,7 +83,7 @@ async fn main() {
 
     // HTTPS credential prompts surface in every connected browser, exactly as
     // they surface in the desktop's webview.
-    match augur_service::askpass::AskpassServer::start(sink.clone()) {
+    match augur_service::askpass::AskpassServer::start(sink.clone(), credentials) {
         Ok(_server) => {}
         Err(error) => {
             log::warn!("[git_askpass] HTTPS credential prompts are unavailable: {error}")

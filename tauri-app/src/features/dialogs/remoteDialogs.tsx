@@ -4,6 +4,8 @@ import { Icon } from '../../components/Icon';
 import { DialogCard, Spinner, TextInput } from '../../components/controls';
 import { firstLine } from '../../app/repoState';
 import { useStore } from '../../app/store';
+import * as ipc from '../../bridge/ipc';
+import type { CredentialLookup } from '../../bridge/types';
 import { t, ta } from '../../i18n/strings';
 import { useActiveRepoId } from './useActiveRepo';
 import { validateBranchName } from './branchName';
@@ -68,6 +70,7 @@ export function ManageRemotesDialog({
   const [pending, setPending] = useState<PendingOperation | null>(null);
   const [baseline, setBaseline] = useState({ name: focus?.remote ?? '', url });
   const [leave, setLeave] = useState<{ proceed: () => void } | null>(null);
+  const [savedAccount, setSavedAccount] = useState<CredentialLookup | null>(null);
 
   const nameInput = useRef<HTMLInputElement>(null);
   const urlInput = useRef<HTMLInputElement>(null);
@@ -100,6 +103,20 @@ export function ManageRemotesDialog({
   );
   const dirty = name.trim() !== baseline.name || url.trim() !== baseline.url.trim();
   const conversion = remoteConversion(url);
+
+  // Say up front when an address already has a saved account, so the first
+  // fetch does not come as a surprise. A short delay keeps typing quiet.
+  useEffect(() => {
+    setSavedAccount(null);
+    if (!url.trim()) return;
+    const timer = window.setTimeout(() => {
+      void ipc
+        .lookupCredential(url)
+        .then((result) => setSavedAccount(result.saved ? result : null))
+        .catch(() => setSavedAccount(null));
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [url]);
 
   const navigate = (proceed: () => void) => {
     if (busy) return;
@@ -501,6 +518,14 @@ export function ManageRemotesDialog({
                   </div>
                 ) : null}
                 <div className="settings__hint">{t(translate, 'remotes-url-hint')}</div>
+                {savedAccount?.saved && savedAccount.username ? (
+                  <div
+                    className="settings__hint remote-manager__saved-account"
+                    data-testid="remote-saved-account"
+                  >
+                    {ta(translate, 'remotes-saved-account', { username: savedAccount.username })}
+                  </div>
+                ) : null}
                 {selectedRemote?.hasPushUrl ? (
                   <div className="settings__hint" data-testid="remote-push-url-hint">
                     {t(translate, 'remotes-push-url-hint')}

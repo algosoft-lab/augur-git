@@ -15,6 +15,9 @@ use augur_core::config::{
 use augur_core::git::{GitError, GitRepo, LogScope};
 
 use crate::auto_refresh::{AutoRefreshController, RefreshTarget};
+use crate::credentials::model::{CredentialSettings, CredentialSettingsPatch, CredentialSnapshot};
+use crate::credentials::secret::SecretStores;
+use crate::credentials::vault::CredentialVault;
 use crate::error::CommandError;
 use crate::persistence::{Persistence, SettingsDocument};
 use crate::repo::RepoSession;
@@ -24,6 +27,7 @@ use crate::sink::EventSink;
 /// update a counter, start a worker, or read a document.
 struct Inner {
     persistence: Arc<Persistence>,
+    credentials: Arc<CredentialVault>,
     repos: HashMap<u64, RepoSession>,
     next_repo_id: u64,
     /// Repository paths a launch asked for, waiting for the frontend to
@@ -45,6 +49,10 @@ pub struct AppState {
 pub struct ServiceStartup {
     pub settings_store: Arc<dyn crate::store::DocumentStore>,
     pub workspace_store: Arc<dyn crate::store::DocumentStore>,
+    /// The secret backends this frontend can reach. A headless server passes
+    /// the same keychain and, when the user enabled it, the same plaintext
+    /// file the desktop build would.
+    pub secrets: SecretStores,
     /// Extra load warnings the frontend produced while preparing the stores.
     pub warnings: Vec<String>,
 }
@@ -53,18 +61,26 @@ impl AppState {
     pub fn new(sink: Arc<dyn EventSink>, startup: ServiceStartup) -> Self {
         let (persistence, load_warnings) = Persistence::load(
             sink.clone(),
-            startup.settings_store,
+            startup.settings_store.clone(),
             startup.workspace_store,
         );
+        let (credentials, credential_warnings) =
+            CredentialVault::load(startup.settings_store, startup.secrets.clone());
         let config = persistence.config();
         let auto_refresh_enabled = config.view.auto_refresh;
         configure_lfs_policy(&config);
-        for warning in load_warnings.warnings.into_iter().chain(startup.warnings) {
+        for warning in load_warnings
+            .warnings
+            .into_iter()
+            .chain(credential_warnings)
+            .chain(startup.warnings)
+        {
             log::warn!("[store] {warning}");
         }
-        Self {
+        let state = Self {
             inner: Mutex::new(Inner {
                 persistence: Arc::new(persistence),
+                credentials: Arc::new(credentials),
                 repos: HashMap::new(),
                 next_repo_id: 1,
                 pending_paths: Vec::new(),
@@ -74,6 +90,67 @@ impl AppState {
             sink,
             auto_refresh: AutoRefreshController::new(auto_refresh_enabled),
             focused: AtomicBool::new(false),
+        };
+        state.sync_credential_helper();
+        state
+    }
+
+    /// The credential vault, shared with the askpass bridge.
+    pub fn credentials(&self) -> Arc<CredentialVault> {
+        self.with(|inner| inner.credentials.clone())
+    }
+
+    pub fn credential_snapshot(&self) -> CredentialSnapshot {
+        self.credentials().snapshot()
+    }
+
+    /// Apply an interface change and re-wire the Git helper when it flipped.
+    pub fn update_credential_settings(
+        &self,
+        patch: CredentialSettingsPatch,
+    ) -> Result<CredentialSnapshot, CommandError> {
+        let snapshot = self
+            .credentials()
+            .update_settings(patch)
+            .map_err(|detail| CommandError::new("err-credential-settings", detail))?;
+        self.sync_credential_helper();
+        Ok(snapshot)
+    }
+
+    /// Keep the child-process helper in step with the saved preference.
+    fn sync_credential_helper(&self) {
+        let settings: CredentialSettings = self.credentials().settings();
+        if !settings.use_helper {
+            augur_core::git::location::configure_git_credential_bridge(None);
+            return;
+        }
+        let document = self
+            .persistence()
+            .credential_document_path()
+            .map(|path| path.to_string_lossy().into_owned());
+        let executable = std::env::current_exe()
+            .ok()
+            .map(|path| path.to_string_lossy().into_owned());
+        match (document, executable) {
+            (Some(document), Some(executable)) => {
+                augur_core::git::location::configure_git_credential_bridge(Some(
+                    augur_core::git::location::GitCredentialBridge {
+                        executable,
+                        document,
+                        secrets: self
+                            .credentials()
+                            .secrets()
+                            .plaintext_path()
+                            .map(|path| path.to_string_lossy().into_owned()),
+                    },
+                ));
+            }
+            _ => {
+                log::warn!(
+                    "[git_credential] the helper cannot be configured without a settings file path"
+                );
+                augur_core::git::location::configure_git_credential_bridge(None);
+            }
         }
     }
 
@@ -271,6 +348,8 @@ impl AppState {
 
     /// Persist the final snapshot and stop every worker.
     pub fn shutdown(&self) {
+        augur_core::git::location::configure_git_credential_bridge(None);
+        self.credentials().flush();
         self.auto_refresh.shutdown();
         let sessions: Vec<RepoSession> =
             self.with(|inner| inner.repos.drain().map(|(_, session)| session).collect());

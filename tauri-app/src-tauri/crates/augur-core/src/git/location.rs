@@ -16,6 +16,7 @@
 //! type-checked for the Windows target without a full cross toolchain.
 
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{OnceLock, RwLock};
 
 #[cfg(windows)]
@@ -79,6 +80,45 @@ pub fn configure_git_askpass(environment: Option<GitAskpassEnvironment>) {
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = environment;
 }
 
+/// Per-process credential-helper bridge configured by the application.
+///
+/// Git is given one extra `credential.helper` entry through the
+/// `GIT_CONFIG_*` environment namespace. Those entries are appended after the
+/// ones in the user's files, so a system keychain helper keeps priority and
+/// this helper only runs for hosts the user has saved here.
+#[derive(Clone, Debug)]
+pub struct GitCredentialBridge {
+    /// The running executable, invoked as `--git-credential-helper`.
+    pub executable: String,
+    /// Settings document holding the credential entries.
+    pub document: String,
+    /// Plaintext secret file, when that backend is enabled.
+    pub secrets: Option<String>,
+}
+
+static GIT_CREDENTIAL_BRIDGE: OnceLock<RwLock<Option<GitCredentialBridge>>> = OnceLock::new();
+static GIT_OPERATION_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Configure the optional credential helper. `None` stops Git from consulting
+/// it, which is the default until the user opts in.
+pub fn configure_git_credential_bridge(bridge: Option<GitCredentialBridge>) {
+    let current = GIT_CREDENTIAL_BRIDGE.get_or_init(|| RwLock::new(None));
+    *current
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = bridge;
+}
+
+fn credential_bridge() -> Option<GitCredentialBridge> {
+    GIT_CREDENTIAL_BRIDGE
+        .get()
+        .and_then(|current| current.read().ok().and_then(|value| value.clone()))
+}
+
+/// Quote one argument for the shell Git uses to run `!` helpers.
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 impl GitRepo {
     /// Construct a repository handle. The worker and configuration layer are
     /// the intended constructors; tests may also use [`GitRepo::local`].
@@ -138,16 +178,45 @@ impl GitRepo {
         command.creation_flags(CREATE_NO_WINDOW);
 
         if !self.is_wsl() {
-            if let Some(environment) = GIT_ASKPASS
+            let askpass = GIT_ASKPASS
                 .get()
-                .and_then(|current| current.read().ok().and_then(|value| value.clone()))
-            {
+                .and_then(|current| current.read().ok().and_then(|value| value.clone()));
+            let bridge = credential_bridge();
+            let askpass_configured = askpass.is_some();
+            if let Some(environment) = askpass {
                 command
                     .env("GIT_ASKPASS", environment.executable)
                     .env("GIT_ASKPASS_REQUIRE", "force")
                     .env("GIT_TERMINAL_PROMPT", "0")
                     .env("AUGUR_GIT_ASKPASS_ADDR", environment.address)
                     .env("AUGUR_GIT_ASKPASS_TOKEN", environment.token);
+            }
+            if bridge.is_some() || askpass_configured {
+                // One id per Git invocation. The username and password prompts
+                // of a single operation are separate helper processes that
+                // inherit this value, which is how the bridge correlates them
+                // and how a retried password is recognised as a rejection.
+                command
+                    .env("AUGUR_GIT_OP_ID", next_operation_id())
+                    .env("AUGUR_GIT_REPO_PATH", &self.path);
+            }
+            if let Some(bridge) = bridge {
+                let helper = format!(
+                    "!{} --git-credential-helper",
+                    shell_quote(&bridge.executable)
+                );
+                let index = std::env::var("GIT_CONFIG_COUNT")
+                    .ok()
+                    .and_then(|value| value.parse::<u32>().ok())
+                    .unwrap_or(0);
+                command
+                    .env("GIT_CONFIG_COUNT", (index + 1).to_string())
+                    .env(format!("GIT_CONFIG_KEY_{index}"), "credential.helper")
+                    .env(format!("GIT_CONFIG_VALUE_{index}"), helper)
+                    .env("AUGUR_GIT_CREDENTIAL_DOC", bridge.document);
+                if let Some(secrets) = bridge.secrets {
+                    command.env("AUGUR_GIT_CREDENTIAL_SECRETS", secrets);
+                }
             }
         }
 
@@ -385,6 +454,11 @@ pub fn classify_open_failure(stderr: &str) -> &'static str {
     "err-not-a-repo"
 }
 
+fn next_operation_id() -> String {
+    let sequence = GIT_OPERATION_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{}-{sequence}", std::process::id())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -395,6 +469,58 @@ mod tests {
         assert_eq!(repo.command().get_program(), "git");
         assert_eq!(repo.path(), "/tmp/repo");
         assert!(!repo.is_wsl());
+    }
+
+    #[test]
+    fn operation_ids_differ_within_the_process() {
+        assert_ne!(next_operation_id(), next_operation_id());
+    }
+
+    #[test]
+    fn a_credential_helper_command_is_quoted_for_the_shell() {
+        assert_eq!(shell_quote("/usr/bin/augur git"), "'/usr/bin/augur git'");
+        assert_eq!(shell_quote("/tmp/it's"), "'/tmp/it'\\''s'");
+    }
+
+    /// A configured helper keeps priority: the injected one is appended after
+    /// the values Git read from the user's files.
+    #[test]
+    fn an_injected_credential_helper_is_appended_after_the_configured_helpers() {
+        let directory = std::env::temp_dir().join(format!(
+            "augur-helper-order-{}-{}",
+            std::process::id(),
+            GIT_OPERATION_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let global = directory.join("gitconfig");
+        std::fs::write(&global, "[credential]\n\thelper = osxkeychain\n").unwrap();
+        configure_git_credential_bridge(Some(GitCredentialBridge {
+            executable: "/opt/augur git".into(),
+            document: directory
+                .join("settings.json")
+                .to_string_lossy()
+                .into_owned(),
+            secrets: None,
+        }));
+        let output = GitRepo::local(directory.to_string_lossy().into_owned())
+            .command()
+            .env("GIT_CONFIG_GLOBAL", &global)
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .args(["config", "--get-all", "credential.helper"])
+            .output();
+        configure_git_credential_bridge(None);
+        let _ = std::fs::remove_dir_all(&directory);
+        let Ok(output) = output else {
+            return; // no git on the path
+        };
+        if !output.status.success() {
+            return;
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        let helpers: Vec<&str> = text.lines().collect();
+        assert_eq!(helpers.first(), Some(&"osxkeychain"), "{text}");
+        assert_eq!(helpers.len(), 2, "{text}");
+        assert_eq!(helpers[1], "!'/opt/augur git' --git-credential-helper");
     }
 
     #[test]

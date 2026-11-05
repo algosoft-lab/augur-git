@@ -368,6 +368,47 @@ function install(
     localStorage.removeItem('augur-test-settings');
   }
 
+  // Credential settings, modelled on the real snapshot the service returns.
+  const credentialState = {
+    settings: {
+      autoFill: true,
+      defaultStorage: 'keychain' as const,
+      allowPlaintext: false,
+      useHelper: false
+    },
+    entries: [] as Array<{
+      id: string;
+      protocol: string;
+      host: string;
+      pathPrefix: string | null;
+      username: string;
+      scope: { kind: 'global' } | { kind: 'repository'; location: { kind: 'local' }; path: string };
+      storage: string;
+      createdAt: number;
+      updatedAt: number;
+      lastUsedAt: number | null;
+      lastFailureAt: number | null;
+    }>
+  };
+  const credentialSnapshot = () => ({
+    settings: { ...credentialState.settings },
+    entries: credentialState.entries.map((entry) => ({
+      ...entry,
+      scopeLabel: entry.scope.kind === 'repository' ? entry.scope.path : null,
+      secretPresent: true,
+      failing: false
+    })),
+    backends: [
+      { storage: 'keychain', available: true, detail: null },
+      { storage: 'plaintext', available: true, detail: null },
+      { storage: 'session', available: true, detail: null }
+    ],
+    keychainAvailable: true,
+    plaintextAvailable: credentialState.settings.allowPlaintext,
+    plaintextPath: '/home/dev/.config/augur-git/credential-secrets.json',
+    helperActive: credentialState.settings.useHelper
+  });
+
   const typographyModifier = /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? 'cmd' : 'ctrl';
   const defaultShortcuts = [
     { command: 'app.quit', keys: ['CmdOrCtrl+Q'] },
@@ -886,6 +927,54 @@ function install(
     },
     lfs_fetch: () => 'LFS objects are up to date.',
     lfs_fsck: () => 'Git LFS fsck OK',
+    credential_snapshot: () => credentialSnapshot(),
+    update_credential_settings: (args: any) => {
+      Object.assign(credentialState.settings, args.patch);
+      return credentialSnapshot();
+    },
+    save_credential: (args: any) => {
+      const input = args.input;
+      const scope = input.scope ?? { kind: 'global' };
+      const existing = credentialState.entries.find(
+        (entry) =>
+          entry.id === input.id || (entry.host === input.host && entry.username === input.username)
+      );
+      const entry = {
+        id: existing?.id ?? `cred-${credentialState.entries.length + 1}`,
+        protocol: input.protocol,
+        host: input.host,
+        pathPrefix: input.pathPrefix ?? null,
+        username: input.username,
+        scope,
+        storage: input.storage,
+        createdAt: existing?.createdAt ?? 1,
+        updatedAt: 2,
+        lastUsedAt: null,
+        lastFailureAt: null
+      };
+      credentialState.entries = [
+        ...credentialState.entries.filter((candidate) => candidate.id !== entry.id),
+        entry
+      ];
+      return credentialSnapshot();
+    },
+    delete_credential: (args: any) => {
+      credentialState.entries = credentialState.entries.filter((entry) => entry.id !== args.id);
+      return credentialSnapshot();
+    },
+    credential_login_response: () => ({ delivered: true, stored: true, error: null }),
+    import_git_credentials: () => ({
+      source: '/home/dev/.git-credentials',
+      imported: 1,
+      skipped: 0,
+      warnings: [],
+      snapshot: credentialSnapshot()
+    }),
+    test_credential: () => ({ ok: true, key: 'credential-test-ok', detail: '' }),
+    credential_lookup: (args: any) =>
+      String(args.url ?? '').includes('github.com')
+        ? { saved: true, username: 'dev', storage: 'keychain' }
+        : { saved: false, username: null, storage: null },
     set_lfs_download_preferences: (args: any) => {
       config.lfs_auto_download = args.automatic;
       config.lfs_download_on_open = args.onOpen;

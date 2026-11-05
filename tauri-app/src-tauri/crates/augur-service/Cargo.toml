@@ -15,3 +15,6 @@ log = "0.4"
 uuid = { version = "1", features = ["v4"] }
 notify = "=8.2.0"
 tokio = { version = "1", features = ["sync", "rt"] }
+# The OS keychain is the only backend used without asking; see
+# `credentials::secret` for why the fallbacks are opt-in.
+keyring = "4"

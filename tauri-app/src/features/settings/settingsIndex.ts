@@ -62,6 +62,39 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
     targetTestId: 'settings-field-git-editor'
   },
   {
+    section: 'credentials',
+    labelKey: 'credentials-backends-title',
+    hintKey: 'credentials-description',
+    targetTestId: 'settings-field-credentials-backends'
+  },
+  {
+    section: 'credentials',
+    labelKey: 'credentials-auto-fill-title',
+    hintKey: 'credentials-auto-fill-description',
+    targetTestId: 'settings-field-credentials-auto-fill'
+  },
+  {
+    section: 'credentials',
+    labelKey: 'credentials-default-storage-title',
+    targetTestId: 'settings-field-credentials-default-storage'
+  },
+  {
+    section: 'credentials',
+    labelKey: 'credentials-allow-plaintext-title',
+    targetTestId: 'settings-field-credentials-plaintext'
+  },
+  {
+    section: 'credentials',
+    labelKey: 'credentials-helper-title',
+    hintKey: 'credentials-helper-description',
+    targetTestId: 'settings-field-credentials-helper'
+  },
+  {
+    section: 'credentials',
+    labelKey: 'credentials-list-title',
+    targetTestId: 'settings-field-credentials-list'
+  },
+  {
     section: 'lfs',
     labelKey: 'lfs-environment-title',
     targetTestId: 'settings-field-lfs-environment'
@@ -121,6 +154,7 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
 const SECTION_LABEL_KEYS: Record<SettingsSection, string> = {
   general: 'settings-general',
   git: 'settings-git',
+  credentials: 'settings-credentials',
   lfs: 'settings-lfs',
   appearance: 'settings-appearance',
   layout: 'settings-layout',

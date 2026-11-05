@@ -31,6 +31,10 @@ browsers:
 - Desktop-only surfaces (window controls, title-bar drag, updater, CLI
   installation) must gate on the flags from `src/platform/` so the browser
   build renders cleanly.
+- Secrets never travel through a settings document. The credential vault keeps
+  metadata in the `credentials` key and the secret behind
+  `credentials::secret::SecretStore`, so a command that returns a snapshot can
+  never leak a password. See `docs/credentials.md`.
 - Backend command bodies belong in `crates/augur-service`: plain functions
   over `AppState`. A `#[tauri::command]` in `src-tauri/src/` is a thin
   wrapper, and the server dispatcher in

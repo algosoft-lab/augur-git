@@ -207,15 +207,19 @@ impl Persistence {
         );
     }
 
+    /// Path of the settings file, which also holds the credential document.
+    ///
+    /// The optional credential helper reads it directly, so a terminal `git`
+    /// sees the same entries the running application does.
+    pub fn credential_document_path(&self) -> Option<std::path::PathBuf> {
+        self.settings_store.path()
+    }
+
     /// Absolute paths of the store files, shown in diagnostics.
     pub fn store_paths(&self) -> Vec<String> {
         [&self.settings_store, &self.workspace_store]
             .iter()
-            .filter_map(|store| {
-                store
-                    .path()
-                    .map(|path| path.to_string_lossy().into_owned())
-            })
+            .filter_map(|store| store.path().map(|path| path.to_string_lossy().into_owned()))
             .collect()
     }
 }

@@ -13,6 +13,7 @@ pub mod auto_refresh;
 #[cfg(unix)]
 mod cli_shell;
 pub mod commands;
+pub mod credentials;
 pub mod drag_drop;
 pub mod events;
 pub mod fonts;
@@ -83,6 +84,14 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             commands::clone::lfs_clone,
             commands::clone::cancel_lfs_clone,
             commands::lfs::lfs_credential_response,
+            commands::credentials::credential_snapshot,
+            commands::credentials::update_credential_settings,
+            commands::credentials::save_credential,
+            commands::credentials::delete_credential,
+            commands::credentials::credential_login_response,
+            commands::credentials::import_git_credentials,
+            commands::credentials::credential_lookup,
+            commands::credentials::test_credential,
             commands::repo::bootstrap,
             commands::repo::open_repository,
             commands::repo::close_repository,
@@ -152,15 +161,18 @@ pub fn run(invocation: CliInvocation, forwarded: bool) {
             let stores = persistence::open_stores(&handle);
             let sink: std::sync::Arc<dyn augur_service::sink::EventSink> =
                 std::sync::Arc::new(sink::TauriSink::new(handle.clone()));
-            app.manage(AppState::new(
+            let state = AppState::new(
                 sink.clone(),
                 augur_service::state::ServiceStartup {
                     settings_store: stores.settings,
                     workspace_store: stores.workspace,
+                    secrets: persistence::credential_secrets(&handle),
                     warnings: stores.warnings,
                 },
-            ));
-            match askpass::AskpassServer::start(sink) {
+            );
+            let credentials = state.credentials();
+            app.manage(state);
+            match askpass::AskpassServer::start(sink, credentials) {
                 Ok(server) => {
                     app.manage(server);
                 }
@@ -335,6 +347,12 @@ fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         } else {
             LevelFilter::Info
         })
+        // Reading the OS keychain opens a D-Bus session, and the Secret Service
+        // client logs every handshake at INFO. Those lines say nothing about
+        // this application and would bury the ones that do.
+        .level_for("zbus", LevelFilter::Warn)
+        .level_for("secret_service", LevelFilter::Warn)
+        .level_for("tracing", LevelFilter::Warn)
         .build()
 }
 

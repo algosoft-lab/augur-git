@@ -3,9 +3,7 @@
 
 use std::sync::Arc;
 
-pub use augur_service::persistence::{
-    LoadReport, Persistence, SettingsDocument,
-};
+pub use augur_service::persistence::{LoadReport, Persistence, SettingsDocument};
 pub use augur_service::store::DocumentStore;
 
 use tauri::AppHandle;
@@ -15,6 +13,25 @@ use tauri_plugin_store::{Store, StoreExt};
 pub const SETTINGS_FILE: &str = "settings.json";
 /// Store file holding session state.
 pub const WORKSPACE_FILE: &str = "workspace.json";
+/// File holding secrets only when the user enabled the unencrypted backend.
+pub const CREDENTIAL_SECRETS_FILE: &str = "credential-secrets.json";
+
+/// The secret backends this desktop build can reach.
+///
+/// The keychain is always attempted. The plaintext file is created only when
+/// the user enables it in the settings, so nothing is written here by default.
+pub fn credential_secrets(app: &AppHandle) -> augur_service::credentials::SecretStores {
+    let plaintext = tauri_plugin_store::resolve_store_path(app, SETTINGS_FILE)
+        .ok()
+        .and_then(|path| {
+            path.parent()
+                .map(|directory| directory.join(CREDENTIAL_SECRETS_FILE))
+        });
+    augur_service::credentials::SecretStores::with_plaintext(
+        Arc::new(augur_service::credentials::KeychainSecretStore::new()),
+        plaintext,
+    )
+}
 
 /// The stores plus any warning produced while opening them.
 pub struct TauriStores {
@@ -37,11 +54,7 @@ pub fn open_stores(app: &AppHandle) -> TauriStores {
     }
 }
 
-fn open_store(
-    app: &AppHandle,
-    name: &str,
-    warnings: &mut Vec<String>,
-) -> Arc<dyn DocumentStore> {
+fn open_store(app: &AppHandle, name: &str, warnings: &mut Vec<String>) -> Arc<dyn DocumentStore> {
     match app.store_builder(name).build() {
         Ok(store) => Arc::new(TauriDocumentStore {
             store,

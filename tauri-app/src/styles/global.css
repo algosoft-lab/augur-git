@@ -3310,3 +3310,136 @@ body .diff ::selection {
     max-height: 64px;
   }
 }
+
+/* ===== Credential settings =====
+ * The table is a grid rather than a <table>: rows carry per-row actions and a
+ * test result that spans the width, and column widths stay aligned across the
+ * header and the rows. A host can be long, so it wraps instead of pushing the
+ * actions out of reach.
+ */
+.credentials__backends {
+  gap: 8px;
+}
+
+.credentials__backend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--list-active-background);
+}
+
+.credentials__status {
+  min-width: 84px;
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.7);
+  font-weight: 600;
+}
+
+.credentials__status.is-available {
+  color: var(--base-green, var(--foreground));
+}
+
+.credentials__backend-name {
+  font-size: calc(var(--ui-font-size) * 0.78);
+  font-weight: 600;
+}
+
+.credentials__backend-detail {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.credentials__warning {
+  color: var(--base-red);
+}
+
+.credentials__error {
+  color: var(--base-red);
+  overflow-wrap: anywhere;
+}
+
+.credentials__table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.credentials__row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.4fr) minmax(90px, 1fr) minmax(110px, 1.2fr) minmax(90px, 0.9fr) minmax(96px, 0.9fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--border);
+  font-size: calc(var(--ui-font-size) * 0.75);
+}
+
+.credentials__row:first-child {
+  border-top: none;
+}
+
+.credentials__row:not(.credentials__row--head):hover {
+  background: var(--list-hover-background);
+}
+
+.credentials__row--head {
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.68);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: var(--list-active-background);
+}
+
+.credentials__row > span {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.credentials__host {
+  font-weight: 600;
+}
+
+.credentials__path {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+
+.credentials__username {
+  overflow-wrap: anywhere;
+}
+
+.credentials__bad {
+  color: var(--base-red);
+}
+
+.credentials__actions {
+  display: inline-flex;
+  gap: 2px;
+  justify-content: flex-end;
+}
+
+.credentials__test-result {
+  grid-column: 1 / -1;
+  color: var(--muted-foreground);
+  font-size: calc(var(--ui-font-size) * 0.7);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .credentials__row {
+    grid-template-columns: minmax(120px, 1.4fr) minmax(80px, 1fr) auto;
+  }
+
+  .credentials__row > span:nth-child(3),
+  .credentials__row > span:nth-child(4),
+  .credentials__row > span:nth-child(5) {
+    display: none;
+  }
+}

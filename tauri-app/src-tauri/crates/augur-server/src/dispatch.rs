@@ -4,7 +4,7 @@
 //! protocol carries, so the shared frontend bridge works against either
 //! transport without knowing which one is underneath.
 
-use augur_service::commands::{agent_prompt, app, clone_cmd, git_config, lfs, repo};
+use augur_service::commands::{agent_prompt, app, clone_cmd, credentials, git_config, lfs, repo};
 use augur_service::error::{CommandError, Result};
 use augur_service::state::AppState;
 use serde::de::DeserializeOwned;
@@ -219,6 +219,21 @@ async fn dispatch_typed(
         "cancel_lfs_clone" => res(Ok(clone_cmd::cancel_task(&arg::<String>(args, "operationId")?))),
 
         // Global Git configuration.
+        "credential_snapshot" => res(Ok(credentials::snapshot(state))),
+        "update_credential_settings" => {
+            res(credentials::update_settings(state, arg(args, "patch")?))
+        }
+        "save_credential" => res(credentials::save_entry(state, arg(args, "input")?)),
+        "delete_credential" => res(credentials::delete_entry(state, arg(args, "id")?)),
+        "credential_login_response" => res(Ok(credentials::login_response(
+            state,
+            arg(args, "requestId")?,
+            arg(args, "answer")?,
+        ))),
+        "import_git_credentials" => res(credentials::import_git_store(state)),
+        "credential_lookup" => res(Ok(credentials::lookup(state, arg(args, "url")?))),
+        "test_credential" => res(credentials::test_entry(state, arg(args, "id")?).await),
+
         "read_git_config" => res(Ok(git_config::read_git_config(arg(args, "location")?))),
         "write_git_config" => res(git_config::write_git_config(
             arg(args, "entries")?,
@@ -338,6 +353,7 @@ mod tests {
             ServiceStartup {
                 settings_store: Arc::new(settings),
                 workspace_store: Arc::new(workspace),
+                secrets: augur_service::credentials::SecretStores::memory_only(),
                 warnings: Vec::new(),
             },
         ))

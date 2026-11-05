@@ -11,6 +11,7 @@ pub mod askpass;
 pub mod auto_refresh;
 pub mod clone;
 pub mod commands;
+pub mod credentials;
 pub mod error;
 pub mod events;
 pub mod git_args;

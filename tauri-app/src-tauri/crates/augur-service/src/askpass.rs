@@ -1,10 +1,18 @@
-//! Loopback-only Git askpass bridge for HTTPS prompts.
+//! Loopback-only Git askpass bridge.
 //!
 //! The bridge is shared by every frontend: Git subprocesses talk to a loopback
-//! TCP listener, and each prompt is emitted as a credential-request event with
-//! a one-shot reply channel. The desktop frontend surfaces the prompt as a
-//! webview dialog; the server frontend forwards the same event over the
-//! websocket and accepts the answer through the same command name.
+//! TCP listener, and each prompt is answered from the credential vault, from a
+//! form the user fills in, or from the one-shot channel the previous
+//! implementation used for prompts this module does not understand.
+//!
+//! Three rules keep it safe:
+//!
+//! - a prompt is answered from storage at most once per Git invocation, so a
+//!   rejected password cannot be retried in a loop;
+//! - a second password prompt for the same invocation marks the entry that was
+//!   used as rejected, because Git asks again after the server refused it;
+//! - anything the prompt parser does not recognise keeps the plain
+//!   "show one field, remember nothing" behaviour.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -12,33 +20,171 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
+use augur_core::config::LocationConfig;
 use augur_core::git::location::{GitAskpassEnvironment, configure_git_askpass};
 
+use crate::credentials::RepositoryIdentity;
+use crate::credentials::model::{CredentialInput, CredentialScope, SecretStorage};
+use crate::credentials::prompt::{PromptContext, PromptKind, RemoteTarget, parse_prompt};
+use crate::credentials::vault::{CredentialVault, now_seconds};
 use crate::events::LFS_CREDENTIAL_REQUEST_EVENT;
 use crate::sink::{EventSink, EventTarget, emit};
 
 const MAX_FRAME_BYTES: usize = 16 * 1024;
+/// How long a login form may stay open before its streams are dropped.
+const SESSION_TIMEOUT: Duration = Duration::from_secs(300);
+/// How long an answered credential is remembered for rejection detection.
+const SERVED_TIMEOUT: Duration = Duration::from_secs(600);
+
 static PENDING_RESPONSES: OnceLock<Mutex<HashMap<String, mpsc::Sender<Option<String>>>>> =
     OnceLock::new();
+static LOGIN_SESSIONS: OnceLock<Mutex<HashMap<String, LoginSession>>> = OnceLock::new();
+/// Credentials already handed to one Git invocation, keyed by its operation id.
+static SERVED: OnceLock<Mutex<HashMap<String, ServedCredential>>> = OnceLock::new();
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CredentialRequestEvent {
     pub request_id: String,
+    /// `login` for a username/password form, `prompt` for a raw Git prompt.
+    pub kind: String,
+    /// The original Git prompt, always present for diagnostics.
     pub prompt: String,
+    pub protocol: Option<String>,
+    pub host: Option<String>,
+    /// Username Git already named in the URL, when it did.
+    pub username: Option<String>,
+    /// Repository path the Git command runs in.
+    pub repository: Option<String>,
+    /// Whether at least one persistent backend can take the secret.
+    pub can_persist: bool,
+    pub keychain_available: bool,
+    pub plaintext_available: bool,
+    /// Storage the dialog should preselect.
+    pub default_storage: String,
+    /// Whether an entry already exists for this host.
+    pub stored: bool,
+}
+
+/// One answer to a username/password form.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CredentialLoginAnswer {
+    pub username: String,
+    pub password: String,
+    /// `None` keeps nothing. `Session` keeps it until the process exits.
+    pub persist: Option<SecretStorage>,
+    /// Store the entry for this repository only.
+    pub repository_only: bool,
+    pub cancel: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CredentialLoginResult {
+    /// Whether Git received an answer.
+    pub delivered: bool,
+    /// Whether the credential was written to a persistent backend.
+    pub stored: bool,
+    /// Why the credential could not be stored, when it could not.
+    pub error: Option<String>,
+}
+
+struct ServedCredential {
+    entry_id: String,
+    answered_password: bool,
+    recorded_at: Instant,
+}
+
+struct LoginSession {
+    request_id: String,
+    target: RemoteTarget,
+    repository: Option<String>,
+    username_waiter: Option<TcpStream>,
+    password_waiter: Option<TcpStream>,
+    reply: Option<CredentialLoginAnswer>,
+    emitted: bool,
+    answered_username: bool,
+    answered_password: bool,
+    opened_at: Instant,
+}
+
+impl LoginSession {
+    fn new(request_id: String, target: RemoteTarget, repository: Option<String>) -> Self {
+        Self {
+            request_id,
+            target,
+            repository,
+            username_waiter: None,
+            password_waiter: None,
+            reply: None,
+            emitted: false,
+            answered_username: false,
+            answered_password: false,
+            opened_at: Instant::now(),
+        }
+    }
+
+    fn attach(&mut self, kind: PromptKind, stream: TcpStream) {
+        match kind {
+            PromptKind::Username => self.username_waiter = Some(stream),
+            PromptKind::Password => self.password_waiter = Some(stream),
+            PromptKind::Other => {}
+        }
+    }
+
+    /// Deliver whatever the user already typed, and report whether the session
+    /// still waits for a prompt.
+    fn drain(&mut self) {
+        let Some(reply) = self.reply.clone() else {
+            return;
+        };
+        let username = if reply.cancel {
+            String::new()
+        } else {
+            reply.username.clone()
+        };
+        let password = if reply.cancel {
+            String::new()
+        } else {
+            reply.password.clone()
+        };
+        if let Some(mut stream) = self.username_waiter.take() {
+            let _ = write_frame(&mut stream, username.as_bytes());
+            let _ = stream.flush();
+            self.answered_username = true;
+        }
+        if let Some(mut stream) = self.password_waiter.take() {
+            let _ = write_frame(&mut stream, password.as_bytes());
+            let _ = stream.flush();
+            self.answered_password = true;
+        }
+    }
+
+    /// Whether the session is done.
+    ///
+    /// A username answer does not finish it: Git asks for the password from a
+    /// second helper process right after the username arrives, and that prompt
+    /// has to be answered from the same reply rather than with a new form.
+    fn is_finished(&self) -> bool {
+        let drained = self.username_waiter.is_none() && self.password_waiter.is_none();
+        self.reply.is_some() && drained && (self.answered_password || !self.answered_username)
+    }
 }
 
 pub struct AskpassServer {
     running: Arc<AtomicBool>,
     listener_thread: Mutex<Option<JoinHandle<()>>>,
+    address: String,
+    token: String,
 }
 
 impl AskpassServer {
-    pub fn start(sink: Arc<dyn EventSink>) -> Result<Self, String> {
+    pub fn start(sink: Arc<dyn EventSink>, vault: Arc<CredentialVault>) -> Result<Self, String> {
         let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|error| error.to_string())?;
         listener
             .set_nonblocking(true)
@@ -61,7 +207,10 @@ impl AskpassServer {
                             let sink = sink.clone();
                             let token = thread_token.clone();
                             let running = thread_running.clone();
-                            thread::spawn(move || handle_request(sink, token, running, stream));
+                            let vault = vault.clone();
+                            thread::spawn(move || {
+                                handle_request(sink, token, running, vault, stream)
+                            });
                         }
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                             thread::sleep(Duration::from_millis(30));
@@ -73,13 +222,22 @@ impl AskpassServer {
             .map_err(|error| error.to_string())?;
         configure_git_askpass(Some(GitAskpassEnvironment {
             executable: executable.to_string_lossy().into_owned(),
-            address,
-            token,
+            address: address.clone(),
+            token: token.clone(),
         }));
         Ok(Self {
             running,
             listener_thread: Mutex::new(Some(listener_thread)),
+            address,
+            token,
         })
+    }
+}
+
+impl AskpassServer {
+    /// The loopback endpoint Git is pointed at, for diagnostics and tests.
+    pub fn endpoint(&self) -> (&str, &str) {
+        (&self.address, &self.token)
     }
 }
 
@@ -102,6 +260,7 @@ fn handle_request(
     sink: Arc<dyn EventSink>,
     token: String,
     running: Arc<AtomicBool>,
+    vault: Arc<CredentialVault>,
     mut stream: TcpStream,
 ) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
@@ -111,61 +270,323 @@ fn handle_request(
     if received_token != token.as_bytes() {
         return;
     }
+    let Ok(operation_id) = read_frame(&mut stream) else {
+        return;
+    };
+    let Ok(repository) = read_frame(&mut stream) else {
+        return;
+    };
     let Ok(prompt) = read_frame(&mut stream) else {
         return;
     };
     let _ = stream.set_read_timeout(None);
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(180)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
     let prompt = String::from_utf8_lossy(&prompt).into_owned();
-    let request_id = uuid::Uuid::new_v4().simple().to_string();
-    let (sender, receiver) = mpsc::channel();
-    let pending = PENDING_RESPONSES.get_or_init(|| Mutex::new(HashMap::new()));
-    pending
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .insert(request_id.clone(), sender);
-    emit(
-        sink.as_ref(),
-        EventTarget::All,
-        LFS_CREDENTIAL_REQUEST_EVENT,
-        &CredentialRequestEvent {
-            request_id: request_id.clone(),
-            prompt,
-        },
+    let operation_id = String::from_utf8_lossy(&operation_id).into_owned();
+    let repository = String::from_utf8_lossy(&repository).into_owned();
+    let repository = if repository.is_empty() {
+        None
+    } else {
+        Some(repository)
+    };
+
+    let context = parse_prompt(&prompt);
+    if !context.is_remote() {
+        // Unknown prompts keep the one-field, remember-nothing behaviour.
+        let request_id = uuid::Uuid::new_v4().simple().to_string();
+        let (sender, receiver) = mpsc::channel();
+        pending()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(request_id.clone(), sender);
+        emit(
+            sink.as_ref(),
+            EventTarget::All,
+            LFS_CREDENTIAL_REQUEST_EVENT,
+            &CredentialRequestEvent {
+                request_id: request_id.clone(),
+                kind: "prompt".into(),
+                prompt: prompt.clone(),
+                protocol: context.protocol.clone(),
+                host: context.host.clone(),
+                username: context.username.clone(),
+                repository: repository.clone(),
+                can_persist: false,
+                keychain_available: false,
+                plaintext_available: false,
+                default_storage: SecretStorage::Session.as_str().into(),
+                stored: false,
+            },
+        );
+        let response = wait_for_answer(&running, receiver);
+        pending()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&request_id);
+        let _ = write_frame(&mut stream, response.unwrap_or_default().as_bytes());
+        return;
+    }
+
+    let target = RemoteTarget::from_prompt(
+        &context,
+        repository.as_ref().map(|path| RepositoryIdentity {
+            location: LocationConfig::Local,
+            path: path.clone(),
+        }),
     );
-    let response = loop {
+    let Some(target) = target else {
+        let _ = write_frame(&mut stream, b"");
+        return;
+    };
+    let kind = context.kind();
+
+    // A password prompt for an invocation whose stored password was already
+    // used means the server refused it: mark the entry and stop offering it.
+    let served = {
+        let mut served = SERVED
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Every entry is one Git invocation that answered from storage. Most
+        // never ask twice, so the map is pruned instead of only drained.
+        served.retain(|_, value| value.recorded_at.elapsed() < SERVED_TIMEOUT);
+        served.remove(&operation_id)
+    };
+    if let Some(served) = served
+        && served.answered_password
+        && kind != PromptKind::Username
+    {
+        vault.mark_failed(&served.entry_id, now_seconds());
+    }
+
+    if vault.auto_fill() {
+        if let Some(resolved) = vault.resolve(&target, now_seconds()) {
+            let answer = match kind {
+                PromptKind::Username => Some(resolved.entry.username.clone()),
+                PromptKind::Password => resolved.secret.clone(),
+                PromptKind::Other => None,
+            };
+            if let Some(answer) = answer {
+                let _ = write_frame(&mut stream, answer.as_bytes());
+                SERVED
+                    .get_or_init(|| Mutex::new(HashMap::new()))
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .insert(
+                        operation_id,
+                        ServedCredential {
+                            entry_id: resolved.entry.id.clone(),
+                            answered_password: kind == PromptKind::Password,
+                            recorded_at: Instant::now(),
+                        },
+                    );
+                return;
+            }
+        }
+    }
+
+    attach_login(
+        sink,
+        &vault,
+        operation_id,
+        context,
+        target,
+        repository,
+        stream,
+    );
+}
+
+fn wait_for_answer(
+    running: &Arc<AtomicBool>,
+    receiver: mpsc::Receiver<Option<String>>,
+) -> Option<String> {
+    loop {
         if !running.load(Ordering::Acquire) {
-            break None;
+            return None;
         }
         match receiver.recv_timeout(Duration::from_millis(100)) {
-            Ok(value) => break value,
+            Ok(value) => return value,
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
-            Err(mpsc::RecvTimeoutError::Disconnected) => break None,
-        }
-    };
-    pending
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .remove(&request_id);
-    match response {
-        Some(value) if value.len() <= MAX_FRAME_BYTES && !value.contains('\0') => {
-            let _ = write_frame(&mut stream, value.as_bytes());
-        }
-        _ => {
-            let _ = write_frame(&mut stream, &[]);
+            Err(mpsc::RecvTimeoutError::Disconnected) => return None,
         }
     }
 }
 
-pub fn respond(request_id: &str, response: Option<String>) -> bool {
-    let Some(pending) = PENDING_RESPONSES.get() else {
-        return false;
+fn attach_login(
+    sink: Arc<dyn EventSink>,
+    vault: &Arc<CredentialVault>,
+    operation_id: String,
+    context: PromptContext,
+    target: RemoteTarget,
+    repository: Option<String>,
+    stream: TcpStream,
+) {
+    let mut sessions = sessions_lock();
+    sessions.retain(|_, session| session.opened_at.elapsed() < SESSION_TIMEOUT);
+    let request_id = uuid::Uuid::new_v4().simple().to_string();
+    let session = sessions
+        .entry(operation_id)
+        .or_insert_with(|| LoginSession::new(request_id, target.clone(), repository.clone()));
+    session.attach(context.kind(), stream);
+    if session.reply.is_some() {
+        session.drain();
+        if session.is_finished() {
+            let request_id = session.request_id.clone();
+            sessions.retain(|_, entry| entry.request_id != request_id);
+        }
+        return;
+    }
+    if session.emitted {
+        return;
+    }
+    session.emitted = true;
+    let request = CredentialRequestEvent {
+        request_id: session.request_id.clone(),
+        kind: "login".into(),
+        prompt: String::new(),
+        protocol: Some(target.protocol.clone()),
+        host: Some(target.host.clone()),
+        username: session
+            .reply
+            .as_ref()
+            .map(|reply| reply.username.clone())
+            .or_else(|| target.username.clone())
+            .filter(|username| !username.is_empty()),
+        repository: repository.clone(),
+        can_persist: can_persist(vault),
+        keychain_available: vault.secrets().available(SecretStorage::Keychain),
+        plaintext_available: vault.settings().allow_plaintext
+            && vault.secrets().available(SecretStorage::Plaintext),
+        default_storage: default_storage(vault).as_str().into(),
+        stored: vault.has_entry(&target),
     };
-    let sender = pending
+    drop(sessions);
+    emit(
+        sink.as_ref(),
+        EventTarget::All,
+        LFS_CREDENTIAL_REQUEST_EVENT,
+        &request,
+    );
+}
+
+fn can_persist(vault: &CredentialVault) -> bool {
+    vault.secrets().available(SecretStorage::Keychain)
+        || (vault.settings().allow_plaintext && vault.secrets().available(SecretStorage::Plaintext))
+}
+
+fn default_storage(vault: &CredentialVault) -> SecretStorage {
+    let settings = vault.settings();
+    match settings.default_storage {
+        SecretStorage::Plaintext
+            if !settings.allow_plaintext
+                || !vault.secrets().available(SecretStorage::Plaintext) =>
+        {
+            SecretStorage::Session
+        }
+        SecretStorage::Keychain if !vault.secrets().available(SecretStorage::Keychain) => {
+            SecretStorage::Session
+        }
+        other => other,
+    }
+}
+
+fn sessions_lock() -> std::sync::MutexGuard<'static, HashMap<String, LoginSession>> {
+    LOGIN_SESSIONS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn pending() -> &'static Mutex<HashMap<String, mpsc::Sender<Option<String>>>> {
+    PENDING_RESPONSES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Answer a raw prompt shown by the interface.
+pub fn respond(request_id: &str, response: Option<String>) -> bool {
+    let sender = pending()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .remove(request_id);
     sender.is_some_and(|sender| sender.send(response).is_ok())
+}
+
+/// Answer a username/password form and, when asked, remember it.
+pub fn respond_login(
+    request_id: &str,
+    answer: CredentialLoginAnswer,
+    vault: &CredentialVault,
+) -> CredentialLoginResult {
+    let mut sessions = sessions_lock();
+    let Some(operation_id) = sessions
+        .iter()
+        .find(|(_, session)| session.request_id == request_id)
+        .map(|(operation_id, _)| operation_id.clone())
+    else {
+        return CredentialLoginResult {
+            delivered: false,
+            stored: false,
+            error: Some("The credential prompt is no longer waiting".into()),
+        };
+    };
+    let Some(session) = sessions.get_mut(&operation_id) else {
+        return CredentialLoginResult {
+            delivered: false,
+            stored: false,
+            error: None,
+        };
+    };
+    let target = session.target.clone();
+    let repository = session.repository.clone();
+    session.reply = Some(answer.clone());
+    session.drain();
+    if session.is_finished() {
+        sessions.remove(&operation_id);
+    }
+    drop(sessions);
+
+    let delivered = !answer.cancel;
+    if !delivered {
+        return CredentialLoginResult {
+            delivered: true,
+            stored: false,
+            error: None,
+        };
+    }
+    let mut stored = false;
+    let mut error = None;
+    if let Some(persist) = answer.persist
+        && !answer.password.is_empty()
+    {
+        let scope = match (&repository, answer.repository_only) {
+            (Some(path), true) => CredentialScope::Repository {
+                location: LocationConfig::Local,
+                path: path.clone(),
+            },
+            _ => CredentialScope::Global,
+        };
+        let input = CredentialInput {
+            id: None,
+            protocol: target.protocol.clone(),
+            host: target.host.clone(),
+            path_prefix: None,
+            username: answer.username.clone(),
+            password: Some(answer.password.clone()),
+            scope,
+            storage: persist,
+        };
+        match vault.save(input, now_seconds()) {
+            Ok(_) => stored = true,
+            Err(reason) => {
+                log::warn!("[git_askpass] the credential could not be stored: {reason}");
+                error = Some(reason);
+            }
+        }
+    }
+    CredentialLoginResult {
+        delivered,
+        stored,
+        error,
+    }
 }
 
 /// Entry point used when Git launches this application as its askpass helper.
@@ -174,12 +595,16 @@ pub fn run_helper() -> Result<(), String> {
         .map_err(|_| "Git askpass is not configured".to_string())?;
     let token = std::env::var("AUGUR_GIT_ASKPASS_TOKEN")
         .map_err(|_| "Git askpass is not configured".to_string())?;
+    let operation_id = std::env::var("AUGUR_GIT_OP_ID").unwrap_or_default();
+    let repository = std::env::var("AUGUR_GIT_REPO_PATH").unwrap_or_default();
     let prompt = std::env::args_os()
         .nth(1)
         .map(|value| value.to_string_lossy().into_owned())
         .unwrap_or_default();
     let mut stream = TcpStream::connect(address).map_err(|error| error.to_string())?;
     write_frame(&mut stream, token.as_bytes())?;
+    write_frame(&mut stream, operation_id.as_bytes())?;
+    write_frame(&mut stream, repository.as_bytes())?;
     write_frame(&mut stream, prompt.as_bytes())?;
     let response = read_frame(&mut stream)?;
     if response.is_empty() {
@@ -220,6 +645,7 @@ fn write_frame(stream: &mut TcpStream, bytes: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::credentials::SecretStores;
 
     #[test]
     fn frames_round_trip_without_interpreting_credential_contents() {
@@ -232,5 +658,36 @@ mod tests {
         let mut client = TcpStream::connect(address).unwrap();
         assert_eq!(read_frame(&mut client).unwrap(), b"secret with spaces");
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn an_unknown_request_id_is_reported_instead_of_panicking() {
+        let vault = Arc::new(
+            CredentialVault::load(
+                Arc::new(
+                    crate::store::JsonFileStore::open_in(
+                        &std::env::temp_dir()
+                            .join(format!("augur-askpass-{}", uuid::Uuid::new_v4().simple())),
+                        "settings.json",
+                    )
+                    .unwrap(),
+                ),
+                SecretStores::memory_only(),
+            )
+            .0,
+        );
+        let result = respond_login(
+            "missing",
+            CredentialLoginAnswer {
+                username: "dev".into(),
+                password: "s3cret".into(),
+                persist: Some(SecretStorage::Session),
+                repository_only: false,
+                cancel: false,
+            },
+            &vault,
+        );
+        assert!(!result.delivered);
+        assert!(result.error.is_some());
     }
 }

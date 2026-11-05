@@ -168,6 +168,9 @@ pub fn validate_shortcut(value: String) -> std::result::Result<Vec<String>, Stri
 /// Force both documents to disk.
 pub fn flush_state(state: &AppState) {
     state.persistence().flush();
+    // Usage timestamps are memory-only until a flush, so the same call that
+    // saves the documents saves the credential document.
+    state.credentials().flush();
 }
 
 /// Collect the repository paths handed over before this client was listening.

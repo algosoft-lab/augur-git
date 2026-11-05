@@ -127,7 +127,8 @@ export interface WorkspaceState {
 }
 
 export type WindowMode = 'desktop' | 'sidecar';
-export type SettingsSection = 'general' | 'git' | 'lfs' | 'appearance' | 'layout' | 'shortcuts';
+export type SettingsSection =
+  'general' | 'git' | 'credentials' | 'lfs' | 'appearance' | 'layout' | 'shortcuts';
 
 export interface LfsEnvironment {
   installed: boolean;
@@ -217,9 +218,130 @@ export interface CloneResult {
   lfsError: string | null;
 }
 
+/**
+ * One askpass prompt.
+ *
+ * `login` is a username/password form this application can remember; `prompt`
+ * is anything Git asked that has no known remote behind it, and its single
+ * value is never stored.
+ */
 export interface LfsCredentialRequest {
   requestId: string;
+  kind: 'login' | 'prompt';
   prompt: string;
+  protocol?: string | null;
+  host?: string | null;
+  username?: string | null;
+  repository?: string | null;
+  canPersist?: boolean;
+  keychainAvailable?: boolean;
+  plaintextAvailable?: boolean;
+  defaultStorage?: CredentialStorage;
+  stored?: boolean;
+}
+
+/** Where one credential's secret lives. */
+export type CredentialStorage = 'session' | 'keychain' | 'plaintext';
+
+/** Which repositories an entry answers for. */
+export type CredentialScope =
+  { kind: 'global' } | { kind: 'repository'; location: LocationConfig; path: string };
+
+export interface CredentialEntry {
+  id: string;
+  protocol: string;
+  host: string;
+  pathPrefix: string | null;
+  username: string;
+  scope: CredentialScope;
+  storage: CredentialStorage;
+  createdAt: number;
+  updatedAt: number;
+  lastUsedAt: number | null;
+  lastFailureAt: number | null;
+}
+
+export interface CredentialEntryView extends CredentialEntry {
+  /** Repository label for a scoped entry; `null` means every repository. */
+  scopeLabel: string | null;
+  secretPresent: boolean;
+  failing: boolean;
+}
+
+export interface CredentialBackendStatus {
+  storage: CredentialStorage;
+  available: boolean;
+  detail: string | null;
+}
+
+export interface CredentialSettings {
+  autoFill: boolean;
+  defaultStorage: CredentialStorage;
+  allowPlaintext: boolean;
+  useHelper: boolean;
+}
+
+export interface CredentialSnapshot {
+  settings: CredentialSettings;
+  entries: CredentialEntryView[];
+  backends: CredentialBackendStatus[];
+  keychainAvailable: boolean;
+  plaintextAvailable: boolean;
+  plaintextPath: string | null;
+  helperActive: boolean;
+}
+
+export interface CredentialInput {
+  id?: string | null;
+  protocol: string;
+  host: string;
+  pathPrefix?: string | null;
+  username: string;
+  password?: string | null;
+  scope: CredentialScope;
+  storage: CredentialStorage;
+}
+
+export interface CredentialSettingsPatch {
+  autoFill?: boolean;
+  defaultStorage?: CredentialStorage;
+  allowPlaintext?: boolean;
+  useHelper?: boolean;
+}
+
+export interface CredentialLoginAnswer {
+  username: string;
+  password: string;
+  /** `null` remembers nothing. */
+  persist: CredentialStorage | null;
+  repositoryOnly: boolean;
+  cancel: boolean;
+}
+
+export interface CredentialLoginResult {
+  delivered: boolean;
+  stored: boolean;
+  error: string | null;
+}
+
+export interface ImportOutcome {
+  source: string;
+  imported: number;
+  skipped: number;
+  warnings: string[];
+  snapshot: CredentialSnapshot;
+}
+
+export interface CredentialLookup {
+  saved: boolean;
+  username: string | null;
+  storage: CredentialStorage | null;
+}
+
+export interface CredentialTest {
+  ok: boolean;
+  key: string;
+  detail: string;
 }
 
 export interface WindowBounds {

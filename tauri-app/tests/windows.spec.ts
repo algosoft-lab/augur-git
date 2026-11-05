@@ -927,7 +927,9 @@ test.describe('settings window', () => {
     await boot(page, { open: [fixtureRepo()], window: 'settings' });
 
     const search = page.getByTestId('settings-search');
-    await search.fill('no-such-setting');
+    // A query of letters no setting contains: the search is a subsequence
+    // match, so an ordinary sentence would eventually match some label.
+    await search.fill('qqqq-zzzz');
     await expect(page.getByText('No matching settings found.')).toBeVisible();
     await search.press('Escape');
     await expect(search).toHaveValue('');
