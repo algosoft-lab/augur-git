@@ -882,16 +882,18 @@ test.describe('settings window', () => {
     await expect(mode.getByTestId('commit-mode-commit').locator('.menu__check')).toHaveCount(0);
   });
 
-  test('opens under its own title bar without a maximize control', async ({ page }) => {
+  test('opens under its own title bar with the same controls as the main window', async ({
+    page
+  }) => {
     await boot(page, { open: [fixtureRepo()], window: 'settings', windows: true });
 
     await expect(page.getByTestId('settings-window')).toBeVisible();
     await expect(page.getByTestId('settings-title')).toHaveText('Settings');
     await expect(page.getByTestId('window-controls')).toBeVisible();
-    // The backend keeps the window at a fixed size, so there is nothing to
-    // maximize; minimize and close remain.
-    await expect(page.getByTestId('window-toggle-maximize')).toHaveCount(0);
+    // The window is resizable, so it carries minimize, maximize, and close like
+    // the main window does.
     await expect(page.getByTestId('window-minimize')).toBeVisible();
+    await expect(page.getByTestId('window-toggle-maximize')).toBeVisible();
     await expect(page.getByTestId('window-close')).toBeVisible();
   });
 
