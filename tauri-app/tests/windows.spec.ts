@@ -693,7 +693,9 @@ test.describe('nightly updates', () => {
     const copy = page.getByTestId('homebrew-copy-upgrade');
     await expect(copy).toBeVisible();
     await copy.click();
-    expect(await stub.clipboard()).toBe('brew upgrade --cask augur-git');
+    // The handler writes the clipboard asynchronously, so the copied label is
+    // the confirmation this test can wait on rather than a fixed sleep.
+    await expect.poll(() => stub.clipboard()).toBe('brew upgrade --cask augur-git');
     await expect(copy).toHaveAttribute('aria-label', 'Upgrade command copied');
   });
 
@@ -721,7 +723,7 @@ test.describe('nightly updates', () => {
     const copy = page.getByTestId('homebrew-copy-upgrade');
     await expect(copy).toBeVisible();
     await copy.click();
-    expect(await stub.clipboard()).toBe('brew upgrade --cask augur-git');
+    await expect.poll(() => stub.clipboard()).toBe('brew upgrade --cask augur-git');
   });
 });
 
