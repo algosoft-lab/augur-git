@@ -10,14 +10,7 @@ import { useStore } from '../../app/store';
 
 export const IS_MACOS = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
 
-export function WindowControls({
-  flushBeforeClose = false,
-  maximize = true
-}: {
-  flushBeforeClose?: boolean;
-  /** Hide the maximize button on a window the backend keeps at a fixed size. */
-  maximize?: boolean;
-}) {
+export function WindowControls({ flushBeforeClose = false }: { flushBeforeClose?: boolean }) {
   const translate = useStore((state) => state.t);
   const [maximized, setMaximized] = useState(false);
   if (!hasNativeWindow) {
@@ -54,18 +47,16 @@ export function WindowControls({
       >
         <Icon name="minus" size={12} />
       </button>
-      {maximize ? (
-        <button
-          type="button"
-          className="window-controls__button"
-          title={t(translate, maximized ? 'window-restore' : 'window-maximize')}
-          aria-label={t(translate, maximized ? 'window-restore' : 'window-maximize')}
-          data-testid="window-toggle-maximize"
-          onClick={() => void toggleMaximize()}
-        >
-          <Icon name={maximized ? 'copy' : 'square'} size={12} />
-        </button>
-      ) : null}
+      <button
+        type="button"
+        className="window-controls__button"
+        title={t(translate, maximized ? 'window-restore' : 'window-maximize')}
+        aria-label={t(translate, maximized ? 'window-restore' : 'window-maximize')}
+        data-testid="window-toggle-maximize"
+        onClick={() => void toggleMaximize()}
+      >
+        <Icon name={maximized ? 'copy' : 'square'} size={12} />
+      </button>
       <button
         type="button"
         className="window-controls__button window-controls__button--close"
