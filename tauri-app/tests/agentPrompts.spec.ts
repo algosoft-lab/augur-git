@@ -19,8 +19,10 @@ test.describe('provider-neutral Agent prompts', () => {
       repoId: 7,
       request: { kind: 'commit', amend: false }
     });
-    expect(await stub.clipboard()).toContain('/Users/dev/projects/augur-git');
-    expect(await stub.clipboard()).toContain('"kind":"commit","amend":false');
+    // The clipboard write lands a few microtasks and one dynamic plugin import
+    // after the click, so poll instead of reading once.
+    await expect.poll(() => stub.clipboard()).toContain('/Users/dev/projects/augur-git');
+    await expect.poll(() => stub.clipboard()).toContain('"kind":"commit","amend":false');
     expect((await stub.commandNames()).filter((name) => name === 'run_action')).toHaveLength(0);
     await expect(page.getByTestId('status-message')).toContainText('Prompt copied');
   });
@@ -35,7 +37,7 @@ test.describe('provider-neutral Agent prompts', () => {
 
     const request = (await stub.commands()).find((entry) => entry.cmd === 'generate_agent_prompt');
     expect(request?.args).toMatchObject({ request: { kind: 'commit', amend: true } });
-    expect(await stub.clipboard()).toContain('"kind":"commit","amend":true');
+    await expect.poll(() => stub.clipboard()).toContain('"kind":"commit","amend":true');
   });
 
   test('copies a generic conflict prompt from the changes panel', async ({ page }) => {
@@ -48,7 +50,7 @@ test.describe('provider-neutral Agent prompts', () => {
       repoId: 7,
       request: { kind: 'resolveConflicts' }
     });
-    expect(await stub.clipboard()).toContain('/Users/dev/projects/augur-git');
+    await expect.poll(() => stub.clipboard()).toContain('/Users/dev/projects/augur-git');
   });
 
   test('copies a merge prompt for the selected source branch', async ({ page }) => {
@@ -144,7 +146,7 @@ test.describe('provider-neutral Agent prompts', () => {
         failure: expect.stringContaining('could not read from remote')
       }
     });
-    expect(await stub.clipboard()).toContain('Request: {"kind":"applyPatch"');
+    await expect.poll(() => stub.clipboard()).toContain('Request: {"kind":"applyPatch"');
   });
 
   test('copies from a merge conflict dialog with its operation origin', async ({ page }) => {
@@ -230,7 +232,7 @@ test.describe('provider-neutral Agent prompts', () => {
       repoId: second.id,
       request: { kind: 'commit', amend: false }
     });
-    expect(await stub.clipboard()).toContain(second.path);
+    await expect.poll(() => stub.clipboard()).toContain(second.path);
     expect(await stub.clipboard()).not.toContain(first.path);
   });
 });
