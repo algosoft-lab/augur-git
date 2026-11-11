@@ -852,11 +852,63 @@ test.describe('discarding changes', () => {
     expect((operations[0]!.args as any).all).toBe(true);
   });
 
+  test('discards a single file from its row', async ({ page }) => {
+    const stub = await boot(page, { open: [cleanRepo()] });
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+
+    // The row's undo arrow names the one file and nothing else.
+    await page.getByTestId('changes-discard-src/git/graph.rs').click();
+    const dialog = page.getByTestId('discard-dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('src/git/graph.rs');
+    await expect(dialog).not.toContainText('notes.md');
+
+    await page.getByTestId('discard-confirm').click();
+    const operations = (await stub.commands()).filter((e) => e.cmd === 'working_tree_operation');
+    expect(operations).toHaveLength(1);
+    const args = operations[0]!.args as any;
+    expect(args.action).toBe('discard');
+    expect(args.all).toBe(false);
+    expect((args.files as { path: string }[]).map((file) => file.path)).toEqual([
+      'src/git/graph.rs'
+    ]);
+    // A single-file scope reports the single-file message, not the group one.
+    await expect(page.getByTestId('status-message')).toContainText('Changes discarded');
+
+    // The context menu discards the row it opened on, too. An untracked row
+    // goes through the permanent-deletion warning instead.
+    await rightClick(page, '[data-testid="changes-file-notes.md"]');
+    await page.getByTestId('context-discard').click();
+    const untrackedDialog = page.getByTestId('discard-dialog');
+    await expect(untrackedDialog).toBeVisible();
+    await expect(untrackedDialog).toContainText('notes.md');
+    await expect(untrackedDialog).toContainText('Permanently delete untracked file notes.md?');
+    await page.getByTestId('discard-confirm').click();
+    const all = (await stub.commands()).filter((e) => e.cmd === 'working_tree_operation');
+    expect(all).toHaveLength(2);
+    expect(((all[1]!.args as any).files as { path: string }[]).map((file) => file.path)).toEqual([
+      'notes.md'
+    ]);
+  });
+
+  test('offers a discard only on the unstaged side of a file', async ({ page }) => {
+    await boot(page, { open: [cleanRepo()] });
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+
+    // The staged row keeps its unstage action and gains no discard, because the
+    // backend restores the worktree from the index and a staged-side discard
+    // could not say what it would destroy.
+    await expect(page.getByTestId('changes-discard-src/main.rs')).toHaveCount(0);
+    await rightClick(page, '[data-testid="changes-file-src/main.rs"]');
+    await expect(page.getByTestId('context-toggle-stage')).toBeVisible();
+    await expect(page.getByTestId('context-discard')).toHaveCount(0);
+  });
+
   test('cancelling a discard runs nothing', async ({ page }) => {
     const stub = await boot(page, { open: [cleanRepo()] });
     await expect(page.getByTestId('repo-7')).toBeVisible();
 
-    await rightClick(page, '[data-testid="changes-file-src/main.rs"]');
+    await rightClick(page, '[data-testid="changes-file-src/git/graph.rs"]');
     await page.getByTestId('context-discard').click();
     await expect(page.getByTestId('discard-dialog')).toBeVisible();
     await page.getByTestId('discard-cancel').click();

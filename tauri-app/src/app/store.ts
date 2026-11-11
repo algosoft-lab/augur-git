@@ -141,7 +141,12 @@ export type Overlay =
   | { kind: 'lfsClone' }
   | {
       kind: 'discard';
-      scope: { kind: 'workingTree'; staged: boolean; all: boolean };
+      scope: {
+        kind: 'workingTree';
+        all: boolean;
+        /** The exact files the confirmation targets; the dialog must not widen it. */
+        files: FileStatus[];
+      };
       trackedCount: number;
       untrackedCount: number;
     }

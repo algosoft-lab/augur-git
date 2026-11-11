@@ -6,7 +6,7 @@
  * discarding lists the files because it cannot be undone.
  */
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Icon } from '../../components/Icon';
 import { DialogCard, TextInput } from '../../components/controls';
 import * as ipc from '../../bridge/ipc';
@@ -125,31 +125,27 @@ export function StashDropDialog({ reference }: { reference: string }) {
 export function DiscardDialog({ overlay }: { overlay: Extract<Overlay, { kind: 'discard' }> }) {
   const translate = useStore((state) => state.t);
   const repoId = useActiveRepoId();
-  const repo = useStore((state) => (repoId ? state.repos[repoId] : undefined));
   const closeOverlay = useStore((state) => state.closeOverlay);
   const [busy, setBusy] = useState(false);
 
-  const files = useMemo(() => {
-    if (!repo) {
-      return [];
-    }
-    const staged = overlay.scope.staged;
-    return repo.files.filter((file) => (staged ? file.index !== ' ' : file.worktree !== ' '));
-  }, [repo, overlay.scope.staged]);
+  // Confirm exactly the files the row action captured. Recomputing from the
+  // live status instead would turn a single-file discard into the whole group,
+  // and a refresh landing between the click and the confirmation would swap
+  // the targets silently.
+  const files = overlay.scope.files;
 
   // Each warning names what is about to be destroyed, because "discard" alone
-  // does not say whether one file or the whole tree is going.
+  // does not say whether one file or the whole tree is going. A single target
+  // names its path; a group summarizes the counts.
   const warning =
-    overlay.scope.all && files.length === 1
-      ? ta(translate, 'discard-file-warning', { path: files[0]?.path ?? '' })
-      : overlay.trackedCount > 0
-        ? ta(translate, 'discard-all-warning', {
-            tracked: overlay.trackedCount,
-            untracked: overlay.untrackedCount
-          })
-        : ta(translate, 'discard-untracked-file-warning', {
-            path: files[0]?.path ?? ''
-          });
+    files.length === 1
+      ? overlay.untrackedCount > 0
+        ? ta(translate, 'discard-untracked-file-warning', { path: files[0]?.path ?? '' })
+        : ta(translate, 'discard-file-warning', { path: files[0]?.path ?? '' })
+      : ta(translate, 'discard-all-warning', {
+          tracked: overlay.trackedCount,
+          untracked: overlay.untrackedCount
+        });
 
   return (
     <DialogCard

@@ -105,7 +105,7 @@ export function ChangesPanel({
       const tracked = files.filter((file) => !isUntracked(file)).length;
       openOverlay({
         kind: 'discard',
-        scope: { kind: 'workingTree', staged: false, all },
+        scope: { kind: 'workingTree', all, files },
         trackedCount: tracked,
         untrackedCount: files.length - tracked
       });
@@ -432,6 +432,10 @@ function FileRow({
   // losing them. An entry that has vanished says nothing about why the operation
   // is impossible, which is the one thing worth saying about a conflict.
   const blocked = t(translate, 'changes-action-conflict');
+  const discardDisabled = actionsBlocked || repo.hasConflicts || conflicted;
+  // Only the unstaged side offers a discard: the backend restores the worktree
+  // from the index, so discarding "the staged side" would either change nothing
+  // or silently destroy the unstaged half of the same path.
   const entries = [
     {
       id: 'toggle-stage',
@@ -440,13 +444,17 @@ function FileRow({
       disabled: actionsBlocked || conflicted,
       onSelect: () => onOperate(staged ? 'unstage' : 'stage')
     },
-    {
-      id: 'discard',
-      label: t(translate, 'changes-discard'),
-      icon: <Icon name="undo" size={12} />,
-      disabled: actionsBlocked || repo.hasConflicts || conflicted,
-      onSelect: () => onOperate('discard')
-    }
+    ...(staged
+      ? []
+      : [
+          {
+            id: 'discard',
+            label: t(translate, 'changes-discard'),
+            icon: <Icon name="undo" size={12} />,
+            disabled: discardDisabled,
+            onSelect: () => onOperate('discard')
+          }
+        ])
   ];
 
   return (
@@ -488,6 +496,15 @@ function FileRow({
           <span className="file-row__lfs" title={t(translate, 'lfs-file-tag')}>
             LFS
           </span>
+        ) : null}
+        {!staged ? (
+          <IconButton
+            icon={<Icon name="undo" size={12} />}
+            tooltip={discardDisabled ? blocked : t(translate, 'changes-discard')}
+            disabled={discardDisabled}
+            onClick={() => onOperate('discard')}
+            testId={`changes-discard-${file.path}`}
+          />
         ) : null}
         <IconButton
           icon={staged ? <Icon name="minus" size={12} /> : <Icon name="plus" size={12} />}
