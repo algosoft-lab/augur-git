@@ -450,8 +450,12 @@ pub fn validate_clone_target(
             "Choose a new directory name without path separators.",
         ));
     }
+    // Canonicalize so Git receives an absolute parent, but hand it the plain
+    // spelling: on Windows `canonicalize` returns a `\\?\` verbatim path and
+    // Git for Windows cannot create a work tree at that spelling.
     let parent = Path::new(parent)
         .canonicalize()
+        .map(|path| augur_core::paths::normalize_extended_path(&path))
         .map_err(|error| CommandError::new("err-lfs-clone", error.to_string()))?;
     if !parent.is_dir() {
         return Err(CommandError::new(
@@ -467,4 +471,33 @@ pub fn validate_clone_target(
         ));
     }
     Ok(target)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_clone_target;
+    use augur_core::paths::normalize_extended_path;
+
+    #[test]
+    fn clone_target_uses_a_spelling_git_accepts() {
+        let root = std::env::temp_dir().join(format!("augur-clone-target-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let target = validate_clone_target(
+            "https://example.com/team/repo.git",
+            &root.to_string_lossy(),
+            "repo",
+        )
+        .unwrap();
+
+        let parent = normalize_extended_path(&root.canonicalize().unwrap());
+        assert_eq!(target, parent.join("repo"));
+        #[cfg(windows)]
+        assert!(
+            !target.to_string_lossy().starts_with(r"\\?\"),
+            "Git for Windows rejects verbatim paths as a clone destination: {}",
+            target.display()
+        );
+    }
 }
