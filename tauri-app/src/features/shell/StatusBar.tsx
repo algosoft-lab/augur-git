@@ -64,7 +64,7 @@ export function StatusBar({ repo }: { repo: RepoState | null }) {
         ) : null}
         {busy ? (
           <>
-            <Spinner color="var(--warning-background)" rhythm="two-turn-pause" />
+            <Spinner color="var(--warning-background)" slow />
             <span data-testid="status-busy">{busy}</span>
           </>
         ) : null}

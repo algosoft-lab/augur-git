@@ -195,10 +195,8 @@
   animation: spinner-turn 0.9s linear infinite;
 }
 
-.spinner--two-turn-pause {
-  animation-name: spinner-two-turn-pause;
-  animation-duration: 1.4s;
-  animation-timing-function: ease-in-out;
+.spinner--slow {
+  animation-duration: 1.8s;
 }
 
 @keyframes spinner-turn {
@@ -207,19 +205,9 @@
   }
 }
 
-@keyframes spinner-two-turn-pause {
-  0% {
-    transform: rotate(0deg);
-  }
-
-  78%,
-  100% {
-    transform: rotate(720deg);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .spinner {
+  .spinner,
+  .spinner--slow {
     animation-duration: 2.4s;
   }
 }

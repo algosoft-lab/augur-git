@@ -128,7 +128,7 @@ export function SidecarWindow({ repo }: { repo: RepoState }) {
           <span className="sidecar__repo-path">{repo.path}</span>
           {repo.busyVerb ? (
             <span className="sidecar__repo-message sidecar__repo-message--busy">
-              <Spinner color="var(--warning-background)" rhythm="two-turn-pause" />
+              <Spinner color="var(--warning-background)" slow />
               <span className="sidecar__repo-message-text" data-testid="sidecar-status-busy">
                 {repo.busyVerb}
               </span>
