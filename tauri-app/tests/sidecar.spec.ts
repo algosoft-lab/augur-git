@@ -184,7 +184,10 @@ test.describe('Sidecar mode', () => {
     });
     await expect.poll(() => graph.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     const savedScrollTop = await graph.evaluate((element) => element.scrollTop);
-    const visibleRow = page.locator('.graph-row').first();
+    // The first mounted row is above the viewport because of the overscan, so
+    // clicking it would make Playwright scroll the list first. Click the row at
+    // the saved offset instead; it is fully visible and leaves the scroll alone.
+    const visibleRow = page.locator('[data-virtual-index="40"] .graph-row');
     await visibleRow.click();
     await expect(page.getByTestId('sidecar-page-diff')).toBeVisible();
     await page.getByTestId('sidecar-diff-back').click();
