@@ -585,6 +585,8 @@ export type GitAction =
   /** Push the current HEAD to one branch of one remote. */
   | { action: 'pushTo'; remote: string; branch: string; force: boolean }
   | { action: 'pushSetUpstream'; remote: string; branch: string }
+  /** Point the current branch's upstream at one existing remote branch. */
+  | { action: 'setUpstream'; remote: string; branch: string }
   | { action: 'pushRenameRemote'; remote: string; old: string; new: string }
   | { action: 'pushDeleteRemote'; remote: string; branch: string }
   | { action: 'pushDeleteTag'; remote: string; name: string }

@@ -126,6 +126,34 @@ test.describe('remote management', () => {
 });
 
 test.describe('multi-remote operations', () => {
+  test('marks the remote that owns the current upstream', async ({ page }) => {
+    await boot(page, { open: [multiRemoteRepo()] });
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+
+    await expect(page.getByTestId('remote-upstream-tag-origin')).toHaveText('upstream');
+    await expect(page.getByTestId('remote-upstream-tag-upstream')).toHaveCount(0);
+  });
+
+  test('sets a remote branch as the upstream from its row', async ({ page }) => {
+    const stub = await boot(page, { open: [multiRemoteRepo()] });
+    await expect(page.getByTestId('repo-7')).toBeVisible();
+
+    await rightClick(page, '[data-testid="remote-branch-upstream/main"]');
+    await expect(page.getByTestId('context-set-upstream-remote-branch')).toContainText(
+      'upstream/main'
+    );
+    await page.getByTestId('context-set-upstream-remote-branch').click();
+
+    const actions = (await stub.commands())
+      .filter((entry) => entry.cmd === 'run_action')
+      .map((entry) => (entry.args as any).action);
+    expect(actions).toEqual([{ action: 'setUpstream', remote: 'upstream', branch: 'main' }]);
+
+    // The tag moves to the remote the next plain pull and push would use.
+    await expect(page.getByTestId('remote-upstream-tag-upstream')).toBeVisible();
+    await expect(page.getByTestId('remote-upstream-tag-origin')).toHaveCount(0);
+  });
+
   test('fetches one remote from its group header', async ({ page }) => {
     const stub = await boot(page, { open: [multiRemoteRepo()] });
     await expect(page.getByTestId('repo-7')).toBeVisible();

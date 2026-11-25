@@ -61,6 +61,15 @@ pub enum GitAction {
         remote: String,
         branch: String,
     },
+    /// Point the current branch's upstream at a branch that already exists on
+    /// the remote.
+    ///
+    /// Unlike [`GitAction::PushSetUpstream`] this neither pushes nor fetches;
+    /// it only rewrites the local tracking configuration.
+    SetUpstream {
+        remote: String,
+        branch: String,
+    },
     /// Create the new remote branch and delete the old one in one push.
     PushRenameRemote {
         remote: String,
@@ -180,6 +189,7 @@ impl GitAction {
                 | GitAction::PushForce
                 | GitAction::PushTo { .. }
                 | GitAction::PushSetUpstream { .. }
+                | GitAction::SetUpstream { .. }
                 | GitAction::PushRenameRemote { .. }
                 | GitAction::PushDeleteRemote { .. }
                 | GitAction::PushDeleteTag { .. }
@@ -243,6 +253,7 @@ impl GitAction {
                 }
             }
             GitAction::PushSetUpstream { .. } => "push --set-upstream".into(),
+            GitAction::SetUpstream { .. } => "branch --set-upstream-to".into(),
             GitAction::PushRenameRemote { .. } => "push --rename".into(),
             GitAction::PushDeleteRemote { .. } => "push --delete".into(),
             GitAction::PushDeleteTag { .. } => "push --delete-tag".into(),
@@ -343,6 +354,12 @@ impl GitAction {
             }
             GitAction::PushSetUpstream { remote, branch } => {
                 strs(&["push", "--set-upstream", remote, branch])
+            }
+            // The target must already exist as a remote-tracking ref; Git
+            // rejects the configuration otherwise, so no network command is
+            // run and no new branch is created.
+            GitAction::SetUpstream { remote, branch } => {
+                strs(&["branch", &format!("--set-upstream-to={remote}/{branch}")])
             }
             GitAction::PushRenameRemote { remote, old, new } => strs(&[
                 "push",
@@ -624,6 +641,22 @@ mod tests {
                 branch: "main".into()
             }),
             ["push", "--set-upstream", "origin", "main"]
+        );
+        assert_eq!(
+            args(GitAction::SetUpstream {
+                remote: "upstream".into(),
+                branch: "main".into()
+            }),
+            ["branch", "--set-upstream-to=upstream/main"]
+        );
+        let set_upstream = GitAction::SetUpstream {
+            remote: "upstream".into(),
+            branch: "main".into(),
+        };
+        assert_eq!(set_upstream.label(), "branch --set-upstream-to");
+        assert!(
+            set_upstream.refreshes_after_success(),
+            "the status must report the new upstream"
         );
         assert_eq!(
             args(GitAction::PushDeleteRemote {

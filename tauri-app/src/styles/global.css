@@ -652,6 +652,21 @@ body .diff ::selection {
   font-size: calc(var(--ui-font-size) * 0.625);
 }
 
+/* Marks the remote that owns the current branch's upstream, so a repository
+ * with several remotes shows at a glance where push and pull go. */
+.sidebar__upstream-tag {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--base-green) 35%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--base-green) 14%, transparent);
+  color: var(--base-green);
+  font-size: calc(var(--ui-font-size) * 0.625);
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 .ref-row {
   display: flex;
   width: 100%;

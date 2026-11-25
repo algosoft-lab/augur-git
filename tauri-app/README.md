@@ -115,6 +115,12 @@ Renaming uses Git's native remote rename operation, including remote-tracking
 refs and branch upstream configuration. Unsaved edits are checked before
 switching remotes or closing the dialog.
 
+When the repository has more than one remote, the group whose remote owns the
+current branch's upstream carries a small `upstream` tag, so it is clear where
+a plain pull and push go. A remote's group menu and each remote branch's menu
+can make a remote branch the current branch's upstream without pushing or
+fetching, and the tag moves once the refreshed status arrives.
+
 The URL editor reads the raw Git configuration, preserving `insteadOf` aliases,
 additional URLs, and separately configured push URLs. A notice identifies
 remotes with a separate push URL; editing the fetch URL does not change it.

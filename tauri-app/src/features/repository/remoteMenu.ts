@@ -1,11 +1,12 @@
 /**
- * The network operations a remote offers.
+ * The operations a remote offers.
  *
  * The sidebar groups remote-tracking branches under their remote, and both the
  * group header and the branches inside it offer the operations that name one
- * remote: fetch it, pull from it, push to it. The builders here decide what
- * those operations target and when they are available, so the menu stays a
- * description of the repository rather than a sequence of side effects.
+ * remote: fetch it, pull from it, push to it, and make one of its branches the
+ * current branch's upstream. The builders here decide what those operations
+ * target and when they are available, so the menu stays a description of the
+ * repository rather than a sequence of side effects.
  *
  * The builders are pure. The caller runs the action the builder names.
  */
@@ -33,6 +34,11 @@ export type RemoteMenuCommand =
    * published with the upstream prompt.
    */
   | { kind: 'pushCurrent'; remote: string }
+  /**
+   * Make the current branch track a remote branch, so plain pulls and pushes
+   * use that remote.
+   */
+  | { kind: 'setUpstream'; remote: string; branch: string }
   /** Open the remote settings on one remote. */
   | { kind: 'editRemote'; remote: string }
   /** Ask before removing one remote. */
@@ -53,7 +59,7 @@ export interface RemoteMenuItem {
 }
 
 export interface RemoteMenuOptions {
-  /** Whether a network command may run: nothing is busy and the state is fresh. */
+  /** Whether the repository is idle and its snapshot is fresh. */
   networkAvailable: boolean;
   /** Whether the working tree accepts a pull: it holds no unresolved merge. */
   pullAvailable: boolean;
@@ -63,6 +69,8 @@ export interface RemoteMenuOptions {
   upstream: string | null;
   /** Every configured remote, so an upstream is split by the longest match. */
   remotes: string[];
+  /** Every remote-tracking branch, such as `origin/main`. */
+  remoteBranches: string[];
   /** Whether the repository has a commit to push. */
   hasHead: boolean;
   /** Whether a pull rebases, from the view preferences. */
@@ -95,6 +103,16 @@ export function splitUpstream(
   return separator > 0
     ? { remote: upstream.slice(0, separator), branch: upstream.slice(separator + 1) }
     : null;
+}
+
+/**
+ * The remote that owns the current branch's upstream, if there is one.
+ *
+ * This is the remote a plain pull reads and a plain push writes, so the
+ * sidebar marks it as the main upstream.
+ */
+export function mainRemote(upstream: string | null, remotes: string[]): string | null {
+  return upstream ? (splitUpstream(upstream, remotes)?.remote ?? null) : null;
 }
 
 /** The branch of a remote that the current branch tracks, if it tracks one. */
@@ -160,6 +178,13 @@ export function remoteGroupItems(remote: string, options: RemoteMenuOptions): Re
     return [];
   }
   const target = pullTarget(remote, options);
+  // Tracking a branch writes Git configuration, so it needs a readable, idle
+  // repository as much as a network command does.
+  const setUpstreamAvailable =
+    options.networkAvailable &&
+    options.branch.length > 0 &&
+    options.remoteBranches.includes(`${remote}/${options.branch}`) &&
+    trackedBranch(remote, options) !== options.branch;
   return [
     {
       id: 'fetch-remote',
@@ -193,6 +218,15 @@ export function remoteGroupItems(remote: string, options: RemoteMenuOptions): Re
       command: { kind: 'pushCurrent', remote }
     },
     {
+      id: 'set-upstream-remote',
+      labelKey: 'context-set-remote-upstream',
+      icon: 'git-branch',
+      // Only a branch that already exists on this remote can become the
+      // upstream; publishing a new one is what the push entry asks about.
+      disabled: !setUpstreamAvailable,
+      command: { kind: 'setUpstream', remote, branch: options.branch }
+    },
+    {
       id: 'edit-remote-url',
       labelKey: 'context-edit-remote-url',
       icon: 'pencil',
@@ -218,10 +252,10 @@ export function remoteGroupItems(remote: string, options: RemoteMenuOptions): Re
 }
 
 /**
- * The network entries one remote branch offers.
+ * The entries one remote branch offers.
  *
- * The branch is named, so the pull reads that branch and the push publishes
- * the current HEAD to it.
+ * The branch is named, so the pull reads that branch, the push publishes the
+ * current HEAD to it, and it can become the current branch's upstream.
  */
 export function remoteBranchItems(
   remote: string,
@@ -263,6 +297,19 @@ export function remoteBranchItems(
         kind: 'action',
         action: { action: 'pushTo', remote, branch, force: false }
       }
+    },
+    {
+      id: 'set-upstream-remote-branch',
+      labelKey: 'context-set-branch-upstream',
+      labelArgs: { remote, branch },
+      icon: 'git-branch',
+      // The entry is the local half of choosing a push/pull target: it needs
+      // a checked-out branch and must not offer what is already configured.
+      disabled:
+        !options.networkAvailable ||
+        options.branch.length === 0 ||
+        trackedBranch(remote, options) === branch,
+      command: { kind: 'setUpstream', remote, branch }
     }
   ];
 }

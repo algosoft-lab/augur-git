@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  mainRemote,
   planPushCurrent,
   pullTarget,
   remoteBranchItems,
@@ -14,6 +15,7 @@ const options = (overrides: Partial<RemoteMenuOptions> = {}): RemoteMenuOptions 
   branch: 'main',
   upstream: 'origin/main',
   remotes: ['origin'],
+  remoteBranches: ['origin/main'],
   hasHead: true,
   rebase: false,
   ...overrides
@@ -28,6 +30,7 @@ describe('remote group menu', () => {
       'fetch-remote',
       'pull-remote',
       'push-remote',
+      'set-upstream-remote',
       'edit-remote-url',
       'remove-remote',
       'manage-remotes'
@@ -91,15 +94,41 @@ describe('remote group menu', () => {
 
   it('refuses every network operation while the repository is busy', () => {
     const items = remoteGroupItems('origin', options({ networkAvailable: false }));
-    expect(items.slice(0, 3).every((item) => item.disabled)).toBe(true);
+    expect(items.slice(0, 4).every((item) => item.disabled)).toBe(true);
     // The settings of the remote are still reachable while a command runs.
-    expect(items[3]?.disabled).toBe(false);
+    expect(items[4]?.disabled).toBe(false);
   });
 
   it('refuses a pull while the tree is in conflict', () => {
     const items = remoteGroupItems('origin', options({ pullAvailable: false }));
     expect(items[0]?.disabled).toBe(false);
     expect(items[1]?.disabled).toBe(true);
+  });
+
+  it('makes another remote the upstream of the current branch', () => {
+    const items = remoteGroupItems(
+      'upstream',
+      options({
+        remotes: ['origin', 'upstream'],
+        remoteBranches: ['origin/main', 'upstream/main']
+      })
+    );
+    const item = items.find((entry) => entry.id === 'set-upstream-remote');
+    expect(item?.disabled).toBe(false);
+    expect(item?.command).toEqual({ kind: 'setUpstream', remote: 'upstream', branch: 'main' });
+  });
+
+  it('does not offer an upstream branch the remote does not have', () => {
+    const items = remoteGroupItems('upstream', options({ remotes: ['origin', 'upstream'] }));
+    const item = items.find((entry) => entry.id === 'set-upstream-remote');
+    expect(item?.disabled).toBe(true);
+  });
+
+  it('does not offer the upstream the current branch already tracks', () => {
+    const item = remoteGroupItems('origin', options()).find(
+      (entry) => entry.id === 'set-upstream-remote'
+    );
+    expect(item?.disabled).toBe(true);
   });
 });
 
@@ -110,7 +139,8 @@ describe('remote branch menu', () => {
       'fetch-remote-branch',
       'pull-remote-branch',
       'pull-remote-branch-rebase',
-      'push-remote-branch'
+      'push-remote-branch',
+      'set-upstream-remote-branch'
     ]);
     expect(items[1]?.command).toEqual({
       kind: 'pull',
@@ -136,7 +166,8 @@ describe('remote branch menu', () => {
       'fetch-remote-branch',
       'pull-remote-branch-rebase',
       'pull-remote-branch',
-      'push-remote-branch'
+      'push-remote-branch',
+      'set-upstream-remote-branch'
     ]);
   });
 
@@ -147,6 +178,28 @@ describe('remote branch menu', () => {
   it('refuses a push without a commit to publish', () => {
     const items = remoteBranchItems('origin', 'main', options({ hasHead: false }));
     expect(items[3]?.disabled).toBe(true);
+  });
+
+  it('sets a remote branch as the upstream of the current branch', () => {
+    const item = remoteBranchItems('origin', 'dev', options()).find(
+      (entry) => entry.id === 'set-upstream-remote-branch'
+    );
+    expect(item?.disabled).toBe(false);
+    expect(item?.command).toEqual({ kind: 'setUpstream', remote: 'origin', branch: 'dev' });
+  });
+
+  it('does not offer the upstream the current branch already tracks', () => {
+    const item = remoteBranchItems('origin', 'main', options()).find(
+      (entry) => entry.id === 'set-upstream-remote-branch'
+    );
+    expect(item?.disabled).toBe(true);
+  });
+
+  it('refuses to set an upstream without a checked-out branch', () => {
+    const item = remoteBranchItems('origin', 'main', options({ branch: '', upstream: null })).find(
+      (entry) => entry.id === 'set-upstream-remote-branch'
+    );
+    expect(item?.disabled).toBe(true);
   });
 });
 
@@ -175,6 +228,24 @@ describe('pull target', () => {
         remotes: ['foo', 'foo/bar']
       })
     ).toBe('dev');
+  });
+});
+
+describe('main remote', () => {
+  it('is the remote that owns the upstream', () => {
+    expect(mainRemote('origin/main', ['origin', 'upstream'])).toBe('origin');
+  });
+
+  it('reads a remote whose name contains a slash as one name', () => {
+    expect(mainRemote('foo/bar/dev', ['foo', 'foo/bar'])).toBe('foo/bar');
+  });
+
+  it('has no main remote without an upstream', () => {
+    expect(mainRemote(null, ['origin'])).toBeNull();
+  });
+
+  it('has no main remote when the upstream is a local branch', () => {
+    expect(mainRemote('main', ['origin'])).toBeNull();
   });
 });
 

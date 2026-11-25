@@ -10,7 +10,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { copyText } from '../../platform';
 
-
 import { Icon } from '../../components/Icon';
 import type { ContextMenuEntry } from '../../components/controls';
 import { ContextMenu, IconButton } from '../../components/controls';
@@ -19,6 +18,7 @@ import { useStore, type RepoState } from '../../app/store';
 import { hasOpenPopup, keysForCommand, matchesShortcut, moveListFocus } from '../../app/keyboard';
 import { groupRemoteBranches, OTHER_REMOTE_GROUP } from './remoteGroups';
 import {
+  mainRemote,
   planPushCurrent,
   remoteBranchItems,
   remoteGroupItems,
@@ -117,6 +117,9 @@ export function Sidebar({
   // Remote tag operations need a remote to target, chosen in the dialog.
   const hasRemotes = refs.remotes.length > 0;
   const groups = groupRemoteBranches(refs.remotes, refs.remote_branches);
+  // With several remotes, the one that owns the current branch's upstream is
+  // the remote a plain pull and push use, so its group is marked.
+  const mainRemoteName = refs.remotes.length > 1 ? mainRemote(repo.upstream, refs.remotes) : null;
   // A network command may run while the tree is in conflict, the way the
   // toolbar's fetch and push do; only a busy repository or a stale snapshot
   // stops one.
@@ -130,6 +133,7 @@ export function Sidebar({
     branch: currentBranch,
     upstream: repo.upstream,
     remotes: refs.remotes,
+    remoteBranches: refs.remote_branches,
     hasHead: repo.head !== null,
     rebase: pullAction === 'rebase'
   };
@@ -183,6 +187,13 @@ export function Sidebar({
         }
         break;
       }
+      case 'setUpstream':
+        void runAction(repo.id, {
+          action: 'setUpstream',
+          remote: command.remote,
+          branch: command.branch
+        });
+        break;
       case 'editRemote':
         openOverlay({ kind: 'manageRemotes', focus: { remote: command.remote, panel: 'edit' } });
         break;
@@ -456,6 +467,18 @@ export function Sidebar({
                   />
                   <Icon name="git-branch" size={12} />
                   <span className="sidebar__section-title">{group.remote}</span>
+                  {group.remote === mainRemoteName ? (
+                    <span
+                      className="sidebar__upstream-tag"
+                      data-testid={`remote-upstream-tag-${group.remote}`}
+                      title={ta(translate, 'sidebar-remote-upstream-title', {
+                        branch: repo.branch,
+                        upstream: repo.upstream ?? ''
+                      })}
+                    >
+                      {t(translate, 'sidebar-remote-upstream')}
+                    </span>
+                  ) : null}
                   <span className="sidebar__section-count">{group.branches.length}</span>
                 </button>
                 {isRealRemote ? (

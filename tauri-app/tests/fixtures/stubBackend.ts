@@ -293,6 +293,7 @@ function install(
             push: 'push',
             pushForce: 'push --force',
             pushSetUpstream: 'push --set-upstream',
+            setUpstream: 'branch --set-upstream-to',
             pushRenameRemote: 'push --rename',
             pushDeleteRemote: 'push --delete',
             pushRenameTag: 'push --rename-tag',
@@ -1415,7 +1416,12 @@ function install(
                 ? 'fatal: could not read from remote'
                 : 'fatal: clipboard unavailable'
           });
-          if (succeeded && applyRemoteChange(repo, name, args.action)) {
+          if (succeeded && name === 'setUpstream') {
+            // The real backend refreshes the status after the tracking
+            // configuration changes, so the upstream the sidebar marks moves.
+            repo.status.upstream = `${args.action.remote}/${args.action.branch}`;
+            announce(repo);
+          } else if (succeeded && applyRemoteChange(repo, name, args.action)) {
             // The real backend refreshes the refs after a remote changes, and
             // the list in the dialog is built from them.
             emit('augur://repo-event', { repoId: repo.id, type: 'refs', refs: repo.refs });
