@@ -14,7 +14,7 @@ import { copyText } from '../../platform';
 import { EmptyState, Splitter } from '../../components/controls';
 import { Icon } from '../../components/Icon';
 import type { FileChange } from '../../bridge/types';
-import { statBlocks, statusKey, statusModifier } from './fileMeta';
+import { fileName, statBlocks, statusKey, statusModifier } from './fileMeta';
 import { groupFiles, useStore, type RepoState } from '../../app/store';
 import { DiffView, NARROW_WIDTH, type DiffSection } from './DiffView';
 import { ta, t } from '../../i18n/strings';
@@ -403,6 +403,19 @@ export function BottomPanel({
             {pane.file.path}
           </span>
         ) : null}
+        {pane.kind === 'commit' && pane.file ? (
+          <span
+            className="bottom__toolbar-title mono"
+            data-testid="bottom-commit-path"
+            title={
+              pane.file.old_path
+                ? `${pane.file.old_path} → ${pane.file.new_path}`
+                : pane.file.new_path
+            }
+          >
+            {pane.file.new_path}
+          </span>
+        ) : null}
         <button
           type="button"
           className={`tool-button tool-button--compact${softWrap ? ' is-active' : ''}`}
@@ -591,7 +604,7 @@ function FileList({
             <span className={`file-row__status status-${statusModifier(file.status)}`}>
               {t(translate, statusKey(file.status))}
             </span>
-            <span className="file-row__name mono">{file.new_path}</span>
+            <span className="file-row__name mono">{fileName(file.new_path)}</span>
             {binary ? (
               <span className="file-row__stat muted">{t(translate, 'bottom-bin')}</span>
             ) : (

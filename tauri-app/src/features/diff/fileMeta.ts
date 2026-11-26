@@ -3,6 +3,18 @@
 import type { FileChange, FileChangeStatus } from '../../bridge/types';
 
 /**
+ * The final segment of a file path.
+ *
+ * The lists show this rather than the whole path, because a deep repository
+ * makes every row unreadably long; the full path stays in the row tooltip and
+ * in the diff toolbar once the row is selected.
+ */
+export function fileName(path: string): string {
+  const parts = path.split(/[/\\]/).filter(Boolean);
+  return parts[parts.length - 1] ?? path;
+}
+
+/**
  * Split an add/delete count into the five-segment bar.
  *
  * Additions are rounded up so that any addition is still visible, which is what

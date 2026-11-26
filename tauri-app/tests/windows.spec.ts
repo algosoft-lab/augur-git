@@ -277,6 +277,13 @@ test.describe('comparison window', () => {
     // files it found.
     await expect(page.getByTestId('compare-file-src/lib.rs')).toBeVisible();
     await expect(page.getByTestId('compare-file-src/new.rs')).toBeVisible();
+    // The rows show only the file name until a row is selected.
+    await expect(page.getByTestId('compare-file-src/lib.rs').locator('.file-row__name')).toHaveText(
+      'lib.rs'
+    );
+    await expect(page.getByTestId('compare-file-src/new.rs').locator('.file-row__name')).toHaveText(
+      'new.rs'
+    );
   });
 
   test('replays comparison events emitted before the command reply', async ({ page }) => {
@@ -342,6 +349,8 @@ test.describe('comparison window', () => {
     await page.getByTestId('compare-file-src/new.rs').click();
     await expect(page.getByTestId('compare-all-files')).not.toHaveClass(/is-selected/);
     await expect(page.getByTestId('compare-file-src/lib.rs')).toBeVisible();
+    // The selected row's full path is in the toolbar above the diff.
+    await expect(page.getByTestId('compare-file-path')).toHaveText('src/new.rs');
     await expect(page.getByTestId('diff-file-header')).toHaveCount(1);
     await expect(page.getByTestId('diff-file-header')).toContainText('src/new.rs');
     const starts = await page.evaluate(

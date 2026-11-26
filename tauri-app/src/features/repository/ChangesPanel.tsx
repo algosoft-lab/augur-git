@@ -29,6 +29,7 @@ import {
 import { t, ta } from '../../i18n/strings';
 import { hasOpenPopup, keysForCommand, matchesShortcut } from '../../app/keyboard';
 import { copyAgentPrompt } from '../agentPrompt/copyAgentPrompt';
+import { fileName } from '../diff/fileMeta';
 
 interface Group {
   key: 'staged' | 'changes';
@@ -491,7 +492,7 @@ function FileRow({
         <span className={`file-row__status status-${modifier}`}>
           {t(translate, porcelainKey(code, untracked))}
         </span>
-        <span className="file-row__name">{file.path}</span>
+        <span className="file-row__name">{fileName(file.path)}</span>
         {file.is_lfs ? (
           <span className="file-row__lfs" title={t(translate, 'lfs-file-tag')}>
             LFS

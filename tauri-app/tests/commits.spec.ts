@@ -205,9 +205,16 @@ test.describe('commit selection', () => {
 
     await page.locator('.graph-row').first().click();
 
-    // The commit's files arrive in their own event.
+    // The commit's files arrive in their own event. The rows show only the
+    // file name; the path is in the tooltip and the toolbar.
     await expect(page.getByTestId('bottom-file-src/lib.rs')).toBeVisible();
     await expect(page.getByTestId('bottom-file-src/commands/repo.rs')).toBeVisible();
+    await expect(page.getByTestId('bottom-file-src/lib.rs').locator('.file-row__name')).toHaveText(
+      'lib.rs'
+    );
+    await expect(
+      page.getByTestId('bottom-file-src/commands/repo.rs').locator('.file-row__name')
+    ).toHaveText('repo.rs');
     // The panel names the commit so the content is attributable.
     await expect(page.getByTestId('bottom-panel')).toContainText('Add the Tauri command surface');
 
@@ -388,6 +395,8 @@ test.describe('commit selection', () => {
     // the view, so a commit with two files still lists both.
     await page.getByTestId('bottom-file-src/lib.rs').click();
     await expect(page.getByTestId('bottom-file-src/lib.rs')).toHaveClass(/is-selected/);
+    // Selecting the row moves the full path into the toolbar.
+    await expect(page.getByTestId('bottom-commit-path')).toHaveText('src/lib.rs');
     await expect(page.getByTestId('diff-file-header')).toHaveCount(0);
     const firstRow = page.locator('[data-testid="diff-row"]').first();
     await expect(firstRow.locator('.diff__side')).toHaveCount(2);
@@ -961,6 +970,9 @@ test.describe('commit selection', () => {
   test('names the file and offers a copy in the working-tree view', async ({ page }) => {
     await boot(page, { open: [fixtureRepo()] });
 
+    await expect(
+      page.getByTestId('changes-file-src/main.rs').first().locator('.file-row__name')
+    ).toHaveText('main.rs');
     await page.getByTestId('changes-file-src/main.rs').first().click();
     await page.getByTestId('diff-hunk').first().waitFor();
 

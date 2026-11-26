@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { statBlocks, isBinary, statusKey, statusModifier } from './fileMeta';
+import { fileName, statBlocks, isBinary, statusKey, statusModifier } from './fileMeta';
 import type { FileChange } from '../../bridge/types';
 
 function file(patch: Partial<FileChange> = {}): FileChange {
@@ -39,6 +39,14 @@ describe('binary detection', () => {
     expect(isBinary(file({ added: null }))).toBe(true);
     expect(isBinary(file({ deleted: null }))).toBe(true);
     expect(isBinary(file())).toBe(false);
+  });
+});
+
+describe('file names', () => {
+  it('uses only the final segment of the path', () => {
+    expect(fileName('src/main.rs')).toBe('main.rs');
+    expect(fileName('src\\commands\\repo.rs')).toBe('repo.rs');
+    expect(fileName('notes.md')).toBe('notes.md');
   });
 });
 

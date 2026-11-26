@@ -22,7 +22,7 @@ import type {
   RepoEventEnvelope
 } from '../../bridge/types';
 import { useStore, type RepoState } from '../../app/store';
-import { statBlocks, statusKey, statusModifier } from '../diff/fileMeta';
+import { fileName, statBlocks, statusKey, statusModifier } from '../diff/fileMeta';
 import { DiffView, type DiffSection } from '../diff/DiffView';
 import { t, ta } from '../../i18n/strings';
 import { endpointRevision, RevisionPicker, type Endpoint } from './RevisionPicker';
@@ -521,7 +521,7 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
                       <span className={`file-row__status status-${statusModifier(file.status)}`}>
                         {t(translate, statusKey(file.status))}
                       </span>
-                      <span className="file-row__name">{file.path}</span>
+                      <span className="file-row__name">{fileName(file.new_path)}</span>
                       {/* A file that failed to diff looks like one that has simply
                         not loaded yet unless the reason is in the row. */}
                       {error ? (
@@ -562,6 +562,19 @@ export function CompareWindow({ repoId }: { repoId: number | null }) {
               <span className="compare__status">{t(translate, 'branch-compare-no-changes')}</span>
             ) : null}
             <span className="bottom__toolbar-spacer" />
+            {!showAll && selected ? (
+              <span
+                className="bottom__toolbar-title mono"
+                data-testid="compare-file-path"
+                title={
+                  selected.old_path
+                    ? `${selected.old_path} → ${selected.new_path}`
+                    : selected.new_path
+                }
+              >
+                {selected.new_path}
+              </span>
+            ) : null}
             {exportState ? (
               <span className="compare__status" data-testid="compare-export-status">
                 {exportState}
