@@ -224,6 +224,8 @@ pub fn configure_process_tree(command: &mut Command) {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
+    #[cfg(not(unix))]
+    let _ = command;
 }
 
 /// Stop a Git process and helpers it spawned before joining their output pipes.
