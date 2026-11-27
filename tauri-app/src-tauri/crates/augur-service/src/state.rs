@@ -91,7 +91,7 @@ impl AppState {
             auto_refresh: AutoRefreshController::new(auto_refresh_enabled),
             focused: AtomicBool::new(false),
         };
-        state.sync_credential_helper();
+        state.sync_credential_runtime();
         state
     }
 
@@ -113,8 +113,17 @@ impl AppState {
             .credentials()
             .update_settings(patch)
             .map_err(|detail| CommandError::new("err-credential-settings", detail))?;
-        self.sync_credential_helper();
+        self.sync_credential_runtime();
         Ok(snapshot)
+    }
+
+    /// Keep both the child-process credential helper and per-repository URL
+    /// isolation overrides in step with the vault state.
+    pub fn sync_credential_runtime(&self) {
+        self.sync_credential_helper();
+        augur_core::git::location::configure_repo_credential_overrides(
+            self.credentials().repo_overrides(),
+        );
     }
 
     /// Keep the child-process helper in step with the saved preference.
@@ -349,6 +358,7 @@ impl AppState {
     /// Persist the final snapshot and stop every worker.
     pub fn shutdown(&self) {
         augur_core::git::location::configure_git_credential_bridge(None);
+        augur_core::git::location::configure_repo_credential_overrides(HashMap::new());
         self.credentials().flush();
         self.auto_refresh.shutdown();
         let sessions: Vec<RepoSession> =

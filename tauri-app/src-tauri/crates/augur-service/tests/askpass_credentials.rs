@@ -300,3 +300,46 @@ fn git_runs_the_askpass_program_with_the_prompt_as_its_only_argument() {
         "the prompt is the only argument: {argument:?}"
     );
 }
+
+#[test]
+fn probe_operations_answer_from_storage_without_opening_a_dialog() {
+    let (vault, directory) = temp_vault();
+    vault
+        .save(
+            CredentialInput {
+                id: None,
+                protocol: "https".into(),
+                host: "github.com".into(),
+                path_prefix: None,
+                username: "dev".into(),
+                password: Some("s3cret".into()),
+                scope: CredentialScope::Global,
+                storage: SecretStorage::Session,
+            },
+            1,
+        )
+        .unwrap();
+    let sink = Arc::new(CapturingSink(Mutex::new(Vec::new())));
+    let server = AskpassServer::start(sink.clone(), vault).unwrap();
+    let (address, token) = server.endpoint();
+
+    let mut matched = prompt(
+        address,
+        token,
+        "probe-1",
+        "/home/dev/repo",
+        "Password for 'https://dev@github.com': ",
+    );
+    assert_eq!(read_frame(&mut matched), b"s3cret");
+
+    let mut missing = prompt(
+        address,
+        token,
+        "probe-2",
+        "/home/dev/repo",
+        "Username for 'https://unknown.invalid': ",
+    );
+    assert_eq!(read_frame(&mut missing), b"");
+    assert!(sink.0.lock().unwrap().is_empty());
+    let _ = std::fs::remove_dir_all(directory);
+}

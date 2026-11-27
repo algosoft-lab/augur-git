@@ -231,8 +231,30 @@ async fn dispatch_typed(
             arg(args, "answer")?,
         ))),
         "import_git_credentials" => res(credentials::import_git_store(state)),
-        "credential_lookup" => res(Ok(credentials::lookup(state, arg(args, "url")?))),
+        "credential_lookup" => res(Ok(credentials::lookup(
+            state,
+            arg(args, "url")?,
+            arg(args, "repoId")?,
+        ))),
         "test_credential" => res(credentials::test_entry(state, arg(args, "id")?).await),
+        "repo_credential_snapshot" => {
+            res(credentials::repo_snapshot(state, arg(args, "repoId")?).await)
+        }
+        "save_repo_credential_config" => res(
+            credentials::save_repo_config(state, arg(args, "repoId")?, arg(args, "input")?).await,
+        ),
+        "verify_repo_credential" => res(
+            credentials::verify_repo_credential(
+                state,
+                arg(args, "repoId")?,
+                arg(args, "remoteName")?,
+            )
+            .await,
+        ),
+        "test_repo_remote_credential" => res(
+            credentials::test_repo_remote(state, arg(args, "repoId")?, arg(args, "remoteName")?)
+                .await,
+        ),
 
         "read_git_config" => res(Ok(git_config::read_git_config(arg(args, "location")?))),
         "write_git_config" => res(git_config::write_git_config(
@@ -416,6 +438,19 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.key, "err-invalid-parameters");
         assert!(error.detail.contains("repoId"), "{}", error.detail);
+    }
+
+    #[tokio::test]
+    async fn repo_credential_commands_are_wired_into_server_dispatch() {
+        let state = test_state().await;
+        let error = dispatch(
+            &state,
+            "repo_credential_snapshot",
+            serde_json::json!({ "repoId": 999 }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.key, "err-repo-closed");
     }
 
     #[test]

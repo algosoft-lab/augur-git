@@ -46,6 +46,7 @@ pub mod location;
 pub mod operation_probe;
 pub mod progress;
 mod remote_config;
+pub mod repo_credentials;
 pub mod working_tree;
 
 pub use branch_compare::suggested_patch_filename;

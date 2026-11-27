@@ -15,6 +15,8 @@
 //! This module only depends on `std` so its platform-specific code can be
 //! type-checked for the Windows target without a full cross toolchain.
 
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{OnceLock, RwLock};
@@ -114,6 +116,81 @@ fn credential_bridge() -> Option<GitCredentialBridge> {
         .and_then(|current| current.read().ok().and_then(|value| value.clone()))
 }
 
+/// Per-repository runtime credential isolation rule derived from the Augur
+/// vault so repository-scoped accounts bypass global/system/URL-specific helpers
+/// on the same host without writing to `.git/config`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RepoCredentialOverride {
+    /// Canonical `protocol://host[:port]` prefix used to enable `useHttpPath`.
+    pub host_url: String,
+    /// Canonical URL matchers (e.g. `https://github.com/org/repo` and
+    /// `https://github.com/org/repo.git`, or `https://github.com` when no path
+    /// prefix is configured).
+    pub match_urls: Vec<String>,
+    pub username: String,
+    pub use_http_path: bool,
+}
+
+static GIT_REPO_CREDENTIAL_OVERRIDES: OnceLock<RwLock<HashMap<String, Vec<RepoCredentialOverride>>>> =
+    OnceLock::new();
+
+/// Replace the active per-repository credential isolation rules.
+pub fn configure_repo_credential_overrides(overrides: HashMap<String, Vec<RepoCredentialOverride>>) {
+    let normalized = overrides
+        .into_iter()
+        .map(|(path, rules)| (normalize_repo_key(&path), rules))
+        .collect();
+    let current = GIT_REPO_CREDENTIAL_OVERRIDES.get_or_init(|| RwLock::new(HashMap::new()));
+    *current
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = normalized;
+}
+
+fn normalize_repo_key(path: &str) -> String {
+    let mut trimmed = path.trim();
+    while trimmed.len() > 1
+        && !(trimmed.len() == 3 && trimmed.as_bytes()[1] == b':')
+        && (trimmed.ends_with('/') || trimmed.ends_with('\\'))
+    {
+        trimmed = &trimmed[..trimmed.len() - 1];
+    }
+    trimmed.to_string()
+}
+
+fn overrides_for_repo(path: &str) -> Vec<RepoCredentialOverride> {
+    let key = normalize_repo_key(path);
+    GIT_REPO_CREDENTIAL_OVERRIDES
+        .get()
+        .and_then(|current| current.read().ok().and_then(|map| map.get(&key).cloned()))
+        .unwrap_or_default()
+}
+
+/// Append `key=value` overrides via Git's `GIT_CONFIG_*` environment variables,
+/// preserving any entries already placed on `command` or inherited from the
+/// parent process.
+pub fn append_git_configs(command: &mut Command, entries: &[(String, String)]) {
+    if entries.is_empty() {
+        return;
+    }
+    let existing_on_command = command
+        .get_envs()
+        .find(|(key, _)| *key == OsStr::new("GIT_CONFIG_COUNT"))
+        .and_then(|(_, value)| value.and_then(|v| v.to_str()).and_then(|s| s.parse::<u32>().ok()));
+    let base_index = existing_on_command.unwrap_or_else(|| {
+        std::env::var("GIT_CONFIG_COUNT")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(0)
+    });
+    command.env("GIT_CONFIG_COUNT", (base_index + entries.len() as u32).to_string());
+    for (offset, (key, value)) in entries.iter().enumerate() {
+        let index = base_index + offset as u32;
+        command
+            .env(format!("GIT_CONFIG_KEY_{index}"), key)
+            .env(format!("GIT_CONFIG_VALUE_{index}"), value);
+    }
+}
+
 /// Quote one argument for the shell Git uses to run `!` helpers.
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
@@ -147,13 +224,14 @@ impl GitRepo {
         matches!(self.location, RepoLocation::Wsl { .. })
     }
 
-    /// Build the base command for one Git invocation.
-    ///
-    /// Callers append their regular arguments afterwards, including the
-    /// `-C <path>` pair. For WSL the `-C` value duplicates `--cd` and is
-    /// redundant but harmless; keeping it spares every argument builder from
-    /// location awareness.
-    pub fn command(&self) -> Command {
+    /// Build a plain Git command targeting this repository without askpass or
+    /// ephemeral credential-bridge `GIT_CONFIG_*` overrides. Used for reading
+    /// and verifying on-disk `.git/config` state honestly.
+    pub fn raw_config_command(&self) -> Command {
+        self.base_command()
+    }
+
+    fn base_command(&self) -> Command {
         #[allow(unused_mut)] // mutated only behind `cfg(windows)`
         let mut command = match &self.location {
             RepoLocation::Local => Command::new("git"),
@@ -176,6 +254,18 @@ impl GitRepo {
 
         #[cfg(windows)]
         command.creation_flags(CREATE_NO_WINDOW);
+
+        command
+    }
+
+    /// Build the base command for one Git invocation.
+    ///
+    /// Callers append their regular arguments afterwards, including the
+    /// `-C <path>` pair. For WSL the `-C` value duplicates `--cd` and is
+    /// redundant but harmless; keeping it spares every argument builder from
+    /// location awareness.
+    pub fn command(&self) -> Command {
+        let mut command = self.base_command();
 
         if !self.is_wsl() {
             let askpass = GIT_ASKPASS
@@ -200,24 +290,44 @@ impl GitRepo {
                     .env("AUGUR_GIT_OP_ID", next_operation_id())
                     .env("AUGUR_GIT_REPO_PATH", &self.path);
             }
+            let mut extra_configs: Vec<(String, String)> = Vec::new();
             if let Some(bridge) = bridge {
                 let helper = format!(
                     "!{} --git-credential-helper",
                     shell_quote(&bridge.executable)
                 );
-                let index = std::env::var("GIT_CONFIG_COUNT")
-                    .ok()
-                    .and_then(|value| value.parse::<u32>().ok())
-                    .unwrap_or(0);
-                command
-                    .env("GIT_CONFIG_COUNT", (index + 1).to_string())
-                    .env(format!("GIT_CONFIG_KEY_{index}"), "credential.helper")
-                    .env(format!("GIT_CONFIG_VALUE_{index}"), helper)
-                    .env("AUGUR_GIT_CREDENTIAL_DOC", bridge.document);
+                extra_configs.push(("credential.helper".into(), helper));
+                command.env("AUGUR_GIT_CREDENTIAL_DOC", bridge.document);
                 if let Some(secrets) = bridge.secrets {
                     command.env("AUGUR_GIT_CREDENTIAL_SECRETS", secrets);
                 }
             }
+            if askpass_configured {
+                let overrides = overrides_for_repo(&self.path);
+                if !overrides.is_empty() {
+                    let mut seen_hosts = HashSet::new();
+                    let mut seen_helper_urls = HashSet::new();
+                    for rule in &overrides {
+                        if rule.use_http_path && seen_hosts.insert(rule.host_url.clone()) {
+                            extra_configs.push((
+                                format!("credential.{}.useHttpPath", rule.host_url),
+                                "true".to_string(),
+                            ));
+                        }
+                        for url in &rule.match_urls {
+                            if seen_helper_urls.insert(url.clone()) {
+                                // Clear inherited global/system/URL-specific helpers for this
+                                // repository's URL so Augur's askpass bridge answers first.
+                                extra_configs
+                                    .push((format!("credential.{url}.helper"), String::new()));
+                            }
+                            extra_configs
+                                .push((format!("credential.{url}.username"), rule.username.clone()));
+                        }
+                    }
+                }
+            }
+            append_git_configs(&mut command, &extra_configs);
         }
 
         command
@@ -463,6 +573,8 @@ fn next_operation_id() -> String {
 mod tests {
     use super::*;
 
+    static ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn local_command_targets_git() {
         let repo = GitRepo::local("/tmp/repo");
@@ -486,6 +598,8 @@ mod tests {
     /// the values Git read from the user's files.
     #[test]
     fn an_injected_credential_helper_is_appended_after_the_configured_helpers() {
+        let _guard = ENV_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
         let directory = std::env::temp_dir().join(format!(
             "augur-helper-order-{}-{}",
             std::process::id(),
@@ -505,7 +619,7 @@ mod tests {
         let output = GitRepo::local(directory.to_string_lossy().into_owned())
             .command()
             .env("GIT_CONFIG_GLOBAL", &global)
-            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
             .args(["config", "--get-all", "credential.helper"])
             .output();
         configure_git_credential_bridge(None);
@@ -521,6 +635,145 @@ mod tests {
         assert_eq!(helpers.first(), Some(&"osxkeychain"), "{text}");
         assert_eq!(helpers.len(), 2, "{text}");
         assert_eq!(helpers[1], "!'/opt/augur git' --git-credential-helper");
+    }
+
+    #[test]
+    fn repo_credential_overrides_clear_global_and_url_helpers_only_for_matching_url() {
+        use std::io::Write;
+
+        let _guard = ENV_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
+        let directory = std::env::temp_dir().join(format!(
+            "augur-repo-override-{}-{}",
+            std::process::id(),
+            GIT_OPERATION_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let repo_dir = directory.join("repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        let init = Command::new("git").args(["init", "-q"]).current_dir(&repo_dir).output();
+        let Ok(init) = init else {
+            let _ = std::fs::remove_dir_all(&directory);
+            return;
+        };
+        if !init.status.success() {
+            let _ = std::fs::remove_dir_all(&directory);
+            return;
+        }
+
+        let global = directory.join("gitconfig");
+        let helper_marker = directory.join("global-helper-hit.txt");
+        let fake_helper = directory.join("fake-helper.sh");
+        let askpass = directory.join("askpass.sh");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(
+                &fake_helper,
+                format!(
+                    "#!/bin/sh\necho \"called\" >> '{}'\necho \"username=global_user\"\necho \"password=global_pass\"\n",
+                    helper_marker.display()
+                ),
+            )
+            .unwrap();
+            std::fs::set_permissions(&fake_helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::write(
+                &askpass,
+                "#!/bin/sh\necho \"ASKPASS_PROMPT:$1\" >&2\necho \"special_pw\"\n",
+            )
+            .unwrap();
+            std::fs::set_permissions(&askpass, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = std::fs::remove_dir_all(&directory);
+            return;
+        }
+
+        std::fs::write(
+            &global,
+            format!(
+                "[credential]\n\thelper = !'{}'\n\tusername = global_user\n[credential \"https://example.invalid\"]\n\thelper = !'{}'\n",
+                fake_helper.display(),
+                fake_helper.display()
+            ),
+        )
+        .unwrap();
+
+        struct ResetGuard;
+        impl Drop for ResetGuard {
+            fn drop(&mut self) {
+                configure_repo_credential_overrides(HashMap::new());
+                configure_git_askpass(None);
+            }
+        }
+        let _reset_guard = ResetGuard;
+
+        let repo_path = repo_dir.to_string_lossy().into_owned();
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            repo_path.clone(),
+            vec![RepoCredentialOverride {
+                host_url: "https://example.invalid".into(),
+                match_urls: vec![
+                    "https://example.invalid/org/repo".into(),
+                    "https://example.invalid/org/repo.git".into(),
+                ],
+                username: "special_user".into(),
+                use_http_path: true,
+            }],
+        );
+
+        configure_git_askpass(Some(GitAskpassEnvironment {
+            executable: askpass.to_string_lossy().into_owned(),
+            address: "127.0.0.1:0".into(),
+            token: "test-token".into(),
+        }));
+        configure_repo_credential_overrides(overrides);
+
+        let run_fill = |input: &str| {
+            let mut cmd = GitRepo::local(&repo_path).command();
+            cmd.env("GIT_CONFIG_GLOBAL", &global)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .args(["-C", &repo_path, "credential", "fill"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            let mut child = cmd.spawn().unwrap();
+            child
+                .stdin
+                .as_mut()
+                .unwrap()
+                .write_all(input.as_bytes())
+                .unwrap();
+            child.wait_with_output().unwrap()
+        };
+
+        // Matching URL bypasses both global and host-URL helpers and preserves full path + username.
+        let matching = run_fill("protocol=https\nhost=example.invalid\npath=org/repo.git\n\n");
+        let matching_stdout = String::from_utf8_lossy(&matching.stdout);
+        let matching_stderr = String::from_utf8_lossy(&matching.stderr);
+        assert!(matching.status.success(), "{matching_stderr}");
+        assert!(
+            matching_stdout.contains("username=special_user"),
+            "{matching_stdout}"
+        );
+        assert!(
+            matching_stderr.contains("https://special_user@example.invalid/org/repo.git"),
+            "{matching_stderr}"
+        );
+        assert!(!helper_marker.exists(), "global helper must not run for isolated repo URL");
+
+        // Different path on the same host still uses the global helpers.
+        let other = run_fill("protocol=https\nhost=example.invalid\npath=org/other.git\n\n");
+        let other_stdout = String::from_utf8_lossy(&other.stdout);
+        assert!(other.status.success());
+        assert!(other_stdout.contains("username=global_user"), "{other_stdout}");
+        assert!(helper_marker.exists(), "global helper should still run for non-matching path");
+
+        configure_repo_credential_overrides(HashMap::new());
+        configure_git_askpass(None);
+        let _ = std::fs::remove_dir_all(&directory);
     }
 
     #[test]

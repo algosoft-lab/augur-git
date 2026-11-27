@@ -65,6 +65,9 @@ import type {
   CredentialSnapshot,
   CredentialTest,
   ImportOutcome,
+  RepoCredentialSnapshot,
+  RepoCredentialVerification,
+  RepoLocalCredentialInput,
   LfsCredentialRequest,
   LfsRepositoryPreferences,
   LfsRepositoryState,
@@ -453,12 +456,40 @@ export async function importGitCredentials(): Promise<ImportOutcome> {
   return invoke('import_git_credentials');
 }
 
-export async function lookupCredential(url: string): Promise<CredentialLookup> {
-  return invoke('credential_lookup', { url });
+export async function lookupCredential(
+  url: string,
+  repoId: number | null = null
+): Promise<CredentialLookup> {
+  return invoke('credential_lookup', { url, repoId });
 }
 
 export async function testCredential(id: string): Promise<CredentialTest> {
   return invoke('test_credential', { id });
+}
+
+export async function repoCredentialSnapshot(repoId: number): Promise<RepoCredentialSnapshot> {
+  return invoke('repo_credential_snapshot', { repoId });
+}
+
+export async function saveRepoCredentialConfig(
+  repoId: number,
+  input: RepoLocalCredentialInput
+): Promise<RepoCredentialSnapshot> {
+  return invoke('save_repo_credential_config', { repoId, input });
+}
+
+export async function verifyRepoCredential(
+  repoId: number,
+  remoteName: string
+): Promise<RepoCredentialVerification> {
+  return invoke('verify_repo_credential', { repoId, remoteName });
+}
+
+export async function testRepoRemoteCredential(
+  repoId: number,
+  remoteName: string
+): Promise<CredentialTest> {
+  return invoke('test_repo_remote_credential', { repoId, remoteName });
 }
 
 export function onLfsCredentialRequest(handler: (request: LfsCredentialRequest) => void): Promise<UnlistenFn> {

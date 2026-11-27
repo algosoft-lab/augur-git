@@ -197,6 +197,12 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
     separatorBefore: true,
     onSelect: () => openOverlay({ kind: 'manageRemotes' })
   };
+  const repoCredentialsItem: MenuItemSpec = {
+    id: 'repo-credentials',
+    label: t(translate, 'toolbar-repo-credentials'),
+    icon: <Icon name="key" />,
+    onSelect: () => openOverlay({ kind: 'repoCredentials', repoId: repo.id })
+  };
   const manageLfsItem: MenuItemSpec = {
     id: 'manage-lfs',
     label: t(translate, 'lfs-manage-title'),
@@ -223,6 +229,7 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
       onSelect: () => void ipc.openCompareWindow(repo.id)
     },
     manageRemotesItem,
+    repoCredentialsItem,
     manageLfsItem,
     resetItem,
     forcePushItem
@@ -231,6 +238,7 @@ export function Toolbar({ repo, compact = false }: { repo: RepoState; compact?: 
     cloneItem,
     ...branchItems,
     manageRemotesItem,
+    repoCredentialsItem,
     manageLfsItem,
     resetItem,
     forcePushItem

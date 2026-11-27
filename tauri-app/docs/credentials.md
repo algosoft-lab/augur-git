@@ -88,6 +88,30 @@ The most specific entry wins: repository scope above a path prefix above a
 global entry, then the most recently updated. Two accounts on one host are
 therefore possible with a path prefix or a repository scope.
 
+## Per-repository isolation & local `.git/config`
+
+When a local repository has a repository-scoped entry in the vault (and
+`auto-fill` is enabled), spawned Git commands for that repository receive
+ephemeral `GIT_CONFIG_*` overrides (`credential.<url>.helper=""`,
+`credential.<url>.username`, and `credential.<host>.useHttpPath=true` when a
+path prefix is present). This clears inherited system, global, and URL-specific
+helpers (such as `gh auth git-credential` or a shared OS keychain entry on the
+same host) for that repository's URL only, so the askpass bridge answers with
+the repository-scoped account without touching `.git/config`.
+
+For terminal `git` compatibility as well, **More → Repository Credentials…**
+opens a per-repository modal with two tabs:
+
+1. **Augur Vault (This Repository)**: add, edit, test, and delete
+   repository-scoped accounts stored in Keychain / session / plaintext.
+2. **Local Git Config (`.git/config`)**: configure Strategy 1
+   (`credential.useHttpPath = true` + `credential.username` + optional remote
+   URL username embedding) or Strategy 2 (`credential.helper = ""` reset with
+   either a dedicated `store --file=...` file or prompt-only isolation), manage
+   local `user.name`/`user.email`, inspect the active `credential.helper` chain
+   (`git config --show-origin`), and run `git credential fill` / `git ls-remote`
+   verification.
+
 ## Commands
 
 Shared by both frontends (`augur-service`, then the Tauri wrapper and the server
@@ -101,8 +125,12 @@ dispatcher):
 | `delete_credential` | Remove an entry and its secret |
 | `credential_login_response` | Answer a `login` prompt event |
 | `import_git_credentials` | Read `~/.git-credentials`, never modify it |
-| `credential_lookup` | Whether a remote URL already has an account, without reading its secret |
+| `credential_lookup` | Whether a remote URL already has an account (optionally scoped to `repoId`), without reading its secret |
 | `test_credential` | Run `git ls-remote` against an entry's path, capped at 30 s |
+| `repo_credential_snapshot` | Repository remotes, repository-scoped vault entries, and `.git/config` state |
+| `save_repo_credential_config` | Apply Strategy 1 / Strategy 2, remote URL username action, and local identity |
+| `verify_repo_credential` | Inspect Augur Vault resolution and non-interactive `git credential fill` |
+| `test_repo_remote_credential` | Run non-interactive `git ls-remote` against a repository remote |
 
 The prompt event keeps its existing name (`augur://lfs-credential-request`) and
 gains fields, so an older payload shape still parses.

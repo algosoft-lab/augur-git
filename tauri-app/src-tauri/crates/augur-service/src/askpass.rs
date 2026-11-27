@@ -284,6 +284,7 @@ fn handle_request(
     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
     let prompt = String::from_utf8_lossy(&prompt).into_owned();
     let operation_id = String::from_utf8_lossy(&operation_id).into_owned();
+    let non_interactive = operation_id.starts_with("probe-");
     let repository = String::from_utf8_lossy(&repository).into_owned();
     let repository = if repository.is_empty() {
         None
@@ -406,6 +407,11 @@ fn handle_request(
                 return;
             }
         }
+    }
+
+    if non_interactive {
+        let _ = write_frame(&mut stream, b"");
+        return;
     }
 
     log::info!(
@@ -608,7 +614,12 @@ pub fn respond_login(
             storage: persist,
         };
         match vault.save(input, now_seconds()) {
-            Ok(_) => stored = true,
+            Ok(_) => {
+                stored = true;
+                augur_core::git::location::configure_repo_credential_overrides(
+                    vault.repo_overrides(),
+                );
+            }
             Err(reason) => {
                 log::warn!("[git_askpass] the credential could not be stored: {reason}");
                 error = Some(reason);

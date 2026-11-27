@@ -6,8 +6,12 @@
 //! entries the application does. Usage bookkeeping is memory-only and flushed on
 //! shutdown, because a push should not rewrite the settings file several times.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use augur_core::config::LocationConfig;
+use augur_core::git::location::RepoCredentialOverride;
 
 use crate::credentials::model::{
     CREDENTIALS_DOCUMENT_KEY, CredentialDocument, CredentialEntry, CredentialEntryView,
@@ -640,6 +644,71 @@ impl CredentialVault {
         let secret = resolved.secret?;
         Some((resolved.entry.username, secret))
     }
+
+    /// Runtime URL-scoped credential isolation rules for repository-scoped
+    /// vault entries. Only local repositories receive askpass / `GIT_CONFIG_*`
+    /// isolation.
+    pub fn repo_overrides(&self) -> HashMap<String, Vec<RepoCredentialOverride>> {
+        self.with(|state| {
+            let mut map: HashMap<String, Vec<RepoCredentialOverride>> = HashMap::new();
+            if !state.document.settings.auto_fill {
+                return map;
+            }
+            let mut scoped: Vec<CredentialEntry> = state
+                .document
+                .entries
+                .iter()
+                .chain(state.session.iter())
+                .filter(|entry| {
+                    matches!(
+                        entry.scope,
+                        CredentialScope::Repository {
+                            location: LocationConfig::Local,
+                            ..
+                        }
+                    )
+                })
+                .cloned()
+                .collect();
+            scoped.sort_by_key(|entry| entry.updated_at);
+
+            for entry in scoped {
+                let CredentialScope::Repository {
+                    location: LocationConfig::Local,
+                    path,
+                } = entry.scope
+                else {
+                    continue;
+                };
+                let host_url = format!("{}://{}", entry.protocol, entry.host);
+                let prefix = entry
+                    .path_prefix
+                    .as_deref()
+                    .map(|p| p.trim_matches('/'))
+                    .filter(|p| !p.is_empty());
+                let (use_http_path, match_urls) = if let Some(prefix) = prefix {
+                    let bare = prefix.strip_suffix(".git").unwrap_or(prefix);
+                    if bare.is_empty() {
+                        (false, vec![host_url.clone()])
+                    } else {
+                        (
+                            true,
+                            vec![format!("{host_url}/{bare}"), format!("{host_url}/{bare}.git")],
+                        )
+                    }
+                } else {
+                    (false, vec![host_url.clone()])
+                };
+                map.entry(path).or_default().push(RepoCredentialOverride {
+                    host_url,
+                    match_urls,
+                    username: entry.username,
+                    use_http_path,
+                });
+            }
+            map
+        })
+    }
 }
 
 #[cfg(test)]
@@ -914,5 +983,40 @@ mod tests {
             .unwrap();
         assert!(text.contains("github.com"));
         assert!(!text.contains("s3cret"));
+    }
+
+    #[test]
+    fn repo_overrides_include_both_bare_and_git_urls_and_respect_auto_fill() {
+        let fixture = fixture();
+        let mut request = input("github.com", "work-bot", "s3cret");
+        request.path_prefix = Some("org/special.git".into());
+        request.scope = CredentialScope::Repository {
+            location: LocationConfig::Local,
+            path: "/tmp/special-repo".into(),
+        };
+        fixture.vault.save(request, 10).unwrap();
+
+        let overrides = fixture.vault.repo_overrides();
+        let rules = overrides.get("/tmp/special-repo").expect("override present");
+        assert_eq!(rules.len(), 1);
+        assert!(rules[0].use_http_path);
+        assert_eq!(rules[0].host_url, "https://github.com");
+        assert_eq!(
+            rules[0].match_urls,
+            vec![
+                "https://github.com/org/special".to_string(),
+                "https://github.com/org/special.git".to_string(),
+            ]
+        );
+        assert_eq!(rules[0].username, "work-bot");
+
+        fixture
+            .vault
+            .update_settings(CredentialSettingsPatch {
+                auto_fill: Some(false),
+                ..CredentialSettingsPatch::default()
+            })
+            .unwrap();
+        assert!(fixture.vault.repo_overrides().is_empty());
     }
 }

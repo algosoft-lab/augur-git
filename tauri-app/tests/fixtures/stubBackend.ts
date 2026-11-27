@@ -410,6 +410,141 @@ function install(
     helperActive: credentialState.settings.useHelper
   });
 
+  const repoLocalConfigState = new Map<
+    number,
+    {
+      mode: 'inherit' | 'use-http-path' | 'isolated-store' | 'isolated-prompt' | 'custom';
+      useHttpPath: boolean | null;
+      username: string | null;
+      localHelpers: string[];
+      storeFile: string | null;
+      localUserName: string | null;
+      localUserEmail: string | null;
+    }
+  >();
+
+  const parseStubHttpUrl = (raw: string) => {
+    const match = /^(https?):\/\/(?:([^/@]+)(?::[^/@]*)?@)?([^/]+?)(?:\/(.*))?$/i.exec(raw.trim());
+    if (!match) return null;
+    const protocol = match[1]!.toLowerCase();
+    const urlUsername = match[2] || null;
+    const host = match[3]!.toLowerCase().replace(/:(443|80)$/, '');
+    const path = (match[4] ?? '').replace(/^\/+|\/+$/g, '') || null;
+    return { protocol, host, path, urlUsername };
+  };
+
+  const buildRepoCredentialSnapshot = (repoId: number) => {
+    const repo = options.open.find((item) => item.id === repoId);
+    if (!repo) {
+      throw { key: 'err-repo-closed', detail: `repository ${repoId} is no longer open` };
+    }
+    const local = repoLocalConfigState.get(repoId) ?? {
+      mode: 'inherit' as const,
+      useHttpPath: null,
+      username: null,
+      localHelpers: [],
+      storeFile: null,
+      localUserName: null,
+      localUserEmail: null
+    };
+    const effectiveHelpers = [
+      {
+        scope: 'global',
+        origin: 'file:/home/dev/.gitconfig',
+        key: 'credential.helper',
+        value: 'osxkeychain'
+      },
+      {
+        scope: 'global',
+        origin: 'file:/home/dev/.gitconfig',
+        key: 'credential.https://example.com.helper',
+        value: '!gh auth git-credential'
+      },
+      ...local.localHelpers.map((value) => ({
+        scope: 'local',
+        origin: 'file:.git/config',
+        key: 'credential.helper',
+        value
+      }))
+    ];
+    const vaultSnap = credentialSnapshot();
+    const repoEntries = vaultSnap.entries.filter(
+      (entry) => entry.scope.kind === 'repository' && entry.scope.path === repo.path
+    );
+    const globalEntries = vaultSnap.entries.filter((entry) => entry.scope.kind === 'global');
+
+    const remotes = (repo.refs.remote_urls ?? []).map((remote) => {
+      const parsed = parseStubHttpUrl(remote.url);
+      if (!parsed) {
+        return {
+          name: remote.name,
+          url: remote.url,
+          isHttp: false,
+          protocol: null,
+          host: null,
+          path: null,
+          urlUsername: null,
+          matchedVaultEntryId: null,
+          matchedVaultScope: null,
+          matchedVaultUsername: null,
+          hasUrlHelperConflict: false
+        };
+      }
+      const matchRepo = repoEntries.find(
+        (entry) =>
+          entry.protocol === parsed.protocol &&
+          entry.host === parsed.host &&
+          (!parsed.urlUsername || entry.username === parsed.urlUsername)
+      );
+      const matchGlobal = globalEntries.find(
+        (entry) =>
+          entry.protocol === parsed.protocol &&
+          entry.host === parsed.host &&
+          (!parsed.urlUsername || entry.username === parsed.urlUsername)
+      );
+      const matched = matchRepo ?? matchGlobal ?? null;
+      return {
+        name: remote.name,
+        url: remote.url,
+        isHttp: true,
+        protocol: parsed.protocol,
+        host: parsed.host,
+        path: parsed.path,
+        urlUsername: parsed.urlUsername,
+        matchedVaultEntryId: matched?.id ?? null,
+        matchedVaultScope: matched ? (matched.scope.kind === 'repository' ? 'repository' : 'global') : null,
+        matchedVaultUsername: matched?.username ?? null,
+        hasUrlHelperConflict: parsed.host === 'example.com'
+      };
+    });
+
+    return {
+      repoId,
+      repoPath: repo.path,
+      location: repo.location,
+      isWsl: repo.location.kind === 'wsl',
+      remotes,
+      vaultEntries: repoEntries,
+      fallbackVaultEntries: globalEntries.filter((entry) =>
+        remotes.some((r) => r.isHttp && r.host === entry.host && r.protocol === entry.protocol)
+      ),
+      localConfig: {
+        mode: local.mode,
+        useHttpPath: local.useHttpPath,
+        username: local.username,
+        localHelpers: local.localHelpers,
+        storeFile: local.storeFile,
+        suggestedStoreFile: '/home/dev/.git-credentials-augur-git',
+        effectiveHelpers,
+        localUserName: local.localUserName,
+        localUserEmail: local.localUserEmail,
+        effectiveUserName: local.localUserName ?? gitConfigState['user.name'] ?? 'Stub Author',
+        effectiveUserEmail: local.localUserEmail ?? gitConfigState['user.email'] ?? 'stub@example.com'
+      },
+      vault: vaultSnap
+    };
+  };
+
   const typographyModifier = /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? 'cmd' : 'ctrl';
   const defaultShortcuts = [
     { command: 'app.quit', keys: ['CmdOrCtrl+Q'] },
@@ -936,9 +1071,16 @@ function install(
     save_credential: (args: any) => {
       const input = args.input;
       const scope = input.scope ?? { kind: 'global' };
+      const sameScope = (a: any, b: any) =>
+        a.kind === b.kind && (a.kind === 'global' || a.path === b.path);
       const existing = credentialState.entries.find(
         (entry) =>
-          entry.id === input.id || (entry.host === input.host && entry.username === input.username)
+          entry.id === input.id ||
+          (entry.protocol === input.protocol &&
+            entry.host === input.host &&
+            entry.username === input.username &&
+            (entry.pathPrefix ?? null) === (input.pathPrefix ?? null) &&
+            sameScope(entry.scope, scope))
       );
       const entry = {
         id: existing?.id ?? `cred-${credentialState.entries.length + 1}`,
@@ -976,6 +1118,76 @@ function install(
       String(args.url ?? '').includes('github.com')
         ? { saved: true, username: 'dev', storage: 'keychain' }
         : { saved: false, username: null, storage: null },
+    repo_credential_snapshot: (args: any) => buildRepoCredentialSnapshot(args.repoId),
+    save_repo_credential_config: (args: any) => {
+      const { repoId, input } = args;
+      const repo = options.open.find((item) => item.id === repoId);
+      if (!repo) {
+        throw { key: 'err-repo-closed', detail: `repository ${repoId} is no longer open` };
+      }
+      const localHelpers =
+        input.mode === 'isolated-store' && input.storeFile
+          ? ['', `store --file=${input.storeFile}`]
+          : input.mode === 'isolated-prompt'
+            ? ['']
+            : [];
+      repoLocalConfigState.set(repoId, {
+        mode: input.mode,
+        useHttpPath: input.mode === 'inherit' ? null : Boolean(input.useHttpPath),
+        username: input.username ?? null,
+        localHelpers,
+        storeFile: input.mode === 'isolated-store' ? (input.storeFile ?? null) : null,
+        localUserName: input.localUserName ?? null,
+        localUserEmail: input.localUserEmail ?? null
+      });
+      if (input.targetRemoteName && input.remoteUrlUsernameAction !== 'keep') {
+        const entry = repo.refs.remote_urls?.find((r) => r.name === input.targetRemoteName);
+        if (entry) {
+          const parsed = parseStubHttpUrl(entry.url);
+          if (parsed) {
+            const pathPart = parsed.path ? `/${parsed.path}` : '';
+            entry.url =
+              input.remoteUrlUsernameAction === 'embed' && input.username
+                ? `${parsed.protocol}://${encodeURIComponent(input.username)}@${parsed.host}${pathPart}`
+                : `${parsed.protocol}://${parsed.host}${pathPart}`;
+            emit('augur://repo-event', { repoId: repo.id, type: 'refs', refs: repo.refs });
+          }
+        }
+      }
+      return buildRepoCredentialSnapshot(repoId);
+    },
+    verify_repo_credential: (args: any) => {
+      const snap = buildRepoCredentialSnapshot(args.repoId);
+      const remote = snap.remotes.find((r) => r.name === args.remoteName) ?? snap.remotes[0]!;
+      const local = snap.localConfig;
+      const isolates =
+        remote.matchedVaultScope === 'repository' ||
+        local.mode === 'isolated-store' ||
+        local.mode === 'isolated-prompt';
+      return {
+        remoteName: remote.name,
+        remoteUrl: remote.url,
+        augurSource:
+          remote.matchedVaultScope === 'repository'
+            ? 'repository-vault'
+            : remote.matchedVaultScope === 'global'
+              ? 'global-vault'
+              : 'none',
+        augurUsername: remote.matchedVaultUsername,
+        augurSecretPresent: Boolean(remote.matchedVaultUsername),
+        augurFailing: false,
+        isolatesGlobalHelpers: isolates,
+        gitFill: {
+          ok: local.mode === 'isolated-store' || Boolean(local.username),
+          username: local.username ?? remote.urlUsername ?? null,
+          passwordPresent: local.mode === 'isolated-store',
+          detail: ''
+        },
+        urlUsername: remote.urlUsername,
+        warningKeys: []
+      };
+    },
+    test_repo_remote_credential: () => ({ ok: true, key: 'credential-test-ok', detail: '' }),
     set_lfs_download_preferences: (args: any) => {
       config.lfs_auto_download = args.automatic;
       config.lfs_download_on_open = args.onOpen;

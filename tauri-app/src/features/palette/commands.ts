@@ -170,6 +170,17 @@ export function buildPaletteCommands(): PaletteCommand[] {
     !!repo,
     () => useStore.getState().openOverlay({ kind: 'manageRemotes' })
   );
+  add(
+    'git.repo-credentials',
+    'git',
+    t(state.t, 'toolbar-repo-credentials'),
+    ['credential', 'credentials', 'auth', 'password', 'token', 'username', 'repository'],
+    !!repo,
+    () => {
+      const current = activeRepo(useStore.getState());
+      if (current) useStore.getState().openOverlay({ kind: 'repoCredentials', repoId: current.id });
+    }
+  );
 
   if (repo) {
     repo.branches.forEach((branch) => {

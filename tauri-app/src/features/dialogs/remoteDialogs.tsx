@@ -111,12 +111,12 @@ export function ManageRemotesDialog({
     if (!url.trim()) return;
     const timer = window.setTimeout(() => {
       void ipc
-        .lookupCredential(url)
+        .lookupCredential(url, repoId)
         .then((result) => setSavedAccount(result.saved ? result : null))
         .catch(() => setSavedAccount(null));
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [url]);
+  }, [repoId, url]);
 
   const navigate = (proceed: () => void) => {
     if (busy) return;

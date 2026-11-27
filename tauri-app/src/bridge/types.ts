@@ -344,6 +344,95 @@ export interface CredentialTest {
   detail: string;
 }
 
+export interface CredentialHelperOrigin {
+  scope: string;
+  origin: string;
+  key: string;
+  value: string;
+}
+
+export type RepoCredentialMode =
+  | 'inherit'
+  | 'use-http-path'
+  | 'isolated-store'
+  | 'isolated-prompt'
+  | 'custom';
+
+export type RemoteUsernameAction = 'keep' | 'embed' | 'strip';
+
+export interface RepoRemoteCredentialInfo {
+  name: string;
+  url: string;
+  isHttp: boolean;
+  protocol: string | null;
+  host: string | null;
+  path: string | null;
+  urlUsername: string | null;
+  matchedVaultEntryId: string | null;
+  matchedVaultScope: 'repository' | 'global' | null;
+  matchedVaultUsername: string | null;
+  hasUrlHelperConflict: boolean;
+}
+
+export interface RepoLocalCredentialConfig {
+  mode: RepoCredentialMode;
+  useHttpPath: boolean | null;
+  username: string | null;
+  localHelpers: string[];
+  storeFile: string | null;
+  suggestedStoreFile: string;
+  effectiveHelpers: CredentialHelperOrigin[];
+  localUserName: string | null;
+  localUserEmail: string | null;
+  effectiveUserName: string | null;
+  effectiveUserEmail: string | null;
+}
+
+export interface RepoLocalCredentialInput {
+  mode: RepoCredentialMode;
+  useHttpPath: boolean;
+  username: string | null;
+  storeFile: string | null;
+  storePassword: string | null;
+  targetRemoteName: string | null;
+  targetRemoteUrl: string | null;
+  remoteUrlUsernameAction: RemoteUsernameAction;
+  localUserName: string | null;
+  localUserEmail: string | null;
+}
+
+export interface GitCredentialFillResult {
+  ok: boolean;
+  username: string | null;
+  passwordPresent: boolean;
+  detail: string;
+}
+
+export interface RepoCredentialSnapshot {
+  repoId: number;
+  repoPath: string;
+  location: LocationConfig;
+  isWsl: boolean;
+  remotes: RepoRemoteCredentialInfo[];
+  vaultEntries: CredentialEntryView[];
+  fallbackVaultEntries: CredentialEntryView[];
+  localConfig: RepoLocalCredentialConfig;
+  vault: CredentialSnapshot;
+}
+
+export interface RepoCredentialVerification {
+  remoteName: string;
+  remoteUrl: string;
+  augurSource: 'repository-vault' | 'global-vault' | 'none';
+  augurUsername: string | null;
+  augurSecretPresent: boolean;
+  augurFailing: boolean;
+  isolatesGlobalHelpers: boolean;
+  gitFill: GitCredentialFillResult;
+  urlUsername: string | null;
+  warningKeys: string[];
+}
+
 export interface WindowBounds {
   x: number;
   y: number;

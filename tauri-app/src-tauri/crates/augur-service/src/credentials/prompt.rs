@@ -247,13 +247,43 @@ pub fn match_score(entry: &CredentialEntry, target: &RemoteTarget) -> Option<i64
 }
 
 /// Whether `path` is the prefix itself or lies under it.
+///
+/// A trailing `.git` suffix on either side is ignored for exact repository
+/// comparisons so `org/repo` matches `org/repo.git`.
 fn path_matches(path: &str, prefix: &str) -> bool {
     let path = path.trim_matches('/');
     let prefix = prefix.trim_matches('/');
     if prefix.is_empty() {
         return true;
     }
-    path == prefix || path.starts_with(&format!("{prefix}/"))
+    let path_bare = path.strip_suffix(".git").unwrap_or(path);
+    let prefix_bare = prefix.strip_suffix(".git").unwrap_or(prefix);
+    path == prefix || path_bare == prefix_bare || path.starts_with(&format!("{prefix_bare}/"))
+}
+
+/// Strip any inline `:password` from an HTTP(S) URL for safe UI display.
+pub fn sanitize_remote_url(url: &str) -> String {
+    let trimmed = url.trim();
+    let Some((protocol, rest)) = trimmed.split_once("://") else {
+        return trimmed.to_string();
+    };
+    let lower = protocol.to_ascii_lowercase();
+    if lower != "http" && lower != "https" {
+        return trimmed.to_string();
+    }
+    let (authority, suffix) = match rest.find(['/', '?', '#']) {
+        Some(idx) => (&rest[..idx], &rest[idx..]),
+        None => (rest, ""),
+    };
+    let Some((userinfo, host)) = authority.rsplit_once('@') else {
+        return trimmed.to_string();
+    };
+    let user = userinfo.split_once(':').map(|(u, _)| u).unwrap_or(userinfo);
+    if user.is_empty() {
+        format!("{protocol}://{host}{suffix}")
+    } else {
+        format!("{protocol}://{user}@{host}{suffix}")
+    }
 }
 
 /// The best entry for a target, preferring the most specific and the most
@@ -442,7 +472,7 @@ mod tests {
     #[test]
     fn a_path_prefix_matches_only_at_a_segment_boundary() {
         let mut scoped = entry("git.example.com", "dev");
-        scoped.path_prefix = Some("team".into());
+        scoped.path_prefix = Some("team/repo".into());
         let target = |path: &str| RemoteTarget {
             protocol: "https".into(),
             host: "git.example.com".into(),
@@ -451,9 +481,30 @@ mod tests {
             repository: None,
         };
         assert!(match_score(&scoped, &target("team/repo.git")).is_some());
+        assert!(match_score(&scoped, &target("team/repo")).is_some());
+        scoped.path_prefix = Some("team/repo.git".into());
+        assert!(match_score(&scoped, &target("team/repo")).is_some());
+        scoped.path_prefix = Some("team".into());
+        assert!(match_score(&scoped, &target("team/repo.git")).is_some());
         assert!(match_score(&scoped, &target("team")).is_some());
         assert_eq!(match_score(&scoped, &target("teamwork/repo.git")), None);
         assert_eq!(match_score(&scoped, &target("other/repo.git")), None);
+    }
+
+    #[test]
+    fn sanitize_remote_url_drops_inline_passwords_only() {
+        assert_eq!(
+            sanitize_remote_url("https://alice:secret@github.com/org/repo.git"),
+            "https://alice@github.com/org/repo.git"
+        );
+        assert_eq!(
+            sanitize_remote_url("https://alice@github.com/org/repo.git"),
+            "https://alice@github.com/org/repo.git"
+        );
+        assert_eq!(
+            sanitize_remote_url("git@github.com:org/repo.git"),
+            "git@github.com:org/repo.git"
+        );
     }
 
     #[test]

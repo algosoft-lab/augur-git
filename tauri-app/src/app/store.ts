@@ -137,6 +137,7 @@ export type Overlay =
       /** The remote the dialog opens on, when it was reached from one. */
       focus?: { remote: string; panel: 'edit' | 'remove' };
     }
+  | { kind: 'repoCredentials'; repoId: number }
   | { kind: 'lfs'; repoId: number }
   | { kind: 'lfsClone' }
   | {

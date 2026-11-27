@@ -30,6 +30,7 @@ import { ForcePushDialog, PushUpstreamDialog } from './pushDialogs';
 import { ResetDialog } from './resetDialog';
 import { OperationErrorDialog } from './reportDialogs';
 import { ManageRemotesDialog } from './remoteDialogs';
+import { RepoCredentialsDialog } from './RepoCredentialsDialog';
 import { LfsDialog } from './LfsDialog';
 import { LfsCloneDialog } from './LfsCloneDialog';
 
@@ -102,6 +103,8 @@ function OverlayBody({ overlay }: { overlay: Overlay }) {
           focus={overlay.focus}
         />
       );
+    case 'repoCredentials':
+      return <RepoCredentialsDialog repoId={overlay.repoId} />;
     case 'lfs':
       return <LfsDialog repoId={overlay.repoId} />;
     case 'lfsClone':
